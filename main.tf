@@ -20,6 +20,18 @@ provider "aws" {
 }
 
 provider "google" {
-  region = "europe-west1"
+  region = "${var.google_region}"
   zone   = "europe-west1-b"
+}
+
+module "example" {
+  source = "./modules/example"
+
+  bucket_name = "${local.bucket_name}"
+  region = "${var.google_region}"
+  
+  tags = {
+    Terraform   = "true"
+    Environment = "${terraform.workspace}"
+  }
 }
