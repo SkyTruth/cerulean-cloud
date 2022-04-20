@@ -1,4 +1,4 @@
-resource "google_storage_bucket" "storage_bucket" {
+resource "google_storage_bucket" "bucket" {
   name = var.bucket_name
   location = var.region
   labels = var.tags

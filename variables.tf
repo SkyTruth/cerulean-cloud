@@ -3,6 +3,11 @@ variable google_region {
     default = "europe-west1"
 }
 
+variable google_project {
+    type = string
+    default = "cerulean-338116"
+}
+
 
 variable "override_bucket_name" {
     type = string  
