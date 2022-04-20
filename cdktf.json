@@ -1,0 +1,15 @@
+{
+  "language": "python",
+  "app": "python ./main.py",
+  "projectId": "92e6f0c4-96ee-488a-8205-41d1d0e2ea3e",
+  "terraformProviders": ["aws", "google"],
+  "terraformModules": [{
+    "name": "example",
+    "source": "./modules/example"
+  }],
+  "codeMakerOutput": "imports",
+  "context": {
+    "excludeStackIdFromLogicalIds": "true",
+"allowSepCharsInLogicalIds": "true"
+  }
+}
