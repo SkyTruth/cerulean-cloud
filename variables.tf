@@ -9,10 +9,11 @@ variable google_project {
 }
 
 
-variable "override_bucket_name" {
-    type = string  
+variable "bucket_name" {
+    type = string 
+    default = "a-bucket"
 }
 
 locals {
-  bucket_name = "${var.override_bucket_name != "" ? var.override_bucket_name : "bucket-${terraform.workspace}"}"
+  bucket_name = "${var.google_project}-${terraform.workspace}-${var.bucket_name}"
 }
