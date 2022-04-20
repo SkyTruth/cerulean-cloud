@@ -1,1 +1,1 @@
-instance_type = "t2.micro"
+bucket_name = "a-bucket"
