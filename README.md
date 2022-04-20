@@ -18,6 +18,9 @@ export AWS_PROFILE=skytruth
 terraform init
 terraform workspace list
 # you should see test, staging and production
+terraform workspace select test
+terraform workspace show 
+# you should see test
 ```
 
 ```
