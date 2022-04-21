@@ -12,3 +12,13 @@ gcloud config configurations activate cerulean
 ```
 export AWS_PROFILE=skytruth
 ```
+
+## Install pulumi
+```
+brew install pulumi
+```
+
+And login to state management:
+```
+pulumi login gs://cerulean-cloud-state
+```
