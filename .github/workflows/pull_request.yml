@@ -1,9 +1,10 @@
 name: Pulumi
 on:
-  - push
+  - pull_request
 
 permissions:
   id-token: write
+  contents: read
 
 jobs:
   preview:
@@ -25,6 +26,6 @@ jobs:
       - uses: pulumi/actions@v3
         with:
           command: preview
-          stack-name: dev
+          stack-name: test
         env:
           BACKEND_URL: gs://cerulean-cloud-state
