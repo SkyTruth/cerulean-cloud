@@ -1,0 +1,30 @@
+name: Pulumi
+on:
+  - pull_request
+
+permissions:
+  id-token: write
+
+jobs:
+  preview:
+    name: Preview
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Configure GCP Credentials
+        uses: 'google-github-actions/auth@v0'
+        with:
+          workload_identity_provider: 'projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider'
+          service_account: 'git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com'
+
+      - run: pip install -r requirements.txt
+      - uses: pulumi/actions@v3
+        with:
+          command: preview
+          stack-name: dev
+        env:
+          BACKEND_URL: gs://cerulean-cloud-state
