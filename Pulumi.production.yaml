@@ -1,0 +1,5 @@
+encryptionsalt: v1:mwT9D1gA8Ik=:v1:NpmhskcdiNcAz+jT:slckLwXvJowQSYDlV33hXMunXvDeMg==
+config:
+  gcp:project: cerulean-338116
+  gcp:region: europe-west1
+  gcp:zone: europe-west1-b
