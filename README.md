@@ -22,3 +22,17 @@ And login to state management:
 ```
 pulumi login gs://cerulean-cloud-state
 ```
+
+## Check available stage
+```
+pulumi stack ls
+```
+Select another stage
+```
+pulumi stack select test
+```
+
+## Deploy
+```
+pulumi up
+```
