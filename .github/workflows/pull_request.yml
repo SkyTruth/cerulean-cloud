@@ -28,3 +28,6 @@ jobs:
           command: preview
           stack-name: test
           cloud-url:  gs://cerulean-cloud-state
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ""
+
