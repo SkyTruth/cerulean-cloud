@@ -27,5 +27,4 @@ jobs:
         with:
           command: preview
           stack-name: test
-        env:
-          BACKEND_URL: gs://cerulean-cloud-state
+          cloud-url:  gs://cerulean-cloud-state
