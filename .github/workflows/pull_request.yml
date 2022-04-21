@@ -1,6 +1,6 @@
 name: Pulumi
 on:
-  - pull_request
+  - push
 
 permissions:
   id-token: write
