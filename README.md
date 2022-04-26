@@ -1,5 +1,5 @@
 # cerulean-cloud
-All cloud services including inference and database structure
+Pulumi repository with infrastructure for Cerulean, including all cloud services and database structure.
 
 ## Setup cloud authentication
 ### GCS auth
@@ -10,9 +10,18 @@ gcloud config configurations activate cerulean
 ```
 ### AWS auth
 ```
-export AWS_PROFILE=skytruth
+aws configure --profile cerulean
+export AWS_PROFILE=cerulean
 ```
 
+## Setup your python virtualenv
+```
+mkvirtualenv cerulean-cloud --python=$(which python3.8)
+pip install -r requirements.txt
+pip install -r requirements-test.txt
+# Setup pre-commit
+pre-commit install
+```
 ## Install pulumi
 ```
 brew install pulumi
@@ -23,7 +32,7 @@ And login to state management:
 pulumi login gs://cerulean-cloud-state
 ```
 
-## Check available stage
+## Check available stages
 ```
 pulumi stack ls
 ```
