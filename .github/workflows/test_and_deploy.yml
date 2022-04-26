@@ -209,7 +209,7 @@ jobs:
 
   deploy-production:
     name: Deploy [PRODUCTION]
-    needs: [preview-staging]
+    needs: [preview-production]
     runs-on: ubuntu-latest
     if:  startsWith(github.event.ref, 'refs/tags')
     steps:
