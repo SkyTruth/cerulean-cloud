@@ -10,7 +10,7 @@ class MyMocks(pulumi.runtime.Mocks):
 
 pulumi.runtime.set_mocks(MyMocks())
 
-import infra
+from stack import infra
 
 @pulumi.runtime.test
 def test_bucket_has_labels():
