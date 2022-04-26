@@ -32,7 +32,12 @@ Select another stage
 pulumi stack select test
 ```
 
-## Deploy
+## Preview changes
+```
+pulumi preview
+```
+
+## Deploy changes
 ```
 pulumi up
 ```
