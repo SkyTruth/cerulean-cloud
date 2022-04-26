@@ -135,8 +135,6 @@ jobs:
           command: preview
           stack-name: staging
           cloud-url: gs://cerulean-cloud-state
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
           PULUMI_CONFIG_PASSPHRASE: ""
 
@@ -169,8 +167,6 @@ jobs:
           command: up
           stack-name: staging
           cloud-url: gs://cerulean-cloud-state
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
           PULUMI_CONFIG_PASSPHRASE: ""
 
@@ -203,8 +199,6 @@ jobs:
           command: preview
           stack-name: production
           cloud-url: gs://cerulean-cloud-state
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
           PULUMI_CONFIG_PASSPHRASE: ""
 
@@ -237,7 +231,5 @@ jobs:
           command: up
           stack-name: production
           cloud-url: gs://cerulean-cloud-state
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
           PULUMI_CONFIG_PASSPHRASE: ""
