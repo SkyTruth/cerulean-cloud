@@ -2,3 +2,5 @@ name: cerulean-cloud
 runtime:
   name: python
 description: A minimal Python Pulumi program
+main: stack/
+stackConfigDir: stack/stack_config/
