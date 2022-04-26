@@ -23,6 +23,12 @@ jobs:
         with:
           workload_identity_provider: 'projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider'
           service_account: 'git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com'
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
+          aws-region: eu-central-1
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
