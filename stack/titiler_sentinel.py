@@ -3,8 +3,9 @@ import os
 
 import docker
 import pulumi
-import pulumi_aws as aws
-from pulumi_aws import apigateway, iam, lambda_
+import pulumi_aws_native as aws_native
+from pulumi_aws import iam
+from pulumi_command import local
 from utils import construct_name
 
 
@@ -52,14 +53,14 @@ iam_for_lambda = iam.Role(
 )
 
 # Lambda function
-lambda_titiler_sentinel = lambda_.Function(
+lambda_titiler_sentinel = aws_native.lambda_.Function(
     resource_name=construct_name("lambda-titiler-sentinel"),
     code=create_package("../"),
     runtime="python3.8",
     role=iam_for_lambda.arn,
     memory_size=1024,
     handler="handler.handler",
-    environment=lambda_.FunctionEnvironmentArgs(
+    environment=aws_native.lambda_.FunctionEnvironmentArgs(
         variables={
             "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.TIF,.tiff",
             "GDAL_CACHEMAX": "200",
@@ -78,36 +79,17 @@ lambda_titiler_sentinel = lambda_.Function(
 
 
 # API gateway LambdaProxyIntegration
-api = apigateway.RestApi(construct_name("apigateway-titiler-sentinel"))
-resource = apigateway.Resource(
-    "resource", path_part="resource", parent_id=api.root_resource_id, rest_api=api.id
+lambda_titiler_sentinel_url = aws_native.lambda_.Url(
+    construct_name("url-titiler-sentinel"),
+    target_function_arn=lambda_titiler_sentinel.arn,
+    auth_type=aws_native.lambda_.UrlAuthType.NONE,
 )
-method = apigateway.Method(
-    "method",
-    rest_api=api.id,
-    resource_id=resource.id,
-    http_method="GET",
-    authorization="NONE",
-)
-integration = aws.apigateway.Integration(
-    "integration",
-    rest_api=api.id,
-    resource_id=resource.id,
-    http_method=method.http_method,
-    integration_http_method="POST",
-    type="AWS_PROXY",
-    uri=lambda_titiler_sentinel.invoke_arn,
-)
-
-current_identity = aws.get_caller_identity()
-current_region = aws.get_region()
-apigw_lambda = lambda_.Permission(
-    "apigwLambda",
-    action="lambda:InvokeFunction",
-    function=lambda_titiler_sentinel.name,
-    principal="apigateway.amazonaws.com",
-    source_arn=pulumi.Output.all(api.id, method.http_method, resource.path).apply(
-        lambda id, http_method, path: f"arn:aws:execute-api:{current_region.name}:{current_identity.account_id}:{id}/*/{http_method}{path}"
+add_permissions = local.Command(
+    "add_permissions",
+    create=pulumi.Output.concat(
+        "aws lambda add-permission --function-name ",
+        lambda_titiler_sentinel.function_name,
+        " --action lambda:InvokeFunctionUrl --principal '*' --function-url-auth-type NONE --statement-id FunctionURLAllowPublicAccess",
     ),
+    opts=pulumi.ResourceOptions(delete_before_replace=True),
 )
-# Export URL
