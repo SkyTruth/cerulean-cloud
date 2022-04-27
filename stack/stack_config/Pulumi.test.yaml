@@ -1,5 +1,6 @@
 encryptionsalt: v1:kBR8AayMCNA=:v1:pqHrYTPkr/Akp7nj:OOjt06/XTqqiqEQ2T5M8s7VQbDdQOw==
 config:
+  aws-native:region: eu-central-1
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b

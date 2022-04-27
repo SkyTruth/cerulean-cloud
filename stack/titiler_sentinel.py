@@ -32,7 +32,7 @@ def create_package(code_dir: str) -> pulumi.FileArchive:
         user=0,
     )
 
-    return pulumi.FileArchive(os.path.join(code_dir, "package.zip"))
+    return os.path.join(code_dir, "package.zip")
 
 
 # Role policy to fetch S3
@@ -55,7 +55,7 @@ iam_for_lambda = iam.Role(
 # Lambda function
 lambda_titiler_sentinel = aws_native.lambda_.Function(
     resource_name=construct_name("lambda-titiler-sentinel"),
-    code=create_package("../"),
+    code=aws_native.lambda_.FunctionCodeArgs(zip_file=create_package("../")),
     runtime="python3.8",
     role=iam_for_lambda.arn,
     memory_size=1024,
