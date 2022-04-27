@@ -54,7 +54,7 @@ iam_for_lambda = iam.Role(
 # Lambda function
 lambda_titiler_sentinel = lambda_.Function(
     resource_name=construct_name("lambda-titiler-sentinel"),
-    code=create_package("./"),
+    code=create_package("../"),
     runtime="python3.8",
     role=iam_for_lambda.arn,
     memory_size=1024,
