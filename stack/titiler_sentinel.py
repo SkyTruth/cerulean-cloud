@@ -17,7 +17,7 @@ def create_package(code_dir: str) -> pulumi.FileArchive:
     print("Building docker image...")
     client.images.build(
         path=code_dir,
-        dockerfile="../Dockerfiles/Dockerfile.titiler",
+        dockerfile="Dockerfiles/Dockerfile.titiler",
         tag="titiler-lambda:latest",
         rm=True,
     )
