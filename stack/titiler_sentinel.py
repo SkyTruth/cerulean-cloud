@@ -104,7 +104,7 @@ current_region = aws.get_region()
 apigw_lambda = lambda_.Permission(
     "apigwLambda",
     action="lambda:InvokeFunction",
-    function=lambda_.name,
+    function=lambda_titiler_sentinel.name,
     principal="apigateway.amazonaws.com",
     source_arn=pulumi.Output.all(api.id, method.http_method, resource.path).apply(
         lambda id, http_method, path: f"arn:aws:execute-api:{current_region.name}:{current_identity.account_id}:{id}/*/{http_method}{path}"
