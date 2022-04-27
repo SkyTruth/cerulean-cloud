@@ -166,3 +166,5 @@ cdktf.log
 
 *.pyc
 scratch/*
+
+*.zip
