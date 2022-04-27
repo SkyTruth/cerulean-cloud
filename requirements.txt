@@ -2,5 +2,6 @@ pulumi>=3.0.0,<4.0.0
 pulumi-gcp
 pulumi-aws
 pulumi-aws-native
+pulumi-command
 docker
 grpcio<=1.43.0
