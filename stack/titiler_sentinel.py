@@ -78,7 +78,7 @@ lambda_titiler_sentinel = lambda_.Function(
 
 
 # API gateway LambdaProxyIntegration
-api = apigateway.RestAPI(construct_name("apigateway-titiler-sentinel"))
+api = apigateway.RestApi(construct_name("apigateway-titiler-sentinel"))
 resource = apigateway.Resource(
     "resource", path_part="resource", parent_id=api.root_resource_id, rest_api=api.id
 )
