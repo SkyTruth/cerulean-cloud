@@ -44,8 +44,9 @@ iam_for_lambda = iam.Role(
     {
       "Action": "s3:GetObject",
       "Effect": "Allow",
-      "Sid": "",
-      "Resources": ["arn:aws:s3:::sentinel-s1-l1c/*"]
+      "Principal": "*",
+      "Sid": "AddGetAcl",
+      "Resource": "arn:aws:s3:::sentinel-s1-l1c/*"
     }
   ]
 }
