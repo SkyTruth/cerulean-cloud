@@ -76,6 +76,7 @@ jobs:
     name: Deploy [TEST]
     needs: [preview-test]
     runs-on: ubuntu-latest
+    environment: test
     if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v2
@@ -142,6 +143,7 @@ jobs:
     name: Deploy [STAGING]
     needs: [preview-staging]
     runs-on: ubuntu-latest
+    environment: staging
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
@@ -206,6 +208,7 @@ jobs:
     name: Deploy [PRODUCTION]
     needs: [preview-production]
     runs-on: ubuntu-latest
+    environment: production
     if: startsWith(github.event.ref, 'refs/tags')
     steps:
       - uses: actions/checkout@v2
