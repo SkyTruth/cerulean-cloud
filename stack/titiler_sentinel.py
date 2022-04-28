@@ -37,16 +37,16 @@ def create_package(code_dir: str) -> pulumi.FileArchive:
 
 # Role policy to fetch S3
 iam_for_lambda = iam.Role(
-    "iamForLambda",
+    construct_name("lambda-titiler-role"),
     assume_role_policy="""{
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Action": "s3:GetObject",
-      "Effect": "Allow",
-      "Principal": "*",
-      "Sid": "AddGetAcl",
-      "Resource": "arn:aws:s3:::sentinel-s1-l1c/*"
+      "Action": "sts:AssumeRole",
+      "Principal": {
+        "Service": "lambda.amazonaws.com"
+      },
+      "Effect": "Allow"
     }
   ]
 }
@@ -78,6 +78,24 @@ lambda_titiler_sentinel = aws_native.lambda_.Function(
     ),
 )
 
+lambda_s3_policy = iam.Policy(
+    construct_name("lambda-titiler-policy"),
+    description="IAM policy for Lambda to interact with S3",
+    policy="""{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::sentinel-s1-l1c/*",
+      "Effect": "Allow"
+    }
+  ]}""",
+)
+iam.RolePolicyAttachment(
+    construct_name("lambda-titiler-attachment"),
+    policy_arn=lambda_s3_policy.arn,
+    role=iam_for_lambda.name,
+)
 
 # API gateway LambdaProxyIntegration
 lambda_titiler_sentinel_url = aws_native.lambda_.Url(
