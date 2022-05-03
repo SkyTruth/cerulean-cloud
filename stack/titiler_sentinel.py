@@ -112,9 +112,14 @@ lambda_permission = aws.lambda_.Permission(
     function=lambda_titiler_sentinel,
 )
 
-lambda_titiler_sentinel_url = aws.apigatewayv2.Api(
+lambda_titiler_sentinel_url = aws.apigatewayv2.Integration(
     construct_name("lambda-titiler-gateway"),
-    protocol_type="HTTP",
-    route_key="GET /",
-    target=lambda_titiler_sentinel.invoke_arn,
+    api_id="lambda-titiler",
+    integration_type="AWS",
+    connection_type="INTERNET",
+    content_handling_strategy="CONVERT_TO_TEXT",
+    description="Lambda example",
+    integration_method="POST",
+    integration_uri=lambda_titiler_sentinel.invoke_arn,
+    passthrough_behavior="WHEN_NO_MATCH",
 )
