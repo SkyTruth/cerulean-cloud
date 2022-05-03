@@ -3,9 +3,7 @@ import os
 
 import docker
 import pulumi
-import pulumi_aws_native as aws_native
-from pulumi_aws import iam
-from pulumi_command import local
+import pulumi_aws as aws
 from utils import construct_name
 
 
@@ -31,12 +29,11 @@ def create_package(code_dir: str) -> pulumi.FileArchive:
         volumes={os.path.abspath(code_dir): {"bind": "/local/", "mode": "rw"}},
         user=0,
     )
-
-    return os.path.join(code_dir, "package.zip")
+    return pulumi.FileArchive("../package.zip")
 
 
 # Role policy to fetch S3
-iam_for_lambda = iam.Role(
+iam_for_lambda = aws.iam.Role(
     construct_name("lambda-titiler-role"),
     assume_role_policy="""{
   "Version": "2012-10-17",
@@ -54,14 +51,14 @@ iam_for_lambda = iam.Role(
 )
 
 # Lambda function
-lambda_titiler_sentinel = aws_native.lambda_.Function(
+lambda_titiler_sentinel = aws.lambda_.Function(
     resource_name=construct_name("lambda-titiler-sentinel"),
-    code=aws_native.lambda_.FunctionCodeArgs(zip_file=create_package("../")),
+    code=create_package("../"),
     runtime="python3.8",
     role=iam_for_lambda.arn,
     memory_size=1024,
     handler="handler.handler",
-    environment=aws_native.lambda_.FunctionEnvironmentArgs(
+    environment=aws.lambda_.FunctionEnvironmentArgs(
         variables={
             "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.TIF,.tiff",
             "GDAL_CACHEMAX": "200",
@@ -78,7 +75,7 @@ lambda_titiler_sentinel = aws_native.lambda_.Function(
     ),
 )
 
-lambda_s3_policy = iam.Policy(
+lambda_s3_policy = aws.iam.Policy(
     construct_name("lambda-titiler-policy"),
     description="IAM policy for Lambda to interact with S3",
     policy="""{
@@ -91,24 +88,23 @@ lambda_s3_policy = iam.Policy(
     }
   ]}""",
 )
-iam.RolePolicyAttachment(
+aws.iam.RolePolicyAttachment(
     construct_name("lambda-titiler-attachment"),
     policy_arn=lambda_s3_policy.arn,
     role=iam_for_lambda.name,
 )
 
-# API gateway LambdaProxyIntegration
-lambda_titiler_sentinel_url = aws_native.lambda_.Url(
-    construct_name("url-titiler-sentinel"),
-    target_function_arn=lambda_titiler_sentinel.arn,
-    auth_type=aws_native.lambda_.UrlAuthType.NONE,
+# API gateway
+lambda_permission = aws.lambda_.Permission(
+    construct_name("lambda-titiler-permission"),
+    action="lambda:InvokeFunction",
+    principal="apigateway.amazonaws.com",
+    function=lambda_titiler_sentinel,
 )
-add_permissions = local.Command(
-    "add_permissions",
-    create=pulumi.Output.concat(
-        "aws lambda add-permission --function-name ",
-        lambda_titiler_sentinel.function_name,
-        " --action lambda:InvokeFunctionUrl --principal '*' --function-url-auth-type NONE --statement-id FunctionURLAllowPublicAccess",
-    ),
-    opts=pulumi.ResourceOptions(delete_before_replace=True),
+
+lambda_titiler_sentinel_url = aws.apigatewayv2.Api(
+    construct_name("lambda-titiler-gateway"),
+    protocol_type="HTTP",
+    route_key="GET /",
+    target=lambda_titiler_sentinel.invoke_arn,
 )
