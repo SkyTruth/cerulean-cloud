@@ -6,6 +6,8 @@ import pulumi
 import pulumi_aws as aws
 from utils import construct_name
 
+s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
+
 
 # Build image
 def create_package(code_dir: str) -> pulumi.FileArchive:
@@ -29,8 +31,15 @@ def create_package(code_dir: str) -> pulumi.FileArchive:
         volumes={os.path.abspath(code_dir): {"bind": "/local/", "mode": "rw"}},
         user=0,
     )
-    return pulumi.FileArchive("../package.zip")
+    return pulumi.FileArchive(f"{code_dir}package.zip")
 
+
+lambda_obj = aws.s3.BucketObject(
+    construct_name("titiler-lambda-archive"),
+    key="package.zip",
+    bucket=s3_bucket.id,
+    source=create_package("../"),
+)
 
 # Role policy to fetch S3
 iam_for_lambda = aws.iam.Role(
@@ -53,7 +62,8 @@ iam_for_lambda = aws.iam.Role(
 # Lambda function
 lambda_titiler_sentinel = aws.lambda_.Function(
     resource_name=construct_name("lambda-titiler-sentinel"),
-    code=create_package("../"),
+    s3_bucket=s3_bucket.id,
+    s3_key=lambda_obj.key,
     runtime="python3.8",
     role=iam_for_lambda.arn,
     memory_size=1024,
