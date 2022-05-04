@@ -22,3 +22,4 @@ COPY cerulean_cloud/titiler_sentinel/handler.py handler.py
 RUN mkdir templates
 COPY cerulean_cloud/titiler_sentinel/templates/viewer.html templates/viewer.html
 RUN zip -r9q /tmp/package.zip handler.py
+RUN zip -r9q /tmp/package.zip templates/viewer.html
