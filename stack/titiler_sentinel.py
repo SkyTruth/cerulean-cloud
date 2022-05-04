@@ -116,6 +116,28 @@ lambda_permission = aws.lambda_.Permission(
     principal="apigateway.amazonaws.com",
     function=lambda_titiler_sentinel,
 )
+lambda_api = aws.apigatewayv2.Api(
+    construct_name("lambda-titiler-api"), protocol_type="HTTP"
+)
+lambda_integration = aws.apigatewayv2.Integration(
+    construct_name("lambda-titiler-integration"),
+    api_id=lambda_api.id,
+    integration_type="AWS_PROXY",
+)
+lambda_route = aws.apigatewayv2.Route(
+    construct_name("lambda-titiler-route"),
+    api_id=lambda_api.id,
+    route_key="ANY /{proxy+}",
+    target=f"integrations/{lambda_integration.id}",
+)
+lambda_stage = aws.apigatewayv2.Stage(
+    construct_name("lambda-titiler-stage"),
+    api_id=lambda_api.id,
+    name="$default",
+    auto_deploy=True,
+    opts=pulumi.ResourceOptions(depends_on=[lambda_route]),
+)
+"""
 lambda_rest_api = aws.apigateway.RestApi(
     construct_name("lambda-titiler-rest-api"), name="Titiler Sentinel"
 )
@@ -153,3 +175,4 @@ lambda_stage = aws.apigateway.Stage(
     rest_api=lambda_rest_api.id,
     stage_name="default",
 )
+"""
