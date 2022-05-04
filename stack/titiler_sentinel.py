@@ -66,7 +66,8 @@ lambda_titiler_sentinel = aws.lambda_.Function(
     s3_key=lambda_obj.key,
     runtime="python3.8",
     role=iam_for_lambda.arn,
-    memory_size=1024,
+    memory_size=3008,
+    timeout=10,
     handler="handler.handler",
     environment=aws.lambda_.FunctionEnvironmentArgs(
         variables={
@@ -83,6 +84,7 @@ lambda_titiler_sentinel = aws.lambda_.Function(
             "AWS_REQUEST_PAYER": "requester",
         },
     ),
+    opts=pulumi.ResourceOptions(depends_on=[lambda_obj]),
 )
 
 lambda_s3_policy = aws.iam.Policy(
