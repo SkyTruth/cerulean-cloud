@@ -131,7 +131,7 @@ lambda_route = aws.apigatewayv2.Route(
     construct_name("lambda-titiler-route"),
     api_id=lambda_api.id,
     route_key="ANY /{proxy+}",
-    target=f"integrations/{lambda_integration.id}",
+    target=pulumi.Output.concat("integrations/", lambda_integration.id),
 )
 lambda_stage = aws.apigatewayv2.Stage(
     construct_name("lambda-titiler-stage"),
