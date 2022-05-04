@@ -103,6 +103,11 @@ aws.iam.RolePolicyAttachment(
     policy_arn=lambda_s3_policy.arn,
     role=iam_for_lambda.name,
 )
+aws.iam.RolePolicyAttachment(
+    construct_name("lambda-titiler-attachment2"),
+    policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+    role=iam_for_lambda.name,
+)
 
 # API gateway
 lambda_permission = aws.lambda_.Permission(
