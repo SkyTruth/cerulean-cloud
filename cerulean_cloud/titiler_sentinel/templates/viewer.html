@@ -358,7 +358,7 @@
       if (cmap.value !== 'b&w') params.colormap_name = cmap.value
 
       const url_params = Object.keys(params).map(i => `${i}=${params[i]}`).join('&')
-      let url = `${tilejson_endpoint}?${url_params}`
+      let url = `${tilejson_endpoint}&${url_params}`
 
       map.addSource('raster', { type: 'raster', url: url , tileSize: 256})
       map.addLayer({
@@ -382,7 +382,7 @@
       if (url_params !== '') url_params = `${url_params}&`
 
       const bands_params = [r, g, b].map(i => `bands=${i}`).join('&')
-      let url = `${tilejson_endpoint}?${url_params}${bands_params}`
+      let url = `${tilejson_endpoint}&${url_params}${bands_params}`
 
       map.addSource('raster', { type: 'raster', url: url, tileSize: 256})
       map.addLayer({id: 'raster', type: 'raster', source: 'raster'})
@@ -608,7 +608,7 @@
       document.getElementById('histogram').classList.remove('none')
       document.getElementById('histogram-table').classList.remove('none')
 
-      fetch(`${stats_endpoint}?max_size=256`)
+      fetch(`${stats_endpoint}&max_size=256`)
         .then(res => {
           if (res.ok) return res.json()
           throw new Error('Network response was not ok.')
