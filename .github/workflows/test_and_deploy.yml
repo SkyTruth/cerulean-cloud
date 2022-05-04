@@ -136,7 +136,7 @@ jobs:
           stack-name: staging
           cloud-url: gs://cerulean-cloud-state
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "staging"
 
   deploy-staging:
     name: Deploy [STAGING]
@@ -169,7 +169,7 @@ jobs:
           stack-name: staging
           cloud-url: gs://cerulean-cloud-state
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "staging"
 
   preview-production:
     name: Preview [PRODUCTION]
@@ -201,7 +201,7 @@ jobs:
           stack-name: production
           cloud-url: gs://cerulean-cloud-state
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "production"
 
   deploy-production:
     name: Deploy [PRODUCTION]
@@ -234,4 +234,4 @@ jobs:
           stack-name: production
           cloud-url: gs://cerulean-cloud-state
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "production"
