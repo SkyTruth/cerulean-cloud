@@ -88,20 +88,19 @@ def viewer(
 ):
     """Viewer."""
     viewer_template = Jinja2Templates(
-        directory=os.path.abspath(__file__) + "/templates"
+        directory=os.path.dirname(__file__) + "/templates/"
     )
 
     return viewer_template.TemplateResponse(
         name="viewer.html",
         context={
             "request": request,
-            "tilejson_endpoint": S1Endpoints.url_for(
-                request, "tilejson", sceneid=sceneid
-            ),
-            "info_endpoint": S1Endpoints.url_for(request, "info", sceneid=sceneid),
-            "stats_endpoint": S1Endpoints.url_for(
-                request, "statistics", sceneid=sceneid
-            ),
+            "tilejson_endpoint": S1Endpoints.url_for(request, "tilejson")
+            + f"?sceneid={sceneid}",
+            "info_endpoint": S1Endpoints.url_for(request, "info")
+            + f"?sceneid={sceneid}",
+            "stats_endpoint": S1Endpoints.url_for(request, "statistics")
+            + f"?sceneid={sceneid}",
         },
         media_type="text/html",
     )
