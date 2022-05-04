@@ -64,7 +64,7 @@ jobs:
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "test"
         with:
           command: preview
           stack-name: test
@@ -100,7 +100,7 @@ jobs:
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "test"
         with:
           command: up
           stack-name: test
