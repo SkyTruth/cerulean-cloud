@@ -13,9 +13,9 @@ Docs:
 Input:
 All endpoints created by the `MultiBandTilerFactory` will require `sceneid={sentinel 1 scene id}` as query parameters.
 
-  - Get Info: "{endpoint}/info?sceneid=S1A_EW_GRDM_1SDH_20220408T074526_20220408T074630_042679_05179F_7E4F"
-  - Get Available Bands: "{endpoint}/bands?sceneid=S1A_EW_GRDM_1SDH_20220408T074526_20220408T074630_042679_05179F_7E4F"
-  - Get Statistics (for band HH): "{endpoint}/statistics?sceneid=S1A_EW_GRDM_1SDH_20220408T074526_20220408T074630_042679_05179F_7E4F&bands=hh"
+  - Get Info: "{endpoint}/info?sceneid=S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
+  - Get Available Bands: "{endpoint}/bands?sceneid=S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
+  - Get Statistics (for band HH): "{endpoint}/statistics?sceneid=S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF&bands=hh"
 
 Important:
 The sentinel-1 data are stored in a `requester-pays` bucket, to be able to access the data you'll need to set `AWS_REQUEST_PAYER="requester"` in your environment.
