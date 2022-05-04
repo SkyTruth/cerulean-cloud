@@ -111,15 +111,34 @@ lambda_permission = aws.lambda_.Permission(
     principal="apigateway.amazonaws.com",
     function=lambda_titiler_sentinel,
 )
+lambda_rest_api = aws.apigateway.RestApi(
+    construct_name("lambda-titiler-rest-api"), name="Titiler Sentinel"
+)
+lambda_resource = aws.apigateway.Resource(
+    construct_name("lambda-titiler-resource"),
+    rest_api=lambda_rest_api.id,
+    parent_id=lambda_rest_api.root_resource_id,
+    path_part="{proxy+}",
+)
 
-lambda_titiler_sentinel_url = aws.apigatewayv2.Integration(
-    construct_name("lambda-titiler-gateway"),
-    api_id="lambda-titiler",
-    integration_type="AWS",
-    connection_type="INTERNET",
-    content_handling_strategy="CONVERT_TO_TEXT",
-    description="Lambda example",
-    integration_method="POST",
-    integration_uri=lambda_titiler_sentinel.invoke_arn,
-    passthrough_behavior="WHEN_NO_MATCH",
+lambda_method = aws.apigateway.Method(
+    construct_name("lambda-titiler-method"),
+    rest_api=lambda_rest_api.id,
+    resource_id=lambda_resource.id,
+    http_method="ANY",
+    authorization="NONE",
+)
+lambda_integration = aws.apigateway.Integration(
+    construct_name("lambda-titiler-integration"),
+    rest_api=lambda_rest_api.id,
+    resource_id=lambda_resource.id,
+    http_method=lambda_method.http_method,
+    integration_http_method="POST",
+    type="AWS_PROXY",
+    uri=lambda_titiler_sentinel.invoke_arn,
+)
+lambda_deployment = aws.apigateway.Deployment(
+    construct_name("lambda-titiler-deployment"),
+    rest_api=lambda_rest_api.id,
+    stage_name="default",
 )
