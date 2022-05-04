@@ -63,14 +63,15 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ""
         with:
           command: preview
           stack-name: test
           cloud-url: gs://cerulean-cloud-state
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+
 
   deploy-test:
     name: Deploy [TEST]
@@ -98,12 +99,12 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        env:
+          PULUMI_CONFIG_PASSPHRASE: ""
         with:
           command: up
           stack-name: test
           cloud-url: gs://cerulean-cloud-state
-        env:
-          PULUMI_CONFIG_PASSPHRASE: ""
 
   preview-staging:
     name: Preview [STAGING]
