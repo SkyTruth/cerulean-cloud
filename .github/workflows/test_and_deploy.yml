@@ -42,7 +42,7 @@ jobs:
     name: Preview [TEST]
     needs: [tests]
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
@@ -75,7 +75,6 @@ jobs:
 
   deploy-test:
     name: Deploy [TEST]
-    needs: [preview-test]
     runs-on: ubuntu-latest
     environment: test
     if: github.event_name == 'workflow_dispatch'
