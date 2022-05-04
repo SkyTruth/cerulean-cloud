@@ -25,14 +25,18 @@ see: https://cogeotiff.github.io/rio-tiler-pds/usage/overview/#requester-pays
 """
 
 import logging
+import os
 from typing import Dict
 
-from fastapi import FastAPI, Query
+from fastapi import Depends, FastAPI, Query
 from mangum import Mangum
 from rio_tiler_pds.errors import InvalidSentinelSceneId
 from rio_tiler_pds.sentinel.aws import S1L1CReader
 from starlette import status
 from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
+from starlette.responses import HTMLResponse
+from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 from titiler.core.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from titiler.core.factory import MultiBandTilerFactory
@@ -75,6 +79,33 @@ S1Endpoints = MultiBandTilerFactory(  # type: ignore
     reader=S1L1CReader,
     path_dependency=DatasetPathParams,
 )
+
+
+@S1Endpoints.router.get("/viewer", response_class=HTMLResponse)
+def viewer(
+    request: Request,
+    sceneid=Depends(S1Endpoints.path_dependency),
+):
+    """Viewer."""
+    viewer_template = Jinja2Templates(
+        directory=os.path.abspath(__file__) + "/templates"
+    )
+
+    return viewer_template.TemplateResponse(
+        name="viewer.html",
+        context={
+            "request": request,
+            "tilejson_endpoint": S1Endpoints.url_for(
+                request, "tilejson", sceneid=sceneid
+            ),
+            "info_endpoint": S1Endpoints.url_for(request, "info", sceneid=sceneid),
+            "stats_endpoint": S1Endpoints.url_for(
+                request, "statistics", sceneid=sceneid
+            ),
+        },
+        media_type="text/html",
+    )
+
 
 app.include_router(S1Endpoints.router)
 

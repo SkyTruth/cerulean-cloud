@@ -19,4 +19,5 @@ RUN rm -rdf /var/task/stack
 RUN cd /var/task && zip -r9q /tmp/package.zip *
 
 COPY cerulean_cloud/titiler_sentinel/handler.py handler.py
+COPY cerulean_cloud/titiler_sentinel/templates/ templates/
 RUN zip -r9q /tmp/package.zip handler.py
