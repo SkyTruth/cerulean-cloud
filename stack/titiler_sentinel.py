@@ -125,6 +125,7 @@ lambda_integration = aws.apigatewayv2.Integration(
     construct_name("lambda-titiler-integration"),
     api_id=lambda_api.id,
     integration_type="AWS_PROXY",
+    integration_uri=lambda_titiler_sentinel.invoke_arn,
 )
 lambda_route = aws.apigatewayv2.Route(
     construct_name("lambda-titiler-route"),
