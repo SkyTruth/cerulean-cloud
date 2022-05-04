@@ -145,6 +145,5 @@ lambda_integration = aws.apigateway.Integration(
 lambda_deployment = aws.apigateway.Deployment(
     construct_name("lambda-titiler-deployment"),
     rest_api=lambda_rest_api.id,
-    stage_name="default",
     opts=pulumi.ResourceOptions(depends_on=[lambda_method, lambda_integration]),
 )
