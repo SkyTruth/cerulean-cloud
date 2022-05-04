@@ -1,1 +1,5 @@
-"""titiler sentinel package"""
+"""titiler sentinel package
+
+Run server with:
+uvicorn handler:app --host 0.0.0.0 --port 80 --reload
+"""
