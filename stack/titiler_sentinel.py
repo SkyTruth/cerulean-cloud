@@ -82,6 +82,7 @@ lambda_titiler_sentinel = aws.lambda_.Function(
             "VSI_CACHE": "TRUE",
             "VSI_CACHE_SIZE": "5000000",
             "AWS_REQUEST_PAYER": "requester",
+            "RIO_TILER_MAX_THREADS": 1,
         },
     ),
     opts=pulumi.ResourceOptions(depends_on=[lambda_obj]),
