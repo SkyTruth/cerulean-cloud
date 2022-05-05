@@ -168,3 +168,4 @@ cdktf.log
 scratch/*
 
 *.zip
+.envrc
