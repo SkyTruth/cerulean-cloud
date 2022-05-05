@@ -4,13 +4,13 @@ import os
 import docker
 import pulumi
 import pulumi_aws as aws
-from utils import construct_name
+from utils import construct_name, filebase64sha256
 
 s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
 
 
 # Build image
-def create_package(code_dir: str) -> pulumi.FileArchive:
+def create_package(code_dir: str) -> str:
     """Build docker image and create package."""
     print("Creating lambda package [running in Docker]...")
     client = docker.from_env()
@@ -31,14 +31,17 @@ def create_package(code_dir: str) -> pulumi.FileArchive:
         volumes={os.path.abspath(code_dir): {"bind": "/local/", "mode": "rw"}},
         user=0,
     )
-    return pulumi.FileArchive(f"{code_dir}package.zip")
+    return f"{code_dir}package.zip"
 
+
+lambda_package_path = create_package("../")
+lambda_package_archive = pulumi.FileArchive(lambda_package_path)
 
 lambda_obj = aws.s3.BucketObject(
     construct_name("titiler-lambda-archive"),
     key="package.zip",
     bucket=s3_bucket.id,
-    source=create_package("../"),
+    source=lambda_package_archive,
 )
 
 # Role policy to fetch S3
@@ -64,6 +67,7 @@ lambda_titiler_sentinel = aws.lambda_.Function(
     resource_name=construct_name("lambda-titiler-sentinel"),
     s3_bucket=s3_bucket.id,
     s3_key=lambda_obj.key,
+    source_code_hash=filebase64sha256(lambda_package_path),
     runtime="python3.8",
     role=iam_for_lambda.arn,
     memory_size=3008,
