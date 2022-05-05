@@ -1,16 +1,8 @@
+from test.test_stack import conftest
+
 import pulumi
 
-
-class MyMocks(pulumi.runtime.Mocks):
-    def new_resource(self, args: pulumi.runtime.MockResourceArgs):
-        outputs = args.inputs
-        return [args.name + "_id", outputs]
-
-    def call(self, args: pulumi.runtime.MockCallArgs):
-        return {}
-
-
-pulumi.runtime.set_mocks(MyMocks())
+pulumi.runtime.set_mocks(conftest.MyMocks())
 
 from stack import infra  # noqa: E402
 
