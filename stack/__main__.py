@@ -1,8 +1,9 @@
 """A Python Pulumi program"""
 
-import infra
+import infra as infra
 import pulumi
+import titiler_sentinel as titiler_sentinel
 
 # Export the DNS name of the bucket
 pulumi.export("bucket_name", infra.bucket.url)
-# pulumi.export('s3_bucket_name', s3_bucket.bucket_domain_name)
+pulumi.export("titiler_sentinel_url", titiler_sentinel.lambda_api.api_endpoint)

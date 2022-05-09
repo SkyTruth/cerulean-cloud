@@ -42,7 +42,7 @@ jobs:
     name: Preview [TEST]
     needs: [tests]
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
@@ -63,19 +63,21 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        env:
+          PULUMI_CONFIG_PASSPHRASE: "test"
         with:
           command: preview
           stack-name: test
           cloud-url: gs://cerulean-cloud-state
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+
 
   deploy-test:
     name: Deploy [TEST]
-    needs: [preview-test]
     runs-on: ubuntu-latest
+    environment: test
+    needs: [tests]
     if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v2
@@ -97,14 +99,12 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        env:
+          PULUMI_CONFIG_PASSPHRASE: "test"
         with:
           command: up
           stack-name: test
           cloud-url: gs://cerulean-cloud-state
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          PULUMI_CONFIG_PASSPHRASE: ""
 
   preview-staging:
     name: Preview [STAGING]
@@ -136,12 +136,13 @@ jobs:
           stack-name: staging
           cloud-url: gs://cerulean-cloud-state
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "staging"
 
   deploy-staging:
     name: Deploy [STAGING]
     needs: [preview-staging]
     runs-on: ubuntu-latest
+    environment: staging
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
@@ -168,7 +169,7 @@ jobs:
           stack-name: staging
           cloud-url: gs://cerulean-cloud-state
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "staging"
 
   preview-production:
     name: Preview [PRODUCTION]
@@ -200,12 +201,13 @@ jobs:
           stack-name: production
           cloud-url: gs://cerulean-cloud-state
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "production"
 
   deploy-production:
     name: Deploy [PRODUCTION]
     needs: [preview-production]
     runs-on: ubuntu-latest
+    environment: production
     if: startsWith(github.event.ref, 'refs/tags')
     steps:
       - uses: actions/checkout@v2
@@ -232,4 +234,4 @@ jobs:
           stack-name: production
           cloud-url: gs://cerulean-cloud-state
         env:
-          PULUMI_CONFIG_PASSPHRASE: ""
+          PULUMI_CONFIG_PASSPHRASE: "production"
