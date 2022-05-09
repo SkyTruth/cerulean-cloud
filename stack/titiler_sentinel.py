@@ -1,8 +1,7 @@
 """titiler sentinel infra module"""
 import pulumi
 import pulumi_aws as aws
-
-from stack.utils import construct_name, create_package, filebase64sha256
+from utils import construct_name, create_package, filebase64sha256
 
 s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
 

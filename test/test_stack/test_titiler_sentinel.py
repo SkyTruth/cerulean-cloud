@@ -7,7 +7,7 @@ pulumi.runtime.set_mocks(conftest.MyMocks())
 
 
 @pulumi.runtime.test
-@patch("stack.utils.create_package")
+@patch("utils.create_package")
 def test_bucket_has_name(mock_create_package):
     mock_create_package.return_value = "test/test_stack/fixtures/package.zip"
 
