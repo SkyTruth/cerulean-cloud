@@ -1,7 +1,9 @@
 """utils for stack building"""
 import base64
 import hashlib
+import os
 
+import docker
 import pulumi
 
 project = pulumi.get_project()
@@ -41,3 +43,28 @@ def filebase64sha256(filename):
     h = sha256sum(filename)
     b = base64.b64encode(h)
     return b.decode()
+
+
+# Build image
+def create_package(code_dir: str) -> str:
+    """Build docker image and create package."""
+    print("Creating lambda package [running in Docker]...")
+    client = docker.from_env()
+
+    print("Building docker image...")
+    client.images.build(
+        path=code_dir,
+        dockerfile="Dockerfiles/Dockerfile.titiler",
+        tag="titiler-lambda:latest",
+        rm=True,
+    )
+
+    print("Copying package.zip ...")
+    client.containers.run(
+        image="titiler-lambda:latest",
+        command="/bin/sh -c 'cp /tmp/package.zip /local/package.zip'",
+        remove=True,
+        volumes={os.path.abspath(code_dir): {"bind": "/local/", "mode": "rw"}},
+        user=0,
+    )
+    return f"{code_dir}package.zip"

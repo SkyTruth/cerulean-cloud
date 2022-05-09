@@ -1,38 +1,10 @@
 """titiler sentinel infra module"""
-import os
-
-import docker
 import pulumi
 import pulumi_aws as aws
-from utils import construct_name, filebase64sha256
+
+from stack.utils import construct_name, create_package, filebase64sha256
 
 s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
-
-
-# Build image
-def create_package(code_dir: str) -> str:
-    """Build docker image and create package."""
-    print("Creating lambda package [running in Docker]...")
-    client = docker.from_env()
-
-    print("Building docker image...")
-    client.images.build(
-        path=code_dir,
-        dockerfile="Dockerfiles/Dockerfile.titiler",
-        tag="titiler-lambda:latest",
-        rm=True,
-    )
-
-    print("Copying package.zip ...")
-    client.containers.run(
-        image="titiler-lambda:latest",
-        command="/bin/sh -c 'cp /tmp/package.zip /local/package.zip'",
-        remove=True,
-        volumes={os.path.abspath(code_dir): {"bind": "/local/", "mode": "rw"}},
-        user=0,
-    )
-    return f"{code_dir}package.zip"
-
 
 lambda_package_path = create_package("../")
 lambda_package_archive = pulumi.FileArchive(lambda_package_path)
