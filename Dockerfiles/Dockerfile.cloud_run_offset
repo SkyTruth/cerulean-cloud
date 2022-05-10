@@ -1,0 +1,8 @@
+FROM lambci/lambda:build-python3.8
+
+WORKDIR /tmp
+
+COPY cerulean_cloud/cloud_run_offset_tiles/ /app/cloud_run_offset_tiles/
+
+RUN pip install -r /app/cloud_run_offset_tiles/requirements.txt
+
