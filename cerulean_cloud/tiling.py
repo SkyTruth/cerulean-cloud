@@ -33,13 +33,12 @@ def pixel_to_location(tile, dx, dy):
     return lon, lat
 
 
-def adjacent_tile(tile, dx, dy, tiles):
+def adjacent_tile(tile, dx, dy):
     """Retrieves an adjacent tile from a tile store.
     Args:
       tile: the original tile to get an adjacent tile for.
       dx: the offset in tile x direction.
       dy: the offset in tile y direction.
-      tiles: the tile store to get tiles from; must support `__getitem__` with tiles.
     Returns:
       The adjacent tile's image or `None` if it does not exist.
     """
