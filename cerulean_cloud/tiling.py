@@ -3,9 +3,11 @@ Inspired from
 https://github.com/mapbox/robosat/blob/master/robosat/tiles.py
 """
 
-from typing import Tuple
+from typing import List, Tuple
 
 import mercantile
+import numpy as np
+import supermercado
 
 
 def pixel_to_location(
@@ -50,3 +52,50 @@ def adjacent_tile(tile: mercantile.Tile, dx: int, dy: int) -> mercantile.Tile:
     x, y, z = map(int, [tile.x, tile.y, tile.z])
     other = mercantile.Tile(x=x + dx, y=y + dy, z=z)
     return other
+
+
+def from_base_tiles_create_offset_tiles(
+    tiles: List[mercantile.Tile],
+) -> List[Tuple[float, float, float, float]]:
+    """from a set of base tiles, generate offset tiles"""
+    out_offset_tile_bounds = []
+
+    # create offset tile bounds with the up, left translation
+    for tile in tiles:
+        adj_tile = adjacent_tile(tile, -1, -1)
+        minx, maxy = pixel_to_location(adj_tile, 0.5, 0.5)
+        maxx, miny = pixel_to_location(tile, 0.5, 0.5)
+        out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
+
+    tiles_np = np.array([(tile.x, tile.y, tile.z) for tile in tiles])
+    zoom = tiles_np[:, 2].max()
+    tilexmin, tilexmax, tileymin, tileymax = supermercado.super_utils.get_range(
+        tiles_np
+    )
+
+    # create offset tile bounds of the down, left translation
+    # (only in the bottom-most boundary)
+    for tilex in range(tilexmin, tilexmax):
+        tile = mercantile.Tile(tilex, tileymax, zoom)
+        adj_tile = adjacent_tile(tile, -1, 1)
+        minx, maxy = pixel_to_location(adj_tile, 0.5, 0.5)
+        maxx, miny = pixel_to_location(tile, 0.5, 0.5)
+        out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
+
+    # create offset tile bounds of the up, ritgh translation
+    # (only in the rigth-most boundary)
+    for tiley in range(tileymin, tileymin):
+        tile = mercantile.Tile(tilexmax, tiley, zoom)
+        adj_tile = adjacent_tile(tile, 1, -1)
+        minx, maxy = pixel_to_location(adj_tile, 0.5, 0.5)
+        maxx, miny = pixel_to_location(tile, 0.5, 0.5)
+        out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
+
+    # bottom rigth corner tile
+    bottom_rigth = mercantile.Tile(tilexmax, tileymax, zoom)
+    adj_tile = adjacent_tile(bottom_rigth, 1, 1)
+    minx, maxy = pixel_to_location(bottom_rigth, 0.5, 0.5)
+    maxx, miny = pixel_to_location(bottom_rigth, 0.5, 0.5)
+    out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
+
+    return out_offset_tile_bounds

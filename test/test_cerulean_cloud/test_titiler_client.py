@@ -28,7 +28,7 @@ def tiles_s1_scene():
         *[32.989094, 43.338009, 36.540836, 45.235191], [11], truncate=False
     )
 
-    return list(tiles)[0:5]
+    return list(tiles)
 
 
 def test_base_tile(titiler_client, tiles_s1_scene):
@@ -37,7 +37,8 @@ def test_base_tile(titiler_client, tiles_s1_scene):
 
 
 def test_offset_tile(titiler_client, tiles_s1_scene):
-    minx, miny = pixel_to_location(adjacent_tile(tiles_s1_scene[0], -1, -1), 0.5, 0.5)
-    maxx, maxy = pixel_to_location(tiles_s1_scene[0], 0.5, 0.5)
+    maxx, miny = pixel_to_location(adjacent_tile(tiles_s1_scene[0], 1, 1), 0.5, 0.5)
+    minx, maxy = pixel_to_location(tiles_s1_scene[0], 0.5, 0.5)
     array = titiler_client.get_offset_tile(S1_IDS[0], minx, miny, maxx, maxy)
+    print(minx, miny, maxx, maxy)
     assert array.shape == (256, 256, 4)
