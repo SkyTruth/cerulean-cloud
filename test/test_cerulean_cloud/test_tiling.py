@@ -30,7 +30,9 @@ def test_from_base_tiles_create_offset_tiles(tiles_s1_scene):  # noqa: F811
     )
     assert len(out) == expected_result
 
-    assert out[-1] == (36.474609375, 43.3890482867738, 36.650390625, 43.261172481247115)
+    assert out[-1] == pytest.approx(
+        (36.474609375, 43.3890482867738, 36.650390625, 43.261172481247115)
+    )
 
 
 @pytest.mark.skip
