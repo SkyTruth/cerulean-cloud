@@ -1,0 +1,2 @@
+starlette-cramjam==0.1.0
+mangum>=0.10
