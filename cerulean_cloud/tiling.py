@@ -3,10 +3,14 @@ Inspired from
 https://github.com/mapbox/robosat/blob/master/robosat/tiles.py
 """
 
+from typing import Tuple
+
 import mercantile
 
 
-def pixel_to_location(tile, dx, dy):
+def pixel_to_location(
+    tile: mercantile.Tile, dx: float, dy: float
+) -> Tuple[float, float]:
     """Converts a pixel in a tile to a coordinate.
     mercantile.tiles(west, south, east, north, zooms, truncate=False)
 
@@ -33,7 +37,7 @@ def pixel_to_location(tile, dx, dy):
     return lon, lat
 
 
-def adjacent_tile(tile, dx, dy):
+def adjacent_tile(tile: mercantile.Tile, dx: int, dy: int) -> mercantile.Tile:
     """Retrieves an adjacent tile from a tile store.
     Args:
       tile: the original tile to get an adjacent tile for.
@@ -45,5 +49,4 @@ def adjacent_tile(tile, dx, dy):
 
     x, y, z = map(int, [tile.x, tile.y, tile.z])
     other = mercantile.Tile(x=x + dx, y=y + dy, z=z)
-
     return other

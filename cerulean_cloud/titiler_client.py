@@ -24,7 +24,11 @@ class TitilerClient:
         return resp.json()["bounds"]
 
     def get_base_tile(
-        self, sceneid: str, tile: mercantile.Tile, band="vv", img_format="png"
+        self,
+        sceneid: str,
+        tile: mercantile.Tile,
+        band: str = "vv",
+        img_format: str = "png",
     ) -> np.ndarray:
         """get base tile as numpy array"""
         url = urlib.urljoin(self.url, f"tiles/{tile.z}/{tile.x}/{tile.y}")
@@ -40,14 +44,14 @@ class TitilerClient:
     def get_offset_tile(
         self,
         sceneid: str,
-        minx,
-        miny,
-        maxx,
-        maxy,
-        width=256,
-        height=256,
-        band="vv",
-        img_format="png",
+        minx: float,
+        miny: float,
+        maxx: float,
+        maxy: float,
+        width: int = 256,
+        height: int = 256,
+        band: str = "vv",
+        img_format: str = "png",
     ) -> np.ndarray:
         """get offset tile as numpy array"""
         url = urlib.urljoin(
