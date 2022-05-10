@@ -9,3 +9,5 @@ Pillow
 numpy
 supermercado
 httpx
+geojson
+shapely
