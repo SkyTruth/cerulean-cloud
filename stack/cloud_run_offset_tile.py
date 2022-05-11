@@ -1,26 +1,11 @@
 """infra for cloud run function to perform inference on offset tiles
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
+import cloud_run_images
 import pulumi
 import pulumi_gcp as gcp
 from utils import construct_name
 
-# import pulumi_docker as docker
-registry = gcp.container.Registry(construct_name("registry"), location="EU")
-registry_url = registry.id.apply(
-    lambda _: gcp.container.get_registry_repository().repository_url
-)
-
-image_name = registry_url.apply(lambda url: f"{url}/myapp")
-registry_info = None  # use gcloud for authentication.
-
-"""
-image = docker.Image('my-image',
-    build='app',
-    image_name=image_name,
-    registry=registry_info,
-)
-"""
 default = gcp.cloudrun.Service(
     construct_name("cloud-run-offset-tiles"),
     location=pulumi.Config("gcp").require("region"),
@@ -28,7 +13,7 @@ default = gcp.cloudrun.Service(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image="us-docker.pkg.dev/cloudrun/container/hello",
+                    image=cloud_run_images.cloud_run_offset_tile_image.base_image_name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SOURCE",
@@ -51,6 +36,9 @@ default = gcp.cloudrun.Service(
         )
     ],
     autogenerate_revision_name=True,
+    opts=pulumi.ResourceOptions(
+        depends_on=[cloud_run_images.cloud_run_offset_tile_image]
+    ),
 )
 noauth_iam_policy = gcp.organizations.get_iam_policy(
     bindings=[
