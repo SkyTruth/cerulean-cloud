@@ -18,8 +18,8 @@ def pixel_to_location(
 
     Args:
       tile: the mercantile tile to calculate the location in.
-      dx: the relative x offset in range [0, 1].
-      dy: the relative y offset in range [0, 1].
+      dx: the relative x offset in range [0, 1] (fraction of tile width).
+      dy: the relative y offset in range [0, 1] (fraction of tile height).
 
     Returns:
       The coordinate for the pixel in the tile.
