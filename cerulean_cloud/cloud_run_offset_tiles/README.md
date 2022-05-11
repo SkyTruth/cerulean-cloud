@@ -1,3 +1,6 @@
+# M1 MacBooks
+set `DOCKER_DEFAULT_PLATFORM=linux/amd64` in M1 macbooks
+
 # Debug image
 
 ```
