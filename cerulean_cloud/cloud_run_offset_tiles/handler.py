@@ -1,17 +1,18 @@
 """Cloud run handler for inference in offset tiles
 Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
+from io import BytesIO
 from typing import Dict
 
 import httpx
 import icedata
 import numpy as np
-import PIL
 import torch
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from icedata.utils import load_model_weights_from_url
 from icevision.all import Dataset, models, tfms
+from PIL import Image
 
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
@@ -34,8 +35,8 @@ def ping() -> Dict:
 
 def image_from_url(url):
     """fetch an image from an url"""
-    res = httpx.get(url, stream=True)
-    img = PIL.Image.open(res.raw)
+    res = httpx.get(url)
+    img = Image.open(BytesIO(res.content))
     return np.array(img)
 
 
