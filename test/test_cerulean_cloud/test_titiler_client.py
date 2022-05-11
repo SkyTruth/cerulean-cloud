@@ -46,7 +46,7 @@ def test_base_tile(titiler_client, tiles_s1_scene, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=titiler_client.url
-        + f"tiles/{tile.z}/{tile.x}/{tile.y}?sceneid={sceneid}&bands=vv&format=png",
+        + f"tiles/{tile.z}/{tile.x}/{tile.y}?sceneid={sceneid}&bands=vv&format=png&scale=1",
         content=img_bytes,
     )
     array = titiler_client.get_base_tile(S1_IDS[0], tile=tile)
