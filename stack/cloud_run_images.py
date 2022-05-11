@@ -18,7 +18,7 @@ cloud_run_offset_tile_image = docker.Image(
     build=docker.DockerBuild(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_offset",
-        extra_options=["--quiet"],
+        extra_options=["--quiet", "--platform linux/amd64"],
     ),
     image_name=cloud_run_offset_tile_image_url,
     registry=registry_info,
