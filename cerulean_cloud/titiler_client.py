@@ -1,7 +1,7 @@
 """client code to interact with titiler for sentinel 1"""
 import urllib.parse as urlib
 from io import BytesIO
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 import httpx
 import mercantile
@@ -58,6 +58,7 @@ class TitilerClient:
         band: str = "vv",
         img_format: str = "png",
         scale: int = 1,
+        rescale: Tuple[int, int] = (0, 1000),
     ) -> np.ndarray:
         """get base tile as numpy array
 
@@ -68,6 +69,7 @@ class TitilerClient:
             band (str, optional): Which bands to include in the output. Defaults to "vv".
             img_format (str, optional): File format of the output from the tiler. Defaults to "png".
             scale (int, optional): Proxy for tile size.  1=256x256, 2=512x512... Defaults to 1.
+            rescale (Tuple[int, int], optional): Min max value to rescale to uint8.
 
         Returns:
             np.ndarray: The requested tile of the scene as a numpy array.
@@ -77,6 +79,7 @@ class TitilerClient:
         url += f"&bands={band}"
         url += f"&format={img_format}"
         url += f"&scale={scale}"
+        url += f"&rescale=[{','.join([str(r) for r in rescale])}]"
         resp = httpx.get(url)
 
         img = Image.open(BytesIO(resp.content))
@@ -94,6 +97,7 @@ class TitilerClient:
         height: int = 256,
         band: str = "vv",
         img_format: str = "png",
+        rescale: Tuple[int, int] = (0, 1000),
     ) -> np.ndarray:
         """get offset tile as numpy array (with bounds)
 
@@ -108,6 +112,7 @@ class TitilerClient:
             height (int, optional): Output image height. Defaults to 256.
             band (str, optional): Which bands to include in the output. Defaults to "vv".
             img_format (str, optional): File format of the output. Defaults to "png".
+            rescale (Tuple[int, int], optional): Min max value to rescale to uint8.
 
         Returns:
             np.ndarray: The requested image of the bounds of the scene as a numpy array.
@@ -117,6 +122,7 @@ class TitilerClient:
         )
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
+        url += f"&rescale=[{','.join([str(r) for r in rescale])}]"
         print(url)
         resp = httpx.get(url)
         img = Image.open(BytesIO(resp.content))

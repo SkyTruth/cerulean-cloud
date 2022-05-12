@@ -92,7 +92,7 @@ def test_base_tile(titiler_client, tiles_s1_scene, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=titiler_client.url
-        + f"tiles/{tile.z}/{tile.x}/{tile.y}?sceneid={sceneid}&bands=vv&format=png&scale=1",
+        + f"tiles/{tile.z}/{tile.x}/{tile.y}?sceneid={sceneid}&bands=vv&format=png&scale=1&rescale=[0,1000]",
         content=img_bytes,
     )
     array = titiler_client.get_base_tile(S1_IDS[0], tile=tile)
@@ -112,7 +112,7 @@ def test_offset_tile(titiler_client, tiles_s1_scene, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=titiler_client.url
-        + f"crop/{minx},{miny},{maxx},{maxy}/256x256.png?sceneid={sceneid}&bands=vv",
+        + f"crop/{minx},{miny},{maxx},{maxy}/256x256.png?sceneid={sceneid}&bands=vv&rescale=[0,1000]",
         content=img_bytes,
     )
 
