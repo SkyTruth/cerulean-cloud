@@ -1,16 +1,15 @@
 import geojson
-import mercantile
 import numpy as np
 import pytest
 import shapely.geometry
 import supermercado
 
-from cerulean_cloud.tiling import from_base_tiles_create_offset_tiles
+from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
 
 
 @pytest.fixture
 def tiles_s1_scene():
-    tiles = mercantile.tiles(
+    tiles = TMS.tiles(
         *[32.989094, 43.338009, 36.540836, 45.235191], [11], truncate=False
     )
 
@@ -29,9 +28,9 @@ def test_from_base_tiles_create_offset_tiles(tiles_s1_scene):  # noqa: F811
         len(tiles_s1_scene) + tilexmax - tilexmin + 1 + tileymax - tileymin + 1 + 1
     )
     assert len(out) == expected_result
-
+    print(out[-1])
     assert out[-1] == pytest.approx(
-        (36.474609375, 43.3890482867738, 36.650390625, 43.261172481247115)
+        (36.518554687499716, 43.37402343750006, 36.606445312499716, 43.28613281250006)
     )
 
 
@@ -41,12 +40,10 @@ def test_save_tiles_to_file():
     # tile size 512x512
     # returns resolution around 80m, 0.004 degrees
     tiles_s1_scene = list(
-        mercantile.tiles(
-            *[32.989094, 43.338009, 36.540836, 45.235191], [10], truncate=False
-        )
+        TMS.tiles(*[32.989094, 43.338009, 36.540836, 45.235191], [10], truncate=False)
     )
 
-    feat_base = [mercantile.feature(tile) for tile in tiles_s1_scene]
+    feat_base = [TMS.feature(tile) for tile in tiles_s1_scene]
     with open("base_tiles.json", "w") as dst:
         geojson.dump(geojson.FeatureCollection(features=feat_base), dst)
 
