@@ -36,7 +36,16 @@ def test_from_base_tiles_create_offset_tiles(tiles_s1_scene):  # noqa: F811
 
 
 @pytest.mark.skip
-def test_save_tiles_to_file(tiles_s1_scene):
+def test_save_tiles_to_file():
+    # zoom level 10
+    # tile size 512x512
+    # returns resolution around 80m, 0.004 degrees
+    tiles_s1_scene = list(
+        mercantile.tiles(
+            *[32.989094, 43.338009, 36.540836, 45.235191], [10], truncate=False
+        )
+    )
+
     feat_base = [mercantile.feature(tile) for tile in tiles_s1_scene]
     with open("base_tiles.json", "w") as dst:
         geojson.dump(geojson.FeatureCollection(features=feat_base), dst)
