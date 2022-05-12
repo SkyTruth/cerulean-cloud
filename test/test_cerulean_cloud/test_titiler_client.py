@@ -28,6 +28,52 @@ def test_get_bounds(titiler_client, httpx_mock):
     assert b == [32.989094, 43.338009, 36.540836, 45.235191]
 
 
+def test_get_statistics(titiler_client, httpx_mock):
+    sceneid = S1_IDS[0]
+    httpx_mock.add_response(
+        method="GET",
+        url=titiler_client.url + f"statistics?sceneid={sceneid}&bands=vv",
+        json={
+            "vv": {
+                "min": 19,
+                "max": 1075,
+                "mean": 86.85049361077405,
+                "count": 400518,
+                "sum": 34785186,
+                "std": 48.50235864218863,
+                "median": 78,
+                "majority": 46,
+                "minority": 350,
+                "unique": 394,
+                "histogram": [
+                    [330487, 63767, 6023, 230, 9, 1, 0, 0, 0, 1],
+                    [
+                        19,
+                        124.6,
+                        230.2,
+                        335.79999999999995,
+                        441.4,
+                        547,
+                        652.5999999999999,
+                        758.1999999999999,
+                        863.8,
+                        969.4,
+                        1075,
+                    ],
+                ],
+                "valid_percent": 71.37,
+                "masked_pixels": 160634,
+                "valid_pixels": 400518,
+                "percentile_98": 223,
+                "percentile_2": 31,
+            }
+        },
+    )
+    s = titiler_client.get_statistics(sceneid)
+    assert len(s) == 16
+    assert s.get("max") == 1075
+
+
 @pytest.fixture
 def tiles_s1_scene():
     tiles = mercantile.tiles(

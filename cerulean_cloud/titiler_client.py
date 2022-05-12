@@ -1,7 +1,7 @@
 """client code to interact with titiler for sentinel 1"""
 import urllib.parse as urlib
 from io import BytesIO
-from typing import List
+from typing import Dict, List
 
 import httpx
 import mercantile
@@ -32,6 +32,24 @@ class TitilerClient:
         url += f"?sceneid={sceneid}"
         resp = httpx.get(url)
         return resp.json()["bounds"]
+
+    def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
+        """fetch bounds of a scene
+
+        Args:
+            sceneid (str): A valid S1 scene id
+                            i.e. S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF
+            band (str, optional): Which bands to include in the output. Defaults to "vv".
+
+        Returns:
+            Dict: Statistics for the bands scene
+                includes keys such as min, max, mean, count, sum, std...
+        """
+        url = urlib.urljoin(self.url, "statistics")
+        url += f"?sceneid={sceneid}"
+        url += f"&bands={band}"
+        resp = httpx.get(url)
+        return resp.json()[band]
 
     def get_base_tile(
         self,
