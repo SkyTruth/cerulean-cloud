@@ -5,19 +5,21 @@ https://github.com/mapbox/robosat/blob/master/robosat/tiles.py
 
 from typing import List, Tuple
 
-import mercantile
+import morecantile
 import numpy as np
 import supermercado
 
+TMS = morecantile.tms.get("WorldCRS84Quad")
+
 
 def pixel_to_location(
-    tile: mercantile.Tile, dx: float, dy: float
+    tile: morecantile.Tile, dx: float, dy: float
 ) -> Tuple[float, float]:
     """Converts a pixel in a tile to a coordinate.
-    mercantile.tiles(west, south, east, north, zooms, truncate=False)
+    TMS.tiles(west, south, east, north, zooms, truncate=False)
 
     Args:
-      tile: the mercantile tile to calculate the location in.
+      tile: the morecantile tile to calculate the location in.
       dx: the relative x offset in range [0, 1] (fraction of tile width).
       dy: the relative y offset in range [0, 1] (fraction of tile height).
 
@@ -28,7 +30,7 @@ def pixel_to_location(
     assert 0 <= dx <= 1, "x offset is in [0, 1]"
     assert 0 <= dy <= 1, "y offset is in [0, 1]"
 
-    west, south, east, north = mercantile.bounds(tile)
+    west, south, east, north = TMS.bounds(tile)
 
     def lerp(a, b, c):
         return a + c * (b - a)
@@ -39,7 +41,7 @@ def pixel_to_location(
     return lon, lat
 
 
-def adjacent_tile(tile: mercantile.Tile, dx: int, dy: int) -> mercantile.Tile:
+def adjacent_tile(tile: morecantile.Tile, dx: int, dy: int) -> morecantile.Tile:
     """Retrieves an adjacent tile from a tile store.
     Args:
       tile: the original tile to get an adjacent tile for.
@@ -50,12 +52,12 @@ def adjacent_tile(tile: mercantile.Tile, dx: int, dy: int) -> mercantile.Tile:
     """
 
     x, y, z = map(int, [tile.x, tile.y, tile.z])
-    other = mercantile.Tile(x=x + dx, y=y + dy, z=z)
+    other = morecantile.Tile(x=x + dx, y=y + dy, z=z)
     return other
 
 
 def from_base_tiles_create_offset_tiles(
-    tiles: List[mercantile.Tile],
+    tiles: List[morecantile.Tile],
 ) -> List[Tuple[float, float, float, float]]:
     """from a set of base tiles, generate offset tiles"""
     out_offset_tile_bounds = []
@@ -75,7 +77,7 @@ def from_base_tiles_create_offset_tiles(
     # create offset tile bounds of the down, left translation
     # (only in the bottom-most boundary)
     for tilex in range(tilexmin, tilexmax + 1):
-        tile = mercantile.Tile(tilex, tileymax, zoom)
+        tile = morecantile.Tile(tilex, tileymax, zoom)
         adj_tile = adjacent_tile(tile, -1, 1)
         minx, miny = pixel_to_location(adj_tile, 0.5, 0.5)
         maxx, maxy = pixel_to_location(tile, 0.5, 0.5)
@@ -84,14 +86,14 @@ def from_base_tiles_create_offset_tiles(
     # create offset tile bounds of the up, ritgh translation
     # (only in the rigth-most boundary)
     for tiley in range(tileymin, tileymax + 1):
-        tile = mercantile.Tile(tilexmax, tiley, zoom)
+        tile = morecantile.Tile(tilexmax, tiley, zoom)
         adj_tile = adjacent_tile(tile, 1, -1)
         minx, miny = pixel_to_location(adj_tile, 0.5, 0.5)
         maxx, maxy = pixel_to_location(tile, 0.5, 0.5)
         out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
 
     # bottom rigth corner tile
-    bottom_rigth = mercantile.Tile(tilexmax, tileymax, zoom)
+    bottom_rigth = morecantile.Tile(tilexmax, tileymax, zoom)
     adj_tile = adjacent_tile(bottom_rigth, 1, 1)
     minx, miny = pixel_to_location(bottom_rigth, 0.5, 0.5)
     maxx, maxy = pixel_to_location(adj_tile, 0.5, 0.5)
