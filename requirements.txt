@@ -11,3 +11,4 @@ supermercado
 httpx
 geojson
 shapely
+google-cloud-storage
