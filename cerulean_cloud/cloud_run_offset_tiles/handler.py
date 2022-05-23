@@ -10,7 +10,7 @@ import torch
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
-from schema import InferenceInput, InferenceResponse
+from schema import InferenceInput, InferenceResult
 
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
@@ -65,7 +65,7 @@ def ping() -> Dict:
     "/predict",
     description="Run inference",
     tags=["Run inference"],
-    response_model=InferenceResponse,
+    response_model=InferenceResult,
 )
 def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
     """predict"""
@@ -73,4 +73,4 @@ def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
     out_batch_logits = model(tensor)
     conf = logits_to_classes(out_batch_logits)
     res = b64encode(conf).decode("ascii")
-    return {"prediction": res}
+    return InferenceResult(res=res, bounds=payload.bounds)
