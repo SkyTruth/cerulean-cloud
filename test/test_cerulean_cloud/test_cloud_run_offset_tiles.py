@@ -1,6 +1,10 @@
+from base64 import b64encode
+
 import pytest
+import torch
 from PIL import Image
 
+from cerulean_cloud.cloud_run_offset_tiles.handler import b64_image_to_tensor
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -17,3 +21,11 @@ def test_create_fixture_tile(
     array = titiler_client.get_base_tile(S1_ID, tile=tile, scale=2, rescale=(0, 100))
     im = Image.fromarray(array[:, :, 0])
     im.save("test/test_cerulean_cloud/fixtures/tile_512_512.png")
+
+
+def test_b64_image_to_tensor():
+    with open("test/test_cerulean_cloud/fixtures/tile_512_512.png", "rb") as src:
+        encoded = b64encode(src.read()).decode("ascii")
+
+    tensor = b64_image_to_tensor(encoded)
+    assert tensor.shape == torch.Size([512, 512])
