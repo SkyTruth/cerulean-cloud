@@ -1,30 +1,56 @@
 """Cloud run handler for inference in offset tiles
 Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
+from base64 import b64decode, b64encode
 from io import BytesIO
 from typing import Dict
 
-import httpx
-import icedata
 import numpy as np
 import torch
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from icedata.utils import load_model_weights_from_url
-from icevision.all import Dataset, models, tfms
 from PIL import Image
+from schema import InferenceInput, InferenceResponse
 
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
-class_map = icedata.pets.class_map()
-model_type = models.torchvision.faster_rcnn
-backbone = model_type.backbones.resnet50_fpn()
-model = model_type.model(backbone=backbone, num_classes=len(class_map))
-WEIGHTS_URL = "https://github.com/airctic/model_zoo/releases/download/m3/pets_faster_resnetfpn50.zip"
-load_model_weights_from_url(model, WEIGHTS_URL, map_location=torch.device("cpu"))
-infer_tfms = tfms.A.Adapter([*tfms.A.resize_and_pad(size=384), tfms.A.Normalize()])
+
+def load_tracing_model(savepath):
+    """load tracing model"""
+    tracing_model = torch.jit.load(savepath)
+    return tracing_model
+
+
+TRACING_MODEL = load_tracing_model("model/model.pt")
+
+
+def test_tracing_model_one_batch(dls, tracing_model):
+    """test tracing"""
+    x, _ = dls.one_batch()
+    out_batch_logits = tracing_model(x)
+    return out_batch_logits
+
+
+def logits_to_classes(out_batch_logits):
+    """returns the confidence scores of the max confident classes
+    and an array of max confident class ids.
+    """
+    probs = torch.nn.functional.softmax(out_batch_logits, dim=1)
+    conf, classes = torch.max(probs, 1)
+    return (conf,)
+
+
+def b64_image_to_tensor(image: str) -> torch.Tensor:
+    """convert input b64image to torch tensor"""
+    # handle image
+    img_bytes = b64decode(image)
+    tmp = BytesIO()
+    tmp.write(img_bytes)
+    img = Image.open(tmp)
+    np_img = np.array(img)
+    return torch.tensor(np_img)
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
@@ -33,19 +59,16 @@ def ping() -> Dict:
     return {"ping": "pong!"}
 
 
-def image_from_url(url):
-    """fetch an image from an url"""
-    res = httpx.get(url)
-    img = Image.open(BytesIO(res.content))
-    return np.array(img)
-
-
-@app.get("/predict", description="Health Check", tags=["Health Check"])
-def predict() -> Dict:
+@app.post(
+    "/predict",
+    description="Run inference",
+    tags=["Run inference"],
+    response_model=InferenceResponse,
+)
+def predict(payload: InferenceInput) -> Dict:
     """predict"""
-    image_url = "https://petcaramelo.com/wp-content/uploads/2018/06/beagle-cachorro.jpg"
-    img = image_from_url(image_url)
-    infer_ds = Dataset.from_images([img], infer_tfms)
-    preds = model_type.predict(model, infer_ds)
-
-    return {"prediction": [p.as_dict() for p in preds]}
+    tensor = b64_image_to_tensor(payload.image)
+    out_batch_logits = TRACING_MODEL(tensor)
+    conf = logits_to_classes(out_batch_logits)
+    res = b64encode(conf).decode("ascii")
+    return {"prediction": res}

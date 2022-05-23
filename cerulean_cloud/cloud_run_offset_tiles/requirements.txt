@@ -2,10 +2,7 @@ fastapi
 starlette-cramjam==0.1.0
 uvicorn
 numpy
-icevision[inference]
-icedata
 httpx
 Pillow
 setuptools==59.5.0 
-torch
-torchvision
+torch==1.11.0+cpu
