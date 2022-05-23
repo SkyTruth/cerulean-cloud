@@ -7,7 +7,7 @@ from typing import Dict
 
 import numpy as np
 import torch
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from schema import InferenceInput, InferenceResponse
@@ -23,7 +23,9 @@ def load_tracing_model(savepath):
     return tracing_model
 
 
-TRACING_MODEL = load_tracing_model("model/model.pt")
+def get_model():
+    """load model"""
+    return load_tracing_model("model/model.pt")
 
 
 def test_tracing_model_one_batch(dls, tracing_model):
@@ -65,10 +67,10 @@ def ping() -> Dict:
     tags=["Run inference"],
     response_model=InferenceResponse,
 )
-def predict(payload: InferenceInput) -> Dict:
+def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
     """predict"""
     tensor = b64_image_to_tensor(payload.image)
-    out_batch_logits = TRACING_MODEL(tensor)
+    out_batch_logits = model(tensor)
     conf = logits_to_classes(out_batch_logits)
     res = b64encode(conf).decode("ascii")
     return {"prediction": res}
