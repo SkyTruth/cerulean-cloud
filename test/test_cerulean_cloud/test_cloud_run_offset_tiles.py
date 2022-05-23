@@ -1,4 +1,5 @@
 import pytest
+from PIL import Image
 
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
@@ -13,6 +14,6 @@ def test_create_fixture_tile(
 
     tiles = list(TMS.tiles(*titiler_client.get_bounds(S1_ID), [10], truncate=False))
     tile = tiles[20]
-    # import pdb; pdb.set_trace()
-    array = titiler_client.get_base_tile(S1_ID, tile=tile, scale=2)
-    print(array)
+    array = titiler_client.get_base_tile(S1_ID, tile=tile, scale=2, rescale=(0, 100))
+    im = Image.fromarray(array[:, :, 0])
+    im.save("test/test_cerulean_cloud/fixtures/tile_512_512.png")
