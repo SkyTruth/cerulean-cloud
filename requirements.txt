@@ -4,3 +4,10 @@ pulumi-aws
 pulumi-command
 docker
 grpcio<=1.43.0
+morecantile
+Pillow
+numpy
+supermercado
+httpx
+geojson
+shapely
