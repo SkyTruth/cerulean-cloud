@@ -8,6 +8,8 @@ import mercantile
 import numpy as np
 from PIL import Image
 
+TMS = "WorldCRS84Quad"
+
 
 class TitilerClient:
     """client for titiler S1"""
@@ -74,7 +76,7 @@ class TitilerClient:
         Returns:
             np.ndarray: The requested tile of the scene as a numpy array.
         """
-        url = urlib.urljoin(self.url, f"tiles/{tile.z}/{tile.x}/{tile.y}")
+        url = urlib.urljoin(self.url, f"tiles/{TMS}/{tile.z}/{tile.x}/{tile.y}")
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
         url += f"&format={img_format}"
