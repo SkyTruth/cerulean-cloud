@@ -81,7 +81,7 @@ class TitilerClient:
         url += f"&bands={band}"
         url += f"&format={img_format}"
         url += f"&scale={scale}"
-        url += f"&rescale=[{','.join([str(r) for r in rescale])}]"
+        url += f"&rescale={','.join([str(r) for r in rescale])}"
         resp = httpx.get(url)
 
         img = Image.open(BytesIO(resp.content))
@@ -124,7 +124,7 @@ class TitilerClient:
         )
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
-        url += f"&rescale=[{','.join([str(r) for r in rescale])}]"
+        url += f"&rescale={','.join([str(r) for r in rescale])}"
         print(url)
         resp = httpx.get(url)
         img = Image.open(BytesIO(resp.content))
