@@ -20,6 +20,9 @@ default = gcp.cloudrun.Service(
                             value="remote",
                         ),
                     ],
+                    resources=gcp.cloudrun.ServiceTemplateSpecContainerResources(
+                        limits=dict(memory="4Gi", cpu="2")
+                    ),
                 )
             ],
         )
