@@ -51,6 +51,15 @@ def b64_image_to_tensor(image: str) -> torch.Tensor:
     return torch.tensor(np_img)
 
 
+def array_to_b64_image(np_array: np.ndarray) -> str:
+    """convert input b64image to torch tensor"""
+    # handle image
+    im = Image.fromarray(np.squeeze(np_array).astype("int8"))
+    tmp = BytesIO()
+    im.save(tmp, format="PNG")
+    return b64encode(tmp.getvalue()).decode("ascii")
+
+
 @app.get("/", description="Health Check", tags=["Health Check"])
 def ping() -> Dict:
     """Health check."""
@@ -70,8 +79,7 @@ def _predict(payload, model):
     logging.info("Finished inference, applying softmax")
     conf, classes = logits_to_classes(out_batch_logits)
     logging.info(f"Output classes array is {classes.shape}")
-    res = b64encode(classes.numpy()).decode("ascii")
-    return res
+    return classes.numpy(), conf.detach().numpy()
 
 
 @app.post(
@@ -82,5 +90,9 @@ def _predict(payload, model):
 )
 def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
     """predict"""
-    res = _predict(payload, model)
-    return InferenceResult(res=res, bounds=payload.bounds)
+    classes, conf = _predict(payload, model)
+    enc_classes = array_to_b64_image(classes)
+    enc_conf = array_to_b64_image(conf)
+    return InferenceResult(
+        classes=enc_classes, confidence=enc_conf, bounds=payload.bounds
+    )
