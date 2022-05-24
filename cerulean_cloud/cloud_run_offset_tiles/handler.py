@@ -41,7 +41,7 @@ def logits_to_classes(out_batch_logits):
     """
     probs = torch.nn.functional.softmax(out_batch_logits, dim=1)
     conf, classes = torch.max(probs, 1)
-    return (conf,)
+    return (conf, classes)
 
 
 def b64_image_to_tensor(image: str) -> torch.Tensor:
@@ -70,7 +70,10 @@ def ping() -> Dict:
 def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
     """predict"""
     tensor = b64_image_to_tensor(payload.image)
+    tensor = tensor[None, None, :, :]
+    tensor = tensor.expand(1, 3, 512, 512).float()
+
     out_batch_logits = model(tensor)
-    conf = logits_to_classes(out_batch_logits)
-    res = b64encode(conf).decode("ascii")
+    conf, classes = logits_to_classes(out_batch_logits)
+    res = b64encode(classes).decode("ascii")
     return InferenceResult(res=res, bounds=payload.bounds)
