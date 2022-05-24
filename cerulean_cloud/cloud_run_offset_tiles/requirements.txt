@@ -3,4 +3,4 @@ starlette-cramjam==0.1.0
 uvicorn
 Pillow
 setuptools==59.5.0 
-torch==1.11.0+cpu
+torch==1.11.0

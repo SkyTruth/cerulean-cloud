@@ -4,7 +4,11 @@ import pytest
 import torch
 from PIL import Image
 
-from cerulean_cloud.cloud_run_offset_tiles.handler import b64_image_to_tensor
+from cerulean_cloud.cloud_run_offset_tiles.handler import (
+    b64_image_to_tensor,
+    load_tracing_model,
+    logits_to_classes,
+)
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -29,3 +33,19 @@ def test_b64_image_to_tensor():
 
     tensor = b64_image_to_tensor(encoded)
     assert tensor.shape == torch.Size([512, 512])
+
+
+@pytest.mark.skip
+def test_inference():
+    with open("test/test_cerulean_cloud/fixtures/tile_512_512.png", "rb") as src:
+        encoded = b64encode(src.read()).decode("ascii")
+
+    tensor = b64_image_to_tensor(encoded)
+    tensor = tensor[None, None, :, :]
+    tensor = tensor.expand(1, 3, 512, 512).float()
+
+    model = load_tracing_model("cerulean_cloud/cloud_run_offset_tiles/model/model.pt")
+    res = model(tensor)
+    conf, classes = logits_to_classes(res)
+    assert conf.shape == torch.Size([1, 512, 512])
+    assert classes.shape == torch.Size([1, 512, 512])
