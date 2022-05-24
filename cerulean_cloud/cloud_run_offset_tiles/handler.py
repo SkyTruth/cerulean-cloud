@@ -1,6 +1,7 @@
 """Cloud run handler for inference in offset tiles
 Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
+import logging
 from base64 import b64decode, b64encode
 from io import BytesIO
 from typing import Dict
@@ -15,6 +16,8 @@ from schema import InferenceInput, InferenceResult
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
+
+logger = logging.getLogger(__name__)
 
 
 def load_tracing_model(savepath):
@@ -69,11 +72,17 @@ def ping() -> Dict:
 )
 def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
     """predict"""
+    logging.info("Loading tensor!")
     tensor = b64_image_to_tensor(payload.image)
+    logging.info(f"Original tensor has shape {tensor.shape}")
     tensor = tensor[None, None, :, :]
     tensor = tensor.expand(1, 3, 512, 512).float()
+    logging.info(f"Expanded tensor has shape {tensor.shape}")
 
+    logging.info("Running inference...")
     out_batch_logits = model(tensor)
+    logging.info("Finished inference, applying softmax")
     conf, classes = logits_to_classes(out_batch_logits)
+    logging.info(f"Output classes array is {classes.shape}")
     res = b64encode(classes).decode("ascii")
     return InferenceResult(res=res, bounds=payload.bounds)

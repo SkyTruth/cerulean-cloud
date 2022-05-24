@@ -4,3 +4,4 @@ uvicorn
 Pillow
 setuptools==59.5.0 
 torch==1.11.0
+numpy
