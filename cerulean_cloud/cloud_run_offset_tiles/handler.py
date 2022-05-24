@@ -4,7 +4,7 @@ Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 import logging
 from base64 import b64decode, b64encode
 from io import BytesIO
-from typing import Dict
+from typing import Dict, Tuple
 
 import numpy as np
 import torch
@@ -66,7 +66,7 @@ def ping() -> Dict:
     return {"ping": "pong!"}
 
 
-def _predict(payload, model):
+def _predict(payload: InferenceInput, model) -> Tuple[np.ndarray, np.ndarray]:
     logging.info("Loading tensor!")
     tensor = b64_image_to_tensor(payload.image)
     logging.info(f"Original tensor has shape {tensor.shape}")
