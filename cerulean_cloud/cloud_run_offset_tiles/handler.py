@@ -31,13 +31,6 @@ def get_model():
     return load_tracing_model("model/model.pt")
 
 
-def test_tracing_model_one_batch(dls, tracing_model):
-    """test tracing"""
-    x, _ = dls.one_batch()
-    out_batch_logits = tracing_model(x)
-    return out_batch_logits
-
-
 def logits_to_classes(out_batch_logits):
     """returns the confidence scores of the max confident classes
     and an array of max confident class ids.
