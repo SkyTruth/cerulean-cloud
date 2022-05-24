@@ -57,14 +57,7 @@ def ping() -> Dict:
     return {"ping": "pong!"}
 
 
-@app.post(
-    "/predict",
-    description="Run inference",
-    tags=["Run inference"],
-    response_model=InferenceResult,
-)
-def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
-    """predict"""
+def _predict(payload, model):
     logging.info("Loading tensor!")
     tensor = b64_image_to_tensor(payload.image)
     logging.info(f"Original tensor has shape {tensor.shape}")
@@ -77,5 +70,17 @@ def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
     logging.info("Finished inference, applying softmax")
     conf, classes = logits_to_classes(out_batch_logits)
     logging.info(f"Output classes array is {classes.shape}")
-    res = b64encode(classes).decode("ascii")
+    res = b64encode(classes.numpy()).decode("ascii")
+    return res
+
+
+@app.post(
+    "/predict",
+    description="Run inference",
+    tags=["Run inference"],
+    response_model=InferenceResult,
+)
+def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
+    """predict"""
+    res = _predict(payload, model)
     return InferenceResult(res=res, bounds=payload.bounds)

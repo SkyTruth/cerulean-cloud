@@ -5,6 +5,7 @@ import torch
 from PIL import Image
 
 import cerulean_cloud.cloud_run_offset_tiles.handler as handler
+from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -47,3 +48,17 @@ def test_inference():
     conf, classes = handler.logits_to_classes(res)
     assert conf.shape == torch.Size([1, 512, 512])
     assert classes.shape == torch.Size([1, 512, 512])
+
+
+@pytest.mark.skip
+def test_inference_():
+    with open("test/test_cerulean_cloud/fixtures/tile_512_512.png", "rb") as src:
+        encoded = handler.b64encode(src.read()).decode("ascii")
+
+    model = handler.load_tracing_model(
+        "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
+    )
+    payload = InferenceInput(image=encoded)
+
+    res = handler._predict(payload, model)
+    assert len(res) == 2796204
