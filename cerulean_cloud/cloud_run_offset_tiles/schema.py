@@ -18,5 +18,6 @@ class InferenceResult(BaseModel):
     Inference result from the model
     """
 
-    res: str
+    classes: str
+    confidence: str
     bounds: Optional[List[float]]

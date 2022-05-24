@@ -60,5 +60,12 @@ def test_inference_():
     )
     payload = InferenceInput(image=encoded)
 
-    res = handler._predict(payload, model)
-    assert len(res) == 2796204
+    classes, conf = handler._predict(payload, model)
+    enc_classes = handler.array_to_b64_image(classes)
+    enc_conf = handler.array_to_b64_image(conf)
+
+    array_classes = handler.b64_image_to_tensor(enc_classes)
+    assert array_classes.shape == torch.Size([512, 512])
+
+    array_conf = handler.b64_image_to_tensor(enc_conf)
+    assert array_conf.shape == torch.Size([512, 512])
