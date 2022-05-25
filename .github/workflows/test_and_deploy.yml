@@ -34,7 +34,7 @@ jobs:
           python -m pip install -r cerulean_cloud/titiler_sentinel/requirements.txt
 
       - name: Run pytest
-        run: python -m pytest
+        run: python -m pytest --disable-pytest-warnings
 
       # Run pre-commit
       - name: run pre-commit
