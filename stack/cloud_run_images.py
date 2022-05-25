@@ -16,7 +16,7 @@ registry_url = registry.id.apply(
     lambda _: gcp.container.get_registry_repository().repository_url
 )
 cloud_run_offset_tile_image_url = registry_url.apply(
-    lambda url: f"{url}/cloud-run-offset-tile-image-v2"
+    lambda url: f"{url}/cloud-run-offset-tile-image"
 )
 registry_info = None  # use gcloud for authentication.
 
