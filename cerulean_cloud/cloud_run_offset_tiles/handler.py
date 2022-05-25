@@ -2,6 +2,7 @@
 Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
 from base64 import b64decode, b64encode
+from functools import lru_cache
 from io import BytesIO
 from typing import Dict, Tuple
 
@@ -26,6 +27,7 @@ def load_tracing_model(savepath):
     return tracing_model
 
 
+@lru_cache()
 def get_model():
     """load model"""
     return load_tracing_model("model/model.pt")
