@@ -30,9 +30,8 @@ cloud_run_offset_tile_image = docker.Image(
     build=docker.DockerBuild(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_offset",
+        extra_options=["--no-cache"],
     ),
     image_name=cloud_run_offset_tile_image_url,
     registry=registry_info,
 )
-
-pulumi.export("fullImageName", cloud_run_offset_tile_image.image_name)
