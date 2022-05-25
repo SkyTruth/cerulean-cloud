@@ -41,7 +41,7 @@ default = gcp.cloudrun.Service(
         depends_on=[cloud_run_images.cloud_run_offset_tile_image]
     ),
 )
-noauth_iam_policy = gcp.organizations.get_iam_policy(
+noauth_iam_policy_data = gcp.organizations.get_iam_policy(
     bindings=[
         gcp.organizations.GetIAMPolicyBindingArgs(
             role="roles/run.invoker",
@@ -54,5 +54,5 @@ noauth_iam_policy = gcp.cloudrun.IamPolicy(
     location=default.location,
     project=default.project,
     service=default.name,
-    policy_data=noauth_iam_policy.policy_data,
+    policy_data=noauth_iam_policy_data.policy_data,
 )
