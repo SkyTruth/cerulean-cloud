@@ -1,7 +1,6 @@
 """Cloud run handler for inference in offset tiles
 Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
-import logging
 from base64 import b64decode, b64encode
 from io import BytesIO
 from typing import Dict, Tuple
@@ -10,14 +9,15 @@ import numpy as np
 import torch
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi_utils.timing import add_timing_middleware, record_timing
 from PIL import Image
 from schema import InferenceInput, InferenceResult
+from starlette.requests import Request
 
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
-
-logger = logging.getLogger(__name__)
+add_timing_middleware(app, prefix="app")
 
 
 def load_tracing_model(savepath):
@@ -67,18 +67,18 @@ def ping() -> Dict:
 
 
 def _predict(payload: InferenceInput, model) -> Tuple[np.ndarray, np.ndarray]:
-    logging.info("Loading tensor!")
+    print("Loading tensor!")
     tensor = b64_image_to_tensor(payload.image)
-    logging.info(f"Original tensor has shape {tensor.shape}")
+    print(f"Original tensor has shape {tensor.shape}")
     tensor = tensor[None, None, :, :]
     tensor = tensor.expand(1, 3, 512, 512).float()
-    logging.info(f"Expanded tensor has shape {tensor.shape}")
+    print(f"Expanded tensor has shape {tensor.shape}")
 
-    logging.info("Running inference...")
+    print("Running inference...")
     out_batch_logits = model(tensor)
-    logging.info("Finished inference, applying softmax")
+    print("Finished inference, applying softmax")
     conf, classes = logits_to_classes(out_batch_logits)
-    logging.info(f"Output classes array is {classes.shape}")
+    print(f"Output classes array is {classes.shape}")
     return classes.numpy(), conf.detach().numpy()
 
 
@@ -88,11 +88,16 @@ def _predict(payload: InferenceInput, model) -> Tuple[np.ndarray, np.ndarray]:
     tags=["Run inference"],
     response_model=InferenceResult,
 )
-def predict(payload: InferenceInput, model=Depends(get_model)) -> Dict:
+def predict(
+    request: Request, payload: InferenceInput, model=Depends(get_model)
+) -> Dict:
     """predict"""
+    record_timing(request, note="Started")
     classes, conf = _predict(payload, model)
+    record_timing(request, note="Finished inference")
     enc_classes = array_to_b64_image(classes)
     enc_conf = array_to_b64_image(conf)
+    record_timing(request, note="Returning")
     return InferenceResult(
         classes=enc_classes, confidence=enc_conf, bounds=payload.bounds
     )
