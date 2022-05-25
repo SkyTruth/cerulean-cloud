@@ -1,5 +1,6 @@
 from base64 import b64encode
 
+import numpy as np
 import pytest
 import torch
 from PIL import Image
@@ -20,26 +21,26 @@ def test_create_fixture_tile(
     tiles = list(TMS.tiles(*titiler_client.get_bounds(S1_ID), [10], truncate=False))
     tile = tiles[20]
     array = titiler_client.get_base_tile(S1_ID, tile=tile, scale=2, rescale=(0, 100))
-    im = Image.fromarray(array[:, :, 0])
-    im.save("test/test_cerulean_cloud/fixtures/tile_512_512.png")
+    im = Image.fromarray(np.repeat(array[:, :, 0:1], 3, 2))
+    im.save("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png")
 
 
 def test_b64_image_to_tensor():
-    with open("test/test_cerulean_cloud/fixtures/tile_512_512.png", "rb") as src:
+    with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
         encoded = b64encode(src.read()).decode("ascii")
 
     tensor = handler.b64_image_to_tensor(encoded)
-    assert tensor.shape == torch.Size([512, 512])
+    assert tensor.shape == torch.Size([3, 512, 512])
 
 
 @pytest.mark.skip
 def test_inference():
-    with open("test/test_cerulean_cloud/fixtures/tile_512_512.png", "rb") as src:
+    with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
         encoded = handler.b64encode(src.read()).decode("ascii")
 
     tensor = handler.b64_image_to_tensor(encoded)
-    tensor = tensor[None, None, :, :]
-    tensor = tensor.expand(1, 3, 512, 512).float()
+    tensor = tensor[None, :, :, :]
+    tensor = tensor.float()
 
     model = handler.load_tracing_model(
         "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
@@ -52,7 +53,7 @@ def test_inference():
 
 @pytest.mark.skip
 def test_inference_():
-    with open("test/test_cerulean_cloud/fixtures/tile_512_512.png", "rb") as src:
+    with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
         encoded = handler.b64encode(src.read()).decode("ascii")
 
     model = handler.load_tracing_model(

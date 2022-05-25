@@ -49,7 +49,10 @@ def b64_image_to_tensor(image: str) -> torch.Tensor:
     tmp = BytesIO()
     tmp.write(img_bytes)
     img = Image.open(tmp)
+
     np_img = np.array(img)
+    if len(np_img.shape) == 3:
+        np_img = np.moveaxis(np_img, 2, 0)
     return torch.tensor(np_img)
 
 
@@ -72,8 +75,8 @@ def _predict(payload: InferenceInput, model) -> Tuple[np.ndarray, np.ndarray]:
     print("Loading tensor!")
     tensor = b64_image_to_tensor(payload.image)
     print(f"Original tensor has shape {tensor.shape}")
-    tensor = tensor[None, None, :, :]
-    tensor = tensor.expand(1, 3, 512, 512).float()
+    tensor = tensor[None, :, :, :]
+    tensor = tensor.float()
     print(f"Expanded tensor has shape {tensor.shape}")
 
     print("Running inference...")
