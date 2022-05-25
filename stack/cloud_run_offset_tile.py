@@ -27,7 +27,7 @@ default = gcp.cloudrun.Service(
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
         annotations={
-            "generated-by": "magic-modules",
+            "autoscaling.knative.dev/minScale": "1",
         },
     ),
     traffics=[
