@@ -3,7 +3,6 @@ Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
 from base64 import b64decode, b64encode
 from functools import lru_cache
-from io import BytesIO
 from typing import Dict, Tuple
 
 import numpy as np
@@ -11,7 +10,7 @@ import torch
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
-from PIL import Image
+from rasterio.io import MemoryFile
 from schema import InferenceInput, InferenceResult
 from starlette.requests import Request
 
@@ -46,23 +45,29 @@ def b64_image_to_tensor(image: str) -> torch.Tensor:
     """convert input b64image to torch tensor"""
     # handle image
     img_bytes = b64decode(image)
-    tmp = BytesIO()
-    tmp.write(img_bytes)
-    img = Image.open(tmp)
 
-    np_img = np.array(img)
-    if len(np_img.shape) == 3:
-        np_img = np.moveaxis(np_img, 2, 0)
+    with MemoryFile(img_bytes) as memfile:
+        with memfile.open() as dataset:
+            np_img = dataset.read()
+
     return torch.tensor(np_img)
 
 
 def array_to_b64_image(np_array: np.ndarray) -> str:
     """convert input b64image to torch tensor"""
-    # handle image
-    im = Image.fromarray(np.squeeze(np_array).astype("int8"))
-    tmp = BytesIO()
-    im.save(tmp, format="PNG")
-    return b64encode(tmp.getvalue()).decode("ascii")
+    np_array = np_array.astype("int8")
+    with MemoryFile() as memfile:
+        with memfile.open(
+            driver="GTiff",
+            count=np_array.shape[0],
+            dtype=np_array.dtype,
+            width=np_array.shape[1],
+            height=np_array.shape[2],
+        ) as dataset:
+            dataset.write(np_array)
+        img_bytes = memfile.read()
+
+    return b64encode(img_bytes).decode("ascii")
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
