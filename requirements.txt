@@ -9,6 +9,7 @@ Pillow
 numpy
 supermercado
 httpx==0.22.*
+protobuf==3.20.*
 geojson
 shapely
 google-cloud-storage
