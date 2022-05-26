@@ -13,3 +13,4 @@ protobuf==3.20.*
 geojson
 shapely
 google-cloud-storage
+grpcio<=1.43.0
