@@ -28,6 +28,7 @@ default = gcp.cloudrun.Service(
     metadata=gcp.cloudrun.ServiceMetadataArgs(
         annotations={
             "autoscaling.knative.dev/minScale": "1",
+            "run.googleapis.com/launch-stage": "BETA",
         },
     ),
     traffics=[
