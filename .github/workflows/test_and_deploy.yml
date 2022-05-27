@@ -30,9 +30,11 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-test.txt
           python -m pip install -r requirements.txt
+          python -m pip install -r cerulean_cloud/cloud_run_offset_tiles/requirements.txt
+          python -m pip install -r cerulean_cloud/titiler_sentinel/requirements.txt
 
       - name: Run pytest
-        run: python -m pytest
+        run: python -m pytest --disable-pytest-warnings
 
       # Run pre-commit
       - name: run pre-commit
@@ -96,6 +98,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
+      
+      - name: Configure docker
+        run: gcloud auth configure-docker
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -161,6 +166,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
+      
+      - name: Configure docker
+        run: gcloud auth configure-docker
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -226,6 +234,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
+
+      - name: Configure docker
+        run: gcloud auth configure-docker
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3

@@ -1,0 +1,8 @@
+fastapi
+starlette-cramjam==0.1.0
+uvicorn
+rasterio
+setuptools==59.5.0 
+torch==1.11.0
+numpy
+fastapi-utils

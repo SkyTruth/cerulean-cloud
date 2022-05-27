@@ -5,6 +5,7 @@ import os
 
 import docker
 import pulumi
+from google.cloud import storage
 
 project = pulumi.get_project()
 stack = pulumi.get_stack()
@@ -68,3 +69,23 @@ def create_package(code_dir: str) -> str:
         user=0,
     )
     return f"{code_dir}package.zip"
+
+
+def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset:
+    """Gets a file from GCS and saves it to local, returning a pulumi file asset
+
+    Args:
+        bucket (str): a bucket name
+        name (str): a object key
+        out_path (str): an output path (from stack/)
+
+    Returns:
+        pulumi.FileAsset: The output file asset from local file downloaded from GCS
+    """
+    storage_client = storage.Client()
+    gcp_bucket = storage_client.get_bucket(bucket)
+    # Create a blob object from the filepath
+    blob = gcp_bucket.blob(name)
+    # Download the file to a destination
+    blob.download_to_filename(out_path)
+    return pulumi.FileAsset(out_path)

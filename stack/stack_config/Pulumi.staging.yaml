@@ -1,5 +1,8 @@
 encryptionsalt: v1:5bZrZv+vt08=:v1:2g/MGwZygH99RO1o:/SYBjfvFWKhefeTSbupB2bXA3G8wsg==
 config:
+  aws:region: eu-central-1
+  cerulean-cloud:weigths_bucket: ceruleanml
+  cerulean-cloud:weigths_name: experiments/cv2/24_May_2022_01_49_56_fastai_unet/tracing_cpu_test_1batch_18_512_0.082.pt
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
