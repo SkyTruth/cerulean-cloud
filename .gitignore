@@ -169,3 +169,6 @@ scratch/*
 
 *.zip
 .envrc
+
+*.pt 
+*.pth

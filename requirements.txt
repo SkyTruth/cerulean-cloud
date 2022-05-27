@@ -2,12 +2,15 @@ pulumi>=3.0.0,<4.0.0
 pulumi-gcp
 pulumi-aws
 pulumi-command
+pulumi-docker
 docker
-grpcio<=1.43.0
 morecantile
 Pillow
 numpy
 supermercado
-httpx
+httpx==0.22.*
+protobuf==3.20.*
 geojson
 shapely
+google-cloud-storage
+grpcio<=1.43.0
