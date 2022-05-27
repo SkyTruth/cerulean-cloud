@@ -20,7 +20,7 @@ default = gcp.cloudrun.Service(
                             value="remote",
                         ),
                     ],
-                    resources=dict(limits=dict(memory="4Gi", cpu="4000m")),
+                    resources=dict(limits=dict(memory="4Gi", cpu="8000m")),
                 ),
             ],
         )
