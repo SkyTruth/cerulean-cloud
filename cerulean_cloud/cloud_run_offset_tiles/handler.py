@@ -11,8 +11,9 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
 from rasterio.io import MemoryFile
-from schema import InferenceInput, InferenceResult
 from starlette.requests import Request
+
+from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, InferenceResult
 
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
