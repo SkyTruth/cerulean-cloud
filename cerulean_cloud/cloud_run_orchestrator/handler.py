@@ -6,13 +6,16 @@
 import os
 from typing import Dict
 
-from clients import CloudRunInferenceClient
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from schema import OrchestratorInput, OrchestratorResult
 
-from ..tiling import TMS, from_base_tiles_create_offset_tiles
-from ..titiler_client import TitilerClient
+from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
+from cerulean_cloud.cloud_run_orchestrator.schema import (
+    OrchestratorInput,
+    OrchestratorResult,
+)
+from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
+from cerulean_cloud.titiler_client import TitilerClient
 
 app = FastAPI(title="Cloud Run orchestratort")
 # Allow CORS for local debugging
@@ -31,7 +34,9 @@ def get_titiler_client():
 
 def get_cloud_run_inference_client():
     """get inference client"""
-    return CloudRunInferenceClient(url=os.getenv("INFERENCE_URL"))
+    return CloudRunInferenceClient(
+        url=os.getenv("INFERENCE_URL"), titiler_client=get_titiler_client()
+    )
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
