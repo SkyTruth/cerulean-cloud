@@ -1,27 +1,58 @@
 """Clients for other cloud run functions"""
+from base64 import b64encode
 from typing import List
 
 import httpx
 import morecantile
-from schema import InferenceInput, InferenceResult
+import numpy as np
+from rasterio.io import MemoryFile
+from rasterio.plot import reshape_as_raster
+
+from cerulean_cloud.cloud_run_orchestrator.schema import InferenceInput, InferenceResult
+from cerulean_cloud.tiling import TMS
+
+
+def img_array_to_b64_image(img_array: np.ndarray) -> str:
+    """convert input b64image to torch tensor"""
+    img_array = img_array.astype("int8")
+    with MemoryFile() as memfile:
+        with memfile.open(
+            driver="GTiff",
+            count=img_array.shape[2],
+            dtype=img_array.dtype,
+            width=img_array.shape[0],
+            height=img_array.shape[1],
+        ) as dataset:
+            dataset.write(reshape_as_raster(img_array))
+        img_bytes = memfile.read()
+
+    return b64encode(img_bytes).decode("ascii")
 
 
 class CloudRunInferenceClient:
     """Client for inference cloud run"""
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, titiler_client):
         """init"""
         self.url = url
+        self.titiler_client = titiler_client
 
-    def get_base_tile_inference(self, tile: morecantile.Tile) -> InferenceResult:
+    def get_base_tile_inference(
+        self, sceneid: str, tile: morecantile.Tile, rescale=(0, 100)
+    ) -> InferenceResult:
         """fetch inference for base tiles"""
-        inference_input = InferenceInput(image="")
-        print(inference_input)
-        res = httpx.get(self.url)
+        img_array = self.titiler_client.get_base_tile(
+            sceneid, tile=tile, scale=2, rescale=rescale
+        )
 
-        print(res)
-        pass
+        encoded = img_array_to_b64_image(img_array)
 
-    def get_offset_tile_inference(self, bounds: List[float]) -> InferenceResult:
+        inference_input = InferenceInput(image=encoded, bounds=TMS.bounds(tile))
+        res = httpx.post(self.url + "predict/", payload=inference_input.json())
+        return res
+
+    def get_offset_tile_inference(
+        self, sceneid: str, bounds: List[float], rescale=(0, 100)
+    ) -> InferenceResult:
         """fetch inference for offset tiles"""
         pass
