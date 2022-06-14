@@ -42,17 +42,25 @@ class CloudRunInferenceClient:
     ) -> InferenceResult:
         """fetch inference for base tiles"""
         img_array = self.titiler_client.get_base_tile(
-            sceneid, tile=tile, scale=2, rescale=rescale
+            sceneid=sceneid, tile=tile, scale=2, rescale=rescale
         )
 
         encoded = img_array_to_b64_image(img_array)
 
         inference_input = InferenceInput(image=encoded, bounds=TMS.bounds(tile))
-        res = httpx.post(self.url + "predict/", payload=inference_input.json())
+        res = httpx.post(self.url + "predict/", data=inference_input.json())
         return res
 
     def get_offset_tile_inference(
         self, sceneid: str, bounds: List[float], rescale=(0, 100)
     ) -> InferenceResult:
         """fetch inference for offset tiles"""
-        pass
+        img_array = self.titiler_client.get_offset_tile(
+            sceneid, *bounds, rescale=rescale
+        )
+
+        encoded = img_array_to_b64_image(img_array)
+
+        inference_input = InferenceInput(image=encoded, bounds=bounds)
+        res = httpx.post(self.url + "predict/", data=inference_input.json())
+        return res
