@@ -96,7 +96,7 @@ def test_base_tile(titiler_client, tiles_s1_scene, httpx_mock):
         content=img_bytes,
     )
     array = titiler_client.get_base_tile(S1_IDS[0], tile=tile)
-    assert array.shape == (256, 256, 4)
+    assert array.shape == (256, 256, 2)
 
 
 def test_offset_tile(titiler_client, tiles_s1_scene, httpx_mock):
@@ -118,4 +118,4 @@ def test_offset_tile(titiler_client, tiles_s1_scene, httpx_mock):
 
     array = titiler_client.get_offset_tile(S1_IDS[0], minx, miny, maxx, maxy)
     print(minx, miny, maxx, maxy)
-    assert array.shape == (256, 256, 4)
+    assert array.shape == (256, 256, 2)

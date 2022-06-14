@@ -1,12 +1,12 @@
 """client code to interact with titiler for sentinel 1"""
 import urllib.parse as urlib
-from io import BytesIO
 from typing import Dict, List, Tuple
 
 import httpx
 import mercantile
 import numpy as np
-from PIL import Image
+from rasterio.io import MemoryFile
+from rasterio.plot import reshape_as_image
 
 TMS = "WorldCRS84Quad"
 
@@ -84,9 +84,11 @@ class TitilerClient:
         url += f"&rescale={','.join([str(r) for r in rescale])}"
         resp = httpx.get(url)
 
-        img = Image.open(BytesIO(resp.content))
+        with MemoryFile(resp.content) as memfile:
+            with memfile.open() as dataset:
+                np_img = reshape_as_image(dataset.read())
 
-        return np.array(img)
+        return np_img
 
     def get_offset_tile(
         self,
@@ -127,6 +129,9 @@ class TitilerClient:
         url += f"&rescale={','.join([str(r) for r in rescale])}"
         print(url)
         resp = httpx.get(url)
-        img = Image.open(BytesIO(resp.content))
 
-        return np.array(img)
+        with MemoryFile(resp.content) as memfile:
+            with memfile.open() as dataset:
+                np_img = reshape_as_image(dataset.read())
+
+        return np_img
