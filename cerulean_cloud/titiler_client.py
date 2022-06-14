@@ -8,7 +8,9 @@ import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
 
-TMS = "WorldCRS84Quad"
+from cerulean_cloud.tiling import TMS
+
+TMS_TITLE = TMS.identifier
 
 
 class TitilerClient:
@@ -76,7 +78,7 @@ class TitilerClient:
         Returns:
             np.ndarray: The requested tile of the scene as a numpy array.
         """
-        url = urlib.urljoin(self.url, f"tiles/{TMS}/{tile.z}/{tile.x}/{tile.y}")
+        url = urlib.urljoin(self.url, f"tiles/{TMS_TITLE}/{tile.z}/{tile.x}/{tile.y}")
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
         url += f"&format={img_format}"
