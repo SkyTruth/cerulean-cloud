@@ -2,7 +2,7 @@ import mercantile
 import pytest
 
 from cerulean_cloud.tiling import adjacent_tile, pixel_to_location
-from cerulean_cloud.titiler_client import TMS, TitilerClient
+from cerulean_cloud.titiler_client import TMS_TITLE, TitilerClient
 
 
 @pytest.fixture
@@ -92,7 +92,7 @@ def test_base_tile(titiler_client, tiles_s1_scene, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=titiler_client.url
-        + f"tiles/{TMS}/{tile.z}/{tile.x}/{tile.y}?sceneid={sceneid}&bands=vv&format=png&scale=1&rescale=0,1000",
+        + f"tiles/{TMS_TITLE}/{tile.z}/{tile.x}/{tile.y}?sceneid={sceneid}&bands=vv&format=png&scale=1&rescale=0,1000",
         content=img_bytes,
     )
     array = titiler_client.get_base_tile(S1_IDS[0], tile=tile)
