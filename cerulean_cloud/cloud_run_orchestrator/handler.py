@@ -8,10 +8,13 @@ from base64 import b64decode
 from typing import Dict
 
 import numpy as np
+import rasterio
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from rasterio.io import MemoryFile
+from rasterio.merge import merge
 
+from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceResult
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
@@ -76,6 +79,32 @@ def orchestrate(
     return _orchestrate(payload, tiler, titiler_client, cloud_run_inference)
 
 
+def create_dataset_from_inference_result(
+    inference_output: InferenceResult,
+) -> rasterio.io.DatasetReader:
+    """From inference result create a open rasterio dataset for merge"""
+    classes_array = b64_image_to_array(inference_output.classes)
+    conf_array = b64_image_to_array(inference_output.confidence)
+    ar = np.concatenate([classes_array, conf_array])
+
+    transform = rasterio.transform.from_bounds(
+        *inference_output.bounds, width=ar.shape[1], height=ar.shape[2]
+    )
+
+    memfile = MemoryFile()
+    with memfile.open(
+        driver="GTiff",
+        height=ar.shape[1],
+        width=ar.shape[2],
+        count=ar.shape[0],
+        dtype=ar.dtype,
+        transform=transform,
+        crs="EPSG:4326",
+    ) as dst:
+        dst.write(ar)
+    return memfile.open()
+
+
 def _orchestrate(payload, tiler, titiler_client, cloud_run_inference):
     bounds = titiler_client.get_bounds(payload.sceneid)
     stats = titiler_client.get_statistics(payload.sceneid)
@@ -101,6 +130,31 @@ def _orchestrate(payload, tiler, titiler_client, cloud_run_inference):
                 rescale=(stats["vv"]["min"], stats["vv"]["max"]),
             )
         )
+
+    ds_base_tiles = []
+    for base_tile_inference in base_tiles_inference:
+        ds_base_tiles.append(create_dataset_from_inference_result(base_tile_inference))
+
+    ds_offset_tiles = []
+    for offset_tile_inference in offset_tiles_inference:
+        ds_offset_tiles.append(
+            create_dataset_from_inference_result(offset_tile_inference)
+        )
+
+    base_tile_inference_file = MemoryFile()
+    ar, transform = merge(ds_base_tiles)
+    with base_tile_inference_file.open(
+        driver="GTiff",
+        height=ar.shape[1],
+        width=ar.shape[2],
+        count=ar.shape[0],
+        dtype=ar.dtype,
+        transform=transform,
+        crs="EPSG:4326",
+    ) as dst:
+        dst.write(ar)
+
+    # merge(ds_offset_tiles, dst_path="offset.tiff")
 
     return OrchestratorResult(
         ntiles=len(base_tiles_inference), noffsettiles=len(offset_tiles_inference)
