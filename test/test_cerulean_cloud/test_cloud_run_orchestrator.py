@@ -79,6 +79,14 @@ def test_create_fixture_inference(
     ) as dst:
         dst.write(array)
 
+    with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt", "w") as dst:
+        dst.write(res.classes)
+
+    with open(
+        "test/test_cerulean_cloud/fixtures/enc_confidence_512_512.txt", "w"
+    ) as dst:
+        dst.write(res.confidence)
+
 
 @pytest.fixture
 def fixture_titiler_client():
@@ -93,11 +101,25 @@ def fixture_cloud_inference(fixture_titiler_client):
 
 
 def mock_get_base_tile_inference(self, sceneid, tile, rescale):
-    return InferenceResult(classes="", confidence="", bounds=list(TMS.bounds(tile)))
+    with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
+        enc_classes = src.read()
+
+    with open("test/test_cerulean_cloud/fixtures/enc_confidence_512_512.txt") as src:
+        enc_confidence = src.read()
+    return InferenceResult(
+        classes=enc_classes, confidence=enc_confidence, bounds=list(TMS.bounds(tile))
+    )
 
 
 def mock_get_offset_tile_inference(self, sceneid, bounds, rescale):
-    return InferenceResult(classes="", confidence="", bounds=bounds)
+    with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
+        enc_classes = src.read()
+
+    with open("test/test_cerulean_cloud/fixtures/enc_confidence_512_512.txt") as src:
+        enc_confidence = src.read()
+    return InferenceResult(
+        classes=enc_classes, confidence=enc_confidence, bounds=bounds
+    )
 
 
 @patch.object(
