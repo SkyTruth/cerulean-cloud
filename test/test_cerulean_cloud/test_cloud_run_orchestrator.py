@@ -1,3 +1,4 @@
+from base64 import b64decode
 from test.test_cerulean_cloud.test_inference_client import (
     mock_get_base_tile,
     mock_get_offset_tile,
@@ -6,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 import rasterio
+from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
 
 import cerulean_cloud
@@ -153,3 +155,15 @@ def test_orchestrator(httpx_mock, fixture_titiler_client, fixture_cloud_inferenc
     res = _orchestrate(payload, TMS, fixture_titiler_client, fixture_cloud_inference)
     assert res.ntiles == 252
     assert res.noffsettiles == 286
+    assert res.base_inference
+    assert res.offset_inference
+
+    with MemoryFile(b64decode(res.base_inference)) as memfile:
+        with memfile.open() as dataset:
+            np_img = dataset.read()
+            assert np_img.shape == (2, 6144, 10752)
+
+    with MemoryFile(b64decode(res.offset_inference)) as memfile:
+        with memfile.open() as dataset:
+            np_img = dataset.read()
+            assert np_img.shape == (2, 6656, 11264)

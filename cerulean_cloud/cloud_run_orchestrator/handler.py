@@ -4,7 +4,7 @@
 3. Send result of inference to merge tiles cloud run once done
 """
 import os
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from typing import Dict
 
 import numpy as np
@@ -154,8 +154,25 @@ def _orchestrate(payload, tiler, titiler_client, cloud_run_inference):
     ) as dst:
         dst.write(ar)
 
-    # merge(ds_offset_tiles, dst_path="offset.tiff")
+    offset_tile_inference_file = MemoryFile()
+    ar, transform = merge(ds_offset_tiles)
+    with offset_tile_inference_file.open(
+        driver="GTiff",
+        height=ar.shape[1],
+        width=ar.shape[2],
+        count=ar.shape[0],
+        dtype=ar.dtype,
+        transform=transform,
+        crs="EPSG:4326",
+    ) as dst:
+        dst.write(ar)
+
+    base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
+    offset_inference = b64encode(offset_tile_inference_file.read()).decode("ascii")
 
     return OrchestratorResult(
-        ntiles=len(base_tiles_inference), noffsettiles=len(offset_tiles_inference)
+        base_inference=base_inference,
+        offset_inference=offset_inference,
+        ntiles=len(base_tiles_inference),
+        noffsettiles=len(offset_tiles_inference),
     )
