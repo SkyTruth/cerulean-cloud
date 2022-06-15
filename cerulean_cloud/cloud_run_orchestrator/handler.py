@@ -4,10 +4,13 @@
 3. Send result of inference to merge tiles cloud run once done
 """
 import os
+from base64 import b64decode
 from typing import Dict
 
+import numpy as np
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from rasterio.io import MemoryFile
 
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
@@ -20,6 +23,18 @@ from cerulean_cloud.titiler_client import TitilerClient
 app = FastAPI(title="Cloud Run orchestratort")
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
+
+
+def b64_image_to_array(image: str) -> np.ndarray:
+    """convert input b64image to torch tensor"""
+    # handle image
+    img_bytes = b64decode(image)
+
+    with MemoryFile(img_bytes) as memfile:
+        with memfile.open() as dataset:
+            np_img = dataset.read()
+
+    return np_img
 
 
 def get_tiler():
