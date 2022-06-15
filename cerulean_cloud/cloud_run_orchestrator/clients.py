@@ -49,7 +49,7 @@ class CloudRunInferenceClient:
 
         inference_input = InferenceInput(image=encoded, bounds=TMS.bounds(tile))
         res = httpx.post(
-            self.url + "predict/", data=inference_input.json(), timeout=None
+            self.url + "/predict", data=inference_input.json(), timeout=None
         )
         return InferenceResult(**res.json())
 
@@ -65,6 +65,6 @@ class CloudRunInferenceClient:
 
         inference_input = InferenceInput(image=encoded, bounds=bounds)
         res = httpx.post(
-            self.url + "predict/", data=inference_input.json(), timeout=None
+            self.url + "/predict", data=inference_input.json(), timeout=None
         )
         return InferenceResult(**res.json())
