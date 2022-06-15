@@ -30,7 +30,7 @@ def mock_get_offset_tile(self, sceneid, minx, miny, maxx, maxy, rescale):
 def fixture_cloud_inference_tile():
     titiler_client = TitilerClient(url="some_url")
     return CloudRunInferenceClient(
-        url="http://inferenceurl.com/", titiler_client=titiler_client
+        url="http://inferenceurl.com", titiler_client=titiler_client
     )
 
 
@@ -40,7 +40,7 @@ def fixture_cloud_inference_tile():
 def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     httpx_mock.add_response(
         method="POST",
-        url=fixture_cloud_inference_tile.url + "predict/",
+        url=fixture_cloud_inference_tile.url + "/predict",
         json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
     )
 
@@ -56,7 +56,7 @@ def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
 def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     httpx_mock.add_response(
         method="POST",
-        url=fixture_cloud_inference_tile.url + "predict/",
+        url=fixture_cloud_inference_tile.url + "/predict",
         json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
     )
 
