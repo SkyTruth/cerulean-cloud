@@ -30,7 +30,7 @@ def load_tracing_model(savepath):
 @lru_cache()
 def get_model():
     """load model"""
-    return load_tracing_model("model/model.pt")
+    return load_tracing_model("cloud_run_offset_tiles/model/model.pt")
 
 
 def logits_to_classes(out_batch_logits):
