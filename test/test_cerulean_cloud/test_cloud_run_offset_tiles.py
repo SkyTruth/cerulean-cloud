@@ -22,14 +22,13 @@ def test_create_fixture_tile(
     tiles = list(TMS.tiles(*titiler_client.get_bounds(S1_ID), [10], truncate=False))
     tile = tiles[20]
     array = titiler_client.get_base_tile(S1_ID, tile=tile, scale=2, rescale=(0, 100))
-
     with rasterio.open(
         "test/test_cerulean_cloud/fixtures/tile_512_512_3band.png",
         "w",
         driver="PNG",
         height=array.shape[0],
         width=array.shape[1],
-        count=array.shape[2],
+        count=3,
         dtype=array.dtype,
         compress="deflate",
     ) as dst:
@@ -41,7 +40,7 @@ def test_b64_image_to_tensor():
         encoded = b64encode(src.read()).decode("ascii")
 
     tensor = handler.b64_image_to_tensor(encoded)
-    assert tensor.shape == torch.Size([2, 512, 512])
+    assert tensor.shape == torch.Size([3, 512, 512])
 
 
 @pytest.mark.skip
