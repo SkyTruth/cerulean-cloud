@@ -8,7 +8,7 @@ import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 
-from cerulean_cloud.cloud_run_orchestrator.schema import InferenceInput, InferenceResult
+from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, InferenceResult
 from cerulean_cloud.tiling import TMS
 
 
@@ -49,7 +49,7 @@ class CloudRunInferenceClient:
 
         inference_input = InferenceInput(image=encoded, bounds=TMS.bounds(tile))
         res = httpx.post(self.url + "predict/", data=inference_input.json())
-        return res
+        return InferenceResult(**res.json())
 
     def get_offset_tile_inference(
         self, sceneid: str, bounds: List[float], rescale=(0, 100)
@@ -63,4 +63,4 @@ class CloudRunInferenceClient:
 
         inference_input = InferenceInput(image=encoded, bounds=bounds)
         res = httpx.post(self.url + "predict/", data=inference_input.json())
-        return res
+        return InferenceResult(**res.json())
