@@ -58,6 +58,10 @@ def orchestrate(
     cloud_run_inference=Depends(get_cloud_run_inference_client),
 ) -> Dict:
     """orchestrate"""
+    return _orchestrate(payload, tiler, titiler_client, cloud_run_inference)
+
+
+def _orchestrate(payload, tiler, titiler_client, cloud_run_inference):
     bounds = titiler_client.get_bounds(payload.sceneid)
     stats = titiler_client.get_statistics(payload.sceneid)
     print(stats)
