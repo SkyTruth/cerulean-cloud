@@ -1,4 +1,4 @@
-"""infra for cloud run function to perform inference on offset tiles
+"""infra for cloud run function for orchestration
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
 import cloud_run_images
@@ -9,7 +9,7 @@ import titiler_sentinel
 from utils import construct_name
 
 default = gcp.cloudrun.Service(
-    construct_name("cloud-run-orchestrator-tiles"),
+    construct_name("cloud-run-orchestrator"),
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
