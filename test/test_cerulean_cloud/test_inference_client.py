@@ -5,6 +5,7 @@ import rasterio
 from rasterio.plot import reshape_as_image
 
 import cerulean_cloud.titiler_client
+from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceResult
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
@@ -40,13 +41,13 @@ def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     httpx_mock.add_response(
         method="POST",
         url=fixture_cloud_inference_tile.url + "predict/",
-        content="",
+        json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
     )
 
     res = fixture_cloud_inference_tile.get_base_tile_inference(
         sceneid="ABC", tile=TMS._tile(0, 0, 0), rescale=(0, 100)
     )
-    assert res.content == b""
+    assert res.classes == ""
 
 
 @patch.object(
@@ -56,10 +57,10 @@ def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     httpx_mock.add_response(
         method="POST",
         url=fixture_cloud_inference_tile.url + "predict/",
-        content="",
+        json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
     )
 
     res = fixture_cloud_inference_tile.get_offset_tile_inference(
         sceneid="ABC", bounds=[1, 2, 3, 4], rescale=(0, 100)
     )
-    assert res.content == b""
+    assert res.classes == ""
