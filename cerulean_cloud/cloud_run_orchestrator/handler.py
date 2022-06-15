@@ -2,6 +2,11 @@
 1. Generated base and offset tiles from a scene id
 2. Asyncronously place requests to fetch tiles (base and offset), and get inference result
 3. Send result of inference to merge tiles cloud run once done
+
+
+needs env vars:
+- TITILER_URL
+- INFERENCE_URL
 """
 import os
 from base64 import b64decode, b64encode
