@@ -30,8 +30,15 @@ def test_from_base_tiles_create_offset_tiles(tiles_s1_scene):  # noqa: F811
     assert len(out) == expected_result
     print(out[-1])
     assert out[-1] == pytest.approx(
-        (36.518554687499716, 43.37402343750006, 36.606445312499716, 43.28613281250006)
+        (36.518554687499716, 43.28613281250006, 36.606445312499716, 43.37402343750006)
     )
+
+    # Make sure bounds are in minx, miny, maxx, maxy
+
+    for i, o in enumerate(out):
+        # print(i)
+        assert o[1] < o[3]
+        assert o[0] < o[2]
 
 
 @pytest.mark.skip
