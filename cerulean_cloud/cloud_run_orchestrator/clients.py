@@ -48,7 +48,9 @@ class CloudRunInferenceClient:
         encoded = img_array_to_b64_image(img_array)
 
         inference_input = InferenceInput(image=encoded, bounds=TMS.bounds(tile))
-        res = httpx.post(self.url + "predict/", data=inference_input.json())
+        res = httpx.post(
+            self.url + "predict/", data=inference_input.json(), timeout=None
+        )
         return InferenceResult(**res.json())
 
     def get_offset_tile_inference(
@@ -62,5 +64,7 @@ class CloudRunInferenceClient:
         encoded = img_array_to_b64_image(img_array)
 
         inference_input = InferenceInput(image=encoded, bounds=bounds)
-        res = httpx.post(self.url + "predict/", data=inference_input.json())
+        res = httpx.post(
+            self.url + "predict/", data=inference_input.json(), timeout=None
+        )
         return InferenceResult(**res.json())
