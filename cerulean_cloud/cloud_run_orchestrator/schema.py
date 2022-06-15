@@ -16,3 +16,4 @@ class OrchestratorResult(BaseModel):
     """
 
     ntiles: int
+    noffsettiles: int
