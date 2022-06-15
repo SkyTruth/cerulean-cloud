@@ -18,6 +18,9 @@ registry_url = registry.id.apply(
 cloud_run_offset_tile_image_url = registry_url.apply(
     lambda url: f"{url}/cloud-run-offset-tile-image"
 )
+cloud_run_orchestrator_image_url = registry_url.apply(
+    lambda url: f"{url}/cloud-run-orchestrator-image"
+)
 registry_info = None  # use gcloud for authentication.
 
 model_weights = get_file_from_gcs(
@@ -33,5 +36,15 @@ cloud_run_offset_tile_image = docker.Image(
         extra_options=["--no-cache", "--quiet"],
     ),
     image_name=cloud_run_offset_tile_image_url,
+    registry=registry_info,
+)
+cloud_run_orchestrator_image = docker.Image(
+    construct_name("cloud-run-orchestrator-image"),
+    build=docker.DockerBuild(
+        context="../",
+        dockerfile="../Dockerfiles/Dockerfile.cloud_run_orchestrator",
+        extra_options=["--no-cache", "--quiet"],
+    ),
+    image_name=cloud_run_orchestrator_image_url,
     registry=registry_info,
 )
