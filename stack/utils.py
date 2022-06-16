@@ -68,6 +68,7 @@ def create_package(code_dir: str) -> str:
         volumes={os.path.abspath(code_dir): {"bind": "/local/", "mode": "rw"}},
         user=0,
     )
+    print("Copied package package.zip ...")
     return f"{code_dir}package.zip"
 
 
