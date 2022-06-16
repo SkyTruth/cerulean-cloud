@@ -5,12 +5,12 @@ ENV PYTHONUNBUFFERED True
 # RUN apt-get update && apt-get install -y gcc python3-opencv g++ && apt-get -y clean && apt-get -y autoremove
 
 # Copy local code to the container image.
-ENV APP_HOME /cerulean_cloud
+ENV APP_HOME /app
 WORKDIR $APP_HOME
-COPY cerulean_cloud/ /cerulean_cloud/
+COPY cerulean_cloud/ /app/cerulean_cloud/
 
 # Install production dependencies.
-RUN pip install -r cloud_run_orchestrator/requirements.txt
+RUN pip install -r cerulean_cloud/cloud_run_orchestrator/requirements.txt
 
 # Run the web service on container startup. Here we use the gunicorn
 # webserver, with one worker process and 8 threads.
