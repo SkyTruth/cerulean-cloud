@@ -13,8 +13,8 @@ default = gcp.cloudrun.Service(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image=cloud_run_images.cloud_run_offset_tile_image.apply(
-                        lambda cloud_run_image: cloud_run_image.base_image_name
+                    image=cloud_run_images.cloud_run_offset_tile_image.base_image_name.apply(
+                        lambda base_image_name: base_image_name
                     ),
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
