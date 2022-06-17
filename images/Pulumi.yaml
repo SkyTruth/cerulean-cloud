@@ -1,0 +1,7 @@
+name: cerulean-cloud-images
+runtime:
+  name: python
+description: A minimal Python Pulumi program
+stackConfigDir: stack_config/
+backend: 
+  url: gs://cerulean-cloud-state/cerulean-cloud-images/
