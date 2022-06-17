@@ -117,6 +117,16 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
+          work-dir: images/
+          command: up
+          stack-name: test
+          comment-on-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: pulumi/actions@v3
+        env:
+          PULUMI_CONFIG_PASSPHRASE: "test"
+        with:
           command: up
           stack-name: test
           cloud-url: gs://cerulean-cloud-state
