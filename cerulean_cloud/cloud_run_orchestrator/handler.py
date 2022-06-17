@@ -112,7 +112,7 @@ def create_dataset_from_inference_result(
 
 def _orchestrate(payload, tiler, titiler_client, cloud_run_inference):
     bounds = titiler_client.get_bounds(payload.sceneid)
-    stats = titiler_client.get_statistics(payload.sceneid)
+    stats = titiler_client.get_statistics(payload.sceneid, band="vv")
     base_tiles = list(TMS.tiles(*bounds, [10], truncate=False))
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
 
@@ -122,7 +122,7 @@ def _orchestrate(payload, tiler, titiler_client, cloud_run_inference):
             cloud_run_inference.get_base_tile_inference(
                 payload.sceneid,
                 base_tile,
-                rescale=(stats["vv"]["min"], stats["vv"]["max"]),
+                rescale=(stats["min"], stats["max"]),
             )
         )
 
@@ -132,7 +132,7 @@ def _orchestrate(payload, tiler, titiler_client, cloud_run_inference):
             cloud_run_inference.get_offset_tile_inference(
                 payload.sceneid,
                 bounds=offset_tile_bounds,
-                rescale=(stats["vv"]["min"], stats["vv"]["max"]),
+                rescale=(stats["min"], stats["max"]),
             )
         )
 
