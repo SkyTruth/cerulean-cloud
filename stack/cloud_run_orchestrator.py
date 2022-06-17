@@ -6,6 +6,7 @@ import cloud_run_offset_tile
 import pulumi
 import pulumi_gcp as gcp
 import titiler_sentinel
+from cloud_run_offset_tile import noauth_iam_policy_data
 from utils import construct_name
 
 default = gcp.cloudrun.Service(
@@ -54,4 +55,11 @@ default = gcp.cloudrun.Service(
             cloud_run_offset_tile.default,
         ]
     ),
+)
+noauth_iam_policy = gcp.cloudrun.IamPolicy(
+    construct_name("cloud-run-noauth-iam-policy-orchestrator"),
+    location=default.location,
+    project=default.project,
+    service=default.name,
+    policy_data=noauth_iam_policy_data.policy_data,
 )
