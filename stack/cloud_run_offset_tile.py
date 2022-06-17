@@ -13,7 +13,7 @@ default = gcp.cloudrun.Service(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image=cloud_run_images.cloud_run_offset_tile_image.base_image_name,
+                    image=cloud_run_images.cloud_run_offset_tile_image_url,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SOURCE",
@@ -38,9 +38,6 @@ default = gcp.cloudrun.Service(
         )
     ],
     autogenerate_revision_name=True,
-    opts=pulumi.ResourceOptions(
-        depends_on=[cloud_run_images.cloud_run_offset_tile_image]
-    ),
 )
 noauth_iam_policy_data = gcp.organizations.get_iam_policy(
     bindings=[
