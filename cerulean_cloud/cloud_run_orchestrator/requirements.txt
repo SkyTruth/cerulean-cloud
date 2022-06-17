@@ -6,3 +6,5 @@ httpx
 asyncio
 morecantile
 rasterio
+supermercado
+numpy
