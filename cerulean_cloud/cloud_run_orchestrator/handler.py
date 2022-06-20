@@ -132,7 +132,7 @@ def create_dataset_from_inference_result(
 
 
 def _orchestrate(payload, tiler, titiler_client):
-
+    print(f"Orchestrating for sceneid {payload.sceneid}...")
     bounds = titiler_client.get_bounds(payload.sceneid)
     stats = titiler_client.get_statistics(payload.sceneid, band="vv")
     base_tiles = list(tiler.tiles(*bounds, [10], truncate=False))
@@ -140,7 +140,17 @@ def _orchestrate(payload, tiler, titiler_client):
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
     offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
 
+    ntiles = len(base_tiles)
+    noffsettiles = len(offset_tiles_bounds)
+
+    print(f"Preparing {ntiles} base tiles.")
+    print(f"Preparing {noffsettiles} offset tiles.")
+
+    print(f"Scene bounds are {bounds}, stats are {stats}.")
+    print(f"Offset image size is {offset_image_shape} with {offset_bounds} bounds.")
+
     aux_datasets = ["ship_density", os.getenv("AUX_INFRA_DISTANCE")]
+    print(f"Instatiating inference client with aux_dataset = {aux_datasets}...")
     cloud_run_inference = CloudRunInferenceClient(
         url=os.getenv("INFERENCE_URL"),
         titiler_client=titiler_client,
@@ -150,6 +160,7 @@ def _orchestrate(payload, tiler, titiler_client):
         aux_datasets=aux_datasets,
     )
 
+    print("Inferencing base tiles!")
     base_tiles_inference = []
     for base_tile in base_tiles:
         base_tiles_inference.append(
@@ -160,6 +171,7 @@ def _orchestrate(payload, tiler, titiler_client):
             )
         )
 
+    print("Inferencing offset tiles!")
     offset_tiles_inference = []
     for offset_tile_bounds in offset_tiles_bounds:
         offset_tiles_inference.append(
@@ -170,6 +182,7 @@ def _orchestrate(payload, tiler, titiler_client):
             )
         )
 
+    print("Loading all tiles into memory for merge!")
     ds_base_tiles = []
     for base_tile_inference in base_tiles_inference:
         ds_base_tiles.append(create_dataset_from_inference_result(base_tile_inference))
@@ -180,6 +193,7 @@ def _orchestrate(payload, tiler, titiler_client):
             create_dataset_from_inference_result(offset_tile_inference)
         )
 
+    print("Merging base tiles!")
     base_tile_inference_file = MemoryFile()
     ar, transform = merge(ds_base_tiles)
     with base_tile_inference_file.open(
@@ -193,6 +207,7 @@ def _orchestrate(payload, tiler, titiler_client):
     ) as dst:
         dst.write(ar)
 
+    print("Merging offset tiles!")
     offset_tile_inference_file = MemoryFile()
     ar, transform = merge(ds_offset_tiles)
     with offset_tile_inference_file.open(
@@ -206,12 +221,14 @@ def _orchestrate(payload, tiler, titiler_client):
     ) as dst:
         dst.write(ar)
 
+    print("Encoding results!")
     base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
     offset_inference = b64encode(offset_tile_inference_file.read()).decode("ascii")
 
+    print("Returning results!")
     return OrchestratorResult(
         base_inference=base_inference,
         offset_inference=offset_inference,
-        ntiles=len(base_tiles_inference),
-        noffsettiles=len(offset_tiles_inference),
+        ntiles=ntiles,
+        noffsettiles=noffsettiles,
     )
