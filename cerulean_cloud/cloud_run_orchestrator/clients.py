@@ -175,9 +175,6 @@ def get_dist_array(
 
 def handle_aux_datasets(aux_datasets, scene_id, bounds, image_shape, **kwargs):
     """handle aux datasets"""
-    assert (
-        len(aux_datasets) == 2 or len(aux_datasets) == 3
-    )  # so save as png file need RGB or RGBA
 
     aux_dataset_channels = None
     for aux_ds in aux_datasets:
@@ -193,4 +190,19 @@ def handle_aux_datasets(aux_datasets, scene_id, bounds, image_shape, **kwargs):
         else:
             aux_dataset_channels = np.concatenate([aux_dataset_channels, ar], axis=2)
 
-    return aux_dataset_channels
+    aux_memfile = MemoryFile()
+    if aux_dataset_channels is not None:
+        height, width = aux_dataset_channels.shape[0:2]
+        transform = rasterio.transform.from_bounds(*bounds, height, width)
+        with aux_memfile.open(
+            driver="GTiff",
+            count=2,
+            height=height,
+            width=width,
+            dtype=aux_dataset_channels.dtype,
+            transform=transform,
+            crs="EPSG:4326",
+        ) as dataset:
+            dataset.write(reshape_as_raster(aux_dataset_channels))
+
+    return aux_memfile
