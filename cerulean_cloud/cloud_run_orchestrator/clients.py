@@ -223,7 +223,9 @@ def handle_aux_datasets(aux_datasets, scene_id, bounds, image_shape, **kwargs):
     aux_memfile = MemoryFile()
     if aux_dataset_channels is not None:
         height, width = aux_dataset_channels.shape[0:2]
-        transform = rasterio.transform.from_bounds(*bounds, height, width)
+        transform = rasterio.transform.from_bounds(
+            *bounds, height=image_shape[0], width=image_shape[1]
+        )
         with aux_memfile.open(
             driver="GTiff",
             count=len(aux_datasets),

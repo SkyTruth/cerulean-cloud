@@ -56,10 +56,10 @@ def from_tiles_get_offset_shape(
         tiles_np
     )
     hw = scale * 256
-    width = (tilexmax - tilexmin) * hw
-    height = (tileymax - tileymin) * hw
+    width = (tilexmax - tilexmin + 2) * hw
+    height = (tileymax - tileymin + 2) * hw
 
-    return height + 1, width + 1
+    return height, width
 
 
 def from_bounds_get_offset_bounds(bounds: List[List[float]]) -> List[float]:
@@ -132,11 +132,13 @@ def create_dataset_from_inference_result(
 
 
 def _orchestrate(payload, tiler, titiler_client):
+    zoom = 9
+    scale = 2
     print(f"Orchestrating for sceneid {payload.sceneid}...")
     bounds = titiler_client.get_bounds(payload.sceneid)
     stats = titiler_client.get_statistics(payload.sceneid, band="vv")
-    base_tiles = list(tiler.tiles(*bounds, [10], truncate=False))
-    offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=2)
+    base_tiles = list(tiler.tiles(*bounds, [zoom], truncate=False))
+    offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=scale)
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
     offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
 
