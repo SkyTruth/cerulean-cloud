@@ -9,6 +9,10 @@ import titiler_sentinel
 from cloud_run_offset_tile import noauth_iam_policy_data
 from utils import construct_name
 
+config = pulumi.Config()
+
+infra_distance_raster = config.require("infra_distance")
+
 default = gcp.cloudrun.Service(
     construct_name("cloud-run-orchestrator"),
     location=pulumi.Config("gcp").require("region"),
@@ -29,6 +33,10 @@ default = gcp.cloudrun.Service(
                             value=cloud_run_offset_tile.default.statuses.apply(
                                 lambda statuses: statuses[0].url
                             ),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="AUX_INFRA_DISTANCE",
+                            value=infra_distance_raster,
                         ),
                     ],
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
