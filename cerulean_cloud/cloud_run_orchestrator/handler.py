@@ -10,10 +10,12 @@ needs env vars:
 """
 import os
 from base64 import b64decode, b64encode
-from typing import Dict
+from typing import Dict, List, Tuple
 
+import morecantile
 import numpy as np
 import rasterio
+import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from rasterio.io import MemoryFile
@@ -45,6 +47,33 @@ def b64_image_to_array(image: str) -> np.ndarray:
     return np_img
 
 
+def from_tiles_get_offset_shape(
+    tiles: List[morecantile.Tile], scale=2
+) -> Tuple[int, int]:
+    """from a list of tiles, get the expected shape of the image (of offset tiles, +1)"""
+    tiles_np = np.array([(tile.x, tile.y, tile.z) for tile in tiles])
+    tilexmin, tilexmax, tileymin, tileymax = supermercado.super_utils.get_range(
+        tiles_np
+    )
+    hw = scale * 256
+    width = (tilexmax - tilexmin) * hw
+    height = (tileymax - tileymin) * hw
+
+    return height + 1, width + 1
+
+
+def from_bounds_get_offset_bounds(bounds: List[List[float]]) -> List[float]:
+    """from a list of bounds, get the merged bounds (min max)"""
+    bounds_np = np.array([(b[0], b[1], b[2], b[3]) for b in bounds])
+    minx, miny, maxx, maxy = (
+        np.min(bounds_np[:, 0]),
+        np.min(bounds_np[:, 1]),
+        np.max(bounds_np[:, 2]),
+        np.max(bounds_np[:, 3]),
+    )
+    return list((minx, miny, maxx, maxy))
+
+
 def get_tiler():
     """get tiler"""
     return TMS
@@ -53,13 +82,6 @@ def get_tiler():
 def get_titiler_client():
     """get titiler client"""
     return TitilerClient(url=os.getenv("TITILER_URL"))
-
-
-def get_cloud_run_inference_client():
-    """get inference client"""
-    return CloudRunInferenceClient(
-        url=os.getenv("INFERENCE_URL"), titiler_client=get_titiler_client()
-    )
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
@@ -78,10 +100,9 @@ def orchestrate(
     payload: OrchestratorInput,
     tiler=Depends(get_tiler),
     titiler_client=Depends(get_titiler_client),
-    cloud_run_inference=Depends(get_cloud_run_inference_client),
 ) -> Dict:
     """orchestrate"""
-    return _orchestrate(payload, tiler, titiler_client, cloud_run_inference)
+    return _orchestrate(payload, tiler, titiler_client)
 
 
 def create_dataset_from_inference_result(
@@ -110,11 +131,24 @@ def create_dataset_from_inference_result(
     return memfile.open()
 
 
-def _orchestrate(payload, tiler, titiler_client, cloud_run_inference):
+def _orchestrate(payload, tiler, titiler_client):
+
     bounds = titiler_client.get_bounds(payload.sceneid)
     stats = titiler_client.get_statistics(payload.sceneid, band="vv")
-    base_tiles = list(TMS.tiles(*bounds, [10], truncate=False))
+    base_tiles = list(tiler.tiles(*bounds, [10], truncate=False))
+    offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=2)
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
+
+    aux_datasets = ["ship_density", os.getenv("AUX_INFRA_DISTANCE")]
+    cloud_run_inference = CloudRunInferenceClient(
+        url=os.getenv("INFERENCE_URL"),
+        titiler_client=titiler_client,
+        sceneid=payload.sceneid,
+        offset_bounds=offset_bounds,
+        offset_image_shape=offset_image_shape,
+        aux_datasets=aux_datasets,
+    )
 
     base_tiles_inference = []
     for base_tile in base_tiles:

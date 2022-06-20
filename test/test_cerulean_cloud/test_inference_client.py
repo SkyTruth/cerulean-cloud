@@ -25,7 +25,7 @@ def mock_get_base_tile(self, sceneid, tile, scale, rescale):
     return img_array
 
 
-def mock_get_offset_tile(self, sceneid, minx, miny, maxx, maxy, rescale):
+def mock_get_offset_tile(self, sceneid, minx, miny, maxx, maxy, width, height, rescale):
     with rasterio.open("test/test_cerulean_cloud/fixtures/example_tile.png") as src:
         img_array = reshape_as_image(src.read())
 
@@ -45,13 +45,13 @@ def fixture_cloud_inference_tile(httpx_mock):
         url="http://inferenceurl.com",
         titiler_client=titiler_client,
         sceneid="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
-        full_scene_bounds=[
+        offset_bounds=[
             55.69982872351191,
             24.566447533809654,
             58.53597315567021,
             26.496758065384803,
         ],
-        full_scene_image_shape=(4181, 6458),
+        offset_image_shape=(4181, 6458),
         aux_datasets=[
             "ship_density",
             "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
