@@ -8,3 +8,4 @@ morecantile
 rasterio
 supermercado
 numpy
+rio-tiler
