@@ -159,44 +159,39 @@ def test_orchestrator(httpx_mock, fixture_titiler_client):
         httpx_mock.add_response(content=src.read())
 
     res = _orchestrate(payload, TMS, fixture_titiler_client)
-    assert res.ntiles == 252
-    assert res.noffsettiles == 286
+    assert res.ntiles == 66
+    assert res.noffsettiles == 84
     assert res.base_inference
     assert res.offset_inference
 
     with MemoryFile(b64decode(res.base_inference)) as memfile:
         with memfile.open() as dataset:
             np_img = dataset.read()
-            assert np_img.shape == (2, 6144, 10752)
+            assert np_img.shape == (2, 3072, 5632)
 
     with MemoryFile(b64decode(res.offset_inference)) as memfile:
         with memfile.open() as dataset:
             np_img = dataset.read()
-            assert np_img.shape == (2, 6656, 11264)
+            assert np_img.shape == (2, 3584, 6144)
 
 
 def test_from_tiles_get_offset_shape():
-    bounds = [
-        55.69982872351191,
-        24.566447533809654,
-        58.53597315567021,
-        26.496758065384803,
-    ]
-    base_tiles = list(TMS.tiles(*bounds, [10], truncate=False))
+    bounds = [32.989094, 43.338009, 36.540836, 45.235191]
+    base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
     offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=2)
-    assert offset_image_shape == (5633, 8705)
+    assert offset_image_shape == (3584, 6144)
 
 
 def test_from_bounds_get_offset_bounds():
-    bounds = [
-        55.69982872351191,
-        24.566447533809654,
-        58.53597315567021,
-        26.496758065384803,
-    ]
-    base_tiles = list(TMS.tiles(*bounds, [10], truncate=False))
+    bounds = [32.989094, 43.338009, 36.540836, 45.235191]
+    base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
     offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
     assert offset_bounds == pytest.approx(
-        [55.458984374999716, 24.345703125000085, 58.79882812499969, 26.630859375000078]
+        [
+            32.5195312499997442,
+            43.0664062500000568,
+            36.7382812499997442,
+            45.5273437500000568,
+        ]
     )
