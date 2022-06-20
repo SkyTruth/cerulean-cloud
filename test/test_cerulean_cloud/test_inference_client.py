@@ -103,7 +103,7 @@ def test_get_dist_array():
 
 
 def test_handle_aux_datasets(httpx_mock):
-    ar = handle_aux_datasets(
+    ar_mem_file = handle_aux_datasets(
         [
             "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
             "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
@@ -117,7 +117,9 @@ def test_handle_aux_datasets(httpx_mock):
         ],
         image_shape=(4181, 6458),
     )
-    assert ar.shape == (4181, 6458, 2)
+    with ar_mem_file.open() as src:
+        ar = src.read()
+        assert ar.shape == (2, 4181, 6458)
 
     with open(
         "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",
@@ -125,7 +127,7 @@ def test_handle_aux_datasets(httpx_mock):
     ) as src:
         httpx_mock.add_response(content=src.read())
 
-    ar = handle_aux_datasets(
+    ar_mem_file = handle_aux_datasets(
         [
             "ship_density",
             "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
@@ -139,4 +141,6 @@ def test_handle_aux_datasets(httpx_mock):
         ],
         image_shape=(4181, 6458),
     )
-    assert ar.shape == (4181, 6458, 2)
+    with ar_mem_file.open() as src:
+        ar = src.read()
+        assert ar.shape == (2, 4181, 6458)
