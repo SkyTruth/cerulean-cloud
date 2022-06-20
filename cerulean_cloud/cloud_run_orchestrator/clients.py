@@ -44,24 +44,26 @@ class CloudRunInferenceClient:
         url: str,
         titiler_client,
         sceneid: str,
-        full_scene_bounds: List[float],
-        full_scene_image_shape: Tuple[int, int],
+        offset_bounds: List[float],
+        offset_image_shape: Tuple[int, int],
         aux_datasets: List[str] = [],
+        scale=2,
     ):
         """init"""
         self.url = url
         self.titiler_client = titiler_client
         self.sceneid = sceneid
         self.aux_datasets = handle_aux_datasets(
-            aux_datasets, self.sceneid, full_scene_bounds, full_scene_image_shape
+            aux_datasets, self.sceneid, offset_bounds, offset_image_shape
         )
+        self.scale = 2  # 1=256, 2=512, 3=...
 
     def get_base_tile_inference(
         self, tile: morecantile.Tile, rescale=(0, 100)
     ) -> InferenceResult:
         """fetch inference for base tiles"""
         img_array = self.titiler_client.get_base_tile(
-            sceneid=self.sceneid, tile=tile, scale=2, rescale=rescale
+            sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
         )
         img_array = reshape_as_raster(img_array)
         bounds = list(TMS.bounds(tile))
@@ -84,8 +86,9 @@ class CloudRunInferenceClient:
         self, bounds: List[float], rescale=(0, 100)
     ) -> InferenceResult:
         """fetch inference for offset tiles"""
+        hw = self.scale * 256
         img_array = self.titiler_client.get_offset_tile(
-            self.sceneid, *bounds, rescale=rescale
+            self.sceneid, *bounds, width=hw, height=hw, rescale=rescale
         )
         img_array = reshape_as_raster(img_array)
         with self.aux_datasets.open() as src:

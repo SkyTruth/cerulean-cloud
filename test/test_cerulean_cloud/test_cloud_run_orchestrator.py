@@ -1,3 +1,4 @@
+import os
 from base64 import b64decode
 from test.test_cerulean_cloud.test_inference_client import (
     mock_get_base_tile,
@@ -16,9 +17,11 @@ from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClien
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
     b64_image_to_array,
+    from_bounds_get_offset_bounds,
+    from_tiles_get_offset_shape,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
-from cerulean_cloud.tiling import TMS
+from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
 S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
@@ -95,13 +98,6 @@ def fixture_titiler_client():
     return TitilerClient("some_url")
 
 
-@pytest.fixture
-def fixture_cloud_inference(fixture_titiler_client):
-    return CloudRunInferenceClient(
-        url="some_url", titiler_client=fixture_titiler_client
-    )
-
-
 def mock_get_base_tile_inference(self, sceneid, tile, rescale):
     with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
         enc_classes = src.read()
@@ -150,9 +146,19 @@ def mock_get_offset_tile_inference(self, sceneid, bounds, rescale):
     "get_offset_tile_inference",
     mock_get_offset_tile_inference,
 )
-def test_orchestrator(httpx_mock, fixture_titiler_client, fixture_cloud_inference):
+@patch.dict(
+    os.environ,
+    {"AUX_INFRA_DISTANCE": "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"},
+)
+def test_orchestrator(httpx_mock, fixture_titiler_client):
     payload = OrchestratorInput(sceneid=S1_ID)
-    res = _orchestrate(payload, TMS, fixture_titiler_client, fixture_cloud_inference)
+    with open(
+        "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",
+        "rb",
+    ) as src:
+        httpx_mock.add_response(content=src.read())
+
+    res = _orchestrate(payload, TMS, fixture_titiler_client)
     assert res.ntiles == 252
     assert res.noffsettiles == 286
     assert res.base_inference
@@ -167,3 +173,30 @@ def test_orchestrator(httpx_mock, fixture_titiler_client, fixture_cloud_inferenc
         with memfile.open() as dataset:
             np_img = dataset.read()
             assert np_img.shape == (2, 6656, 11264)
+
+
+def test_from_tiles_get_offset_shape():
+    bounds = [
+        55.69982872351191,
+        24.566447533809654,
+        58.53597315567021,
+        26.496758065384803,
+    ]
+    base_tiles = list(TMS.tiles(*bounds, [10], truncate=False))
+    offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=2)
+    assert offset_image_shape == (5633, 8705)
+
+
+def test_from_bounds_get_offset_bounds():
+    bounds = [
+        55.69982872351191,
+        24.566447533809654,
+        58.53597315567021,
+        26.496758065384803,
+    ]
+    base_tiles = list(TMS.tiles(*bounds, [10], truncate=False))
+    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
+    assert offset_bounds == pytest.approx(
+        [55.458984374999716, 24.345703125000085, 58.79882812499969, 26.630859375000078]
+    )
