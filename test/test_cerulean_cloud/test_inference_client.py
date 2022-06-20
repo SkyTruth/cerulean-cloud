@@ -33,10 +33,29 @@ def mock_get_offset_tile(self, sceneid, minx, miny, maxx, maxy, rescale):
 
 
 @pytest.fixture
-def fixture_cloud_inference_tile():
+def fixture_cloud_inference_tile(httpx_mock):
     titiler_client = TitilerClient(url="some_url")
+    with open(
+        "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",
+        "rb",
+    ) as src:
+        httpx_mock.add_response(content=src.read())
+
     return CloudRunInferenceClient(
-        url="http://inferenceurl.com", titiler_client=titiler_client
+        url="http://inferenceurl.com",
+        titiler_client=titiler_client,
+        sceneid="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
+        full_scene_bounds=[
+            55.69982872351191,
+            24.566447533809654,
+            58.53597315567021,
+            26.496758065384803,
+        ],
+        full_scene_image_shape=(4181, 6458),
+        aux_datasets=[
+            "ship_density",
+            "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
+        ],
     )
 
 
@@ -51,7 +70,7 @@ def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     )
 
     res = fixture_cloud_inference_tile.get_base_tile_inference(
-        sceneid="ABC", tile=TMS._tile(0, 0, 0), rescale=(0, 100)
+        tile=TMS._tile(0, 0, 0), rescale=(0, 100)
     )
     assert res.classes == ""
 
@@ -67,7 +86,7 @@ def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     )
 
     res = fixture_cloud_inference_tile.get_offset_tile_inference(
-        sceneid="ABC", bounds=[1, 2, 3, 4], rescale=(0, 100)
+        bounds=list(TMS.bounds(TMS._tile(0, 0, 0))), rescale=(0, 100)
     )
     assert res.classes == ""
 
