@@ -138,7 +138,7 @@ def mock_get_offset_tile_inference(self, sceneid, bounds, rescale):
 @patch.object(
     cerulean_cloud.titiler_client.TitilerClient,
     "get_statistics",
-    lambda *args: {"vv": {"min": 1, "max": 10}},
+    lambda *args, **kwargs: {"min": 1, "max": 10},
 )
 @patch.object(
     cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
