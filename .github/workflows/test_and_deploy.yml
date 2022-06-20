@@ -156,6 +156,15 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        env:
+          PULUMI_CONFIG_PASSPHRASE: "staging"
+        with:
+          work-dir: images/
+          command: preview
+          stack-name: staging
+          comment-on-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pulumi/actions@v3
         with:
           command: preview
           stack-name: staging
@@ -192,6 +201,15 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        env:
+          PULUMI_CONFIG_PASSPHRASE: "staging"
+        with:
+          work-dir: images/
+          command: up
+          stack-name: staging
+          comment-on-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: pulumi/actions@v3
         with:
           command: up
           stack-name: staging
@@ -223,6 +241,15 @@ jobs:
           aws-region: eu-central-1
 
       - run: pip install -r requirements.txt
+      - uses: pulumi/actions@v3
+        env:
+          PULUMI_CONFIG_PASSPHRASE: "production"
+        with:
+          work-dir: images/
+          command: preview
+          stack-name: production
+          comment-on-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: pulumi/actions@v3
         with:
           command: preview
@@ -259,6 +286,15 @@ jobs:
         run: gcloud auth configure-docker
 
       - run: pip install -r requirements.txt
+      - uses: pulumi/actions@v3
+        env:
+          PULUMI_CONFIG_PASSPHRASE: "production"
+        with:
+          work-dir: images/
+          command: up
+          stack-name: production
+          comment-on-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: pulumi/actions@v3
         with:
           command: up
