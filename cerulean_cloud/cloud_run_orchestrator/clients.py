@@ -25,12 +25,12 @@ def img_array_to_b64_image(img_array: np.ndarray) -> str:
     with MemoryFile() as memfile:
         with memfile.open(
             driver="GTiff",
-            count=img_array.shape[2],
+            count=img_array.shape[0],
             dtype=img_array.dtype,
-            width=img_array.shape[0],
-            height=img_array.shape[1],
+            width=img_array.shape[1],
+            height=img_array.shape[2],
         ) as dataset:
-            dataset.write(reshape_as_raster(img_array))
+            dataset.write(img_array)
         img_bytes = memfile.read()
 
     return b64encode(img_bytes).decode("ascii")
@@ -39,18 +39,38 @@ def img_array_to_b64_image(img_array: np.ndarray) -> str:
 class CloudRunInferenceClient:
     """Client for inference cloud run"""
 
-    def __init__(self, url: str, titiler_client):
+    def __init__(
+        self,
+        url: str,
+        titiler_client,
+        sceneid: str,
+        full_scene_bounds: List[float],
+        full_scene_image_shape: Tuple[int, int],
+        aux_datasets: List[str] = [],
+    ):
         """init"""
         self.url = url
         self.titiler_client = titiler_client
+        self.sceneid = sceneid
+        self.aux_datasets = handle_aux_datasets(
+            aux_datasets, self.sceneid, full_scene_bounds, full_scene_image_shape
+        )
 
     def get_base_tile_inference(
-        self, sceneid: str, tile: morecantile.Tile, rescale=(0, 100)
+        self, tile: morecantile.Tile, rescale=(0, 100)
     ) -> InferenceResult:
         """fetch inference for base tiles"""
         img_array = self.titiler_client.get_base_tile(
-            sceneid=sceneid, tile=tile, scale=2, rescale=rescale
+            sceneid=self.sceneid, tile=tile, scale=2, rescale=rescale
         )
+        img_array = reshape_as_raster(img_array)
+        bounds = list(TMS.bounds(tile))
+        with self.aux_datasets.open() as src:
+            window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
+            height, width = img_array.shape[1:]
+            aux_ds = src.read(window=window, out_shape=(height, width))
+
+        img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
 
         encoded = img_array_to_b64_image(img_array)
 
@@ -61,12 +81,19 @@ class CloudRunInferenceClient:
         return InferenceResult(**res.json())
 
     def get_offset_tile_inference(
-        self, sceneid: str, bounds: List[float], rescale=(0, 100)
+        self, bounds: List[float], rescale=(0, 100)
     ) -> InferenceResult:
         """fetch inference for offset tiles"""
         img_array = self.titiler_client.get_offset_tile(
-            sceneid, *bounds, rescale=rescale
+            self.sceneid, *bounds, rescale=rescale
         )
+        img_array = reshape_as_raster(img_array)
+        with self.aux_datasets.open() as src:
+            window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
+            height, width = img_array.shape[1:]
+            aux_ds = src.read(window=window, out_shape=(height, width))
+
+        img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
 
         encoded = img_array_to_b64_image(img_array)
 
