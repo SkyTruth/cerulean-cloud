@@ -1,11 +1,9 @@
+import json
 import os
 from base64 import b64decode
-from test.test_cerulean_cloud.test_inference_client import (
-    mock_get_base_tile,
-    mock_get_offset_tile,
-)
 from unittest.mock import patch
 
+import httpx
 import pytest
 import rasterio
 from rasterio.io import MemoryFile
@@ -121,12 +119,6 @@ def mock_get_offset_tile_inference(self, bounds, rescale):
 
 
 @patch.object(
-    cerulean_cloud.titiler_client.TitilerClient, "get_base_tile", mock_get_base_tile
-)
-@patch.object(
-    cerulean_cloud.titiler_client.TitilerClient, "get_offset_tile", mock_get_offset_tile
-)
-@patch.object(
     cerulean_cloud.titiler_client.TitilerClient,
     "get_bounds",
     lambda *args: [32.989094, 43.338009, 36.540836, 45.235191],
@@ -195,3 +187,52 @@ def test_from_bounds_get_offset_bounds():
             45.5273437500000568,
         ]
     )
+
+
+def custom_response(url, data, timeout):
+    data = json.loads(data)
+    r = InferenceResult(
+        classes=data["image"], confidence=data["image"], bounds=data["bounds"]
+    )
+    return httpx.Response(status_code=200, json=r.dict())
+
+
+@pytest.mark.skip()
+@patch.object(httpx, "post", custom_response)
+@patch.dict(
+    os.environ,
+    {
+        "AUX_INFRA_DISTANCE": "https://storage.googleapis.com/ceruleanml/aux_datasets/infra_locations_01_cogeo.tiff",
+        "INFERENCE_URL": "http://someurl.test",
+    },
+)
+def test_orchestrator_live():
+    payload = OrchestratorInput(sceneid=S1_ID)
+    titiler_client = TitilerClient(
+        "https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/"
+    )
+
+    res = _orchestrate(payload, TMS, titiler_client)
+    assert res.ntiles == 66
+    assert res.noffsettiles == 84
+    assert res.base_inference
+    assert res.offset_inference
+
+    with MemoryFile(b64decode(res.base_inference)) as memfile:
+        with memfile.open() as dataset:
+            np_img = dataset.read()
+            with rasterio.open(
+                "scratch/test_out_base.tiff", **dataset.profile, mode="w"
+            ) as dst:
+                dst.write(np_img)
+                # 6 since class is 3 and conf is 3
+            assert np_img.shape == (6, 3072, 5632)
+
+    with MemoryFile(b64decode(res.offset_inference)) as memfile:
+        with memfile.open() as dataset:
+            np_img = dataset.read()
+            with rasterio.open(
+                "scratch/test_out_offset.tiff", **dataset.profile, mode="w"
+            ) as dst:
+                dst.write(np_img)
+            assert np_img.shape == (6, 3584, 6144)
