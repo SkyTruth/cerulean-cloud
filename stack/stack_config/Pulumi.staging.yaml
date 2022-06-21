@@ -1,7 +1,7 @@
 encryptionsalt: v1:5bZrZv+vt08=:v1:2g/MGwZygH99RO1o:/SYBjfvFWKhefeTSbupB2bXA3G8wsg==
 config:
   aws:region: eu-central-1
-  cerulean-cloud:infra_distance: gs://ceruleanml/aux_datasets/infra_locations_01_cogeo.tiff
+  cerulean-cloud:infra_distance: https://storage.googleapis.com/ceruleanml/aux_datasets/infra_locations_01_cogeo.tiff
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
