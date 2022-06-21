@@ -98,7 +98,7 @@ def fixture_titiler_client():
     return TitilerClient("some_url")
 
 
-def mock_get_base_tile_inference(self, sceneid, tile, rescale):
+def mock_get_base_tile_inference(self, tile, rescale):
     with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
         enc_classes = src.read()
 
@@ -109,7 +109,7 @@ def mock_get_base_tile_inference(self, sceneid, tile, rescale):
     )
 
 
-def mock_get_offset_tile_inference(self, sceneid, bounds, rescale):
+def mock_get_offset_tile_inference(self, bounds, rescale):
     with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
         enc_classes = src.read()
 

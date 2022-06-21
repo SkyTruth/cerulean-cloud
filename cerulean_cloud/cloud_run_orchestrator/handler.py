@@ -167,8 +167,7 @@ def _orchestrate(payload, tiler, titiler_client):
     for base_tile in base_tiles:
         base_tiles_inference.append(
             cloud_run_inference.get_base_tile_inference(
-                payload.sceneid,
-                base_tile,
+                tile=base_tile,
                 rescale=(stats["min"], stats["max"]),
             )
         )
@@ -178,7 +177,6 @@ def _orchestrate(payload, tiler, titiler_client):
     for offset_tile_bounds in offset_tiles_bounds:
         offset_tiles_inference.append(
             cloud_run_inference.get_offset_tile_inference(
-                payload.sceneid,
                 bounds=offset_tile_bounds,
                 rescale=(stats["min"], stats["max"]),
             )
