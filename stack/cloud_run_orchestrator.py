@@ -42,6 +42,7 @@ default = gcp.cloudrun.Service(
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
                 ),
             ],
+            timeout_seconds=3600,
         )
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
