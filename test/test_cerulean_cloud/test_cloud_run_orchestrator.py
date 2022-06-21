@@ -157,7 +157,7 @@ def test_orchestrator(httpx_mock, fixture_titiler_client):
     assert res.ntiles == 66
     assert res.noffsettiles == 84
     assert res.base_inference
-    assert res.offset_inference == ""
+    assert res.offset_inference
     with MemoryFile(b64decode(res.base_inference)) as memfile:
         with memfile.open() as dataset:
             np_img = dataset.read()
