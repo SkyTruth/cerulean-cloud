@@ -1,0 +1,165 @@
+from unittest.mock import patch
+
+import numpy as np
+import pytest
+import rasterio
+from rasterio.plot import reshape_as_image
+
+import cerulean_cloud.titiler_client
+from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceResult
+from cerulean_cloud.cloud_run_orchestrator.clients import (
+    CloudRunInferenceClient,
+    get_dist_array,
+    get_ship_density,
+    handle_aux_datasets,
+)
+from cerulean_cloud.tiling import TMS
+from cerulean_cloud.titiler_client import TitilerClient
+
+
+def mock_get_base_tile(self, sceneid, tile, scale, rescale):
+
+    with rasterio.open("test/test_cerulean_cloud/fixtures/example_tile.png") as src:
+        img_array = reshape_as_image(src.read())
+
+    return img_array
+
+
+def mock_get_offset_tile(self, sceneid, minx, miny, maxx, maxy, width, height, rescale):
+    with rasterio.open("test/test_cerulean_cloud/fixtures/example_tile.png") as src:
+        img_array = reshape_as_image(src.read())
+
+    return img_array
+
+
+@pytest.fixture
+def fixture_cloud_inference_tile(httpx_mock):
+    titiler_client = TitilerClient(url="some_url")
+    with open(
+        "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",
+        "rb",
+    ) as src:
+        httpx_mock.add_response(content=src.read())
+
+    return CloudRunInferenceClient(
+        url="http://inferenceurl.com",
+        titiler_client=titiler_client,
+        sceneid="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
+        offset_bounds=[
+            55.69982872351191,
+            24.566447533809654,
+            58.53597315567021,
+            26.496758065384803,
+        ],
+        offset_image_shape=(4181, 6458),
+        aux_datasets=[
+            "ship_density",
+            "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
+        ],
+    )
+
+
+@patch.object(
+    cerulean_cloud.titiler_client.TitilerClient, "get_base_tile", mock_get_base_tile
+)
+def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=fixture_cloud_inference_tile.url + "/predict",
+        json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
+    )
+
+    res = fixture_cloud_inference_tile.get_base_tile_inference(
+        tile=TMS._tile(0, 0, 0), rescale=(0, 100)
+    )
+    assert res.classes == ""
+
+
+@patch.object(
+    cerulean_cloud.titiler_client.TitilerClient, "get_offset_tile", mock_get_offset_tile
+)
+def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_mock):
+    httpx_mock.add_response(
+        method="POST",
+        url=fixture_cloud_inference_tile.url + "/predict",
+        json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
+    )
+
+    res = fixture_cloud_inference_tile.get_offset_tile_inference(
+        bounds=list(TMS.bounds(TMS._tile(0, 0, 0))), rescale=(0, 100)
+    )
+    assert res.classes == ""
+
+
+def test_get_ship_density(httpx_mock):
+    with open(
+        "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",
+        "rb",
+    ) as src:
+        httpx_mock.add_response(content=src.read())
+    arr = get_ship_density(
+        bounds=(55.698181, 24.565813, 58.540211, 26.494711), img_shape=(4181, 6458)
+    )
+    assert arr.shape == (4181, 6458)
+    assert arr.dtype == np.dtype(np.uint8)
+    assert np.max(arr) == 255
+    assert np.min(arr) == 0
+
+
+def test_get_dist_array():
+
+    arr = get_dist_array(
+        bounds=(55.698181, 24.565813, 58.540211, 26.494711),
+        img_shape=(4181, 6458),
+        raster_ds="test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
+    )
+    assert arr.shape == (4181, 6458)
+    assert arr.dtype == np.dtype(np.uint8)
+    assert np.max(arr) == 255
+    assert np.min(arr) == 0
+
+    # test all 0 input
+
+
+def test_handle_aux_datasets(httpx_mock):
+    ar_mem_file = handle_aux_datasets(
+        [
+            "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
+            "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
+        ],
+        scene_id="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
+        bounds=[
+            55.69982872351191,
+            24.566447533809654,
+            58.53597315567021,
+            26.496758065384803,
+        ],
+        image_shape=(4181, 6458),
+    )
+    with ar_mem_file.open() as src:
+        ar = src.read()
+        assert ar.shape == (2, 4181, 6458)
+
+    with open(
+        "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",
+        "rb",
+    ) as src:
+        httpx_mock.add_response(content=src.read())
+
+    ar_mem_file = handle_aux_datasets(
+        [
+            "ship_density",
+            "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
+        ],
+        scene_id="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
+        bounds=[
+            55.69982872351191,
+            24.566447533809654,
+            58.53597315567021,
+            26.496758065384803,
+        ],
+        image_shape=(4181, 6458),
+    )
+    with ar_mem_file.open() as src:
+        ar = src.read()
+        assert ar.shape == (2, 4181, 6458)

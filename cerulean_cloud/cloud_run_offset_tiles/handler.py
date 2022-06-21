@@ -11,8 +11,9 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
 from rasterio.io import MemoryFile
-from schema import InferenceInput, InferenceResult
 from starlette.requests import Request
+
+from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, InferenceResult
 
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
@@ -29,7 +30,7 @@ def load_tracing_model(savepath):
 @lru_cache()
 def get_model():
     """load model"""
-    return load_tracing_model("model/model.pt")
+    return load_tracing_model("cerulean_cloud/cloud_run_offset_tiles/model/model.pt")
 
 
 def logits_to_classes(out_batch_logits):
