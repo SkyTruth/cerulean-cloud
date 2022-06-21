@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from base64 import b64decode
 from unittest.mock import patch
 
@@ -151,16 +152,16 @@ def test_orchestrator(httpx_mock, fixture_titiler_client):
         httpx_mock.add_response(content=src.read())
 
     res = _orchestrate(payload, TMS, fixture_titiler_client)
+    # max payload is 32 MB
+    assert sys.getsizeof(res.json()) / 1000000 < 32
     assert res.ntiles == 66
     assert res.noffsettiles == 84
     assert res.base_inference
-    assert res.offset_inference
-
+    assert res.offset_inference == ""
     with MemoryFile(b64decode(res.base_inference)) as memfile:
         with memfile.open() as dataset:
             np_img = dataset.read()
             assert np_img.shape == (2, 3072, 5632)
-
     with MemoryFile(b64decode(res.offset_inference)) as memfile:
         with memfile.open() as dataset:
             np_img = dataset.read()
