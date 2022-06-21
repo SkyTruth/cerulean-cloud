@@ -1,0 +1,74 @@
+"""infra for cloud run function for orchestration
+Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
+"""
+import cloud_run_images
+import cloud_run_offset_tile
+import pulumi
+import pulumi_gcp as gcp
+import titiler_sentinel
+from cloud_run_offset_tile import noauth_iam_policy_data
+from utils import construct_name
+
+config = pulumi.Config()
+
+infra_distance_raster = config.require("infra_distance")
+
+default = gcp.cloudrun.Service(
+    construct_name("cloud-run-orchestrator"),
+    location=pulumi.Config("gcp").require("region"),
+    template=gcp.cloudrun.ServiceTemplateArgs(
+        spec=gcp.cloudrun.ServiceTemplateSpecArgs(
+            containers=[
+                gcp.cloudrun.ServiceTemplateSpecContainerArgs(
+                    image=cloud_run_images.cloud_run_orchestrator_image_url,
+                    envs=[
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TITILER_URL",
+                            value=titiler_sentinel.lambda_api.api_endpoint.apply(
+                                lambda api_endpoint: api_endpoint
+                            ),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="INFERENCE_URL",
+                            value=cloud_run_offset_tile.default.statuses.apply(
+                                lambda statuses: statuses[0].url
+                            ),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="AUX_INFRA_DISTANCE",
+                            value=infra_distance_raster,
+                        ),
+                    ],
+                    resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
+                ),
+            ],
+            timeout_seconds=3600,
+        )
+    ),
+    metadata=gcp.cloudrun.ServiceMetadataArgs(
+        annotations={
+            "autoscaling.knative.dev/minScale": "1",
+            "run.googleapis.com/launch-stage": "BETA",
+        },
+    ),
+    traffics=[
+        gcp.cloudrun.ServiceTrafficArgs(
+            percent=100,
+            latest_revision=True,
+        )
+    ],
+    autogenerate_revision_name=True,
+    opts=pulumi.ResourceOptions(
+        depends_on=[
+            titiler_sentinel.lambda_api,
+            cloud_run_offset_tile.default,
+        ]
+    ),
+)
+noauth_iam_policy = gcp.cloudrun.IamPolicy(
+    construct_name("cloud-run-noauth-iam-policy-orchestrator"),
+    location=default.location,
+    project=default.project,
+    service=default.name,
+    policy_data=noauth_iam_policy_data.policy_data,
+)

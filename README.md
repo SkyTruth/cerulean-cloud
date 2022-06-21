@@ -50,3 +50,10 @@ pulumi preview
 ```
 pulumi up
 ```
+
+## Troubleshooting
+
+If pulumi throws funky errors at deployment, you can run in your current stack:
+```
+pulumi refresh
+```

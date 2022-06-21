@@ -1,0 +1,11 @@
+fastapi
+starlette-cramjam==0.1.0
+uvicorn
+setuptools==59.5.0 
+httpx
+asyncio
+morecantile
+rasterio
+supermercado
+numpy
+rio-tiler

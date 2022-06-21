@@ -5,7 +5,6 @@ pulumi-command
 pulumi-docker
 docker
 morecantile
-Pillow
 numpy
 supermercado
 httpx==0.22.*

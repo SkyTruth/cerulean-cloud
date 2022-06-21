@@ -1,22 +1,25 @@
 """client code to interact with titiler for sentinel 1"""
 import urllib.parse as urlib
-from io import BytesIO
 from typing import Dict, List, Tuple
 
 import httpx
 import mercantile
 import numpy as np
-from PIL import Image
+from rasterio.io import MemoryFile
+from rasterio.plot import reshape_as_image
 
-TMS = "WorldCRS84Quad"
+from cerulean_cloud.tiling import TMS
+
+TMS_TITLE = TMS.identifier
 
 
 class TitilerClient:
     """client for titiler S1"""
 
-    def __init__(self, url: str):
+    def __init__(self, url: str, timeout=None):
         """use deployment of titiler URL"""
         self.url = url
+        self.timeout = timeout
 
     def get_bounds(self, sceneid: str) -> List[float]:
         """fetch bounds of a scene
@@ -32,7 +35,7 @@ class TitilerClient:
         """
         url = urlib.urljoin(self.url, "bounds")
         url += f"?sceneid={sceneid}"
-        resp = httpx.get(url)
+        resp = httpx.get(url, timeout=self.timeout)
         return resp.json()["bounds"]
 
     def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
@@ -50,7 +53,7 @@ class TitilerClient:
         url = urlib.urljoin(self.url, "statistics")
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
-        resp = httpx.get(url)
+        resp = httpx.get(url, timeout=self.timeout)
         return resp.json()[band]
 
     def get_base_tile(
@@ -76,17 +79,19 @@ class TitilerClient:
         Returns:
             np.ndarray: The requested tile of the scene as a numpy array.
         """
-        url = urlib.urljoin(self.url, f"tiles/{TMS}/{tile.z}/{tile.x}/{tile.y}")
+        url = urlib.urljoin(self.url, f"tiles/{TMS_TITLE}/{tile.z}/{tile.x}/{tile.y}")
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
         url += f"&format={img_format}"
         url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
-        resp = httpx.get(url)
+        resp = httpx.get(url, timeout=self.timeout)
 
-        img = Image.open(BytesIO(resp.content))
+        with MemoryFile(resp.content) as memfile:
+            with memfile.open() as dataset:
+                np_img = reshape_as_image(dataset.read())
 
-        return np.array(img)
+        return np_img
 
     def get_offset_tile(
         self,
@@ -126,7 +131,10 @@ class TitilerClient:
         url += f"&bands={band}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
         print(url)
-        resp = httpx.get(url)
-        img = Image.open(BytesIO(resp.content))
+        resp = httpx.get(url, timeout=self.timeout)
 
-        return np.array(img)
+        with MemoryFile(resp.content) as memfile:
+            with memfile.open() as dataset:
+                np_img = reshape_as_image(dataset.read())
+
+        return np_img
