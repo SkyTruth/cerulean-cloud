@@ -203,6 +203,7 @@ def _orchestrate(payload, tiler, titiler_client):
         count=ar.shape[0],
         dtype=ar.dtype,
         transform=transform,
+        compress="JPEG",
         crs="EPSG:4326",
     ) as dst:
         dst.write(ar)
@@ -217,6 +218,7 @@ def _orchestrate(payload, tiler, titiler_client):
         count=ar.shape[0],
         dtype=ar.dtype,
         transform=transform,
+        compress="JPEG",
         crs="EPSG:4326",
     ) as dst:
         dst.write(ar)
