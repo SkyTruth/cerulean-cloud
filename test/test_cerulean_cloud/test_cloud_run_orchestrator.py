@@ -171,6 +171,9 @@ async def test_orchestrator(httpx_mock, fixture_titiler_client, monkeypatch):
             np_img = dataset.read()
             assert np_img.shape == (2, 3584, 6144)
 
+    assert res.classification
+    assert len(res.classification["features"]) > 1
+
 
 def test_from_tiles_get_offset_shape():
     bounds = [32.989094, 43.338009, 36.540836, 45.235191]

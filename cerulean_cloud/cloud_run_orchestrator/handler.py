@@ -13,6 +13,7 @@ import os
 from base64 import b64decode, b64encode
 from typing import Dict, List, Tuple
 
+import geojson
 import morecantile
 import numpy as np
 import rasterio
@@ -73,6 +74,30 @@ def from_bounds_get_offset_bounds(bounds: List[List[float]]) -> List[float]:
         np.max(bounds_np[:, 3]),
     )
     return list((minx, miny, maxx, maxy))
+
+
+def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
+    """create a geojson from an input raster with classification
+
+    Args:
+        raster (MemoryFile): input raster
+
+    Returns:
+        geojson.FeatureCollection: output feature collection
+    """
+    with raster.open() as dataset:
+        shapes = rasterio.features.shapes(
+            dataset.read(1).astype("uint8"), transform=dataset.transform
+        )
+    out_fc = geojson.FeatureCollection(
+        features=[
+            geojson.Feature(
+                geometry=geom, properties=dict(classification=classification)
+            )
+            for geom, classification in shapes
+        ]
+    )
+    return out_fc
 
 
 def get_tiler():
@@ -213,6 +238,8 @@ async def _orchestrate(payload, tiler, titiler_client):
     ) as dst:
         dst.write(ar)
 
+    out_fc = get_fc_from_raster(base_tile_inference_file)
+
     print("Merging offset tiles!")
     offset_tile_inference_file = MemoryFile()
     ar, transform = merge(ds_offset_tiles)
@@ -236,6 +263,7 @@ async def _orchestrate(payload, tiler, titiler_client):
     return OrchestratorResult(
         base_inference=base_inference,
         offset_inference=offset_inference,
+        classification=out_fc,
         ntiles=ntiles,
         noffsettiles=noffsettiles,
     )
