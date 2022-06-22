@@ -19,9 +19,10 @@ class TitilerClient:
     def __init__(self, url: str, timeout=None):
         """use deployment of titiler URL"""
         self.url = url
+        self.client = httpx.AsyncClient()
         self.timeout = timeout
 
-    def get_bounds(self, sceneid: str) -> List[float]:
+    async def get_bounds(self, sceneid: str) -> List[float]:
         """fetch bounds of a scene
 
         Args:
@@ -35,10 +36,10 @@ class TitilerClient:
         """
         url = urlib.urljoin(self.url, "bounds")
         url += f"?sceneid={sceneid}"
-        resp = httpx.get(url, timeout=self.timeout)
+        resp = await self.client.get(url, timeout=self.timeout)
         return resp.json()["bounds"]
 
-    def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
+    async def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
         """fetch bounds of a scene
 
         Args:
@@ -53,10 +54,10 @@ class TitilerClient:
         url = urlib.urljoin(self.url, "statistics")
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
-        resp = httpx.get(url, timeout=self.timeout)
+        resp = await self.client.get(url, timeout=self.timeout)
         return resp.json()[band]
 
-    def get_base_tile(
+    async def get_base_tile(
         self,
         sceneid: str,
         tile: mercantile.Tile,
@@ -85,7 +86,7 @@ class TitilerClient:
         url += f"&format={img_format}"
         url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
-        resp = httpx.get(url, timeout=self.timeout)
+        resp = await self.client.get(url, timeout=self.timeout)
 
         with MemoryFile(resp.content) as memfile:
             with memfile.open() as dataset:
@@ -93,7 +94,7 @@ class TitilerClient:
 
         return np_img
 
-    def get_offset_tile(
+    async def get_offset_tile(
         self,
         sceneid: str,
         minx: float,
@@ -130,8 +131,7 @@ class TitilerClient:
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
-        print(url)
-        resp = httpx.get(url, timeout=self.timeout)
+        resp = await self.client.get(url, timeout=self.timeout)
 
         with MemoryFile(resp.content) as memfile:
             with memfile.open() as dataset:

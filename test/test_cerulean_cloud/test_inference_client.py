@@ -17,7 +17,7 @@ from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
 
-def mock_get_base_tile(self, sceneid, tile, scale, rescale):
+async def mock_get_base_tile(self, sceneid, tile, scale, rescale):
 
     with rasterio.open("test/test_cerulean_cloud/fixtures/example_tile.png") as src:
         img_array = reshape_as_image(src.read())
@@ -25,7 +25,9 @@ def mock_get_base_tile(self, sceneid, tile, scale, rescale):
     return img_array
 
 
-def mock_get_offset_tile(self, sceneid, minx, miny, maxx, maxy, width, height, rescale):
+async def mock_get_offset_tile(
+    self, sceneid, minx, miny, maxx, maxy, width, height, rescale
+):
     with rasterio.open("test/test_cerulean_cloud/fixtures/example_tile.png") as src:
         img_array = reshape_as_image(src.read())
 
@@ -62,14 +64,15 @@ def fixture_cloud_inference_tile(httpx_mock):
 @patch.object(
     cerulean_cloud.titiler_client.TitilerClient, "get_base_tile", mock_get_base_tile
 )
-def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
+@pytest.mark.asyncio
+async def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     httpx_mock.add_response(
         method="POST",
         url=fixture_cloud_inference_tile.url + "/predict",
         json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
     )
 
-    res = fixture_cloud_inference_tile.get_base_tile_inference(
+    res = await fixture_cloud_inference_tile.get_base_tile_inference(
         tile=TMS._tile(0, 0, 0), rescale=(0, 100)
     )
     assert res.classes == ""
@@ -78,14 +81,15 @@ def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
 @patch.object(
     cerulean_cloud.titiler_client.TitilerClient, "get_offset_tile", mock_get_offset_tile
 )
-def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_mock):
+@pytest.mark.asyncio
+async def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     httpx_mock.add_response(
         method="POST",
         url=fixture_cloud_inference_tile.url + "/predict",
         json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
     )
 
-    res = fixture_cloud_inference_tile.get_offset_tile_inference(
+    res = await fixture_cloud_inference_tile.get_offset_tile_inference(
         bounds=list(TMS.bounds(TMS._tile(0, 0, 0))), rescale=(0, 100)
     )
     assert res.classes == ""
