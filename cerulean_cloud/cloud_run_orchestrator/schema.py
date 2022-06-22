@@ -1,4 +1,5 @@
 """schema for orchestration enpoint"""
+import geojson
 from pydantic import BaseModel
 
 
@@ -17,5 +18,6 @@ class OrchestratorResult(BaseModel):
 
     base_inference: str
     offset_inference: str
+    classification: geojson.FeatureCollection
     ntiles: int
     noffsettiles: int
