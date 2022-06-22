@@ -127,12 +127,11 @@ async def mock_get_statistics(*args, **kwargs):
     return {"min": 1, "max": 10}
 
 
-@pytest.mark.asyncio
-@patch.object(
-    cerulean_cloud.titiler_client.TitilerClient, "get_bounds", mock_get_bounds
-)
 @patch.object(
     cerulean_cloud.titiler_client.TitilerClient, "get_statistics", mock_get_statistics
+)
+@patch.object(
+    cerulean_cloud.titiler_client.TitilerClient, "get_bounds", mock_get_bounds
 )
 @patch.object(
     cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
@@ -144,11 +143,11 @@ async def mock_get_statistics(*args, **kwargs):
     "get_offset_tile_inference",
     mock_get_offset_tile_inference,
 )
-@patch.dict(
-    os.environ,
-    {"AUX_INFRA_DISTANCE": "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"},
-)
-async def test_orchestrator(httpx_mock, fixture_titiler_client):
+@pytest.mark.asyncio
+async def test_orchestrator(httpx_mock, fixture_titiler_client, monkeypatch):
+    monkeypatch.setenv(
+        "AUX_INFRA_DISTANCE", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
+    )
     payload = OrchestratorInput(sceneid=S1_ID)
     with open(
         "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",
