@@ -17,8 +17,8 @@ registry_url = registry.id.apply(
     lambda _: gcp.container.get_registry_repository().repository_url
 )
 cloud_run_offset_tile_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name_images('cloud-run-offset-tile-image')}"
+    lambda url: f"{url}/{construct_name_images('cloud-run-offset-tile-image:latest')}"
 )
 cloud_run_orchestrator_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name_images('cloud-run-orchestrator-image')}"
+    lambda url: f"{url}/{construct_name_images('cloud-run-orchestrator-image:latest')}"
 )

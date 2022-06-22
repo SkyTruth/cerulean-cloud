@@ -56,13 +56,14 @@ class CloudRunInferenceClient:
         self.aux_datasets = handle_aux_datasets(
             aux_datasets, self.sceneid, offset_bounds, offset_image_shape
         )
+        self.client = httpx.AsyncClient()
         self.scale = 2  # 1=256, 2=512, 3=...
 
-    def get_base_tile_inference(
+    async def get_base_tile_inference(
         self, tile: morecantile.Tile, rescale=(0, 100)
     ) -> InferenceResult:
         """fetch inference for base tiles"""
-        img_array = self.titiler_client.get_base_tile(
+        img_array = await self.titiler_client.get_base_tile(
             sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
         )
         img_array = reshape_as_raster(img_array)
@@ -77,17 +78,17 @@ class CloudRunInferenceClient:
         encoded = img_array_to_b64_image(img_array)
 
         inference_input = InferenceInput(image=encoded, bounds=TMS.bounds(tile))
-        res = httpx.post(
+        res = await self.client.post(
             self.url + "/predict", data=inference_input.json(), timeout=None
         )
         return InferenceResult(**res.json())
 
-    def get_offset_tile_inference(
+    async def get_offset_tile_inference(
         self, bounds: List[float], rescale=(0, 100)
     ) -> InferenceResult:
         """fetch inference for offset tiles"""
         hw = self.scale * 256
-        img_array = self.titiler_client.get_offset_tile(
+        img_array = await self.titiler_client.get_offset_tile(
             self.sceneid, *bounds, width=hw, height=hw, rescale=rescale
         )
         img_array = reshape_as_raster(img_array)
@@ -101,7 +102,7 @@ class CloudRunInferenceClient:
         encoded = img_array_to_b64_image(img_array)
 
         inference_input = InferenceInput(image=encoded, bounds=bounds)
-        res = httpx.post(
+        res = await self.client.post(
             self.url + "/predict", data=inference_input.json(), timeout=None
         )
         return InferenceResult(**res.json())

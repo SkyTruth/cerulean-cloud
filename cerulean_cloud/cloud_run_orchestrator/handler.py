@@ -8,10 +8,12 @@ needs env vars:
 - TITILER_URL
 - INFERENCE_URL
 """
+import asyncio
 import os
 from base64 import b64decode, b64encode
 from typing import Dict, List, Tuple
 
+import geojson
 import morecantile
 import numpy as np
 import rasterio
@@ -74,6 +76,30 @@ def from_bounds_get_offset_bounds(bounds: List[List[float]]) -> List[float]:
     return list((minx, miny, maxx, maxy))
 
 
+def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
+    """create a geojson from an input raster with classification
+
+    Args:
+        raster (MemoryFile): input raster
+
+    Returns:
+        geojson.FeatureCollection: output feature collection
+    """
+    with raster.open() as dataset:
+        shapes = rasterio.features.shapes(
+            dataset.read(1).astype("uint8"), transform=dataset.transform
+        )
+    out_fc = geojson.FeatureCollection(
+        features=[
+            geojson.Feature(
+                geometry=geom, properties=dict(classification=classification)
+            )
+            for geom, classification in shapes
+        ]
+    )
+    return out_fc
+
+
 def get_tiler():
     """get tiler"""
     return TMS
@@ -96,13 +122,13 @@ def ping() -> Dict:
     tags=["Run orchestration"],
     response_model=OrchestratorResult,
 )
-def orchestrate(
+async def orchestrate(
     payload: OrchestratorInput,
     tiler=Depends(get_tiler),
     titiler_client=Depends(get_titiler_client),
 ) -> Dict:
     """orchestrate"""
-    return _orchestrate(payload, tiler, titiler_client)
+    return await _orchestrate(payload, tiler, titiler_client)
 
 
 def create_dataset_from_inference_result(
@@ -131,12 +157,12 @@ def create_dataset_from_inference_result(
     return memfile.open()
 
 
-def _orchestrate(payload, tiler, titiler_client):
+async def _orchestrate(payload, tiler, titiler_client):
     zoom = 9
     scale = 2
     print(f"Orchestrating for sceneid {payload.sceneid}...")
-    bounds = titiler_client.get_bounds(payload.sceneid)
-    stats = titiler_client.get_statistics(payload.sceneid, band="vv")
+    bounds = await titiler_client.get_bounds(payload.sceneid)
+    stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
     base_tiles = list(tiler.tiles(*bounds, [zoom], truncate=False))
     offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=scale)
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
@@ -163,24 +189,28 @@ def _orchestrate(payload, tiler, titiler_client):
     )
 
     print("Inferencing base tiles!")
-    base_tiles_inference = []
-    for base_tile in base_tiles:
-        base_tiles_inference.append(
+    base_tiles_inference = await asyncio.gather(
+        *[
             cloud_run_inference.get_base_tile_inference(
                 tile=base_tile,
                 rescale=(stats["min"], stats["max"]),
             )
-        )
+            for base_tile in base_tiles
+        ],
+        return_exceptions=True,
+    )
 
     print("Inferencing offset tiles!")
-    offset_tiles_inference = []
-    for offset_tile_bounds in offset_tiles_bounds:
-        offset_tiles_inference.append(
+    offset_tiles_inference = await asyncio.gather(
+        *[
             cloud_run_inference.get_offset_tile_inference(
                 bounds=offset_tile_bounds,
                 rescale=(stats["min"], stats["max"]),
             )
-        )
+            for offset_tile_bounds in offset_tiles_bounds
+        ],
+        return_exceptions=True,
+    )
 
     print("Loading all tiles into memory for merge!")
     ds_base_tiles = []
@@ -208,6 +238,8 @@ def _orchestrate(payload, tiler, titiler_client):
     ) as dst:
         dst.write(ar)
 
+    out_fc = get_fc_from_raster(base_tile_inference_file)
+
     print("Merging offset tiles!")
     offset_tile_inference_file = MemoryFile()
     ar, transform = merge(ds_offset_tiles)
@@ -231,6 +263,7 @@ def _orchestrate(payload, tiler, titiler_client):
     return OrchestratorResult(
         base_inference=base_inference,
         offset_inference=offset_inference,
+        classification=out_fc,
         ntiles=ntiles,
         noffsettiles=noffsettiles,
     )

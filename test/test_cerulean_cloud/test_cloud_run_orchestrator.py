@@ -97,7 +97,7 @@ def fixture_titiler_client():
     return TitilerClient("some_url")
 
 
-def mock_get_base_tile_inference(self, tile, rescale):
+async def mock_get_base_tile_inference(self, tile, rescale):
     with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
         enc_classes = src.read()
 
@@ -108,7 +108,7 @@ def mock_get_base_tile_inference(self, tile, rescale):
     )
 
 
-def mock_get_offset_tile_inference(self, bounds, rescale):
+async def mock_get_offset_tile_inference(self, bounds, rescale):
     with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
         enc_classes = src.read()
 
@@ -119,15 +119,19 @@ def mock_get_offset_tile_inference(self, bounds, rescale):
     )
 
 
+async def mock_get_bounds(*args):
+    return [32.989094, 43.338009, 36.540836, 45.235191]
+
+
+async def mock_get_statistics(*args, **kwargs):
+    return {"min": 1, "max": 10}
+
+
 @patch.object(
-    cerulean_cloud.titiler_client.TitilerClient,
-    "get_bounds",
-    lambda *args: [32.989094, 43.338009, 36.540836, 45.235191],
+    cerulean_cloud.titiler_client.TitilerClient, "get_statistics", mock_get_statistics
 )
 @patch.object(
-    cerulean_cloud.titiler_client.TitilerClient,
-    "get_statistics",
-    lambda *args, **kwargs: {"min": 1, "max": 10},
+    cerulean_cloud.titiler_client.TitilerClient, "get_bounds", mock_get_bounds
 )
 @patch.object(
     cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
@@ -139,11 +143,11 @@ def mock_get_offset_tile_inference(self, bounds, rescale):
     "get_offset_tile_inference",
     mock_get_offset_tile_inference,
 )
-@patch.dict(
-    os.environ,
-    {"AUX_INFRA_DISTANCE": "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"},
-)
-def test_orchestrator(httpx_mock, fixture_titiler_client):
+@pytest.mark.asyncio
+async def test_orchestrator(httpx_mock, fixture_titiler_client, monkeypatch):
+    monkeypatch.setenv(
+        "AUX_INFRA_DISTANCE", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
+    )
     payload = OrchestratorInput(sceneid=S1_ID)
     with open(
         "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",
@@ -151,7 +155,7 @@ def test_orchestrator(httpx_mock, fixture_titiler_client):
     ) as src:
         httpx_mock.add_response(content=src.read())
 
-    res = _orchestrate(payload, TMS, fixture_titiler_client)
+    res = await _orchestrate(payload, TMS, fixture_titiler_client)
     # max payload is 32 MB
     assert sys.getsizeof(res.json()) / 1000000 < 32
     assert res.ntiles == 66
@@ -166,6 +170,9 @@ def test_orchestrator(httpx_mock, fixture_titiler_client):
         with memfile.open() as dataset:
             np_img = dataset.read()
             assert np_img.shape == (2, 3584, 6144)
+
+    assert res.classification
+    assert len(res.classification["features"]) > 1
 
 
 def test_from_tiles_get_offset_shape():
@@ -198,7 +205,7 @@ def custom_response(url, data, timeout):
     return httpx.Response(status_code=200, json=r.dict())
 
 
-@pytest.mark.skip()
+@pytest.mark.skip
 @patch.object(httpx, "post", custom_response)
 @patch.dict(
     os.environ,
