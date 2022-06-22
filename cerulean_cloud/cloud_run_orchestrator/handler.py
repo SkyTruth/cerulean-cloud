@@ -96,13 +96,13 @@ def ping() -> Dict:
     tags=["Run orchestration"],
     response_model=OrchestratorResult,
 )
-def orchestrate(
+async def orchestrate(
     payload: OrchestratorInput,
     tiler=Depends(get_tiler),
     titiler_client=Depends(get_titiler_client),
 ) -> Dict:
     """orchestrate"""
-    return _orchestrate(payload, tiler, titiler_client)
+    return await _orchestrate(payload, tiler, titiler_client)
 
 
 def create_dataset_from_inference_result(
@@ -131,7 +131,7 @@ def create_dataset_from_inference_result(
     return memfile.open()
 
 
-def _orchestrate(payload, tiler, titiler_client):
+async def _orchestrate(payload, tiler, titiler_client):
     zoom = 9
     scale = 2
     print(f"Orchestrating for sceneid {payload.sceneid}...")
@@ -166,7 +166,7 @@ def _orchestrate(payload, tiler, titiler_client):
     base_tiles_inference = []
     for base_tile in base_tiles:
         base_tiles_inference.append(
-            cloud_run_inference.get_base_tile_inference(
+            await cloud_run_inference.get_base_tile_inference(
                 tile=base_tile,
                 rescale=(stats["min"], stats["max"]),
             )
@@ -176,7 +176,7 @@ def _orchestrate(payload, tiler, titiler_client):
     offset_tiles_inference = []
     for offset_tile_bounds in offset_tiles_bounds:
         offset_tiles_inference.append(
-            cloud_run_inference.get_offset_tile_inference(
+            await cloud_run_inference.get_offset_tile_inference(
                 bounds=offset_tile_bounds,
                 rescale=(stats["min"], stats["max"]),
             )
