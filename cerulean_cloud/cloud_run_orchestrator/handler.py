@@ -135,8 +135,8 @@ async def _orchestrate(payload, tiler, titiler_client):
     zoom = 9
     scale = 2
     print(f"Orchestrating for sceneid {payload.sceneid}...")
-    bounds = titiler_client.get_bounds(payload.sceneid)
-    stats = titiler_client.get_statistics(payload.sceneid, band="vv")
+    bounds = await titiler_client.get_bounds(payload.sceneid)
+    stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
     base_tiles = list(tiler.tiles(*bounds, [zoom], truncate=False))
     offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=scale)
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)

@@ -117,7 +117,7 @@ def get_scene_date_month(scene_id: str) -> str:
     return date_time_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-async def get_ship_density(
+def get_ship_density(
     bounds: Tuple[float, float, float, float],
     img_shape: Tuple[int, int],
     scene_date_month: str = "2020-08-01T00:00:00Z",
