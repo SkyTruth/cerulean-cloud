@@ -8,6 +8,7 @@ needs env vars:
 - TITILER_URL
 - INFERENCE_URL
 """
+import asyncio
 import os
 from base64 import b64decode, b64encode
 from typing import Dict, List, Tuple
@@ -163,24 +164,28 @@ async def _orchestrate(payload, tiler, titiler_client):
     )
 
     print("Inferencing base tiles!")
-    base_tiles_inference = []
-    for base_tile in base_tiles:
-        base_tiles_inference.append(
-            await cloud_run_inference.get_base_tile_inference(
+    base_tiles_inference = await asyncio.gather(
+        *[
+            cloud_run_inference.get_base_tile_inference(
                 tile=base_tile,
                 rescale=(stats["min"], stats["max"]),
             )
-        )
+            for base_tile in base_tiles
+        ],
+        return_exceptions=True,
+    )
 
     print("Inferencing offset tiles!")
-    offset_tiles_inference = []
-    for offset_tile_bounds in offset_tiles_bounds:
-        offset_tiles_inference.append(
-            await cloud_run_inference.get_offset_tile_inference(
+    offset_tiles_inference = await asyncio.gather(
+        *[
+            cloud_run_inference.get_offset_tile_inference(
                 bounds=offset_tile_bounds,
                 rescale=(stats["min"], stats["max"]),
             )
-        )
+            for offset_tile_bounds in offset_tiles_bounds
+        ],
+        return_exceptions=True,
+    )
 
     print("Loading all tiles into memory for merge!")
     ds_base_tiles = []
