@@ -131,7 +131,6 @@ class TitilerClient:
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
-        print(url)
         resp = await self.client.get(url, timeout=self.timeout)
 
         with MemoryFile(resp.content) as memfile:
