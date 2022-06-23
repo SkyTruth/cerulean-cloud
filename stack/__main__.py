@@ -16,4 +16,4 @@ pulumi.export(
 pulumi.export(
     "cloud_run_orchestrator_url", cloud_run_orchestrator.default.statuses[0].url
 )
-pulumi.export("database_utl", database.database.self_link)
+pulumi.export("database_url", database.database.self_link)

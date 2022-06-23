@@ -4,15 +4,13 @@ import pulumi
 import pulumi_gcp as gcp
 from utils import construct_name
 
-config = pulumi.Config("gcp")
-
 # See versions at https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database_instance#database_version
 instance = gcp.sql.DatabaseInstance(
     construct_name("database"),
-    region=config.require("region"),
+    region=pulumi.Config("gcp").require("region"),
     database_version="POSTGRES_14",
     settings=gcp.sql.DatabaseInstanceSettingsArgs(
-        tier=config.require("db-instance"),
+        tier=pulumi.Config("db").require("db-instance"),
     ),
     deletion_protection=True,
 )
