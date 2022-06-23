@@ -6,7 +6,7 @@ from utils import construct_name
 
 # See versions at https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database_instance#database_version
 instance = gcp.sql.DatabaseInstance(
-    construct_name("database"),
+    construct_name("database-instance"),
     region=pulumi.Config("gcp").require("region"),
     database_version="POSTGRES_14",
     settings=gcp.sql.DatabaseInstanceSettingsArgs(
@@ -14,4 +14,22 @@ instance = gcp.sql.DatabaseInstance(
     ),
     deletion_protection=True,
 )
-database = gcp.sql.Database("database", instance=instance.name)
+db_name = construct_name("database")
+database = gcp.sql.Database(db_name, instance=instance.name, name=db_name)
+users = gcp.sql.User(
+    construct_name("database-users"),
+    name=db_name,
+    instance=instance.name,
+    password=pulumi.Config("db").require_secret("db-password"),
+)
+
+sql_instance_url = pulumi.Output.concat(
+    "postgres://",
+    db_name,
+    ":",
+    pulumi.Config("db").require_secret("db-password"),
+    "@/",
+    db_name,
+    "?host=/cloudsql/",
+    instance.connection_name,
+)
