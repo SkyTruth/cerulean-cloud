@@ -2,6 +2,7 @@
 
 import cloud_run_offset_tile
 import cloud_run_orchestrator
+import database
 import infra as infra
 import pulumi
 import titiler_sentinel as titiler_sentinel
@@ -15,3 +16,4 @@ pulumi.export(
 pulumi.export(
     "cloud_run_orchestrator_url", cloud_run_orchestrator.default.statuses[0].url
 )
+pulumi.export("database_utl", database.database.self_link)
