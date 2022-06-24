@@ -63,6 +63,9 @@ jobs:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
 
+      - name: Configure docker
+        run: gcloud auth configure-docker
+
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
         env:
@@ -153,6 +156,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
+      
+      - name: Configure docker
+        run: gcloud auth configure-docker
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -239,6 +245,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
+        
+      - name: Configure docker
+        run: gcloud auth configure-docker
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
