@@ -58,7 +58,6 @@ default = gcp.cloudrun.Service(
             latest_revision=True,
         )
     ],
-    autogenerate_revision_name=True,
     opts=pulumi.ResourceOptions(
         depends_on=[
             titiler_sentinel.lambda_api,
