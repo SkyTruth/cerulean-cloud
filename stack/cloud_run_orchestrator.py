@@ -43,14 +43,14 @@ default = gcp.cloudrun.Service(
                 ),
             ],
             timeout_seconds=3600,
-        )
+        ),
+        metadata=dict(name=cloud_run_images.cloud_run_offset_tile_sha),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
         annotations={
             "autoscaling.knative.dev/minScale": "1",
             "run.googleapis.com/launch-stage": "BETA",
         },
-        name=cloud_run_images.cloud_run_orchestrator_sha,
     ),
     traffics=[
         gcp.cloudrun.ServiceTrafficArgs(
