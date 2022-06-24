@@ -23,6 +23,7 @@ SET row_security = off;
 -- Name: postgis; Type: EXTENSION; Schema: -; Owner: -
 --
 
+CREATE EXTENSION postgis;
 CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
 
 
@@ -827,7 +828,7 @@ ALTER TABLE ONLY public.posi_poly
 -- Name: SCHEMA public; Type: ACL; Schema: -; Owner: -
 --
 
-REVOKE ALL ON SCHEMA public FROM rdsadmin;
+
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO PUBLIC;
