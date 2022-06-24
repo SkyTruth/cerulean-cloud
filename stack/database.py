@@ -33,3 +33,13 @@ sql_instance_url = pulumi.Output.concat(
     "?host=/cloudsql/",
     instance.connection_name,
 )
+sql_instance_url_alembic = pulumi.Output.concat(
+    "postgresql://",
+    db_name,
+    ":",
+    pulumi.Config("db").require_secret("db-password"),
+    "@",
+    instance.public_ip_address,
+    "/",
+    db_name,
+)
