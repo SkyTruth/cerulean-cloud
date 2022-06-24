@@ -13,3 +13,4 @@ geojson
 shapely
 google-cloud-storage
 grpcio<=1.43.0
+alembic
