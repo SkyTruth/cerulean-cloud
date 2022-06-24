@@ -43,6 +43,8 @@ SET default_tablespace = '';
 -- Name: coincident; Type: TABLE; Schema: public; Owner: -
 --
 
+CREATE SCHEMA public;
+
 CREATE TABLE public.coincident (
     id integer NOT NULL,
     posi_poly__id integer,
@@ -832,11 +834,3 @@ ALTER TABLE ONLY public.posi_poly
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
 GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO PUBLIC;
-
-
--- Completed on 2022-06-24 12:38:10 CEST
-
---
--- PostgreSQL database dump complete
---
-
