@@ -15,12 +15,13 @@ infra_distance_raster = config.require("infra_distance")
 
 default = gcp.cloudrun.Service(
     construct_name("cloud-run-orchestrator"),
+    name=cloud_run_images.cloud_run_orchestrator_sha,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image=cloud_run_images.cloud_run_orchestrator_image_url,
+                    image=cloud_run_images.cloud_run_orchestrator_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TITILER_URL",

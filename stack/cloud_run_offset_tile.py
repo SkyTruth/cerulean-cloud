@@ -8,12 +8,13 @@ from utils import construct_name
 
 default = gcp.cloudrun.Service(
     construct_name("cloud-run-offset-tiles"),
+    name=cloud_run_images.cloud_run_offset_tile_sha,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image=cloud_run_images.cloud_run_offset_tile_image_url,
+                    image=cloud_run_images.cloud_run_offset_tile_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SOURCE",
