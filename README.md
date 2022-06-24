@@ -8,6 +8,11 @@ gcloud config set account rodrigo@developmentseed.org
 gcloud config configurations create cerulean --project cerulean-338116 --account rodrigo@developmentseed.org
 gcloud config configurations activate cerulean
 ```
+
+Also, make sure to authenticate into docker with GCP to allow interaction with GCR:
+```
+gcloud auth configure-docker
+```
 ### AWS auth
 ```
 aws configure --profile cerulean
