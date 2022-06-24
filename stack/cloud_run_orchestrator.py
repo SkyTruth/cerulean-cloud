@@ -15,7 +15,6 @@ infra_distance_raster = config.require("infra_distance")
 
 default = gcp.cloudrun.Service(
     construct_name("cloud-run-orchestrator"),
-    name=cloud_run_images.cloud_run_orchestrator_sha,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
@@ -51,6 +50,7 @@ default = gcp.cloudrun.Service(
             "autoscaling.knative.dev/minScale": "1",
             "run.googleapis.com/launch-stage": "BETA",
         },
+        name=cloud_run_images.cloud_run_orchestrator_sha,
     ),
     traffics=[
         gcp.cloudrun.ServiceTrafficArgs(

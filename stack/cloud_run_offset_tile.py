@@ -8,7 +8,6 @@ from utils import construct_name
 
 default = gcp.cloudrun.Service(
     construct_name("cloud-run-offset-tiles"),
-    name=cloud_run_images.cloud_run_offset_tile_sha,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
@@ -32,6 +31,7 @@ default = gcp.cloudrun.Service(
             "autoscaling.knative.dev/minScale": "1",
             "run.googleapis.com/launch-stage": "BETA",
         },
+        name=cloud_run_images.cloud_run_offset_tile_sha,
     ),
     traffics=[
         gcp.cloudrun.ServiceTrafficArgs(
@@ -39,7 +39,6 @@ default = gcp.cloudrun.Service(
             latest_revision=True,
         )
     ],
-    autogenerate_revision_name=True,
 )
 noauth_iam_policy_data = gcp.organizations.get_iam_policy(
     bindings=[
