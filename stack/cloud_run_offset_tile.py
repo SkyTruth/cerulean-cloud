@@ -9,6 +9,7 @@ from utils import construct_name
 service_name = construct_name("cloud-run-offset-tiles")
 default = gcp.cloudrun.Service(
     service_name,
+    name=service_name,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
