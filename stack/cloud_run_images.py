@@ -46,14 +46,5 @@ cloud_run_orchestrator_image = docker.RemoteImage(
 )
 
 
-cloud_run_offset_tile_sha = (
-    "cloud-run-offset-tile-image"
-    + "-"
-    + cloud_run_offset_tile_registry_image.sha256_digest[8:20]
-)
-
-cloud_run_orchestrator_sha = (
-    "cloud-run-orchestrator-image"
-    + "-"
-    + cloud_run_orchestrator_registry_image.sha256_digest[8:20]
-)
+cloud_run_offset_tile_sha = cloud_run_offset_tile_registry_image.sha256_digest[8:20]
+cloud_run_orchestrator_sha = cloud_run_orchestrator_registry_image.sha256_digest[8:20]

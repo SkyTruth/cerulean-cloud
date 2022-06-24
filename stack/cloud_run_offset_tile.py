@@ -6,8 +6,9 @@ import pulumi
 import pulumi_gcp as gcp
 from utils import construct_name
 
+service_name = construct_name("cloud-run-offset-tiles")
 default = gcp.cloudrun.Service(
-    construct_name("cloud-run-offset-tiles"),
+    service_name,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
@@ -25,7 +26,9 @@ default = gcp.cloudrun.Service(
             ],
             container_concurrency=3,
         ),
-        metadata=dict(name=cloud_run_images.cloud_run_offset_tile_sha),
+        metadata=dict(
+            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha
+        ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
         annotations={
