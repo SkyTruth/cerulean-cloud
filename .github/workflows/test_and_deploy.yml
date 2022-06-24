@@ -83,10 +83,9 @@ jobs:
         with:
           command: preview
           stack-name: test
-          cloud-url: gs://cerulean-cloud-state
+
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
 
   deploy-test:
     name: Deploy [TEST]
@@ -111,7 +110,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
-      
+
       - name: Configure docker
         run: gcloud auth configure-docker
 
@@ -132,7 +131,6 @@ jobs:
         with:
           command: up
           stack-name: test
-          cloud-url: gs://cerulean-cloud-state
 
   preview-staging:
     name: Preview [STAGING]
@@ -156,7 +154,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
-      
+
       - name: Configure docker
         run: gcloud auth configure-docker
 
@@ -174,7 +172,7 @@ jobs:
         with:
           command: preview
           stack-name: staging
-          cloud-url: gs://cerulean-cloud-state
+
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
 
@@ -201,7 +199,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
-      
+
       - name: Configure docker
         run: gcloud auth configure-docker
 
@@ -219,7 +217,7 @@ jobs:
         with:
           command: up
           stack-name: staging
-          cloud-url: gs://cerulean-cloud-state
+
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
 
@@ -245,7 +243,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
-        
+
       - name: Configure docker
         run: gcloud auth configure-docker
 
@@ -263,7 +261,7 @@ jobs:
         with:
           command: preview
           stack-name: production
-          cloud-url: gs://cerulean-cloud-state
+
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
 
@@ -308,6 +306,6 @@ jobs:
         with:
           command: up
           stack-name: production
-          cloud-url: gs://cerulean-cloud-state
+
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
