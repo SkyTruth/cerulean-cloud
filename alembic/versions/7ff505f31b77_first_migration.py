@@ -18,7 +18,9 @@ def upgrade() -> None:
     """upgrade"""
     with open("alembic/initial_migration.sql") as file_:
         for statement in file_.read().split(";\n"):
-            op.execute(statement)
+            if not statement.startswith("\n--"):
+                print(statement)
+                op.execute(statement)
 
 
 def downgrade() -> None:
