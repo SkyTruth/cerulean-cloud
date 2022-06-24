@@ -64,7 +64,7 @@ jobs:
           aws-region: eu-central-1
 
       - name: Configure docker
-        run: gcloud auth configure-docker
+        run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -112,7 +112,7 @@ jobs:
           aws-region: eu-central-1
 
       - name: Configure docker
-        run: gcloud auth configure-docker
+        run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -126,11 +126,17 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: pulumi/actions@v3
+        id: pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
           command: up
           stack-name: test
+      
+      - name: Run database migrations
+        env:
+          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
+        run: alembic upgrade head
 
   preview-staging:
     name: Preview [STAGING]
@@ -156,7 +162,7 @@ jobs:
           aws-region: eu-central-1
 
       - name: Configure docker
-        run: gcloud auth configure-docker
+        run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -201,7 +207,7 @@ jobs:
           aws-region: eu-central-1
 
       - name: Configure docker
-        run: gcloud auth configure-docker
+        run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -214,12 +220,18 @@ jobs:
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: pulumi/actions@v3
+        id: pulumi
         with:
           command: up
           stack-name: staging
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
+      
+      - name: Run database migrations
+        env:
+          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
+        run: alembic upgrade head
 
   preview-production:
     name: Preview [PRODUCTION]
@@ -245,7 +257,7 @@ jobs:
           aws-region: eu-central-1
 
       - name: Configure docker
-        run: gcloud auth configure-docker
+        run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -290,7 +302,7 @@ jobs:
           aws-region: eu-central-1
 
       - name: Configure docker
-        run: gcloud auth configure-docker
+        run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -303,9 +315,15 @@ jobs:
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: pulumi/actions@v3
+        id: pulumi
         with:
           command: up
           stack-name: production
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
+      
+      - name: Run database migrations
+        env:
+          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
+        run: alembic upgrade head
