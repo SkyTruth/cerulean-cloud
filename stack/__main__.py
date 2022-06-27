@@ -17,5 +17,5 @@ pulumi.export(
     "cloud_run_orchestrator_url", cloud_run_orchestrator.default.statuses[0].url
 )
 pulumi.export("database_url", database.sql_instance_url)
-pulumi.export("database_instance_name", database.connection_name)
+pulumi.export("database_instance_name", database.instance.connection_name)
 pulumi.export("database_url_alembic", database.sql_instance_url_alembic)
