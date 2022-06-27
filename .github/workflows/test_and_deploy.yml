@@ -63,6 +63,9 @@ jobs:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
 
+      - name: Configure docker
+        run: gcloud auth configure-docker -q
+
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
         env:
@@ -80,10 +83,9 @@ jobs:
         with:
           command: preview
           stack-name: test
-          cloud-url: gs://cerulean-cloud-state
+
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
 
   deploy-test:
     name: Deploy [TEST]
@@ -108,9 +110,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
-      
+
       - name: Configure docker
-        run: gcloud auth configure-docker
+        run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -124,12 +126,21 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: pulumi/actions@v3
+        id: pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
           command: up
           stack-name: test
-          cloud-url: gs://cerulean-cloud-state
+
+      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
+        with:
+          instance: ${{ steps.pulumi.outputs.database_instance_name }}
+      
+      - name: Run database migrations
+        env:
+          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
+        run: alembic upgrade head
 
   preview-staging:
     name: Preview [STAGING]
@@ -154,6 +165,9 @@ jobs:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
 
+      - name: Configure docker
+        run: gcloud auth configure-docker -q
+
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
         env:
@@ -168,7 +182,7 @@ jobs:
         with:
           command: preview
           stack-name: staging
-          cloud-url: gs://cerulean-cloud-state
+
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
 
@@ -195,9 +209,9 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
-      
+
       - name: Configure docker
-        run: gcloud auth configure-docker
+        run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -210,12 +224,22 @@ jobs:
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: pulumi/actions@v3
+        id: pulumi
         with:
           command: up
           stack-name: staging
-          cloud-url: gs://cerulean-cloud-state
+
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
+      
+      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
+        with:
+          instance: ${{ steps.pulumi.outputs.database_instance_name }}
+      
+      - name: Run database migrations
+        env:
+          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
+        run: alembic upgrade head
 
   preview-production:
     name: Preview [PRODUCTION]
@@ -240,6 +264,9 @@ jobs:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
 
+      - name: Configure docker
+        run: gcloud auth configure-docker -q
+
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
         env:
@@ -254,7 +281,7 @@ jobs:
         with:
           command: preview
           stack-name: production
-          cloud-url: gs://cerulean-cloud-state
+
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
 
@@ -283,7 +310,7 @@ jobs:
           aws-region: eu-central-1
 
       - name: Configure docker
-        run: gcloud auth configure-docker
+        run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
@@ -296,9 +323,19 @@ jobs:
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: pulumi/actions@v3
+        id: pulumi
         with:
           command: up
           stack-name: production
-          cloud-url: gs://cerulean-cloud-state
+
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
+
+      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
+        with:
+          instance: ${{ steps.pulumi.outputs.database_instance_name }}
+      
+      - name: Run database migrations
+        env:
+          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
+        run: alembic upgrade head

@@ -13,14 +13,16 @@ config = pulumi.Config()
 
 infra_distance_raster = config.require("infra_distance")
 
+service_name = construct_name("cloud-run-orchestrator")
 default = gcp.cloudrun.Service(
-    construct_name("cloud-run-orchestrator"),
+    service_name,
+    name=service_name,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image=cloud_run_images.cloud_run_orchestrator_image_url,
+                    image=cloud_run_images.cloud_run_orchestrator_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TITILER_URL",
@@ -43,7 +45,10 @@ default = gcp.cloudrun.Service(
                 ),
             ],
             timeout_seconds=3600,
-        )
+        ),
+        metadata=dict(
+            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha
+        ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
         annotations={
@@ -57,7 +62,6 @@ default = gcp.cloudrun.Service(
             latest_revision=True,
         )
     ],
-    autogenerate_revision_name=True,
     opts=pulumi.ResourceOptions(
         depends_on=[
             titiler_sentinel.lambda_api,
