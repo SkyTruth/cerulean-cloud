@@ -132,6 +132,10 @@ jobs:
         with:
           command: up
           stack-name: test
+
+      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
+        with:
+          instance: ${{ steps.pulumi.outputs.database_instance_name }}
       
       - name: Run database migrations
         env:
