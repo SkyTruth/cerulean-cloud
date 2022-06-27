@@ -39,7 +39,7 @@ sql_instance_url_alembic = pulumi.Output.concat(
     ":",
     pulumi.Config("db").require_secret("db-password"),
     "@",
-    instance.public_ip_address,
+    "127.0.0.1",
     "/",
     db_name,
 )
