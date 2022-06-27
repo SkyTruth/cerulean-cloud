@@ -11,6 +11,7 @@ instance = gcp.sql.DatabaseInstance(
     database_version="POSTGRES_14",
     settings=gcp.sql.DatabaseInstanceSettingsArgs(
         tier=pulumi.Config("db").require("db-instance"),
+        backup_configuration=dict(enabled=True),
     ),
     deletion_protection=True,
 )
