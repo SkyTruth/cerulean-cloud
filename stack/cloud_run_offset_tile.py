@@ -6,14 +6,16 @@ import pulumi
 import pulumi_gcp as gcp
 from utils import construct_name
 
+service_name = construct_name("cloud-run-offset-tiles")
 default = gcp.cloudrun.Service(
-    construct_name("cloud-run-offset-tiles"),
+    service_name,
+    name=service_name,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image=cloud_run_images.cloud_run_offset_tile_image_url,
+                    image=cloud_run_images.cloud_run_offset_tile_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SOURCE",
@@ -24,13 +26,16 @@ default = gcp.cloudrun.Service(
                 ),
             ],
             container_concurrency=3,
-        )
+        ),
+        metadata=dict(
+            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha
+        ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
         annotations={
             "autoscaling.knative.dev/minScale": "1",
             "run.googleapis.com/launch-stage": "BETA",
-        },
+        }
     ),
     traffics=[
         gcp.cloudrun.ServiceTrafficArgs(
@@ -38,7 +43,6 @@ default = gcp.cloudrun.Service(
             latest_revision=True,
         )
     ],
-    autogenerate_revision_name=True,
 )
 noauth_iam_policy_data = gcp.organizations.get_iam_policy(
     bindings=[

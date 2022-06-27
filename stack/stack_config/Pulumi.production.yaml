@@ -3,3 +3,4 @@ config:
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
+  db:db-instance: db-g1-small
