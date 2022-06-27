@@ -232,6 +232,10 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
       
+      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
+        with:
+          instance: ${{ steps.pulumi.outputs.database_instance_name }}
+      
       - name: Run database migrations
         env:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
@@ -326,6 +330,10 @@ jobs:
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
+
+      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
+        with:
+          instance: ${{ steps.pulumi.outputs.database_instance_name }}
       
       - name: Run database migrations
         env:
