@@ -194,6 +194,8 @@ def upgrade() -> None:
             sa.ForeignKey("slick_source.id"),
             nullable=False,
         ),
+        sa.Column("human_confidence", sa.Float),
+        sa.Column("machine_confidence", sa.Float),
     )
 
     op.create_table(
