@@ -15,7 +15,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    """create test table"""
+    """create postgis extension"""
     op.execute("CREATE EXTENSION postgis;")
     op.execute("CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;")
     op.execute(
@@ -24,5 +24,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """drop test table"""
+    """drop postgis extension"""
     op.execute("DROP EXTENSION postgis;")
