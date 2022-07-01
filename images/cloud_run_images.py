@@ -73,6 +73,7 @@ cloud_run_orchestrator_image = docker.Image(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_orchestrator",
         extra_options=["--no-cache", "--quiet"],
+        env={"MODEL": weigths_name},
     ),
     image_name=cloud_run_orchestrator_image_url,
     registry=registry_info,
