@@ -26,9 +26,9 @@ def upgrade() -> None:
         definition="""
     SELECT slick.*, eez.eez, slick_source.slick_source, slick_source.slick_source_human_confidence FROM slick
     LEFT JOIN (
-        SELECT slick_to_eez_eez.slick, array_agg(slick_to_eez_eez.name) AS eez
+        SELECT slick_to_eez_eez.slick, array_agg(slick_to_eez_eez.geoname) AS eez
         FROM (
-            SELECT slick_to_eez.slick, eez.name
+            SELECT slick_to_eez.slick, eez.geoname
             FROM slick_to_eez
             INNER JOIN eez
             ON eez.id = slick_to_eez.eez
@@ -38,9 +38,9 @@ def upgrade() -> None:
     LEFT JOIN (
         SELECT slick_to_slick_source_slick_source.slick,
                 array_agg(slick_to_slick_source_slick_source.name) AS slick_source,
-                array_agg(slick_to_slick_source_slick_source.confidence) AS slick_source_human_confidence
+                array_agg(slick_to_slick_source_slick_source.human_confidence) AS slick_source_human_confidence
         FROM (
-            SELECT slick_to_slick_source.slick, slick_source.name, slick_to_slick_source.confidence
+            SELECT slick_to_slick_source.slick, slick_source.name, slick_to_slick_source.human_confidence
             FROM slick_to_slick_source
             INNER JOIN slick_source
             ON slick_source.id = slick_to_slick_source.slick_source
@@ -75,16 +75,16 @@ def upgrade() -> None:
         schema="public",
         signature="slick_history(_slick_id INT)",
         definition="""
-        RETURNS TABLE(id integer, slick_id integer ARRAY, create_time timestamp, active BOOLEAN) as
+        RETURNS TABLE(id integer, slick integer ARRAY, create_time timestamp, active BOOLEAN) as
         $$
         WITH RECURSIVE ctename AS (
-            SELECT id, slick_id, create_time, active
+            SELECT id, slick, create_time, active
             FROM slick
             WHERE slick.id = _slick_id
             UNION ALL
-            SELECT slick.id, slick.slick_id, slick.create_time, slick.active
+            SELECT slick.id, slick.slick, slick.create_time, slick.active
             FROM slick
-                JOIN ctename ON slick.id = any(ctename.slick_id)
+                JOIN ctename ON slick.id = any(ctename.slick)
         )
         SELECT * FROM ctename;
         $$ language SQL;
