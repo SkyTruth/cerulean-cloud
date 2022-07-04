@@ -3,6 +3,7 @@ Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
 import cloud_run_images
 import cloud_run_offset_tile
+import git
 import pulumi
 import pulumi_gcp as gcp
 import titiler_sentinel
@@ -10,6 +11,10 @@ from cloud_run_offset_tile import noauth_iam_policy_data
 from utils import construct_name
 
 config = pulumi.Config()
+
+repo = git.Repo(search_parent_directories=True)
+git_sha = repo.head.object.hexsha
+git_tag = next((tag for tag in repo.tags if tag.commit == repo.head.commit), None)
 
 infra_distance_raster = config.require("infra_distance")
 
@@ -39,6 +44,14 @@ default = gcp.cloudrun.Service(
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="AUX_INFRA_DISTANCE",
                             value=infra_distance_raster,
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="GIT_HASH",
+                            value=git_sha,
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="GIT_TAG",
+                            value=git_tag,
                         ),
                     ],
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
