@@ -8,6 +8,7 @@ import pulumi
 import pulumi_gcp as gcp
 import titiler_sentinel
 from cloud_run_offset_tile import noauth_iam_policy_data
+from database import instance, sql_instance_url
 from utils import construct_name
 
 config = pulumi.Config()
@@ -29,6 +30,10 @@ default = gcp.cloudrun.Service(
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
                     image=cloud_run_images.cloud_run_orchestrator_image.name,
                     envs=[
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="DB_URL",
+                            value=sql_instance_url,
+                        ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TITILER_URL",
                             value=titiler_sentinel.lambda_api.api_endpoint.apply(
@@ -60,7 +65,10 @@ default = gcp.cloudrun.Service(
             timeout_seconds=3600,
         ),
         metadata=dict(
-            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha
+            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
+            annotations={
+                "run.googleapis.com/cloudsql-instances": instance.connection_name
+            },
         ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
