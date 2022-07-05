@@ -68,6 +68,7 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
@@ -80,6 +81,7 @@ jobs:
       - uses: pulumi/actions@v3
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
+          MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
           command: preview
           stack-name: test
@@ -116,6 +118,7 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
@@ -129,6 +132,7 @@ jobs:
         id: pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
+          MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
           command: up
           stack-name: test
@@ -170,6 +174,7 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
         with:
@@ -185,6 +190,7 @@ jobs:
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
+          MODEL: ${{ steps.pulumi-images.outputs.model }}
 
   deploy-staging:
     name: Deploy [STAGING]
@@ -215,6 +221,7 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
         with:
@@ -231,6 +238,7 @@ jobs:
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
+          MODEL: ${{ steps.pulumi-images.outputs.model }}
       
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
@@ -269,6 +277,7 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
         with:
@@ -284,6 +293,7 @@ jobs:
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
+          MODEL: ${{ steps.pulumi-images.outputs.model }}
 
   deploy-production:
     name: Deploy [PRODUCTION]
@@ -314,6 +324,7 @@ jobs:
 
       - run: pip install -r requirements.txt
       - uses: pulumi/actions@v3
+        id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
         with:
@@ -330,6 +341,7 @@ jobs:
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
+          MODEL: ${{ steps.pulumi-images.outputs.model }}
 
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
