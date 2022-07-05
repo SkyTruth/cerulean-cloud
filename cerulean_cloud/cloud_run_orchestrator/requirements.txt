@@ -9,4 +9,5 @@ rasterio
 supermercado
 numpy
 rio-tiler
+rio-tiler-pds
 geojson
