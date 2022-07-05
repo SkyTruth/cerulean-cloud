@@ -32,15 +32,9 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install -r cerulean_cloud/cloud_run_offset_tiles/requirements.txt
           python -m pip install -r cerulean_cloud/titiler_sentinel/requirements.txt
-      
-
-      - name: Install postgis
-        run: | 
-          sudo apt update
-          sudo apt install postgis libpq5
 
       - name: Run pytest
-        run: python -m pytest --disable-pytest-warnings
+        run: python -m pytest --disable-pytest-warnings --deselect test/test_cerulean_cloud/test_database_client.py
 
       # Run pre-commit
       - name: run pre-commit
