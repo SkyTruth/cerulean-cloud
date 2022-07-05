@@ -20,6 +20,7 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     from_tiles_get_offset_shape,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
+from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -97,6 +98,11 @@ def fixture_titiler_client():
     return TitilerClient("some_url")
 
 
+@pytest.fixture
+def fixture_roda_sentinelhub_client():
+    return RodaSentinelHubClient(url="some_url")
+
+
 async def mock_get_base_tile_inference(self, tile, rescale):
     with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
         enc_classes = src.read()
@@ -127,11 +133,20 @@ async def mock_get_statistics(*args, **kwargs):
     return {"min": 1, "max": 10}
 
 
+async def mock_get_product_info(*args, **kwargs):
+    return json.load(open("test/test_cerulean_cloud/fixtures/productInfo.json"))
+
+
 @patch.object(
     cerulean_cloud.titiler_client.TitilerClient, "get_statistics", mock_get_statistics
 )
 @patch.object(
     cerulean_cloud.titiler_client.TitilerClient, "get_bounds", mock_get_bounds
+)
+@patch.object(
+    cerulean_cloud.roda_sentinelhub_client.RodaSentinelHubClient,
+    "get_product_info",
+    mock_get_product_info,
 )
 @patch.object(
     cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
@@ -144,7 +159,9 @@ async def mock_get_statistics(*args, **kwargs):
     mock_get_offset_tile_inference,
 )
 @pytest.mark.asyncio
-async def test_orchestrator(httpx_mock, fixture_titiler_client, monkeypatch):
+async def test_orchestrator(
+    httpx_mock, fixture_titiler_client, fixture_roda_sentinelhub_client, monkeypatch
+):
     monkeypatch.setenv(
         "AUX_INFRA_DISTANCE", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
     )
@@ -155,7 +172,9 @@ async def test_orchestrator(httpx_mock, fixture_titiler_client, monkeypatch):
     ) as src:
         httpx_mock.add_response(content=src.read())
 
-    res = await _orchestrate(payload, TMS, fixture_titiler_client)
+    res = await _orchestrate(
+        payload, TMS, fixture_titiler_client, fixture_roda_sentinelhub_client
+    )
     # max payload is 32 MB
     assert sys.getsizeof(res.json()) / 1000000 < 32
     assert res.ntiles == 66
