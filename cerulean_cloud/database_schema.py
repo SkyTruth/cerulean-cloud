@@ -163,6 +163,8 @@ class OrchestratorRun(Base):  # noqa
     git_hash = Column(Text)
     git_tag = Column(String(200))
     success = Column(Boolean)
+    zoom = Column(Integer)
+    scale = Column(Integer)
     inference_run_logs = Column(Text, nullable=False)
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
