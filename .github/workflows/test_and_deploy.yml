@@ -37,7 +37,7 @@ jobs:
       - name: Install postgis
         run: | 
           sudo apt update
-          sudo apt install postgis -y
+          sudo apt install postgis libpq5
 
       - name: Run pytest
         run: python -m pytest --disable-pytest-warnings
