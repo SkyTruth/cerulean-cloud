@@ -11,6 +11,7 @@ needs env vars:
 import asyncio
 import os
 from base64 import b64decode, b64encode
+from datetime import datetime
 from typing import Dict, List, Tuple
 
 import geojson
@@ -158,8 +159,10 @@ def create_dataset_from_inference_result(
 
 
 async def _orchestrate(payload, tiler, titiler_client):
-    zoom = 9
-    scale = 2
+    start_time = datetime.now()
+    print(f"Start time: {start_time}")
+    zoom = payload.zoom
+    scale = payload.scale
     print(f"Orchestrating for sceneid {payload.sceneid}...")
     bounds = await titiler_client.get_bounds(payload.sceneid)
     stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
@@ -178,7 +181,7 @@ async def _orchestrate(payload, tiler, titiler_client):
     print(f"Offset image size is {offset_image_shape} with {offset_bounds} bounds.")
 
     aux_datasets = ["ship_density", os.getenv("AUX_INFRA_DISTANCE")]
-    print(f"Instatiating inference client with aux_dataset = {aux_datasets}...")
+    print(f"Instantiating inference client with aux_dataset = {aux_datasets}...")
     cloud_run_inference = CloudRunInferenceClient(
         url=os.getenv("INFERENCE_URL"),
         titiler_client=titiler_client,
@@ -188,7 +191,7 @@ async def _orchestrate(payload, tiler, titiler_client):
         aux_datasets=aux_datasets,
     )
 
-    print("Inferencing base tiles!")
+    print("Inference on base tiles!")
     base_tiles_inference = await asyncio.gather(
         *[
             cloud_run_inference.get_base_tile_inference(
@@ -200,7 +203,7 @@ async def _orchestrate(payload, tiler, titiler_client):
         return_exceptions=True,
     )
 
-    print("Inferencing offset tiles!")
+    print("Inference on offset tiles!")
     offset_tiles_inference = await asyncio.gather(
         *[
             cloud_run_inference.get_offset_tile_inference(
@@ -258,7 +261,8 @@ async def _orchestrate(payload, tiler, titiler_client):
     print("Encoding results!")
     base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
     offset_inference = b64encode(offset_tile_inference_file.read()).decode("ascii")
-
+    end_time = datetime.now()
+    print(f"End time: {end_time}")
     print("Returning results!")
     return OrchestratorResult(
         base_inference=base_inference,
