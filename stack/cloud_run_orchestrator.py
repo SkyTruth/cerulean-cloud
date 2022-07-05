@@ -1,6 +1,8 @@
 """infra for cloud run function for orchestration
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
+import os
+
 import cloud_run_images
 import cloud_run_offset_tile
 import git
@@ -57,6 +59,10 @@ default = gcp.cloudrun.Service(
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="GIT_TAG",
                             value=git_tag,
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="MODEL",
+                            value=os.getenv("MODEL"),
                         ),
                     ],
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
