@@ -162,6 +162,7 @@ class OrchestratorRun(Base):  # noqa
     offset_tiles = Column(Integer)
     git_hash = Column(Text)
     git_tag = Column(String(200))
+    success = Column(Boolean)
     inference_run_logs = Column(Text, nullable=False)
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
