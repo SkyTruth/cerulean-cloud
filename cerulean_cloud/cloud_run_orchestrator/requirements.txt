@@ -11,3 +11,5 @@ numpy
 rio-tiler
 rio-tiler-pds
 geojson
+SQLAlchemy
+GeoAlchemy2
