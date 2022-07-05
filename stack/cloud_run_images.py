@@ -26,7 +26,7 @@ cloud_run_offset_tile_registry_image = docker.get_registry_image(
 )
 cloud_run_orchestrator_registry_image = docker.get_registry_image(
     name=gcp.container.get_registry_image(
-        name=construct_name_images("cloud-run-offset-tile-image:latest")
+        name=construct_name_images("cloud-run-orchestrator-image:latest")
     ).image_url,
     opts=pulumi.ResourceOptions(provider=gcr_docker_provider),
 )
@@ -41,8 +41,8 @@ cloud_run_offset_tile_image = docker.RemoteImage(
 
 cloud_run_orchestrator_image = docker.RemoteImage(
     construct_name_images("remote-orchestrator"),
-    name=cloud_run_offset_tile_registry_image.name,
-    pull_triggers=[cloud_run_offset_tile_registry_image.sha256_digest],
+    name=cloud_run_orchestrator_registry_image.name,
+    pull_triggers=[cloud_run_orchestrator_registry_image.sha256_digest],
 )
 
 
