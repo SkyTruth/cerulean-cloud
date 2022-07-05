@@ -233,13 +233,17 @@ def custom_response(url, data, timeout):
         "INFERENCE_URL": "http://someurl.test",
     },
 )
-def test_orchestrator_live():
+async def test_orchestrator_live():
     payload = OrchestratorInput(sceneid=S1_ID)
     titiler_client = TitilerClient(
         "https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/"
     )
+    roda_sentinelhub_client = RodaSentinelHubClient()
+    engine = cerulean_cloud.database_client.get_engine()
 
-    res = _orchestrate(payload, TMS, titiler_client)
+    res = await _orchestrate(
+        payload, TMS, titiler_client, roda_sentinelhub_client, engine
+    )
     assert res.ntiles == 66
     assert res.noffsettiles == 84
     assert res.base_inference

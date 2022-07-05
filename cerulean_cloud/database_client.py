@@ -1,11 +1,10 @@
 """Client code to interact with the database"""
-import json
 import os
 from datetime import datetime
 from typing import Optional
 
 from geoalchemy2.shape import from_shape
-from shapely.geometry import MultiPolygon, box
+from shapely.geometry import MultiPolygon, box, shape
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
@@ -49,7 +48,6 @@ class DatabaseClient:
             return existing_or_new(
                 self.session,
                 database_schema.Trigger,
-                name="MANUAL",
                 trigger_logs="",
                 trigger_type="MANUAL",
             )
@@ -62,20 +60,27 @@ class DatabaseClient:
 
     def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
-        return existing_or_new(
-            self.session,
-            database_schema.Sentinel1Grd,
-            scene_id=sceneid,
-            absolute_orbit_number=scene_info["absoluteOrbitNumber"],
-            mode=scene_info["mode"],
-            polarization=scene_info["polarization"],
-            scihub_ingestion_time=scene_info["sciHubIngestion"],
-            start_time=scene_info["startTime"],
-            end_time=scene_info["end_time"],
-            meta=json.dumps(scene_info),
-            url=titiler_url,
-            geometry=scene_info["footprint"],
+        already = existing_or_new(
+            self.session, database_schema.Sentinel1Grd, scene_id=sceneid
         )
+        if already:
+            return already
+        else:
+            sentinel1_grd = database_schema.Sentinel1Grd(
+                scene_id=sceneid,
+                absolute_orbit_number=scene_info["absoluteOrbitNumber"],
+                mode=scene_info["mode"],
+                polarization=scene_info["polarization"],
+                scihub_ingestion_time=scene_info["sciHubIngestion"],
+                start_time=scene_info["startTime"],
+                end_time=scene_info["stopTime"],
+                meta=scene_info,
+                url=titiler_url,
+                geometry=from_shape(shape(scene_info["footprint"])),
+            )
+            with self.session.begin():
+                self.session.add(sentinel1_grd)
+            return sentinel1_grd
 
     def get_vessel_density(self, vessel_density: str):
         """get vessel density"""
