@@ -30,6 +30,7 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
 )
+from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -111,6 +112,11 @@ def get_titiler_client():
     return TitilerClient(url=os.getenv("TITILER_URL"))
 
 
+def get_roda_sentinelhub_client():
+    """get roda sentinelhub client"""
+    return RodaSentinelHubClient()
+
+
 @app.get("/", description="Health Check", tags=["Health Check"])
 def ping() -> Dict:
     """Health check."""
@@ -127,9 +133,10 @@ async def orchestrate(
     payload: OrchestratorInput,
     tiler=Depends(get_tiler),
     titiler_client=Depends(get_titiler_client),
+    roda_sentinelhub_client=Depends(get_roda_sentinelhub_client),
 ) -> Dict:
     """orchestrate"""
-    return await _orchestrate(payload, tiler, titiler_client)
+    return await _orchestrate(payload, tiler, titiler_client, roda_sentinelhub_client)
 
 
 def create_dataset_from_inference_result(
@@ -158,7 +165,7 @@ def create_dataset_from_inference_result(
     return memfile.open()
 
 
-async def _orchestrate(payload, tiler, titiler_client):
+async def _orchestrate(payload, tiler, titiler_client, roda_sentinelhub_client):
     start_time = datetime.now()
     print(f"Start time: {start_time}")
     zoom = payload.zoom
@@ -166,6 +173,8 @@ async def _orchestrate(payload, tiler, titiler_client):
     print(f"Orchestrating for sceneid {payload.sceneid}...")
     bounds = await titiler_client.get_bounds(payload.sceneid)
     stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+    info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+    print(info)
     base_tiles = list(tiler.tiles(*bounds, [zoom], truncate=False))
     offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=scale)
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
