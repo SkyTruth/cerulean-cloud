@@ -35,7 +35,9 @@ jobs:
       
 
       - name: Install postgis
-        run: sudo apt-get install postgis postgresql-14-postgis-3 -y
+        run: | 
+          sudo apt update
+          sudo apt install postgis postgresql-14-postgis-3 -y
 
       - name: Run pytest
         run: python -m pytest --disable-pytest-warnings
