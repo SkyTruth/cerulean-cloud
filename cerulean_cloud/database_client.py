@@ -138,7 +138,7 @@ class DatabaseClient:
     def add_slick(self, orchestrator_run, slick_timestamp, slick_shape, slick_class):
         """add a slick"""
         slick = database_schema.Slick(
-            slick_timestamp=datetime.now(),
+            slick_timestamp=slick_timestamp,
             geometry=from_shape(slick_shape),
             active=True,
             validated=False,
