@@ -1,6 +1,8 @@
 """schema for orchestration enpoint"""
+from typing import Optional
+
 import geojson
-from pydantic import BaseModel, Optional
+from pydantic import BaseModel
 
 
 class OrchestratorInput(BaseModel):
