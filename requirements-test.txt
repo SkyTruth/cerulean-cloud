@@ -3,4 +3,4 @@ pre-commit
 pytest-httpx
 pytest-asyncio
 pytest-postgresql
-psycopg-binary
+psycopg[binary]
