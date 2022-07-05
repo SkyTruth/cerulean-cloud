@@ -9,7 +9,6 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
-    CheckConstraint,
     Column,
     Computed,
     DateTime,
@@ -34,7 +33,6 @@ class Eez(Base):  # noqa
     id = Column(
         BigInteger,
         primary_key=True,
-        server_default=text("nextval('eez_id_seq'::regclass)"),
     )
     mrgid = Column(Integer)
     geoname = Column(Text)
@@ -51,7 +49,6 @@ class InfraDistance(Base):  # noqa
     id = Column(
         Integer,
         primary_key=True,
-        server_default=text("nextval('infra_distance_id_seq'::regclass)"),
     )
     name = Column(String(200), nullable=False)
     source = Column(Text, nullable=False)
@@ -71,7 +68,6 @@ class Model(Base):  # noqa
     id = Column(
         Integer,
         primary_key=True,
-        server_default=text("nextval('model_id_seq'::regclass)"),
     )
     name = Column(String(200), nullable=False)
     thresholds = Column(Integer)
@@ -89,7 +85,6 @@ class Sentinel1Grd(Base):  # noqa
     id = Column(
         BigInteger,
         primary_key=True,
-        server_default=text("nextval('sentinel1_grd_id_seq'::regclass)"),
     )
     scene_id = Column(String(200), nullable=False, unique=True)
     absolute_orbit_number = Column(Integer)
@@ -109,11 +104,7 @@ class Sentinel1Grd(Base):  # noqa
 class SlickClass(Base):  # noqa
     __tablename__ = "slick_class"
 
-    id = Column(
-        Integer,
-        primary_key=True,
-        server_default=text("nextval('slick_class_id_seq'::regclass)"),
-    )
+    id = Column(Integer, primary_key=True)
     name = Column(String(200))
     notes = Column(Text)
     slick_class = Column(ARRAY(Integer()))
@@ -124,11 +115,7 @@ class SlickClass(Base):  # noqa
 class SlickSource(Base):  # noqa
     __tablename__ = "slick_source"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('slick_source_id_seq'::regclass)"),
-    )
+    id = Column(BigInteger, primary_key=True)
     name = Column(String(200))
     notes = Column(Text)
     slick_source = Column(ARRAY(BigInteger()))
@@ -139,25 +126,10 @@ class SlickSource(Base):  # noqa
     )
 
 
-class SpatialRefSys(Base):  # noqa
-    __tablename__ = "spatial_ref_sys"
-    __table_args__ = (CheckConstraint("(srid > 0) AND (srid <= 998999)"),)
-
-    srid = Column(Integer, primary_key=True)
-    auth_name = Column(String(256))
-    auth_srid = Column(Integer)
-    srtext = Column(String(2048))
-    proj4text = Column(String(2048))
-
-
 class Trigger(Base):  # noqa
     __tablename__ = "trigger"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('trigger_id_seq'::regclass)"),
-    )
+    id = Column(BigInteger, primary_key=True)
     trigger_time = Column(DateTime, nullable=False, server_default=text("now()"))
     scene_count = Column(Integer)
     filtered_scene_count = Column(Integer)
@@ -168,11 +140,7 @@ class Trigger(Base):  # noqa
 class VesselDensity(Base):  # noqa
     __tablename__ = "vessel_density"
 
-    id = Column(
-        Integer,
-        primary_key=True,
-        server_default=text("nextval('vessel_density_id_seq'::regclass)"),
-    )
+    id = Column(Integer, primary_key=True)
     name = Column(String(200), nullable=False)
     source = Column(Text, nullable=False)
     start_time = Column(DateTime, nullable=False)
@@ -187,11 +155,7 @@ class VesselDensity(Base):  # noqa
 class OrchestratorRun(Base):  # noqa
     __tablename__ = "orchestrator_run"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('orchestrator_run_id_seq'::regclass)"),
-    )
+    id = Column(BigInteger, primary_key=True)
     inference_start_time = Column(DateTime, nullable=False)
     inference_end_time = Column(DateTime, nullable=False)
     base_tiles = Column(Integer)
@@ -219,11 +183,7 @@ class OrchestratorRun(Base):  # noqa
 class Slick(Base):  # noqa
     __tablename__ = "slick"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('slick_id_seq'::regclass)"),
-    )
+    id = Column(BigInteger, primary_key=True)
     slick_timestamp = Column(DateTime, nullable=False)
     geometry = Column(
         Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
@@ -267,11 +227,7 @@ class Slick(Base):  # noqa
 class SlickToEez(Base):  # noqa
     __tablename__ = "slick_to_eez"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('slick_to_eez_id_seq'::regclass)"),
-    )
+    id = Column(BigInteger, primary_key=True)
     slick = Column(ForeignKey("slick.id"), nullable=False)
     eez = Column(ForeignKey("eez.id"), nullable=False)
 
@@ -282,11 +238,7 @@ class SlickToEez(Base):  # noqa
 class SlickToSlickSource(Base):  # noqa
     __tablename__ = "slick_to_slick_source"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('slick_to_slick_source_id_seq'::regclass)"),
-    )
+    id = Column(BigInteger, primary_key=True)
     slick = Column(ForeignKey("slick.id"), nullable=False)
     slick_source = Column(ForeignKey("slick_source.id"), nullable=False)
     human_confidence = Column(Float(53))
