@@ -1,6 +1,8 @@
 """Client code to interact with the database"""
+import json
 import os
 from datetime import datetime
+from typing import Optional
 
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, box
@@ -21,6 +23,115 @@ def existing_or_new(sess, kls, **kwargs):
     if not inst:
         inst = kls(**kwargs)
     return inst
+
+
+def get_trigger(session, trigger: Optional[int] = None):
+    """get trigger from id"""
+    if trigger:
+        return existing_or_new(session, database_schema.Trigger, id=trigger)
+    else:
+        return existing_or_new(
+            session,
+            database_schema.Trigger,
+            name="MANUAL",
+            trigger_logs="",
+            trigger_type="MANUAL",
+        )
+
+
+def get_model(session, model_path: str):
+    """get model from path"""
+    return existing_or_new(
+        session, database_schema.Model, file_path=model_path, name=model_path
+    )
+
+
+def get_sentinel1_grd(session, sceneid: str, scene_info: dict, titiler_url: str):
+    """get sentinel1 record"""
+    return existing_or_new(
+        session,
+        database_schema.Sentinel1Grd,
+        scene_id=sceneid,
+        absolute_orbit_number=scene_info["absoluteOrbitNumber"],
+        mode=scene_info["mode"],
+        polarization=scene_info["polarization"],
+        scihub_ingestion_time=scene_info["sciHubIngestion"],
+        start_time=scene_info["startTime"],
+        end_time=scene_info["end_time"],
+        meta=json.dumps(scene_info),
+        url=titiler_url,
+        geometry=scene_info["footprint"],
+    )
+
+
+def get_vessel_density(session, vessel_density: str):
+    """get vessel density"""
+    return existing_or_new(session, database_schema.VesselDensity, name=vessel_density)
+
+
+def get_infra_distance(session, infra_distance_url: str):
+    """get infra distance"""
+    return existing_or_new(
+        session, database_schema.InfraDistance, url=infra_distance_url
+    )
+
+
+def get_slick_class(session, slick_class: str):
+    """get slick class"""
+    return existing_or_new(
+        session, database_schema.SlickClass, name=slick_class, active=True
+    )
+
+
+def add_orchestrator(
+    session,
+    inference_start_time,
+    inference_end_time,
+    base_tiles,
+    offset_tiles,
+    git_hash,
+    git_tag,
+    bounds,
+    trigger,
+    model,
+    sentinel1_grd,
+    vessel_density,
+    infra_distance,
+):
+    """add a new orchestrator"""
+    orchestrator_run = database_schema.OrchestratorRun(
+        inference_start_time=inference_start_time,
+        inference_end_time=inference_end_time,
+        base_tiles=base_tiles,
+        offset_tiles=offset_tiles,
+        git_hash=git_hash,
+        git_tag=git_tag,
+        inference_run_logs="",
+        geometry=from_shape(box(*bounds)),
+        trigger1=trigger,
+        model1=model,
+        sentinel1_grd1=sentinel1_grd,
+        vessel_density1=vessel_density,
+        infra_distance1=infra_distance,
+    )
+    session.add(orchestrator_run)
+    session.commit()
+    return orchestrator_run
+
+
+def add_slick(session, orchestrator_run, slick_timestamp, slick_shape, slick_class):
+    """add a slick"""
+    slick = database_schema.Slick(
+        slick_timestamp=datetime.now(),
+        geometry=from_shape(slick_shape),
+        active=True,
+        validated=False,
+        slick_class1=slick_class,
+        orchestrator_run1=orchestrator_run,
+    )
+    session.add(slick)
+    session.commit()
+    return slick
 
 
 def a_function():
@@ -75,18 +186,8 @@ def a_function():
                 slick_class1=slick_class,
                 orchestrator_run1=orchestrator_run,
             )
-            slick2 = database_schema.Slick(
-                slick_timestamp=datetime.now(),
-                geometry=from_shape(
-                    MultiPolygon(polygons=[box(*[33, 44, 33.540836, 44.235191])])
-                ),
-                active=True,
-                validated=False,
-                slick_class1=slick_class,
-                orchestrator_run1=orchestrator_run,
-            )
+
             session.add(slick)
-            session.add(slick2)
         except:  # noqa: E722
             session.rollback()
             raise
