@@ -44,6 +44,8 @@ def test_create_model(db_session):
     db_session.add(database_schema.Model(name="Jane Doe", file_path="true"))
     db_session.commit()
 
-    assert (
+    model = (
         db_session.query(database_schema.Model).filter_by(name="Jane Doe").one_or_none()
     )
+
+    assert model.name == "Jane Doe"
