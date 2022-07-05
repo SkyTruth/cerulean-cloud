@@ -1,4 +1,3 @@
-# type: ignore
 """"
 Generated with
 sqlacodegen $DB_URL --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
@@ -23,8 +22,9 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+from sqlalchemy.orm.decl_api import DeclarativeMeta
 
-Base = declarative_base()
+Base: DeclarativeMeta = declarative_base()
 metadata = Base.metadata
 
 
