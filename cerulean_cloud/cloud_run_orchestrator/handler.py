@@ -120,7 +120,7 @@ def get_roda_sentinelhub_client():
 
 def get_database_engine():
     """get database engine"""
-    return get_engine(db_url=os.get_env("DB_URL"))
+    return get_engine(db_url=os.getenv("DB_URL"))
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
