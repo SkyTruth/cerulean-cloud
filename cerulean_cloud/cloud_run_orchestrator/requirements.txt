@@ -13,3 +13,4 @@ rio-tiler-pds
 geojson
 SQLAlchemy
 GeoAlchemy2
+Shapely
