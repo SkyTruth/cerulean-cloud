@@ -14,3 +14,4 @@ geojson
 SQLAlchemy
 GeoAlchemy2
 Shapely
+psycopg2-binary
