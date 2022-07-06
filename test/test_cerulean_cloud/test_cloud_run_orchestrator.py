@@ -137,6 +137,7 @@ async def mock_get_product_info(*args, **kwargs):
     return json.load(open("test/test_cerulean_cloud/fixtures/productInfo.json"))
 
 
+@pytest.mark.skip
 @patch.object(
     cerulean_cloud.titiler_client.TitilerClient, "get_statistics", mock_get_statistics
 )
@@ -225,7 +226,7 @@ def custom_response(url, data, timeout):
 
 
 @pytest.mark.skip
-@patch.object(httpx, "post", custom_response)
+@pytest.mark.asyncio
 @patch.dict(
     os.environ,
     {
@@ -233,8 +234,20 @@ def custom_response(url, data, timeout):
         "INFERENCE_URL": "http://someurl.test",
     },
 )
+@patch.object(
+    cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
+    "get_base_tile_inference",
+    mock_get_base_tile_inference,
+)
+@patch.object(
+    cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
+    "get_offset_tile_inference",
+    mock_get_offset_tile_inference,
+)
 async def test_orchestrator_live():
-    payload = OrchestratorInput(sceneid=S1_ID)
+    payload = OrchestratorInput(
+        sceneid=S1_ID
+    )  # "S1A_IW_GRDH_1SDV_20201121T225759_20201121T225828_035353_04216C_62EA")
     titiler_client = TitilerClient(
         "https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/"
     )
@@ -257,7 +270,7 @@ async def test_orchestrator_live():
             ) as dst:
                 dst.write(np_img)
                 # 6 since class is 3 and conf is 3
-            assert np_img.shape == (6, 3072, 5632)
+            assert np_img.shape == (2, 3072, 5632)
 
     with MemoryFile(b64decode(res.offset_inference)) as memfile:
         with memfile.open() as dataset:
@@ -266,4 +279,4 @@ async def test_orchestrator_live():
                 "scratch/test_out_offset.tiff", **dataset.profile, mode="w"
             ) as dst:
                 dst.write(np_img)
-            assert np_img.shape == (6, 3584, 6144)
+            assert np_img.shape == (2, 3584, 6144)
