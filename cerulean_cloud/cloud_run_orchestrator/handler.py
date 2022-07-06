@@ -213,7 +213,11 @@ async def _orchestrate(
                 vessel_density = db_client.get_vessel_density("Vessel Density")
                 infra_distance = db_client.get_infra_distance(aux_infra_distance)
                 sentinel1_grd = db_client.get_sentinel1_grd(
-                    payload.sceneid, info, titiler_client.url
+                    payload.sceneid,
+                    info,
+                    titiler_client.get_base_tile_url(
+                        payload.sceneid, rescale=(stats["min"], stats["max"])
+                    ),
                 )
                 db_client.session.add(sentinel1_grd)
                 orchestrator_run = db_client.add_orchestrator(
