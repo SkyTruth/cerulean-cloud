@@ -105,6 +105,7 @@ class SlickClass(Base):  # noqa
     __tablename__ = "slick_class"
 
     id = Column(Integer, primary_key=True)
+    value = Column(Integer)
     name = Column(String(200))
     notes = Column(Text)
     slick_class = Column(ARRAY(Integer()))
