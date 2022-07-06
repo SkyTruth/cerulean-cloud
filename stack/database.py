@@ -25,7 +25,7 @@ users = gcp.sql.User(
 )
 
 sql_instance_url = pulumi.Output.concat(
-    "postgres://",
+    "postgresql://",
     db_name,
     ":",
     pulumi.Config("db").require_secret("db-password"),
