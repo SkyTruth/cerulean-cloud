@@ -7,7 +7,8 @@ Create Date: 2022-06-30 11:45:00.359562
 """
 import sqlalchemy as sa
 from geoalchemy2 import Geography
-from sqlalchemy.types import ARRAY, JSON
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.types import ARRAY
 
 from alembic import op
 
@@ -46,7 +47,7 @@ def upgrade() -> None:
         sa.Column("scihub_ingestion_time", sa.DateTime),
         sa.Column("start_time", sa.DateTime, nullable=False),
         sa.Column("end_time", sa.DateTime, nullable=False),
-        sa.Column("meta", JSON),
+        sa.Column("meta", JSONB),
         sa.Column("url", sa.Text, nullable=False),
         sa.Column("geometry", Geography("POLYGON"), nullable=False),
     )
@@ -57,7 +58,7 @@ def upgrade() -> None:
         sa.Column("source", sa.Text, nullable=False),
         sa.Column("start_time", sa.DateTime, nullable=False),
         sa.Column("end_time", sa.DateTime, nullable=False),
-        sa.Column("meta", JSON),
+        sa.Column("meta", JSONB),
         sa.Column("geometry", Geography("POLYGON"), nullable=False),
     )
     op.create_table(
@@ -67,7 +68,7 @@ def upgrade() -> None:
         sa.Column("source", sa.Text, nullable=False),
         sa.Column("start_time", sa.DateTime, nullable=False),
         sa.Column("end_time", sa.DateTime, nullable=False),
-        sa.Column("meta", JSON),
+        sa.Column("meta", JSONB),
         sa.Column("geometry", Geography("POLYGON"), nullable=False),
         sa.Column("url", sa.Text, nullable=False),
     )
@@ -93,6 +94,9 @@ def upgrade() -> None:
         sa.Column("offset_tiles", sa.Integer),
         sa.Column("git_hash", sa.Text),
         sa.Column("git_tag", sa.String(200)),
+        sa.Column("zoom", sa.Integer),
+        sa.Column("scale", sa.Integer),
+        sa.Column("success", sa.Boolean),
         sa.Column("inference_run_logs", sa.Text, nullable=False),
         sa.Column("geometry", Geography("POLYGON"), nullable=False),
         sa.Column(
@@ -169,7 +173,7 @@ def upgrade() -> None:
         sa.Column("validated", sa.Boolean, nullable=False),
         sa.Column("slick", ARRAY(sa.BigInteger)),
         sa.Column("notes", sa.Text),
-        sa.Column("meta", JSON),
+        sa.Column("meta", JSONB),
         sa.Column(
             "orchestrator_run",
             sa.BigInteger,
