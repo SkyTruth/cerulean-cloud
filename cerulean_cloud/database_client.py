@@ -18,10 +18,9 @@ def get_engine(db_url: str = os.getenv("DB_URL")):
 
 def existing_or_new(sess, kls, **kwargs):
     """Check if instance exists, creates it if not"""
-    with sess.begin():
-        inst = sess.query(kls).filter_by(**kwargs).one_or_none()
-        if not inst:
-            inst = kls(**kwargs)
+    inst = sess.query(kls).filter_by(**kwargs).one_or_none()
+    if not inst:
+        inst = kls(**kwargs)
     return inst
 
 
@@ -91,7 +90,10 @@ class DatabaseClient:
     def get_slick_class(self, slick_class: str):
         """get slick class"""
         return existing_or_new(
-            self.session, database_schema.SlickClass, name=slick_class, active=True
+            self.session,
+            database_schema.SlickClass,
+            name=str(int(slick_class)),
+            active=True,
         )
 
     def add_orchestrator(
@@ -134,16 +136,17 @@ class DatabaseClient:
 
     def add_slick(self, orchestrator_run, slick_timestamp, slick_shape, slick_class):
         """add a slick"""
+        s = shape(slick_shape)
+        if not isinstance(s, MultiPolygon):
+            s = MultiPolygon([s])
         slick = database_schema.Slick(
             slick_timestamp=slick_timestamp,
-            geometry=from_shape(slick_shape),
+            geometry=from_shape(s),
             active=True,
             validated=False,
             slick_class1=slick_class,
             orchestrator_run1=orchestrator_run,
         )
-        with self.session.begin():
-            self.session.add(slick)
         return slick
 
 
