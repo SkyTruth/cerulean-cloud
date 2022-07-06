@@ -205,30 +205,37 @@ async def _orchestrate(
 
     # write to DB
     with DatabaseClient(db_engine) as db_client:
-        trigger = db_client.get_trigger(trigger=payload.trigger)
-        model = db_client.get_model(os.getenv("MODEL"))
-        vessel_density = db_client.get_vessel_density("vessel_density")
-        infra_distance = db_client.get_infra_distance(aux_infra_distance)
-        sentinel1_grd = db_client.get_sentinel1_grd(
-            payload.sceneid, info, titiler_client.url
-        )
+        try:
+            with db_client.session.begin():
 
-        orchestrator_run = db_client.add_orchestrator(
-            start_time,
-            start_time,
-            ntiles,
-            noffsettiles,
-            os.getenv("GIT_HASH"),
-            os.getenv("GIT_TAG"),
-            zoom,
-            scale,
-            bounds,
-            trigger,
-            model,
-            sentinel1_grd,
-            vessel_density,
-            infra_distance,
-        )
+                trigger = db_client.get_trigger(trigger=payload.trigger)
+                model = db_client.get_model(os.getenv("MODEL"))
+                vessel_density = db_client.get_vessel_density("Vessel Density")
+                infra_distance = db_client.get_infra_distance(aux_infra_distance)
+                sentinel1_grd = db_client.get_sentinel1_grd(
+                    payload.sceneid, info, titiler_client.url
+                )
+                db_client.session.add(sentinel1_grd)
+                orchestrator_run = db_client.add_orchestrator(
+                    start_time,
+                    start_time,
+                    ntiles,
+                    noffsettiles,
+                    os.getenv("GIT_HASH"),
+                    os.getenv("GIT_TAG"),
+                    zoom,
+                    scale,
+                    bounds,
+                    trigger,
+                    model,
+                    sentinel1_grd,
+                    vessel_density,
+                    infra_distance,
+                )
+                db_client.session.add(orchestrator_run)
+        except:  # noqa: E722
+            db_client.session.close()
+            raise
 
         print(f"Instantiating inference client with aux_dataset = {aux_datasets}...")
         cloud_run_inference = CloudRunInferenceClient(
@@ -294,6 +301,20 @@ async def _orchestrate(
 
         out_fc = get_fc_from_raster(base_tile_inference_file)
 
+        for feat in out_fc.features:
+            print(feat)
+            with db_client.session.begin():
+                slick_class = db_client.get_slick_class(
+                    feat.properties["classification"]
+                )
+                slick = db_client.add_slick(
+                    orchestrator_run,
+                    sentinel1_grd.start_time,
+                    feat.geometry,
+                    slick_class,
+                )
+                db_client.session.add(slick)
+
         print("Merging offset tiles!")
         offset_tile_inference_file = MemoryFile()
         ar, transform = merge(ds_offset_tiles)
@@ -316,9 +337,9 @@ async def _orchestrate(
         print(f"End time: {end_time}")
         print("Returning results!")
 
-        orchestrator_run.success = True
-        orchestrator_run.end_time = end_time
-        db_client.session.commit()
+        with db_client.session.begin():
+            orchestrator_run.success = True
+            orchestrator_run.inference_end_time = end_time
 
     return OrchestratorResult(
         base_inference=base_inference,
