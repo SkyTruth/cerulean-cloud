@@ -100,18 +100,19 @@ def downgrade() -> None:
     slick_with_eez_and_source = PGView(
         schema="public",
         signature="slick_with_eez_and_source",
+        definition="// not needed",
     )
 
     op.drop_entity(slick_with_eez_and_source)
 
     slick_with_urls = PGView(
-        schema="public",
-        signature="slick_with_urls",
+        schema="public", signature="slick_with_urls", definition="// not needed"
     )
     op.drop_entity(slick_with_urls)
 
     get_history_slick = PGFunction(
         schema="public",
         signature="slick_history(_slick_id INT)",
+        definition="// not needed",
     )
     op.drop_entity(get_history_slick)

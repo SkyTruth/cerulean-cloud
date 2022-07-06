@@ -120,6 +120,7 @@ def upgrade() -> None:
     op.create_table(
         "slick_class",
         sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("value", sa.Integer),
         sa.Column("name", sa.String(200)),
         sa.Column("notes", sa.Text),
         sa.Column("slick_class", ARRAY(sa.Integer)),

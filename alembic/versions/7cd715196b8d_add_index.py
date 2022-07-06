@@ -51,34 +51,26 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """drop indices"""
-    op.drop_index("idx_model_name", "model", ["name"])
-    op.drop_index("idx_model_file_path", "model", ["file_path"])
+    op.drop_index("idx_model_name", "model")
+    op.drop_index("idx_model_file_path", "model")
 
-    op.drop_index(
-        "idx_sentinel1_grd_scene_id", "sentinel1_grd", ["scene_id"], unique=True
-    )
+    op.drop_index("idx_sentinel1_grd_scene_id", "sentinel1_grd")
 
-    op.drop_index("idx_vessel_density_name", "vessel_density", ["name"])
+    op.drop_index("idx_vessel_density_name", "vessel_density")
 
-    op.drop_index("idx_infra_distance_name", "infra_distance", ["name"])
+    op.drop_index("idx_infra_distance_name", "infra_distance")
 
-    op.drop_index("idx_trigger_trigger_time", "trigger", ["trigger_time"])
+    op.drop_index("idx_trigger_trigger_time", "trigger")
 
-    op.drop_index(
-        "idx_orchestrator_run_time",
-        "orchestrator_run",
-        ["inference_start_time", "inference_end_time"],
-    )
-    op.drop_index("idx_orchestrator_run_git_tag", "orchestrator_run", ["git_tag"])
-    op.drop_index("idx_orchestrator_run_git_hash", "orchestrator_run", ["git_hash"])
+    op.drop_index("idx_orchestrator_run_time", "orchestrator_run")
+    op.drop_index("idx_orchestrator_run_git_tag", "orchestrator_run")
+    op.drop_index("idx_orchestrator_run_git_hash", "orchestrator_run")
 
-    op.drop_index("idx_slick_class_name", "slick_class", ["name", "active"])
-    op.drop_index("idx_slick_class_slick_class", "slick_class", ["slick_class"])
+    op.drop_index("idx_slick_class_name", "slick_class")
+    op.drop_index("idx_slick_class_slick_class", "slick_class")
 
-    op.drop_index("idx_slick_source_name", "slick_source", ["name", "active"])
+    op.drop_index("idx_slick_source_name", "slick_source")
 
-    op.drop_index(
-        "idx_slick_confidence", "slick", ["machine_confidence", "human_confidence"]
-    )
-    op.drop_index("idx_slick_polsby_popper", "slick", ["polsby_popper"])
-    op.drop_index("idx_slick_fill_factor", "slick", ["fill_factor"])
+    op.drop_index("idx_slick_confidence", "slick")
+    op.drop_index("idx_slick_polsby_popper", "slick")
+    op.drop_index("idx_slick_fill_factor", "slick")
