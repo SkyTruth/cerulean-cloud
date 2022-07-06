@@ -20,6 +20,7 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     from_tiles_get_offset_shape,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
+from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -97,6 +98,11 @@ def fixture_titiler_client():
     return TitilerClient("some_url")
 
 
+@pytest.fixture
+def fixture_roda_sentinelhub_client():
+    return RodaSentinelHubClient(url="some_url")
+
+
 async def mock_get_base_tile_inference(self, tile, rescale):
     with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
         enc_classes = src.read()
@@ -127,11 +133,21 @@ async def mock_get_statistics(*args, **kwargs):
     return {"min": 1, "max": 10}
 
 
+async def mock_get_product_info(*args, **kwargs):
+    return json.load(open("test/test_cerulean_cloud/fixtures/productInfo.json"))
+
+
+@pytest.mark.skip
 @patch.object(
     cerulean_cloud.titiler_client.TitilerClient, "get_statistics", mock_get_statistics
 )
 @patch.object(
     cerulean_cloud.titiler_client.TitilerClient, "get_bounds", mock_get_bounds
+)
+@patch.object(
+    cerulean_cloud.roda_sentinelhub_client.RodaSentinelHubClient,
+    "get_product_info",
+    mock_get_product_info,
 )
 @patch.object(
     cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
@@ -144,7 +160,9 @@ async def mock_get_statistics(*args, **kwargs):
     mock_get_offset_tile_inference,
 )
 @pytest.mark.asyncio
-async def test_orchestrator(httpx_mock, fixture_titiler_client, monkeypatch):
+async def test_orchestrator(
+    httpx_mock, fixture_titiler_client, fixture_roda_sentinelhub_client, monkeypatch
+):
     monkeypatch.setenv(
         "AUX_INFRA_DISTANCE", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
     )
@@ -155,7 +173,9 @@ async def test_orchestrator(httpx_mock, fixture_titiler_client, monkeypatch):
     ) as src:
         httpx_mock.add_response(content=src.read())
 
-    res = await _orchestrate(payload, TMS, fixture_titiler_client)
+    res = await _orchestrate(
+        payload, TMS, fixture_titiler_client, fixture_roda_sentinelhub_client
+    )
     # max payload is 32 MB
     assert sys.getsizeof(res.json()) / 1000000 < 32
     assert res.ntiles == 66
@@ -206,7 +226,7 @@ def custom_response(url, data, timeout):
 
 
 @pytest.mark.skip
-@patch.object(httpx, "post", custom_response)
+@pytest.mark.asyncio
 @patch.dict(
     os.environ,
     {
@@ -214,13 +234,29 @@ def custom_response(url, data, timeout):
         "INFERENCE_URL": "http://someurl.test",
     },
 )
-def test_orchestrator_live():
-    payload = OrchestratorInput(sceneid=S1_ID)
+@patch.object(
+    cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
+    "get_base_tile_inference",
+    mock_get_base_tile_inference,
+)
+@patch.object(
+    cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
+    "get_offset_tile_inference",
+    mock_get_offset_tile_inference,
+)
+async def test_orchestrator_live():
+    payload = OrchestratorInput(
+        sceneid=S1_ID
+    )  # "S1A_IW_GRDH_1SDV_20201121T225759_20201121T225828_035353_04216C_62EA")
     titiler_client = TitilerClient(
         "https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/"
     )
+    roda_sentinelhub_client = RodaSentinelHubClient()
+    engine = cerulean_cloud.database_client.get_engine()
 
-    res = _orchestrate(payload, TMS, titiler_client)
+    res = await _orchestrate(
+        payload, TMS, titiler_client, roda_sentinelhub_client, engine
+    )
     assert res.ntiles == 66
     assert res.noffsettiles == 84
     assert res.base_inference
@@ -234,7 +270,7 @@ def test_orchestrator_live():
             ) as dst:
                 dst.write(np_img)
                 # 6 since class is 3 and conf is 3
-            assert np_img.shape == (6, 3072, 5632)
+            assert np_img.shape == (2, 3072, 5632)
 
     with MemoryFile(b64decode(res.offset_inference)) as memfile:
         with memfile.open() as dataset:
@@ -243,4 +279,4 @@ def test_orchestrator_live():
                 "scratch/test_out_offset.tiff", **dataset.profile, mode="w"
             ) as dst:
                 dst.write(np_img)
-            assert np_img.shape == (6, 3584, 6144)
+            assert np_img.shape == (2, 3584, 6144)

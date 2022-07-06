@@ -123,3 +123,11 @@ async def test_offset_tile(titiler_client, tiles_s1_scene, httpx_mock):
     array = await titiler_client.get_offset_tile(S1_IDS[0], minx, miny, maxx, maxy)
     print(minx, miny, maxx, maxy)
     assert array.shape == (256, 256, 2)
+
+
+def test_get_base_tile_url(titiler_client):
+    res = titiler_client.get_base_tile_url("ABC")
+    assert (
+        res
+        == "https://titiler.url/tiles/{z}/{x}/{y}?sceneid=ABC&bands=vv&scale=1&rescale=0,1000"
+    )

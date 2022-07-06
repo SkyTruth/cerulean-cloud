@@ -11,6 +11,7 @@ needs env vars:
 import asyncio
 import os
 from base64 import b64decode, b64encode
+from datetime import datetime
 from typing import Dict, List, Tuple
 
 import geojson
@@ -29,6 +30,8 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
 )
+from cerulean_cloud.database_client import DatabaseClient, get_engine
+from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -110,6 +113,16 @@ def get_titiler_client():
     return TitilerClient(url=os.getenv("TITILER_URL"))
 
 
+def get_roda_sentinelhub_client():
+    """get roda sentinelhub client"""
+    return RodaSentinelHubClient()
+
+
+def get_database_engine():
+    """get database engine"""
+    return get_engine(db_url=os.getenv("DB_URL"))
+
+
 @app.get("/", description="Health Check", tags=["Health Check"])
 def ping() -> Dict:
     """Health check."""
@@ -126,9 +139,13 @@ async def orchestrate(
     payload: OrchestratorInput,
     tiler=Depends(get_tiler),
     titiler_client=Depends(get_titiler_client),
+    roda_sentinelhub_client=Depends(get_roda_sentinelhub_client),
+    db_engine=Depends(get_database_engine),
 ) -> Dict:
     """orchestrate"""
-    return await _orchestrate(payload, tiler, titiler_client)
+    return await _orchestrate(
+        payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
+    )
 
 
 def create_dataset_from_inference_result(
@@ -157,12 +174,18 @@ def create_dataset_from_inference_result(
     return memfile.open()
 
 
-async def _orchestrate(payload, tiler, titiler_client):
-    zoom = 9
-    scale = 2
+async def _orchestrate(
+    payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
+):
+    start_time = datetime.now()
+    print(f"Start time: {start_time}")
+    zoom = payload.zoom
+    scale = payload.scale
     print(f"Orchestrating for sceneid {payload.sceneid}...")
     bounds = await titiler_client.get_bounds(payload.sceneid)
     stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+    info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+    print(info)
     base_tiles = list(tiler.tiles(*bounds, [zoom], truncate=False))
     offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=scale)
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
@@ -177,89 +200,150 @@ async def _orchestrate(payload, tiler, titiler_client):
     print(f"Scene bounds are {bounds}, stats are {stats}.")
     print(f"Offset image size is {offset_image_shape} with {offset_bounds} bounds.")
 
-    aux_datasets = ["ship_density", os.getenv("AUX_INFRA_DISTANCE")]
-    print(f"Instatiating inference client with aux_dataset = {aux_datasets}...")
-    cloud_run_inference = CloudRunInferenceClient(
-        url=os.getenv("INFERENCE_URL"),
-        titiler_client=titiler_client,
-        sceneid=payload.sceneid,
-        offset_bounds=offset_bounds,
-        offset_image_shape=offset_image_shape,
-        aux_datasets=aux_datasets,
-    )
+    aux_infra_distance = os.getenv("AUX_INFRA_DISTANCE")
+    aux_datasets = ["ship_density", aux_infra_distance]
 
-    print("Inferencing base tiles!")
-    base_tiles_inference = await asyncio.gather(
-        *[
-            cloud_run_inference.get_base_tile_inference(
-                tile=base_tile,
-                rescale=(stats["min"], stats["max"]),
-            )
-            for base_tile in base_tiles
-        ],
-        return_exceptions=True,
-    )
+    # write to DB
+    with DatabaseClient(db_engine) as db_client:
+        try:
+            with db_client.session.begin():
 
-    print("Inferencing offset tiles!")
-    offset_tiles_inference = await asyncio.gather(
-        *[
-            cloud_run_inference.get_offset_tile_inference(
-                bounds=offset_tile_bounds,
-                rescale=(stats["min"], stats["max"]),
-            )
-            for offset_tile_bounds in offset_tiles_bounds
-        ],
-        return_exceptions=True,
-    )
+                trigger = db_client.get_trigger(trigger=payload.trigger)
+                model = db_client.get_model(os.getenv("MODEL"))
+                vessel_density = db_client.get_vessel_density("Vessel Density")
+                infra_distance = db_client.get_infra_distance(aux_infra_distance)
+                sentinel1_grd = db_client.get_sentinel1_grd(
+                    payload.sceneid,
+                    info,
+                    titiler_client.get_base_tile_url(
+                        payload.sceneid, rescale=(stats["min"], stats["max"])
+                    ),
+                )
+                db_client.session.add(sentinel1_grd)
+                orchestrator_run = db_client.add_orchestrator(
+                    start_time,
+                    start_time,
+                    ntiles,
+                    noffsettiles,
+                    os.getenv("GIT_HASH"),
+                    os.getenv("GIT_TAG"),
+                    zoom,
+                    scale,
+                    bounds,
+                    trigger,
+                    model,
+                    sentinel1_grd,
+                    vessel_density,
+                    infra_distance,
+                )
+                db_client.session.add(orchestrator_run)
+        except:  # noqa: E722
+            db_client.session.close()
+            raise
 
-    print("Loading all tiles into memory for merge!")
-    ds_base_tiles = []
-    for base_tile_inference in base_tiles_inference:
-        ds_base_tiles.append(create_dataset_from_inference_result(base_tile_inference))
-
-    ds_offset_tiles = []
-    for offset_tile_inference in offset_tiles_inference:
-        ds_offset_tiles.append(
-            create_dataset_from_inference_result(offset_tile_inference)
+        print(f"Instantiating inference client with aux_dataset = {aux_datasets}...")
+        cloud_run_inference = CloudRunInferenceClient(
+            url=os.getenv("INFERENCE_URL"),
+            titiler_client=titiler_client,
+            sceneid=payload.sceneid,
+            offset_bounds=offset_bounds,
+            offset_image_shape=offset_image_shape,
+            aux_datasets=aux_datasets,
         )
 
-    print("Merging base tiles!")
-    base_tile_inference_file = MemoryFile()
-    ar, transform = merge(ds_base_tiles)
-    with base_tile_inference_file.open(
-        driver="GTiff",
-        height=ar.shape[1],
-        width=ar.shape[2],
-        count=ar.shape[0],
-        dtype=ar.dtype,
-        transform=transform,
-        compress="JPEG",
-        crs="EPSG:4326",
-    ) as dst:
-        dst.write(ar)
+        print("Inference on base tiles!")
+        base_tiles_inference = await asyncio.gather(
+            *[
+                cloud_run_inference.get_base_tile_inference(
+                    tile=base_tile,
+                    rescale=(stats["min"], stats["max"]),
+                )
+                for base_tile in base_tiles
+            ],
+            return_exceptions=True,
+        )
 
-    out_fc = get_fc_from_raster(base_tile_inference_file)
+        print("Inference on offset tiles!")
+        offset_tiles_inference = await asyncio.gather(
+            *[
+                cloud_run_inference.get_offset_tile_inference(
+                    bounds=offset_tile_bounds,
+                    rescale=(stats["min"], stats["max"]),
+                )
+                for offset_tile_bounds in offset_tiles_bounds
+            ],
+            return_exceptions=True,
+        )
 
-    print("Merging offset tiles!")
-    offset_tile_inference_file = MemoryFile()
-    ar, transform = merge(ds_offset_tiles)
-    with offset_tile_inference_file.open(
-        driver="GTiff",
-        height=ar.shape[1],
-        width=ar.shape[2],
-        count=ar.shape[0],
-        dtype=ar.dtype,
-        transform=transform,
-        compress="JPEG",
-        crs="EPSG:4326",
-    ) as dst:
-        dst.write(ar)
+        print("Loading all tiles into memory for merge!")
+        ds_base_tiles = []
+        for base_tile_inference in base_tiles_inference:
+            ds_base_tiles.append(
+                create_dataset_from_inference_result(base_tile_inference)
+            )
 
-    print("Encoding results!")
-    base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
-    offset_inference = b64encode(offset_tile_inference_file.read()).decode("ascii")
+        ds_offset_tiles = []
+        for offset_tile_inference in offset_tiles_inference:
+            ds_offset_tiles.append(
+                create_dataset_from_inference_result(offset_tile_inference)
+            )
 
-    print("Returning results!")
+        print("Merging base tiles!")
+        base_tile_inference_file = MemoryFile()
+        ar, transform = merge(ds_base_tiles)
+        with base_tile_inference_file.open(
+            driver="GTiff",
+            height=ar.shape[1],
+            width=ar.shape[2],
+            count=ar.shape[0],
+            dtype=ar.dtype,
+            transform=transform,
+            compress="JPEG",
+            crs="EPSG:4326",
+        ) as dst:
+            dst.write(ar)
+
+        out_fc = get_fc_from_raster(base_tile_inference_file)
+
+        for feat in out_fc.features:
+            with db_client.session.begin():
+                slick_class = db_client.get_slick_class(
+                    feat.properties["classification"]
+                )
+                slick = db_client.add_slick(
+                    orchestrator_run,
+                    sentinel1_grd.start_time,
+                    feat.geometry,
+                    slick_class,
+                )
+                db_client.session.add(slick)
+
+        print("Merging offset tiles!")
+        offset_tile_inference_file = MemoryFile()
+        ar, transform = merge(ds_offset_tiles)
+        with offset_tile_inference_file.open(
+            driver="GTiff",
+            height=ar.shape[1],
+            width=ar.shape[2],
+            count=ar.shape[0],
+            dtype=ar.dtype,
+            transform=transform,
+            compress="JPEG",
+            crs="EPSG:4326",
+        ) as dst:
+            dst.write(ar)
+
+        print("Encoding results!")
+        base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
+        offset_inference = b64encode(offset_tile_inference_file.read()).decode("ascii")
+        end_time = datetime.now()
+        print(f"End time: {end_time}")
+        print("Returning results!")
+
+        with db_client.session.begin():
+            orchestrator_run.success = True
+            orchestrator_run.inference_end_time = end_time
+
     return OrchestratorResult(
         base_inference=base_inference,
         offset_inference=offset_inference,
