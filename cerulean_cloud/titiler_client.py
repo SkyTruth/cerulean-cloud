@@ -84,7 +84,7 @@ class TitilerClient:
         Returns:
             str: URL to get XYZ server for a specific scene.
         """
-        url = urlib.urljoin(self.url, f"tiles/{TMS_TITLE}/{z}/{x}/{y}")
+        url = urlib.urljoin(self.url, f"tiles/{z}/{x}/{y}")
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
         url += f"&scale={scale}"

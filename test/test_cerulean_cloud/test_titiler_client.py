@@ -129,5 +129,5 @@ def test_get_base_tile_url(titiler_client):
     res = titiler_client.get_base_tile_url("ABC")
     assert (
         res
-        == "https://titiler.url/tiles/WorldCRS84Quad/{z}/{x}/{y}?sceneid=ABC&bands=vv&scale=1&rescale=0,1000"
+        == "https://titiler.url/tiles/{z}/{x}/{y}?sceneid=ABC&bands=vv&scale=1&rescale=0,1000"
     )
