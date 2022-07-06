@@ -302,7 +302,6 @@ async def _orchestrate(
         out_fc = get_fc_from_raster(base_tile_inference_file)
 
         for feat in out_fc.features:
-            print(feat)
             with db_client.session.begin():
                 slick_class = db_client.get_slick_class(
                     feat.properties["classification"]
