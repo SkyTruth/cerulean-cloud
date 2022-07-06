@@ -92,6 +92,7 @@ class DatabaseClient:
         return existing_or_new(
             self.session,
             database_schema.SlickClass,
+            value=int(slick_class),
             name=str(int(slick_class)),
             active=True,
         )
