@@ -6,7 +6,6 @@ sqlacodegen $DB_URL --noviews --noindexes --noinflect > cerulean_cloud/database_
 from geoalchemy2.types import Geography
 from sqlalchemy import (
     ARRAY,
-    JSON,
     BigInteger,
     Boolean,
     Column,
@@ -19,6 +18,7 @@ from sqlalchemy import (
     Text,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm.decl_api import DeclarativeMeta
@@ -54,7 +54,7 @@ class InfraDistance(Base):  # noqa
     source = Column(Text, nullable=False)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    meta = Column(JSON)
+    meta = Column(JSONB)
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
@@ -93,7 +93,7 @@ class Sentinel1Grd(Base):  # noqa
     scihub_ingestion_time = Column(DateTime)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    meta = Column(JSON)
+    meta = Column(JSONB)
     url = Column(Text, nullable=False)
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
@@ -145,7 +145,7 @@ class VesselDensity(Base):  # noqa
     source = Column(Text, nullable=False)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    meta = Column(JSON)
+    meta = Column(JSONB)
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
@@ -219,7 +219,7 @@ class Slick(Base):  # noqa
     validated = Column(Boolean, nullable=False)
     slick = Column(ARRAY(BigInteger()))
     notes = Column(Text)
-    meta = Column(JSON)
+    meta = Column(JSONB)
     orchestrator_run = Column(ForeignKey("orchestrator_run.id"), nullable=False)
     slick_class = Column(ForeignKey("slick_class.id"), nullable=False)
 
