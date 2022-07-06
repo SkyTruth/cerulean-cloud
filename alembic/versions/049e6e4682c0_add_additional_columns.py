@@ -18,9 +18,9 @@ depends_on = None
 
 def upgrade() -> None:
     """add missing columns"""
-    op.add_column("orchestrator_run", sa.Columns("zoom", sa.Integer))
-    op.add_column("orchestrator_run", sa.Columns("scale", sa.Integer))
-    op.add_column("orchestrator_run", sa.Columns("success", sa.Boolean))
+    op.add_column("orchestrator_run", sa.Column("zoom", sa.Integer))
+    op.add_column("orchestrator_run", sa.Column("scale", sa.Integer))
+    op.add_column("orchestrator_run", sa.Column("success", sa.Boolean))
 
 
 def downgrade() -> None:
