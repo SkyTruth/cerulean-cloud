@@ -18,9 +18,10 @@ def get_engine(db_url: str = os.getenv("DB_URL")):
 
 def existing_or_new(sess, kls, **kwargs):
     """Check if instance exists, creates it if not"""
-    inst = sess.query(kls).filter_by(**kwargs).one_or_none()
-    if not inst:
-        inst = kls(**kwargs)
+    with sess.begin():
+        inst = sess.query(kls).filter_by(**kwargs).one_or_none()
+        if not inst:
+            inst = kls(**kwargs)
     return inst
 
 
@@ -60,27 +61,20 @@ class DatabaseClient:
 
     def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
-        already = existing_or_new(
-            self.session, database_schema.Sentinel1Grd, scene_id=sceneid
+        return existing_or_new(
+            self.session,
+            database_schema.Sentinel1Grd,
+            scene_id=sceneid,
+            absolute_orbit_number=scene_info["absoluteOrbitNumber"],
+            mode=scene_info["mode"],
+            polarization=scene_info["polarization"],
+            scihub_ingestion_time=scene_info["sciHubIngestion"],
+            start_time=scene_info["startTime"],
+            end_time=scene_info["stopTime"],
+            meta=scene_info,
+            url=titiler_url,
+            geometry=from_shape(shape(scene_info["footprint"]).geoms[0]),
         )
-        if already:
-            return already
-        else:
-            sentinel1_grd = database_schema.Sentinel1Grd(
-                scene_id=sceneid,
-                absolute_orbit_number=scene_info["absoluteOrbitNumber"],
-                mode=scene_info["mode"],
-                polarization=scene_info["polarization"],
-                scihub_ingestion_time=scene_info["sciHubIngestion"],
-                start_time=scene_info["startTime"],
-                end_time=scene_info["stopTime"],
-                meta=scene_info,
-                url=titiler_url,
-                geometry=from_shape(shape(scene_info["footprint"])),
-            )
-            with self.session.begin():
-                self.session.add(sentinel1_grd)
-            return sentinel1_grd
 
     def get_vessel_density(self, vessel_density: str):
         """get vessel density"""
@@ -136,8 +130,6 @@ class DatabaseClient:
             vessel_density1=vessel_density,
             infra_distance1=infra_distance,
         )
-        with self.session.begin():
-            self.session.add(orchestrator_run)
         return orchestrator_run
 
     def add_slick(self, orchestrator_run, slick_timestamp, slick_shape, slick_class):
