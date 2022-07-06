@@ -1,15 +1,23 @@
 """infra for cloud run function for orchestration
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
+import os
+
 import cloud_run_images
 import cloud_run_offset_tile
+import git
 import pulumi
 import pulumi_gcp as gcp
 import titiler_sentinel
 from cloud_run_offset_tile import noauth_iam_policy_data
+from database import instance, sql_instance_url
 from utils import construct_name
 
 config = pulumi.Config()
+
+repo = git.Repo(search_parent_directories=True)
+git_sha = repo.head.object.hexsha
+git_tag = next((tag for tag in repo.tags if tag.commit == repo.head.commit), None)
 
 infra_distance_raster = config.require("infra_distance")
 
@@ -24,6 +32,10 @@ default = gcp.cloudrun.Service(
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
                     image=cloud_run_images.cloud_run_orchestrator_image.name,
                     envs=[
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="DB_URL",
+                            value=sql_instance_url,
+                        ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TITILER_URL",
                             value=titiler_sentinel.lambda_api.api_endpoint.apply(
@@ -40,6 +52,18 @@ default = gcp.cloudrun.Service(
                             name="AUX_INFRA_DISTANCE",
                             value=infra_distance_raster,
                         ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="GIT_HASH",
+                            value=git_sha,
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="GIT_TAG",
+                            value=git_tag,
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="MODEL",
+                            value=os.getenv("MODEL"),
+                        ),
                     ],
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
                 ),
@@ -47,7 +71,10 @@ default = gcp.cloudrun.Service(
             timeout_seconds=3600,
         ),
         metadata=dict(
-            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha
+            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
+            annotations={
+                "run.googleapis.com/cloudsql-instances": instance.connection_name
+            },
         ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(

@@ -1,4 +1,6 @@
 """schema for orchestration enpoint"""
+from typing import Optional
+
 import geojson
 from pydantic import BaseModel
 
@@ -9,6 +11,11 @@ class OrchestratorInput(BaseModel):
     """
 
     sceneid: str
+    trigger: Optional[int]
+    vessel_density: Optional[str]
+    infra_distance: Optional[str]
+    zoom: int = 9
+    scale: int = 2
 
 
 class OrchestratorResult(BaseModel):

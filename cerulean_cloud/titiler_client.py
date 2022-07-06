@@ -1,6 +1,6 @@
 """client code to interact with titiler for sentinel 1"""
 import urllib.parse as urlib
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import httpx
 import mercantile
@@ -56,6 +56,42 @@ class TitilerClient:
         url += f"&bands={band}"
         resp = await self.client.get(url, timeout=self.timeout)
         return resp.json()[band]
+
+    def get_base_tile_url(
+        self,
+        sceneid: str,
+        band: str = "vv",
+        img_format: Optional[str] = None,
+        scale: int = 1,
+        rescale: Tuple[int, int] = (0, 1000),
+        z="{z}",
+        x="{x}",
+        y="{y}",
+    ) -> str:
+        """Forge titiler URL with scene id and stats.
+
+        Args:
+            sceneid (str): A valid S1 scene id
+                            i.e. S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF
+            band (str, optional): Which bands to include in the output.. Defaults to "vv".
+            img_format (Optional[str], optional): ile format of the output from the tiler. Defaults to None.
+            scale (int, optional): Proxy for tile size. Defaults to 1.
+            rescale (Tuple[int, int], optional): Min max value to rescale to uint8. Defaults to (0, 1000).
+            z (str, optional): Z. Defaults to "{z}".
+            x (str, optional): X. Defaults to "{x}".
+            y (str, optional): Y. Defaults to "{y}".
+
+        Returns:
+            str: URL to get XYZ server for a specific scene.
+        """
+        url = urlib.urljoin(self.url, f"tiles/{z}/{x}/{y}")
+        url += f"?sceneid={sceneid}"
+        url += f"&bands={band}"
+        url += f"&scale={scale}"
+        url += f"&rescale={','.join([str(r) for r in rescale])}"
+        if img_format:
+            url += f"&format={img_format}"
+        return url
 
     async def get_base_tile(
         self,
