@@ -36,7 +36,7 @@ def upgrade() -> None:
             geometry=from_shape(box(*[-179, -89, 179, 89])),
         )
         model = database_schema.Model(
-            name="a_model",
+            name="experiments/cv2/24_May_2022_01_49_56_fastai_unet/tracing_cpu_test_1batch_18_512_0.082.pt",
             file_path="experiments/cv2/24_May_2022_01_49_56_fastai_unet/tracing_cpu_test_1batch_18_512_0.082.pt",
         )
         vessel_density = database_schema.VesselDensity(
