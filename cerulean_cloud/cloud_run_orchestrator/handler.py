@@ -10,8 +10,9 @@ needs env vars:
 """
 import asyncio
 import os
+import urllib.parse as urlparse
 from base64 import b64decode, b64encode
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 import geojson
@@ -38,6 +39,33 @@ from cerulean_cloud.titiler_client import TitilerClient
 app = FastAPI(title="Cloud Run orchestratort")
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
+
+
+def make_cloud_log_url(
+    cloud_run_name: str, start_time, project_id: str, duration=2
+) -> str:
+    """Forges a cloud log url given a service name, a date and a project id
+
+    Args:
+        cloud_run_name (str): the cloud run service name
+        start_time (datetime.datetime): the start time of the cloud run
+        project_id (str): a project id
+        duration (int, optional): Default duration of the logs to show (in min). Defaults to 2.
+
+    Returns:
+        str: A cloud log url.
+    """
+    base_url = "https://console.cloud.google.com/logs/query;query="
+    query = f'resource.type = "cloud_run_revision" resource.labels.service_name = "{cloud_run_name}"'
+    formatted_time = start_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    end_time = (start_time + timedelta(minutes=duration)).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ"
+    )
+    t_range = f";timeRange={formatted_time}%2F{end_time}"
+    t = f";cursorTimestamp={formatted_time}"
+    project_id = f"?project={project_id}"
+    url = base_url + urlparse.quote(query) + t_range + t + project_id
+    return url
 
 
 def b64_image_to_array(image: str) -> np.ndarray:
@@ -227,6 +255,9 @@ async def _orchestrate(
                     noffsettiles,
                     os.getenv("GIT_HASH"),
                     os.getenv("GIT_TAG"),
+                    make_cloud_log_url(
+                        os.getenv("CLOUD_RUN_NAME"), start_time, os.getenv("PROJECT_ID")
+                    ),
                     zoom,
                     scale,
                     bounds,

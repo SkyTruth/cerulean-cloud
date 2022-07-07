@@ -64,6 +64,14 @@ default = gcp.cloudrun.Service(
                             name="MODEL",
                             value=os.getenv("MODEL"),
                         ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="CLOUD_RUN_NAME",
+                            value=service_name,
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="PROJECT_ID",
+                            value=pulumi.Config("gcp").require("project"),
+                        ),
                     ],
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
                 ),
