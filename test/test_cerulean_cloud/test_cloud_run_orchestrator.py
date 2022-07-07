@@ -2,6 +2,7 @@ import json
 import os
 import sys
 from base64 import b64decode
+from datetime import datetime
 from unittest.mock import patch
 
 import httpx
@@ -18,6 +19,7 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     b64_image_to_array,
     from_bounds_get_offset_bounds,
     from_tiles_get_offset_shape,
+    make_cloud_log_url,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
@@ -280,3 +282,17 @@ async def test_orchestrator_live():
             ) as dst:
                 dst.write(np_img)
             assert np_img.shape == (2, 3584, 6144)
+
+
+def test_make_cloud_log_url():
+    start_time = datetime.strptime("2022-07-06 13:39:30.56396", "%Y-%m-%d %H:%M:%S.%f")
+    res = make_cloud_log_url(
+        "cerulean-cloud-test-cloud-run-orchestrator", start_time, "cerulean-338116"
+    )
+    assert res == (
+        "https://console.cloud.google.com/logs/query;query="
+        "resource.type%20%3D%20%22cloud_run_revision%22%20resource.labels.service_name%20%3D%20%22cerulean-cloud-test-cloud-run-orchestrator%22;"
+        "timeRange=2022-07-06T13:39:30.563960Z%2F2022-07-06T13:41:30.563960Z;"
+        "cursorTimestamp=2022-07-06T13:39:30.563960Z?"
+        "project=cerulean-338116"
+    )
