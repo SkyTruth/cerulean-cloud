@@ -125,8 +125,6 @@ jobs:
           work-dir: images/
           command: up
           stack-name: test
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: pulumi/actions@v3
         id: pulumi
@@ -181,8 +179,7 @@ jobs:
           work-dir: images/
           command: preview
           stack-name: staging
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: pulumi/actions@v3
         with:
           command: preview
@@ -228,8 +225,7 @@ jobs:
           work-dir: images/
           command: up
           stack-name: staging
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: pulumi/actions@v3
         id: pulumi
         with:
@@ -284,8 +280,7 @@ jobs:
           work-dir: images/
           command: preview
           stack-name: production
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: pulumi/actions@v3
         with:
           command: preview
@@ -331,8 +326,7 @@ jobs:
           work-dir: images/
           command: up
           stack-name: production
-          comment-on-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: pulumi/actions@v3
         id: pulumi
         with:
