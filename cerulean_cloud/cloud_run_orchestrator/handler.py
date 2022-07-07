@@ -205,6 +205,7 @@ def create_dataset_from_inference_result(
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
+    # Orchestrate inference
     start_time = datetime.now()
     print(f"Start time: {start_time}")
     zoom = payload.zoom
