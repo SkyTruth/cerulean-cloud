@@ -126,6 +126,7 @@ def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
                 geometry=geom, properties=dict(classification=classification)
             )
             for geom, classification in shapes
+            if int(classification) in [3, 5]
         ]
     )
     return out_fc
