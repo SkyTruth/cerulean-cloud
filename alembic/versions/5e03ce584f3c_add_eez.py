@@ -66,7 +66,7 @@ def upgrade() -> None:
 
     # Add inverted EEZ (no sovereign)
 
-    if True:
+    if False:
         with session.begin():
             outer_geom = session.query(
                 cast(
