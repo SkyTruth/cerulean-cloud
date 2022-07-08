@@ -45,7 +45,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 
-    eez = geojson.load(open("eez_8_7_2022.json"))  # get_eez_from_url()
+    eez = get_eez_from_url()  # geojson.load(open("eez_8_7_2022.json"))
     for feat in eez.features:
         sovereign_keys = [
             k for k in list(feat["properties"].keys()) if k.startswith("sovereign")
@@ -63,7 +63,6 @@ def upgrade() -> None:
                 geometry=from_shape(shape(feat["geometry"])),
             )
             session.add(region)
-        break
 
     # Add inverted EEZ (no sovereign)
     with session.begin():
