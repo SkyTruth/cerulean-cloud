@@ -5,7 +5,7 @@ from typing import Optional
 
 import geoalchemy2.functions as func
 from geoalchemy2.shape import from_shape
-from shapely.geometry import MultiPolygon, box, shape
+from shapely.geometry import MultiPolygon, Polygon, box, shape
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -61,6 +61,11 @@ class DatabaseClient:
 
     def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
+        shape_s1 = shape(scene_info["footprint"])
+        if isinstance(Polygon, shape_s1):
+            geom = from_shape(shape_s1)
+        elif isinstance(MultiPolygon, shape_s1):
+            geom = from_shape(shape_s1.geoms[0])
         return existing_or_new(
             self.session,
             database_schema.Sentinel1Grd,
@@ -73,7 +78,7 @@ class DatabaseClient:
             end_time=scene_info["stopTime"],
             meta=scene_info,
             url=titiler_url,
-            geometry=from_shape(shape(scene_info["footprint"]).geoms[0]),
+            geometry=geom,
         )
 
     def get_vessel_density(self, vessel_density: str):
