@@ -3,9 +3,10 @@ import os
 from datetime import datetime
 from typing import Optional
 
+import geoalchemy2.functions as func
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, box, shape
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 import cerulean_cloud.database_schema as database_schema
@@ -150,6 +151,17 @@ class DatabaseClient:
             orchestrator_run1=orchestrator_run,
         )
         return slick
+
+    def add_eez_to_slick(self, slick):
+        """add a slick"""
+        eez = self.session.execute(
+            select(database_schema.Eez).where(
+                func.ST_Intersects(slick.geometry, database_schema.Eez.geometry)
+            )
+        )
+        for e in eez.scalars().all():
+            eez_to_slick = database_schema.SlickToEez(slick1=slick, eez1=e)
+            self.session.add(eez_to_slick)
 
 
 def a_function():
