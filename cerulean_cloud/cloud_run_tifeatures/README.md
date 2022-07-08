@@ -6,5 +6,5 @@ set `DOCKER_DEFAULT_PLATFORM=linux/amd64` in M1 macbooks
 ```
 cd stack/
 docker build -f ../Dockerfiles/Dockerfile.cloud_run_tifeatures -t gcr.io/cerulean-338116/cloud-run-tifeatures ../ --no-cache
-DATABASE_URL=DB_URL && PORT=8080 && docker run -p 8080:${PORT} -e PORT=${PORT} gcr.io/cerulean-338116/cloud-run-tifeatures
+PORT=8080 && docker run -p 8080:${PORT} -e PORT=${PORT} -e DATABASE_URL=${DB_URL} gcr.io/cerulean-338116/cloud-run-tifeatures
 ```
