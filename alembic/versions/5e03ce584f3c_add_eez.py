@@ -5,11 +5,14 @@ Revises: c941681a050d
 Create Date: 2022-07-08 11:24:31.802462
 
 """
+import geoalchemy2.functions as func
 import geojson
 import httpx
+from geoalchemy2 import Geography, Geometry
 from geoalchemy2.shape import from_shape
-from shapely.geometry import shape
+from shapely.geometry import box, shape
 from sqlalchemy import orm
+from sqlalchemy.sql import cast
 
 import cerulean_cloud.database_schema as database_schema
 from alembic import op
@@ -42,7 +45,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 
-    eez = get_eez_from_url()
+    eez = geojson.load(open("eez_8_7_2022.json"))  # get_eez_from_url()
     for feat in eez.features:
         sovereign_keys = [
             k for k in list(feat["properties"].keys()) if k.startswith("sovereign")
@@ -61,6 +64,27 @@ def upgrade() -> None:
             )
             session.add(region)
         break
+
+    # Add inverted EEZ (no sovereign)
+    with session.begin():
+        outer_geom = session.query(
+            cast(
+                func.ST_Difference(
+                    cast(from_shape(box(*[-179, -89, 179, 89])), Geometry(srid=4326)),
+                    func.ST_Union(
+                        cast(database_schema.Eez.geometry, Geometry(srid=4326))
+                    ),
+                ),
+                Geography(srid=4326),
+            )
+        )
+        outer_region = database_schema.Eez(
+            mrgid=10000000,
+            geoname="International Waters",
+            sovereigns=["None"],
+            geometry=outer_geom,
+        )
+        session.add(outer_region)
 
 
 def downgrade() -> None:
