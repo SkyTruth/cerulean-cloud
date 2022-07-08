@@ -22,9 +22,12 @@ default = gcp.cloudrun.Service(
                     image=cloud_run_images.cloud_run_tifeatures_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="DB_URL",
+                            name="DATABASE_URL",
                             value=sql_instance_url,
-                        )
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIFEATURES_NAME", value="Cerulean OGC API"
+                        ),
                     ],
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
                 ),
