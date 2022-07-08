@@ -351,8 +351,8 @@ async def _orchestrate(
                 )
                 db_client.session.add(slick)
 
-                e = db_client.add_eez_to_slick(slick)
-                print(f"Added last eez {e} for slick {slick}")
+                db_client.add_eez_to_slick(slick)
+                print(f"Added last eez for slick {slick}")
 
         print("Merging offset tiles!")
         offset_tile_inference_file = MemoryFile()
