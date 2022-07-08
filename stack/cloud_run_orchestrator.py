@@ -79,7 +79,7 @@ default = gcp.cloudrun.Service(
             timeout_seconds=420,
         ),
         metadata=dict(
-            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
+            name=service_name + "-" + cloud_run_images.cloud_run_orchestrator_sha,
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name
             },
