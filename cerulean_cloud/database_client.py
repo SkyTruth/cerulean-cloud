@@ -60,25 +60,32 @@ class DatabaseClient:
 
     def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
-        shape_s1 = shape(scene_info["footprint"])
-        if isinstance(Polygon, shape_s1):
-            geom = from_shape(shape_s1)
-        elif isinstance(MultiPolygon, shape_s1):
-            geom = from_shape(shape_s1.geoms[0])
-        return existing_or_new(
-            self.session,
-            database_schema.Sentinel1Grd,
-            scene_id=sceneid,
-            absolute_orbit_number=scene_info["absoluteOrbitNumber"],
-            mode=scene_info["mode"],
-            polarization=scene_info["polarization"],
-            scihub_ingestion_time=scene_info["sciHubIngestion"],
-            start_time=scene_info["startTime"],
-            end_time=scene_info["stopTime"],
-            meta=scene_info,
-            url=titiler_url,
-            geometry=geom,
+        s1_grd = (
+            self.session.query(database_schema.Sentinel1Grd)
+            .filter_by(scene_id=sceneid)
+            .one_or_none()
         )
+        if not s1_grd:
+            shape_s1 = shape(scene_info["footprint"])
+            if isinstance(Polygon, shape_s1):
+                geom = from_shape(shape_s1)
+            elif isinstance(MultiPolygon, shape_s1):
+                geom = from_shape(shape_s1.geoms[0])
+            s1_grd = existing_or_new(
+                self.session,
+                database_schema.Sentinel1Grd,
+                scene_id=sceneid,
+                absolute_orbit_number=scene_info["absoluteOrbitNumber"],
+                mode=scene_info["mode"],
+                polarization=scene_info["polarization"],
+                scihub_ingestion_time=scene_info["sciHubIngestion"],
+                start_time=scene_info["startTime"],
+                end_time=scene_info["stopTime"],
+                meta=scene_info,
+                url=titiler_url,
+                geometry=geom,
+            )
+        return s1_grd
 
     def get_vessel_density(self, vessel_density: str):
         """get vessel density"""
