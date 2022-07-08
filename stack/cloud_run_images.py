@@ -52,7 +52,7 @@ cloud_run_orchestrator_image = docker.RemoteImage(
 )
 
 cloud_run_tifeatures_image = docker.RemoteImage(
-    construct_name_images("remote-orchestrator"),
+    construct_name_images("remote-tifeatures"),
     name=cloud_run_tifeatures_registry_image.name,
     pull_triggers=[cloud_run_tifeatures_registry_image.sha256_digest],
 )
