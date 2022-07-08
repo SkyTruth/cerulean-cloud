@@ -65,25 +65,29 @@ def upgrade() -> None:
             session.add(region)
 
     # Add inverted EEZ (no sovereign)
-    with session.begin():
-        outer_geom = session.query(
-            cast(
-                func.ST_Difference(
-                    cast(from_shape(box(*[-179, -89, 179, 89])), Geometry(srid=4326)),
-                    func.ST_Union(
-                        cast(database_schema.Eez.geometry, Geometry(srid=4326))
+
+    if False:
+        with session.begin():
+            outer_geom = session.query(
+                cast(
+                    func.ST_Difference(
+                        cast(
+                            from_shape(box(*[-179, -89, 179, 89])), Geometry(srid=4326)
+                        ),
+                        func.ST_Union(
+                            cast(database_schema.Eez.geometry, Geometry(srid=4326))
+                        ),
                     ),
-                ),
-                Geography(srid=4326),
+                    Geography(srid=4326),
+                )
             )
-        )
-        outer_region = database_schema.Eez(
-            mrgid=10000000,
-            geoname="International Waters",
-            sovereigns=["None"],
-            geometry=outer_geom,
-        )
-        session.add(outer_region)
+            outer_region = database_schema.Eez(
+                mrgid=10000000,
+                geoname="International Waters",
+                sovereigns=["None"],
+                geometry=outer_geom,
+            )
+            session.add(outer_region)
 
 
 def downgrade() -> None:
