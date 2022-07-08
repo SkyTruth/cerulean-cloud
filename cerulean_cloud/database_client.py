@@ -168,7 +168,6 @@ class DatabaseClient:
             print(f"Adding to {slick} eez {e}")
             eez_to_slick = database_schema.SlickToEez(slick1=slick, eez1=e)
             self.session.add(eez_to_slick)
-        return e
 
 
 def a_function():
