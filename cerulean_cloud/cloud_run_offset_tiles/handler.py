@@ -37,9 +37,10 @@ def logits_to_classes(out_batch_logits):
     """returns the confidence scores of the max confident classes
     and an array of max confident class ids for a single tile of shape [classes, H, W].
     """
-    probs = torch.nn.functional.softmax(out_batch_logits, dim=0) # 0 is the class dim
-    conf, classes = torch.max(probs, 0) 
+    probs = torch.nn.functional.softmax(out_batch_logits, dim=0)  # 0 is the class dim
+    conf, classes = torch.max(probs, 0)
     return (conf, classes)
+
 
 def apply_conf_threshold(conf, classes, conf_threshold):
     """Apply a confidence threshold to the output of logits_to_classes for a tile.
@@ -52,8 +53,8 @@ def apply_conf_threshold(conf, classes, conf_threshold):
     Returns:
         _type_: _description_
     """
-    high_conf_mask = torch.any(torch.where(conf> conf_threshold, 1, 0), axis=0)
-    return torch.where(high_conf_mask, classes, 0
+    high_conf_mask = torch.any(torch.where(conf > conf_threshold, 1, 0), axis=0)
+    return torch.where(high_conf_mask, classes, 0)
 
 
 def b64_image_to_tensor(image: str) -> torch.Tensor:

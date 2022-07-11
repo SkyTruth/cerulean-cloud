@@ -56,9 +56,11 @@ def test_inference():
         "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
     )
     res = model(tensor)
-    for tile in res: #iterating through the batch dimension. 
+    for tile in res:  # iterating through the batch dimension.
         conf, classes = handler.logits_to_classes(tile)
-        high_conf_classes = apply_conf_threshold(conf, classes, conf_threshold=.9)
+        high_conf_classes = handler.apply_conf_threshold(
+            conf, classes, conf_threshold=0.9
+        )
         assert conf.shape == torch.Size([512, 512])
         assert classes.shape == torch.Size([512, 512])
         assert high_conf_classes.shape == torch.Size([512, 512])
