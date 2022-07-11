@@ -24,6 +24,16 @@ users = gcp.sql.User(
     password=pulumi.Config("db").require_secret("db-password"),
 )
 
+sql_instance_url_with_asyncpg = pulumi.Output.concat(
+    "postgresql+asyncpg://",
+    db_name,
+    ":",
+    pulumi.Config("db").require_secret("db-password"),
+    "@/",
+    db_name,
+    "?host=/cloudsql/",
+    instance.connection_name,
+)
 sql_instance_url = pulumi.Output.concat(
     "postgresql://",
     db_name,

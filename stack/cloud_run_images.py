@@ -30,6 +30,12 @@ cloud_run_orchestrator_registry_image = docker.get_registry_image(
     ).image_url,
     opts=pulumi.ResourceOptions(provider=gcr_docker_provider),
 )
+cloud_run_tifeatures_registry_image = docker.get_registry_image(
+    name=gcp.container.get_registry_image(
+        name=construct_name_images("cloud-run-tifeatures-image:latest")
+    ).image_url,
+    opts=pulumi.ResourceOptions(provider=gcr_docker_provider),
+)
 
 
 cloud_run_offset_tile_image = docker.RemoteImage(
@@ -45,6 +51,13 @@ cloud_run_orchestrator_image = docker.RemoteImage(
     pull_triggers=[cloud_run_orchestrator_registry_image.sha256_digest],
 )
 
+cloud_run_tifeatures_image = docker.RemoteImage(
+    construct_name_images("remote-tifeatures"),
+    name=cloud_run_tifeatures_registry_image.name,
+    pull_triggers=[cloud_run_tifeatures_registry_image.sha256_digest],
+)
+
 
 cloud_run_offset_tile_sha = cloud_run_offset_tile_registry_image.sha256_digest[8:20]
 cloud_run_orchestrator_sha = cloud_run_orchestrator_registry_image.sha256_digest[8:20]
+cloud_run_tifeatures_sha = cloud_run_tifeatures_registry_image.sha256_digest[8:20]

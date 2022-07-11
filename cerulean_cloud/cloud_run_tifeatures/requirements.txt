@@ -1,0 +1,3 @@
+tifeatures @ git+https://github.com/developmentseed/tifeatures/@257246a6fdc426fcc10b02decfde8812f396a158#egg=tifeatures
+uvicorn
+mangum
