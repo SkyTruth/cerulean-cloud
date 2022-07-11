@@ -63,10 +63,14 @@ class DatabaseClient:
     async def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
         s1_grd = (
-            await self.session.execute(
-                select(database_schema.Sentinel1Grd).filter_by(scene_id=sceneid)
+            (
+                await self.session.execute(
+                    select(database_schema.Sentinel1Grd).filter_by(scene_id=sceneid)
+                )
             )
-        ).one_or_none()[0]
+            .scalars()
+            .first()
+        )
 
         if not s1_grd:
             shape_s1 = shape(scene_info["footprint"])
