@@ -74,9 +74,9 @@ class DatabaseClient:
 
         if not s1_grd:
             shape_s1 = shape(scene_info["footprint"])
-            if isinstance(Polygon, shape_s1):
+            if isinstance(shape_s1, Polygon):
                 geom = from_shape(shape_s1)
-            elif isinstance(MultiPolygon, shape_s1):
+            elif isinstance(shape_s1, MultiPolygon):
                 geom = from_shape(shape_s1.geoms[0])
             s1_grd = await existing_or_new(
                 self.session,
