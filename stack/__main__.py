@@ -1,5 +1,6 @@
 """A Python Pulumi program"""
 
+import cloud_function_scene_relevancy
 import cloud_run_offset_tile
 import cloud_run_orchestrator
 import cloud_run_tifeatures
@@ -19,3 +20,4 @@ pulumi.export("cloud_run_tifeatures_url", cloud_run_tifeatures.default.statuses[
 pulumi.export("database_url", database.sql_instance_url)
 pulumi.export("database_instance_name", database.instance.connection_name)
 pulumi.export("database_url_alembic", database.sql_instance_url_alembic)
+pulumi.export("fxn_url", cloud_function_scene_relevancy.fxn.https_trigger_url)
