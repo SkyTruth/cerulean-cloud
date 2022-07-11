@@ -56,6 +56,27 @@ pulumi preview
 pulumi up
 ```
 
+## Connect to database
+
+In order to connect to the deployed database, you can use the [Cloud SQL proxy for authentication](https://cloud.google.com/sql/docs/mysql/connect-admin-proxy). First install the proxy in your local machine (instructions [here](https://cloud.google.com/sql/docs/mysql/connect-admin-proxy#install)).
+
+You can then find the instance connection name and the connection string in the outputs of your active pulumi stack:
+```
+pulumi stack --show-secrets
+# use `database_instance_name` in Cloud SQL proxy
+# use `database_url_alembic` to connect in your client
+```
+
+Start the Cloud SQL proxy (make sure you are properly authenticated with GCP):
+```
+  ./cloud_sql_proxy -instances=database_instance_name=tcp:0.0.0.0:5432
+```
+
+In another process connect to the database (i.e. with `psql`):
+```
+psql database_url_alembic
+```
+
 ## Troubleshooting
 
 If pulumi throws funky errors at deployment, you can run in your current stack:
