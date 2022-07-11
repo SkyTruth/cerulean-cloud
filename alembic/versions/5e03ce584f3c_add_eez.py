@@ -65,7 +65,7 @@ def upgrade() -> None:
             session.add(region)
 
     # Add inverted EEZ (no sovereign)
-
+    # Too long to compute, so disabled
     if False:
         with session.begin():
             outer_geom = session.query(
