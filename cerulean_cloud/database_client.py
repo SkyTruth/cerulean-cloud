@@ -19,7 +19,8 @@ def get_engine(db_url: str = os.getenv("DB_URL")):
 
 async def existing_or_new(sess, kls, **kwargs):
     """Check if instance exists, creates it if not"""
-    inst = await sess.execute(select(kls).filter_by(**kwargs)).one_or_none()[0]
+    res = await sess.execute(select(kls).filter_by(**kwargs))
+    inst = res.scalars().first()
     if not inst:
         inst = kls(**kwargs)
     return inst
