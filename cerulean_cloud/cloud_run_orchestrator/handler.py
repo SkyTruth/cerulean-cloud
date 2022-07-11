@@ -234,9 +234,9 @@ async def _orchestrate(
     aux_datasets = ["ship_density", aux_infra_distance]
 
     # write to DB
-    with DatabaseClient(db_engine) as db_client:
+    async with DatabaseClient(db_engine) as db_client:
         try:
-            with db_client.session.begin():
+            async with db_client.session.begin():
 
                 trigger = db_client.get_trigger(trigger=payload.trigger)
                 model = db_client.get_model(os.getenv("MODEL"))
@@ -271,7 +271,7 @@ async def _orchestrate(
                 )
                 db_client.session.add(orchestrator_run)
         except:  # noqa: E722
-            db_client.session.close()
+            await db_client.session.close()
             raise
 
         print(f"Instantiating inference client with aux_dataset = {aux_datasets}...")
@@ -339,7 +339,7 @@ async def _orchestrate(
         out_fc = get_fc_from_raster(base_tile_inference_file)
 
         for feat in out_fc.features:
-            with db_client.session.begin():
+            async with db_client.session.begin():
                 slick_class = db_client.get_slick_class(
                     feat.properties["classification"]
                 )
