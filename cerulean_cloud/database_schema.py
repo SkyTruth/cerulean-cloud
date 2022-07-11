@@ -43,7 +43,7 @@ class Eez(Base):  # noqa
     )
     geometry_005 = Column(
         Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
-        Computed("st_simplify(geometry,0.05)", persisted=True),
+        Computed("st_simplify(geometry::geometry,0.05)::geography", persisted=True),
     )
 
 
