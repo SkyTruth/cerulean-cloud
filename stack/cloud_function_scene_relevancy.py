@@ -17,7 +17,7 @@ config_values = {"DESTINATION": "abc"}
 
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
-PATH_TO_SOURCE_CODE = "cerulean_cloud/cloud_function_scene_relevancy"
+PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_scene_relevancy"
 assets = {}
 for file in os.listdir(PATH_TO_SOURCE_CODE):
     location = os.path.join(PATH_TO_SOURCE_CODE, file)
