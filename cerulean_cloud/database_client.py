@@ -7,6 +7,7 @@ from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, box, shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import defer
 
 import cerulean_cloud.database_schema as database_schema
 
@@ -16,9 +17,9 @@ def get_engine(db_url: str = os.getenv("DB_URL")):
     return create_async_engine(db_url, echo=True)
 
 
-def existing_or_new(sess, kls, **kwargs):
+async def existing_or_new(sess, kls, **kwargs):
     """Check if instance exists, creates it if not"""
-    inst = sess.query(kls).filter_by(**kwargs).one_or_none()
+    inst = await sess.execute(select(kls).filter_by(**kwargs)).one_or_none()[0]
     if not inst:
         inst = kls(**kwargs)
     return inst
@@ -33,45 +34,46 @@ class DatabaseClient:
 
     async def __aenter__(self):
         """open session"""
-        self.session = AsyncSession(self.engine)
+        self.session = AsyncSession(self.engine, expire_on_commit=False)
         return self
 
     async def __aexit__(self, exc_type, exc_value, exc_traceback):
         """close session"""
-        self.session.close()
+        await self.session.close()
 
-    def get_trigger(self, trigger: Optional[int] = None):
+    async def get_trigger(self, trigger: Optional[int] = None):
         """get trigger from id"""
         if trigger:
-            return existing_or_new(self, database_schema.Trigger, id=trigger)
+            return await existing_or_new(self, database_schema.Trigger, id=trigger)
         else:
-            return existing_or_new(
+            return await existing_or_new(
                 self.session,
                 database_schema.Trigger,
                 trigger_logs="",
                 trigger_type="MANUAL",
             )
 
-    def get_model(self, model_path: str):
+    async def get_model(self, model_path: str):
         """get model from path"""
-        return existing_or_new(
+        return await existing_or_new(
             self.session, database_schema.Model, file_path=model_path, name=model_path
         )
 
-    def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
+    async def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
         s1_grd = (
-            self.session.query(database_schema.Sentinel1Grd)
-            .filter_by(scene_id=sceneid)
-            .one_or_none()
-        )
+            await self.session.execute(
+                select(database_schema.Sentinel1Grd).filter_by(scene_id=sceneid)
+            )
+        ).one_or_none()[0]
+
         if not s1_grd:
             shape_s1 = shape(scene_info["footprint"])
             if isinstance(Polygon, shape_s1):
                 geom = from_shape(shape_s1)
             elif isinstance(MultiPolygon, shape_s1):
                 geom = from_shape(shape_s1.geoms[0])
-            s1_grd = existing_or_new(
+            s1_grd = await existing_or_new(
                 self.session,
                 database_schema.Sentinel1Grd,
                 scene_id=sceneid,
@@ -87,21 +89,21 @@ class DatabaseClient:
             )
         return s1_grd
 
-    def get_vessel_density(self, vessel_density: str):
+    async def get_vessel_density(self, vessel_density: str):
         """get vessel density"""
-        return existing_or_new(
+        return await existing_or_new(
             self.session, database_schema.VesselDensity, name=vessel_density
         )
 
-    def get_infra_distance(self, infra_distance_url: str):
+    async def get_infra_distance(self, infra_distance_url: str):
         """get infra distance"""
-        return existing_or_new(
+        return await existing_or_new(
             self.session, database_schema.InfraDistance, url=infra_distance_url
         )
 
-    def get_slick_class(self, slick_class: str):
+    async def get_slick_class(self, slick_class: str):
         """get slick class"""
-        return existing_or_new(
+        return await existing_or_new(
             self.session,
             database_schema.SlickClass,
             value=int(slick_class),
@@ -166,11 +168,13 @@ class DatabaseClient:
     async def add_eez_to_slick(self, slick):
         """add a slick"""
         eez = await self.session.execute(
-            select(database_schema.Eez).where(
-                func.ST_Intersects(slick.geometry, database_schema.Eez.geometry)
-            )
+            select(database_schema.Eez)
+            .where(func.ST_Intersects(slick.geometry, database_schema.Eez.geometry_005))
+            .options(defer("geometry"))
         )
+        eez_to_slick = []
         for e in eez.scalars().all():
             print(f"Adding to {slick} eez {e}")
-            eez_to_slick = database_schema.SlickToEez(slick1=slick, eez1=e)
-            self.session.add(eez_to_slick)
+            eez_to_slick.append(database_schema.SlickToEez(slick=slick.id, eez=e.id))
+
+        self.session.add_all(eez_to_slick)
