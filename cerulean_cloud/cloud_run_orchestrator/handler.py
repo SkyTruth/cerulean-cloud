@@ -238,11 +238,11 @@ async def _orchestrate(
         try:
             async with db_client.session.begin():
 
-                trigger = db_client.get_trigger(trigger=payload.trigger)
-                model = db_client.get_model(os.getenv("MODEL"))
-                vessel_density = db_client.get_vessel_density("Vessel Density")
-                infra_distance = db_client.get_infra_distance(aux_infra_distance)
-                sentinel1_grd = db_client.get_sentinel1_grd(
+                trigger = await db_client.get_trigger(trigger=payload.trigger)
+                model = await db_client.get_model(os.getenv("MODEL"))
+                vessel_density = await db_client.get_vessel_density("Vessel Density")
+                infra_distance = await db_client.get_infra_distance(aux_infra_distance)
+                sentinel1_grd = await db_client.get_sentinel1_grd(
                     payload.sceneid,
                     info,
                     titiler_client.get_base_tile_url(
