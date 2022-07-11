@@ -11,7 +11,7 @@ numpy
 rio-tiler
 rio-tiler-pds
 geojson
-SQLAlchemy
+SQLAlchemy[asyncio]
 GeoAlchemy2
 Shapely
-psycopg2-binary
+asyncpg

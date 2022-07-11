@@ -14,8 +14,9 @@ shapely
 google-cloud-storage
 grpcio<=1.43.0
 alembic
-psycopg2-binary
+asyncpg
 GeoAlchemy2
 alembic_utils
 GitPython
 sqlacodegen
+psycopg2-binary

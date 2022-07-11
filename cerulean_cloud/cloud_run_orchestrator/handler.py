@@ -126,6 +126,7 @@ def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
                 geometry=geom, properties=dict(classification=classification)
             )
             for geom, classification in shapes
+            if int(classification) in [3, 5]
         ]
     )
     return out_fc
@@ -205,6 +206,7 @@ def create_dataset_from_inference_result(
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
+    # Orchestrate inference
     start_time = datetime.now()
     print(f"Start time: {start_time}")
     zoom = payload.zoom
@@ -232,15 +234,15 @@ async def _orchestrate(
     aux_datasets = ["ship_density", aux_infra_distance]
 
     # write to DB
-    with DatabaseClient(db_engine) as db_client:
+    async with DatabaseClient(db_engine) as db_client:
         try:
-            with db_client.session.begin():
+            async with db_client.session.begin():
 
-                trigger = db_client.get_trigger(trigger=payload.trigger)
-                model = db_client.get_model(os.getenv("MODEL"))
-                vessel_density = db_client.get_vessel_density("Vessel Density")
-                infra_distance = db_client.get_infra_distance(aux_infra_distance)
-                sentinel1_grd = db_client.get_sentinel1_grd(
+                trigger = await db_client.get_trigger(trigger=payload.trigger)
+                model = await db_client.get_model(os.getenv("MODEL"))
+                vessel_density = await db_client.get_vessel_density("Vessel Density")
+                infra_distance = await db_client.get_infra_distance(aux_infra_distance)
+                sentinel1_grd = await db_client.get_sentinel1_grd(
                     payload.sceneid,
                     info,
                     titiler_client.get_base_tile_url(
@@ -269,7 +271,7 @@ async def _orchestrate(
                 )
                 db_client.session.add(orchestrator_run)
         except:  # noqa: E722
-            db_client.session.close()
+            await db_client.session.close()
             raise
 
         print(f"Instantiating inference client with aux_dataset = {aux_datasets}...")
@@ -337,7 +339,7 @@ async def _orchestrate(
         out_fc = get_fc_from_raster(base_tile_inference_file)
 
         for feat in out_fc.features:
-            with db_client.session.begin():
+            async with db_client.session.begin():
                 slick_class = db_client.get_slick_class(
                     feat.properties["classification"]
                 )
@@ -348,6 +350,9 @@ async def _orchestrate(
                     slick_class,
                 )
                 db_client.session.add(slick)
+
+                db_client.add_eez_to_slick(slick)
+                print(f"Added last eez for slick {slick}")
 
         print("Merging offset tiles!")
         offset_tile_inference_file = MemoryFile()
