@@ -146,54 +146,9 @@ jobs:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
         run: alembic upgrade head
 
-  preview-staging:
-    name: Preview [STAGING]
-    needs: [tests]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
-        with:
-          python-version: 3.8
-
-      - name: Configure GCP Credentials
-        uses: "google-github-actions/auth@v0"
-        with:
-          workload_identity_provider: "projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider"
-          service_account: "git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
-          aws-region: eu-central-1
-
-      - name: Configure docker
-        run: gcloud auth configure-docker -q
-
-      - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v3
-        id: pulumi-images
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "staging"
-        with:
-          work-dir: images/
-          command: preview
-          stack-name: staging
-
-      - uses: pulumi/actions@v3
-        with:
-          command: preview
-          stack-name: staging
-
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "staging"
-          MODEL: ${{ steps.pulumi-images.outputs.model }}
-
   deploy-staging:
     name: Deploy [STAGING]
-    needs: [preview-staging]
+    needs: [tests]
     runs-on: ubuntu-latest
     environment: staging
     if: github.ref == 'refs/heads/main'
@@ -247,54 +202,9 @@ jobs:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
         run: alembic upgrade head
 
-  preview-production:
-    name: Preview [PRODUCTION]
-    needs: [tests]
-    runs-on: ubuntu-latest
-    if: startsWith(github.event.ref, 'refs/tags')
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
-        with:
-          python-version: 3.8
-
-      - name: Configure GCP Credentials
-        uses: "google-github-actions/auth@v0"
-        with:
-          workload_identity_provider: "projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider"
-          service_account: "git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
-          aws-region: eu-central-1
-
-      - name: Configure docker
-        run: gcloud auth configure-docker -q
-
-      - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v3
-        id: pulumi-images
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "production"
-        with:
-          work-dir: images/
-          command: preview
-          stack-name: production
-
-      - uses: pulumi/actions@v3
-        with:
-          command: preview
-          stack-name: production
-
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "production"
-          MODEL: ${{ steps.pulumi-images.outputs.model }}
-
   deploy-production:
     name: Deploy [PRODUCTION]
-    needs: [preview-production]
+    needs: [tests]
     runs-on: ubuntu-latest
     environment: production
     if: startsWith(github.event.ref, 'refs/tags')
