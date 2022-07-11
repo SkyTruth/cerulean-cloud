@@ -53,4 +53,4 @@ def downgrade() -> None:
     session = orm.Session(bind=bind)
 
     with session.begin():
-        session.query(database_schema.Eez).filter(name="High Seas").delete()
+        session.query(database_schema.Eez).filter_by(geoname="High Seas").delete()
