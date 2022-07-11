@@ -51,7 +51,7 @@ def apply_conf_threshold(conf, classes, conf_threshold):
         conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
 
     Returns:
-        _type_: _description_
+        torch.Tensor: An array of shape [H,W] with the class ids that satisfy the confidence threshold. This can be vectorized.
     """
     high_conf_mask = torch.any(torch.where(conf > conf_threshold, 1, 0), axis=0)
     return torch.where(high_conf_mask, classes, 0)
