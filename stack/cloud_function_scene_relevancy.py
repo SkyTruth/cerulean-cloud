@@ -9,7 +9,7 @@ from utils import construct_name
 
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
-    construct_name("bucket-cloud-function-scene-relevancy"),
+    construct_name("bucket-cloud-function"),
     location="EU",
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
