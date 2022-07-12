@@ -69,4 +69,4 @@ async def test_create_s1l(setup_database, engine):
                 info,
                 titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
             )
-    assert sentinel1_grd.sceneid == info["id"]
+    assert sentinel1_grd.scene_id == info["id"]
