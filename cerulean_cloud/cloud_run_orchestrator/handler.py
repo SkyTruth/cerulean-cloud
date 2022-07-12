@@ -312,13 +312,19 @@ async def _orchestrate(
         ds_base_tiles = []
         for base_tile_inference in base_tiles_inference:
             ds_base_tiles.append(
-                create_dataset_from_inference_result(base_tile_inference)
+                *[
+                    create_dataset_from_inference_result(b)
+                    for b in base_tile_inference.stack
+                ]
             )
 
         ds_offset_tiles = []
         for offset_tile_inference in offset_tiles_inference:
             ds_offset_tiles.append(
-                create_dataset_from_inference_result(offset_tile_inference)
+                *[
+                    create_dataset_from_inference_result(b)
+                    for b in offset_tile_inference.stack
+                ]
             )
 
         print("Merging base tiles!")

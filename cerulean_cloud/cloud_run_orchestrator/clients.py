@@ -15,7 +15,12 @@ from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 from rio_tiler.io import COGReader
 
-from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, InferenceResult
+from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceInput,
+    InferenceInputStack,
+    InferenceResult,
+    InferenceResultStack,
+)
 from cerulean_cloud.tiling import TMS
 
 
@@ -77,11 +82,13 @@ class CloudRunInferenceClient:
 
         encoded = img_array_to_b64_image(img_array)
 
-        inference_input = InferenceInput(image=encoded, bounds=TMS.bounds(tile))
+        inference_input = InferenceInputStack(
+            stack=InferenceInput(image=encoded, bounds=TMS.bounds(tile))
+        )
         res = await self.client.post(
             self.url + "/predict", data=inference_input.json(), timeout=None
         )
-        return InferenceResult(**res.json())
+        return InferenceResultStack(**res.json())
 
     async def get_offset_tile_inference(
         self, bounds: List[float], rescale=(0, 100)
@@ -101,11 +108,13 @@ class CloudRunInferenceClient:
 
         encoded = img_array_to_b64_image(img_array)
 
-        inference_input = InferenceInput(image=encoded, bounds=bounds)
+        inference_input = InferenceInputStack(
+            stack=InferenceInput(image=encoded, bounds=bounds)
+        )
         res = await self.client.post(
             self.url + "/predict", data=inference_input.json(), timeout=None
         )
-        return InferenceResult(**res.json())
+        return InferenceResultStack(**res.json())
 
 
 def get_scene_date_month(scene_id: str) -> str:
