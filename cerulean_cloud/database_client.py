@@ -1,5 +1,6 @@
 """Client code to interact with the database"""
 import os
+from datetime import datetime
 from typing import Optional
 
 import geoalchemy2.functions as func
@@ -85,9 +86,9 @@ class DatabaseClient:
                 absolute_orbit_number=scene_info["absoluteOrbitNumber"],
                 mode=scene_info["mode"],
                 polarization=scene_info["polarization"],
-                scihub_ingestion_time=scene_info["sciHubIngestion"],
-                start_time=scene_info["startTime"],
-                end_time=scene_info["stopTime"],
+                scihub_ingestion_time=datetime.isoformat(scene_info["sciHubIngestion"]),
+                start_time=datetime.isoformat(scene_info["startTime"]),
+                end_time=datetime.isoformat(scene_info["stopTime"]),
                 meta=scene_info,
                 url=titiler_url,
                 geometry=geom,
