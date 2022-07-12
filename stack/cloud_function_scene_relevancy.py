@@ -3,6 +3,7 @@ import os
 import time
 
 import pulumi
+import pulumi_gcp as gcp
 from pulumi_gcp import cloudfunctions, storage
 from utils import construct_name
 
@@ -46,8 +47,24 @@ fxn = cloudfunctions.Function(
     trigger_http=True,
 )
 
+policy_data = gcp.organizations.get_iam_policy(
+    bindings=[
+        gcp.organizations.GetIAMPolicyBindingArgs(
+            role="roles/cloudsql.client",
+            members=["domain:appspot.gserviceaccount.com"],
+        )
+    ]
+)
+sql_access = cloudfunctions.FunctionIamPolicy(
+    construct_name("cloud-function-scene-relevancy-invoker"),
+    project=fxn.project,
+    region=fxn.region,
+    cloud_function=fxn.name,
+    policy_data=policy_data.policy_data,
+)
+
 invoker = cloudfunctions.FunctionIamMember(
-    "invoker",
+    construct_name("cloud-function-scene-relevancy-invoker"),
     project=fxn.project,
     region=fxn.region,
     cloud_function=fxn.name,
