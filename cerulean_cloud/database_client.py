@@ -3,6 +3,7 @@ import os
 from typing import Optional
 
 import geoalchemy2.functions as func
+from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, box, shape
 from sqlalchemy import select
@@ -85,9 +86,11 @@ class DatabaseClient:
                 absolute_orbit_number=scene_info["absoluteOrbitNumber"],
                 mode=scene_info["mode"],
                 polarization=scene_info["polarization"],
-                scihub_ingestion_time=scene_info["sciHubIngestion"],
-                start_time=scene_info["startTime"],
-                end_time=scene_info["stopTime"],
+                scihub_ingestion_time=parse(
+                    scene_info["sciHubIngestion"], ignoretz=True
+                ),
+                start_time=parse(scene_info["startTime"]),
+                end_time=parse(scene_info["stopTime"]),
                 meta=scene_info,
                 url=titiler_url,
                 geometry=geom,
