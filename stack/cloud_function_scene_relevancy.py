@@ -3,7 +3,8 @@ import os
 import time
 
 import pulumi
-from pulumi_gcp import cloudfunctions, storage
+from database import sql_instance_url
+from pulumi_gcp import cloudfunctions, service_account, storage
 from utils import construct_name
 
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
@@ -13,7 +14,7 @@ bucket = storage.Bucket(
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
 
-config_values = {"DESTINATION": "abc"}
+config_values = {"DB_URL": sql_instance_url}
 
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
@@ -35,6 +36,21 @@ source_archive_object = storage.BucketObject(
     source=archive,
 )
 
+# Assign access to cloud SQL
+cloud_function_service_account = service_account.Account(
+    construct_name("cloud-function"),
+    account_id=construct_name("cloud-function"),
+    display_name="Service Account for cloud function.",
+)
+cloud_function_service_account_iam = service_account.IAMMember(
+    construct_name("cloud-function-iam"),
+    service_account_id=cloud_function_service_account.name,
+    role="roles/cloudsql.client",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
+
 fxn = cloudfunctions.Function(
     construct_name("cloud-function-scene-relevancy"),
     entry_point="main",
@@ -44,6 +60,7 @@ fxn = cloudfunctions.Function(
     source_archive_bucket=bucket.name,
     source_archive_object=source_archive_object.name,
     trigger_http=True,
+    service_account_email=cloud_function_service_account.email,
 )
 
 invoker = cloudfunctions.FunctionIamMember(
