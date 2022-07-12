@@ -15,3 +15,4 @@ SQLAlchemy[asyncio]
 GeoAlchemy2
 Shapely
 asyncpg
+python-dateutil

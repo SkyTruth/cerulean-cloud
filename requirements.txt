@@ -20,3 +20,4 @@ alembic_utils
 GitPython
 sqlacodegen
 psycopg2-binary
+python-dateutil
