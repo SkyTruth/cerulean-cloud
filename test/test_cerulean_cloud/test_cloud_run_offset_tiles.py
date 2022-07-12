@@ -7,7 +7,10 @@ import torch
 from rasterio.plot import reshape_as_raster
 
 import cerulean_cloud.cloud_run_offset_tiles.handler as handler
-from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput
+from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceInput,
+    InferenceInputStack,
+)
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -74,9 +77,10 @@ def test_inference_():
     model = handler.load_tracing_model(
         "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
     )
-    payload = InferenceInput(image=encoded)
+    payload = InferenceInputStack(stack=[InferenceInput(image=encoded)])
 
-    classes, conf = handler._predict(payload, model)
+    inference_stack = handler._predict(payload, model)
+    classes, conf, bounds = inference_stack[0]
     enc_classes = handler.array_to_b64_image(classes)
     enc_conf = handler.array_to_b64_image(conf)
 
