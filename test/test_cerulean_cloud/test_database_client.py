@@ -1,8 +1,11 @@
 """Test database client"""
 import json
+from datetime import datetime
 
+import geojson
 import pytest
 import sqlalchemy as sa
+from shapely.geometry import box
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -70,3 +73,55 @@ async def test_create_s1l(setup_database, engine):
                 titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
             )
     assert sentinel1_grd.scene_id == info["id"]
+
+
+@pytest.mark.asyncio
+async def test_create_slick(setup_database, engine):
+    async with DatabaseClient(engine) as db_client:
+        titiler_client = TitilerClient("some_url")
+        out_fc = geojson.FeatureCollection(
+            features=[
+                geojson.Feature(
+                    geometry=box(1, 2, 3, 4), properties={"classification": 1}
+                )
+            ]
+        )
+        for feat in out_fc.features:
+            async with db_client.session.begin():
+                with open("test/test_cerulean_cloud/fixtures/productInfo.json") as src:
+                    info = json.load(src)
+                sentinel1_grd = await db_client.get_sentinel1_grd(
+                    info["id"],
+                    info,
+                    titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
+                )
+                orchestrator_run = db_client.add_orchestrator(
+                    datetime.now(),
+                    datetime.now(),
+                    1,
+                    1,
+                    "",
+                    "",
+                    "",
+                    1,
+                    1,
+                    [1, 2, 3, 4],
+                    None,
+                    None,
+                    sentinel1_grd,
+                    None,
+                    None,
+                )
+                slick_class = db_client.get_slick_class(
+                    feat.properties["classification"]
+                )
+                slick = db_client.add_slick(
+                    orchestrator_run,
+                    sentinel1_grd.start_time,
+                    feat.geometry,
+                    slick_class,
+                )
+                db_client.session.add(slick)
+
+                db_client.add_eez_to_slick(slick)
+                print(f"Added last eez for slick {slick}")
