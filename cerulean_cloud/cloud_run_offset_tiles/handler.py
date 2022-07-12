@@ -119,7 +119,8 @@ def _predict(
 
     res = []
     for i, inference_input in enumerate(payload.stack):
-        conf, classes = logits_to_classes(out_batch_logits[i, :, :, :])
+        conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
+        classes = apply_conf_threshold(conf, _classes, 0.7)
         print(f"Output classes array is {classes.shape}")
         res.append(
             (conf.detach().numpy(), classes.detach().numpy(), inference_input.bounds)
