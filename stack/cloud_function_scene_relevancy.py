@@ -38,7 +38,7 @@ source_archive_object = storage.BucketObject(
 
 fxn = cloudfunctions.Function(
     construct_name("cloud-function-scene-relevancy"),
-    entry_point="handler",
+    entry_point="main",
     environment_variables=config_values,
     region=pulumi.Config("gcp").require("region"),
     runtime="python38",
