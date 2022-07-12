@@ -31,14 +31,14 @@ archive = pulumi.AssetArchive(assets=assets)
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cloud-function-scene-relevancy"),
-    name="main.py-%f" % time.time(),
+    name="handler.py-%f" % time.time(),
     bucket=bucket.name,
     source=archive,
 )
 
 fxn = cloudfunctions.Function(
     construct_name("cloud-function-scene-relevancy"),
-    entry_point="main",
+    entry_point="handler",
     environment_variables=config_values,
     region=pulumi.Config("gcp").require("region"),
     runtime="python38",
