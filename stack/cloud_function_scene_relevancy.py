@@ -5,7 +5,7 @@ import time
 import cloud_run_orchestrator
 import database
 import pulumi
-from pulumi_gcp import cloudfunctions, cloudtasks, serviceaccount, storage
+from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
 from utils import construct_name
 
 stack = pulumi.get_stack()
@@ -70,9 +70,9 @@ cloud_function_service_account = serviceaccount.Account(
     account_id=f"{stack}-cloud-function",
     display_name="Service Account for cloud function.",
 )
-cloud_function_service_account_iam = serviceaccount.IAMBinding(
+cloud_function_service_account_iam = projects.IAMBinding(
     construct_name("cloud-function-iam"),
-    service_account_id=cloud_function_service_account.name,
+    project=pulumi.Config("gcp").require("project"),
     role="roles/cloudsql.client",
     members=[
         cloud_function_service_account.email.apply(
