@@ -133,3 +133,53 @@ async def test_create_slick(setup_database, engine):
 
                 await db_client.add_eez_to_slick(slick)
                 print(f"Added last eez for slick {slick}")
+
+
+@pytest.mark.asyncio
+async def test_update_orchestrator(setup_database, engine):
+    titiler_client = TitilerClient("some_url")
+    async with DatabaseClient(engine) as db_client:
+        async with db_client.session.begin():
+            with open("test/test_cerulean_cloud/fixtures/productInfo.json") as src:
+                info = json.load(src)
+            db_client.session.add(
+                database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")
+            )
+            db_client.session.add(
+                database_schema.Model(file_path="model_path", name="model_path")
+            )
+            sentinel1_grd = await db_client.get_sentinel1_grd(
+                info["id"],
+                info,
+                titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
+            )
+            trigger = await db_client.get_trigger()
+            model = await db_client.get_model("model_path")
+            orchestrator_run = db_client.add_orchestrator(
+                datetime.now(),
+                datetime.now(),
+                1,
+                1,
+                "",
+                "",
+                "",
+                1,
+                1,
+                [1, 2, 3, 4],
+                trigger,
+                model,
+                sentinel1_grd,
+                None,
+                None,
+            )
+            db_client.session.add(orchestrator_run)
+
+        async with db_client.session.begin():
+            orchestrator_run.success = True
+            orchestrator_run.inference_end_time = datetime.now()
+
+        o_r = await db_client.session.execute(
+            sa.select(database_schema.OrchestratorRun).filter_by(id=orchestrator_run.id)
+        )
+        o_r = o_r.scalars().first()
+        assert o_r.success is True
