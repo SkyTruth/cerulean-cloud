@@ -376,7 +376,7 @@ async def _orchestrate(
         print(f"End time: {end_time}")
         print("Returning results!")
 
-        with db_client.session.begin():
+        async with db_client.session.begin():
             orchestrator_run.success = True
             orchestrator_run.inference_end_time = end_time
 
