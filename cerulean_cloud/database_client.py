@@ -158,6 +158,20 @@ class DatabaseClient:
         )
         return orchestrator_run
 
+    async def add_slick_with_eez(self, feat, orchestrator_run, slick_timestamp):
+        """add a slick with eez"""
+        async with self.session.begin():
+            slick_class = await self.get_slick_class(feat.properties["classification"])
+            slick = self.add_slick(
+                orchestrator_run,
+                slick_timestamp,
+                feat.geometry,
+                slick_class,
+            )
+            self.session.add(slick)
+
+            await self.add_eez_to_slick(slick)
+
     def add_slick(self, orchestrator_run, slick_timestamp, slick_shape, slick_class):
         """add a slick"""
         s = shape(slick_shape)
@@ -175,14 +189,12 @@ class DatabaseClient:
 
     async def add_eez_to_slick(self, slick):
         """add a slick"""
-        eez = await self.session.execute(
+        stmt = (
             select(database_schema.Eez)
             .where(func.ST_Intersects(slick.geometry, database_schema.Eez.geometry_005))
             .options(defer("geometry"))
         )
-        eez_to_slick = []
-        for e in eez.scalars().all():
+        eez = await self.session.stream(stmt)
+        async for e in eez.scalars():
             print(f"Adding to {slick} eez {e}")
-            eez_to_slick.append(database_schema.SlickToEez(slick=slick.id, eez=e.id))
-
-        self.session.add_all(eez_to_slick)
+            self.session.add(database_schema.SlickToEez(slick=slick.id, eez=e.id))
