@@ -8,6 +8,7 @@ import os
 
 import asyncpg
 import shapely.geometry as sh  # https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
+from google.cloud import tasks_v2
 
 
 def load_ocean_poly():
@@ -109,3 +110,41 @@ def sns_db_row(sns_id, sns_sub, sns_ts, msg, is_oceanic):
         "isoceanic": f"{is_oceanic}",
     }
     return (row, tbl)
+
+
+def handler_queue():
+    """handler queue"""
+    # Create a client.
+    client = tasks_v2.CloudTasksClient()
+
+    # TODO(developer): Uncomment these lines and replace with your values.
+    project = os.getenv("GCP_PROJECT")
+    queue = os.getenv("QUEUE")
+    location = os.getenv("GCP_LOCATION")
+    url = os.getenv("ORCHESTRATOR_URL")
+
+    payload = None
+
+    # Construct the fully qualified queue name.
+    parent = client.queue_path(project, location, queue)
+
+    # Construct the request body.
+    task = {
+        "http_request": {  # Specify the type of request.
+            "http_method": tasks_v2.HttpMethod.POST,
+            "url": url,  # The full url path that the task will be sent to.
+        }
+    }
+
+    if payload is not None:
+        # The API expects a payload of type bytes.
+        converted_payload = payload.encode()
+
+    # Add the payload to the request.
+    task["http_request"]["body"] = converted_payload
+
+    # Use the client to build and send the task.
+    response = client.create_task(request={"parent": parent, "task": task})
+
+    print("Created task {}".format(response.name))
+    return response
