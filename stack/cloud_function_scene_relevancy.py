@@ -70,10 +70,20 @@ cloud_function_service_account = serviceaccount.Account(
     account_id=f"{stack}-cloud-function",
     display_name="Service Account for cloud function.",
 )
-cloud_function_service_account_iam = projects.IAMBinding(
-    construct_name("cloud-function-iam"),
+cloud_function_service_account_iam_sql = projects.IAMBinding(
+    construct_name("cloud-function-iam-sql"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/cloudsql.client",
+    members=[
+        cloud_function_service_account.email.apply(
+            lambda email: f"serviceAccount:{email}"
+        )
+    ],
+)
+cloud_function_service_account_iam_tasks = projects.IAMBinding(
+    construct_name("cloud-function-iam-tasks"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/cloudtasks.enqueuer",
     members=[
         cloud_function_service_account.email.apply(
             lambda email: f"serviceAccount:{email}"
