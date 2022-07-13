@@ -1,2 +1,3 @@
 asyncpg
 shapely
+google-cloud-tasks
