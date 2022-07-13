@@ -126,7 +126,7 @@ def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
                 geometry=geom, properties=dict(classification=classification)
             )
             for geom, classification in shapes
-            if int(classification) in [3, 5]
+            if int(classification) != 0
         ]
     )
     return out_fc
@@ -312,13 +312,19 @@ async def _orchestrate(
         ds_base_tiles = []
         for base_tile_inference in base_tiles_inference:
             ds_base_tiles.append(
-                create_dataset_from_inference_result(base_tile_inference)
+                *[
+                    create_dataset_from_inference_result(b)
+                    for b in base_tile_inference.stack
+                ]
             )
 
         ds_offset_tiles = []
         for offset_tile_inference in offset_tiles_inference:
             ds_offset_tiles.append(
-                create_dataset_from_inference_result(offset_tile_inference)
+                *[
+                    create_dataset_from_inference_result(b)
+                    for b in offset_tile_inference.stack
+                ]
             )
 
         print("Merging base tiles!")

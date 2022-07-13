@@ -6,7 +6,10 @@ import rasterio
 from rasterio.plot import reshape_as_image
 
 import cerulean_cloud.titiler_client
-from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceResult
+from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceResult,
+    InferenceResultStack,
+)
 from cerulean_cloud.cloud_run_orchestrator.clients import (
     CloudRunInferenceClient,
     get_dist_array,
@@ -69,13 +72,15 @@ async def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock)
     httpx_mock.add_response(
         method="POST",
         url=fixture_cloud_inference_tile.url + "/predict",
-        json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
+        json=InferenceResultStack(
+            stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
+        ).dict(),
     )
 
     res = await fixture_cloud_inference_tile.get_base_tile_inference(
         tile=TMS._tile(0, 0, 0), rescale=(0, 100)
     )
-    assert res.classes == ""
+    assert res.stack[0].classes == ""
 
 
 @patch.object(
@@ -86,13 +91,15 @@ async def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_moc
     httpx_mock.add_response(
         method="POST",
         url=fixture_cloud_inference_tile.url + "/predict",
-        json=InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4]).dict(),
+        json=InferenceResultStack(
+            stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
+        ).dict(),
     )
 
     res = await fixture_cloud_inference_tile.get_offset_tile_inference(
         bounds=list(TMS.bounds(TMS._tile(0, 0, 0))), rescale=(0, 100)
     )
-    assert res.classes == ""
+    assert res.stack[0].classes == ""
 
 
 def test_get_ship_density(httpx_mock):

@@ -13,6 +13,14 @@ class InferenceInput(BaseModel):
     bounds: Optional[List[float]]
 
 
+class InferenceInputStack(BaseModel):
+    """
+    Stack of InferenceInput
+    """
+
+    stack: List[InferenceInput]
+
+
 class InferenceResult(BaseModel):
     """
     Inference result from the model
@@ -21,3 +29,11 @@ class InferenceResult(BaseModel):
     classes: str
     confidence: str
     bounds: Optional[List[float]]
+
+
+class InferenceResultStack(BaseModel):
+    """
+    Stack of InferenceResult
+    """
+
+    stack: List[InferenceResult]

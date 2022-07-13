@@ -3,7 +3,7 @@ Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
 from base64 import b64decode, b64encode
 from functools import lru_cache
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -13,7 +13,11 @@ from fastapi_utils.timing import add_timing_middleware, record_timing
 from rasterio.io import MemoryFile
 from starlette.requests import Request
 
-from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, InferenceResult
+from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceInputStack,
+    InferenceResult,
+    InferenceResultStack,
+)
 
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
@@ -22,7 +26,7 @@ add_timing_middleware(app, prefix="app")
 
 
 def load_tracing_model(savepath):
-    """load tracing model"""
+    """load tracing model. a tracing model must be applied to the same batch dimensions the model was trained on."""
     tracing_model = torch.jit.load(savepath)
     return tracing_model
 
@@ -35,11 +39,26 @@ def get_model():
 
 def logits_to_classes(out_batch_logits):
     """returns the confidence scores of the max confident classes
-    and an array of max confident class ids.
+    and an array of max confident class ids for a single tile of shape [classes, H, W].
     """
-    probs = torch.nn.functional.softmax(out_batch_logits, dim=1)
-    conf, classes = torch.max(probs, 1)
+    probs = torch.nn.functional.softmax(out_batch_logits, dim=0)  # 0 is the class dim
+    conf, classes = torch.max(probs, 0)
     return (conf, classes)
+
+
+def apply_conf_threshold(conf, classes, conf_threshold):
+    """Apply a confidence threshold to the output of logits_to_classes for a tile.
+
+    Args:
+        conf (np.ndarray): an array of shape [H, W] of max confidence scores for each pixel
+        classes (np.ndarray): an array of shape [H, W] of class integers for the max confidence scores for each pixel
+        conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
+
+    Returns:
+        torch.Tensor: An array of shape [H,W] with the class ids that satisfy the confidence threshold. This can be vectorized.
+    """
+    high_conf_mask = torch.any(torch.where(conf > conf_threshold, 1, 0), axis=0)
+    return torch.where(high_conf_mask, classes, 0)
 
 
 def b64_image_to_tensor(image: str) -> torch.Tensor:
@@ -57,6 +76,8 @@ def b64_image_to_tensor(image: str) -> torch.Tensor:
 def array_to_b64_image(np_array: np.ndarray) -> str:
     """convert input b64image to torch tensor"""
     np_array = np_array.astype("int8")
+    if len(np_array.shape) == 2:
+        np_array = np.expand_dims(np_array, 0)
     with MemoryFile() as memfile:
         with memfile.open(
             driver="GTiff",
@@ -77,38 +98,56 @@ def ping() -> Dict:
     return {"ping": "pong!"}
 
 
-def _predict(payload: InferenceInput, model) -> Tuple[np.ndarray, np.ndarray]:
+def _predict(
+    payload: InferenceInputStack, model
+) -> List[Tuple[np.ndarray, np.ndarray, List[float]]]:
     print("Loading tensor!")
-    tensor = b64_image_to_tensor(payload.image)
+    stack_tensors = []
+    for inference_input in payload.stack:
+        stack_tensors.append(b64_image_to_tensor(inference_input.image))
+
+    print(f"Stack has {len(stack_tensors)} images")
+    tensor = torch.stack(stack_tensors)
+
     print(f"Original tensor has shape {tensor.shape}")
-    tensor = tensor[None, :, :, :]
     tensor = tensor.float()
     print(f"Expanded tensor has shape {tensor.shape}")
 
     print("Running inference...")
     out_batch_logits = model(tensor)
     print("Finished inference, applying softmax")
-    conf, classes = logits_to_classes(out_batch_logits)
-    print(f"Output classes array is {classes.shape}")
-    return classes.numpy(), conf.detach().numpy()
+
+    res = []
+    for i, inference_input in enumerate(payload.stack):
+        conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
+        classes = apply_conf_threshold(conf, _classes, 0.7)
+        print(f"Output classes array is {classes.shape}")
+        res.append(
+            (conf.detach().numpy(), classes.detach().numpy(), inference_input.bounds)
+        )
+    return res
 
 
 @app.post(
     "/predict",
     description="Run inference",
     tags=["Run inference"],
-    response_model=InferenceResult,
+    response_model=InferenceResultStack,
 )
 def predict(
-    request: Request, payload: InferenceInput, model=Depends(get_model)
+    request: Request, payload: InferenceInputStack, model=Depends(get_model)
 ) -> Dict:
     """predict"""
     record_timing(request, note="Started")
-    classes, conf = _predict(payload, model)
+    results = _predict(payload, model)
     record_timing(request, note="Finished inference")
-    enc_classes = array_to_b64_image(classes)
-    enc_conf = array_to_b64_image(conf)
+
+    inference_result_stack = []
+    for conf, classes, bounds in results:
+        enc_classes = array_to_b64_image(classes)
+        enc_conf = array_to_b64_image(conf)
+        inference_result_stack.append(
+            InferenceResult(classes=enc_classes, confidence=enc_conf, bounds=bounds)
+        )
     record_timing(request, note="Returning")
-    return InferenceResult(
-        classes=enc_classes, confidence=enc_conf, bounds=payload.bounds
-    )
+    return InferenceResultStack(stack=inference_result_stack)

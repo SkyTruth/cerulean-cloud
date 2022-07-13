@@ -15,7 +15,11 @@ from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 from rio_tiler.io import COGReader
 
-from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, InferenceResult
+from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceInput,
+    InferenceInputStack,
+    InferenceResultStack,
+)
 from cerulean_cloud.tiling import TMS
 
 
@@ -61,7 +65,7 @@ class CloudRunInferenceClient:
 
     async def get_base_tile_inference(
         self, tile: morecantile.Tile, rescale=(0, 100)
-    ) -> InferenceResult:
+    ) -> InferenceResultStack:
         """fetch inference for base tiles"""
         img_array = await self.titiler_client.get_base_tile(
             sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
@@ -77,15 +81,17 @@ class CloudRunInferenceClient:
 
         encoded = img_array_to_b64_image(img_array)
 
-        inference_input = InferenceInput(image=encoded, bounds=TMS.bounds(tile))
+        inference_input = InferenceInputStack(
+            stack=[InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
+        )
         res = await self.client.post(
             self.url + "/predict", data=inference_input.json(), timeout=None
         )
-        return InferenceResult(**res.json())
+        return InferenceResultStack(**res.json())
 
     async def get_offset_tile_inference(
         self, bounds: List[float], rescale=(0, 100)
-    ) -> InferenceResult:
+    ) -> InferenceResultStack:
         """fetch inference for offset tiles"""
         hw = self.scale * 256
         img_array = await self.titiler_client.get_offset_tile(
@@ -101,11 +107,13 @@ class CloudRunInferenceClient:
 
         encoded = img_array_to_b64_image(img_array)
 
-        inference_input = InferenceInput(image=encoded, bounds=bounds)
+        inference_input = InferenceInputStack(
+            stack=[InferenceInput(image=encoded, bounds=bounds)]
+        )
         res = await self.client.post(
             self.url + "/predict", data=inference_input.json(), timeout=None
         )
-        return InferenceResult(**res.json())
+        return InferenceResultStack(**res.json())
 
 
 def get_scene_date_month(scene_id: str) -> str:
