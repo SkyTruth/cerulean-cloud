@@ -44,6 +44,8 @@ def main(request):
     asyncio.set_event_loop(loop)
     row = loop.run_until_complete(get_row())
     print(row)
+    response = handler_queue()
+    print(response)
     request_json = request.get_json()
     if request.args and "message" in request.args:
         return request.args.get("message")
