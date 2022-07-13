@@ -4,9 +4,10 @@ import time
 
 import pulumi
 from database import sql_instance_url
-from pulumi_gcp import cloudfunctions, service_account, storage
+from pulumi_gcp import cloudfunctions, serviceaccount, storage
 from utils import construct_name
 
+stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
     construct_name("bucket-cloud-function"),
@@ -37,12 +38,12 @@ source_archive_object = storage.BucketObject(
 )
 
 # Assign access to cloud SQL
-cloud_function_service_account = service_account.Account(
+cloud_function_service_account = serviceaccount.Account(
     construct_name("cloud-function"),
-    account_id=construct_name("cloud-function"),
+    account_id=f"{stack}-cloud-function",
     display_name="Service Account for cloud function.",
 )
-cloud_function_service_account_iam = service_account.IAMMember(
+cloud_function_service_account_iam = serviceaccount.IAMMember(
     construct_name("cloud-function-iam"),
     service_account_id=cloud_function_service_account.name,
     role="roles/cloudsql.client",
