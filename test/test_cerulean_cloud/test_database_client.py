@@ -85,7 +85,10 @@ async def test_create_slick(setup_database, engine):
             features=[
                 geojson.Feature(
                     geometry=box(1, 2, 3, 4), properties={"classification": 1}
-                )
+                ),
+                geojson.Feature(
+                    geometry=box(1, 2, 3, 4), properties={"classification": 2}
+                ),
             ]
         )
         async with db_client.session.begin():
@@ -129,8 +132,8 @@ async def test_create_slick(setup_database, engine):
                 None,
             )
 
-        for feat in out_fc.features:
-            asyncio.gather(
+        async with db_client.session.begin():
+            slicks = await asyncio.gather(
                 *[
                     db_client.add_slick_with_eez(
                         feat, orchestrator_run, sentinel1_grd.start_time
@@ -139,6 +142,7 @@ async def test_create_slick(setup_database, engine):
                 ]
             )
 
+        assert len(slicks) == 1
         o_r = await db_client.session.execute(sa.select(database_schema.SlickToEez))
         assert len(o_r.scalars().all()) == 2
 
