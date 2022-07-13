@@ -12,7 +12,10 @@ from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
 
 import cerulean_cloud
-from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceResult
+from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceResult,
+    InferenceResultStack,
+)
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
@@ -111,8 +114,14 @@ async def mock_get_base_tile_inference(self, tile, rescale):
 
     with open("test/test_cerulean_cloud/fixtures/enc_confidence_512_512.txt") as src:
         enc_confidence = src.read()
-    return InferenceResult(
-        classes=enc_classes, confidence=enc_confidence, bounds=list(TMS.bounds(tile))
+    return InferenceResultStack(
+        stack=[
+            InferenceResult(
+                classes=enc_classes,
+                confidence=enc_confidence,
+                bounds=list(TMS.bounds(tile)),
+            )
+        ]
     )
 
 
@@ -122,8 +131,12 @@ async def mock_get_offset_tile_inference(self, bounds, rescale):
 
     with open("test/test_cerulean_cloud/fixtures/enc_confidence_512_512.txt") as src:
         enc_confidence = src.read()
-    return InferenceResult(
-        classes=enc_classes, confidence=enc_confidence, bounds=bounds
+    return InferenceResultStack(
+        stack=[
+            InferenceResult(
+                classes=enc_classes, confidence=enc_confidence, bounds=bounds
+            )
+        ]
     )
 
 
@@ -176,7 +189,7 @@ async def test_orchestrator(
         httpx_mock.add_response(content=src.read())
 
     res = await _orchestrate(
-        payload, TMS, fixture_titiler_client, fixture_roda_sentinelhub_client
+        payload, TMS, fixture_titiler_client, fixture_roda_sentinelhub_client, None
     )
     # max payload is 32 MB
     assert sys.getsizeof(res.json()) / 1000000 < 32
