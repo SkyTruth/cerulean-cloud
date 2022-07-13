@@ -2,9 +2,10 @@
 import os
 import time
 
+import cloud_run_orchestrator
+import database
 import pulumi
-from database import sql_instance_url
-from pulumi_gcp import cloudfunctions, serviceaccount, storage
+from pulumi_gcp import cloudfunctions, cloudtasks, serviceaccount, storage
 from utils import construct_name
 
 stack = pulumi.get_stack()
@@ -15,7 +16,33 @@ bucket = storage.Bucket(
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
 
-config_values = {"DB_URL": sql_instance_url}
+# Create the Queue for tasks
+queue = cloudtasks.Queue(
+    construct_name("queue-cloud-run-orchestrator"),
+    location=pulumi.Config("gcp").require("region"),
+    rate_limits=cloudtasks.QueueRateLimitsArgs(
+        max_concurrent_dispatches=3,
+        max_dispatches_per_second=2,
+    ),
+    retry_config=cloudtasks.QueueRetryConfigArgs(
+        max_attempts=5,
+        max_backoff="3s",
+        max_doublings=1,
+        max_retry_duration="4s",
+        min_backoff="2s",
+    ),
+    stackdriver_logging_config=cloudtasks.QueueStackdriverLoggingConfigArgs(
+        sampling_ratio=0.9,
+    ),
+)
+
+config_values = {
+    "DB_URL": database.sql_instance_url,
+    "GCP_PROJECT": pulumi.Config("gcp").require("project"),
+    "GCP_LOCATION": pulumi.Config("gcp").require("region"),
+    "QUEUE": queue.id,
+    "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
+}
 
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
