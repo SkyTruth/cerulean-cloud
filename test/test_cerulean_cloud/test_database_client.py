@@ -90,11 +90,19 @@ async def test_create_slick(setup_database, engine):
             async with db_client.session.begin():
                 with open("test/test_cerulean_cloud/fixtures/productInfo.json") as src:
                     info = json.load(src)
+                db_client.session.add(
+                    database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")
+                )
+                db_client.session.add(
+                    database_schema.Model(file_path="model_path", name="model_path")
+                )
                 sentinel1_grd = await db_client.get_sentinel1_grd(
                     info["id"],
                     info,
                     titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
                 )
+                trigger = await db_client.get_trigger()
+                model = await db_client.get_model("model_path")
                 orchestrator_run = db_client.add_orchestrator(
                     datetime.now(),
                     datetime.now(),
@@ -106,13 +114,13 @@ async def test_create_slick(setup_database, engine):
                     1,
                     1,
                     [1, 2, 3, 4],
-                    None,
-                    None,
+                    trigger,
+                    model,
                     sentinel1_grd,
                     None,
                     None,
                 )
-                slick_class = db_client.get_slick_class(
+                slick_class = await db_client.get_slick_class(
                     feat.properties["classification"]
                 )
                 slick = db_client.add_slick(
@@ -123,5 +131,5 @@ async def test_create_slick(setup_database, engine):
                 )
                 db_client.session.add(slick)
 
-                db_client.add_eez_to_slick(slick)
+                await db_client.add_eez_to_slick(slick)
                 print(f"Added last eez for slick {slick}")
