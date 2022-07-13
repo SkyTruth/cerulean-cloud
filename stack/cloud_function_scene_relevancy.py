@@ -70,13 +70,15 @@ cloud_function_service_account = serviceaccount.Account(
     account_id=f"{stack}-cloud-function",
     display_name="Service Account for cloud function.",
 )
-cloud_function_service_account_iam = serviceaccount.IAMMember(
+cloud_function_service_account_iam = serviceaccount.IAMBinding(
     construct_name("cloud-function-iam"),
     service_account_id=cloud_function_service_account.name,
     role="roles/cloudsql.client",
-    member=cloud_function_service_account.email.apply(
-        lambda email: f"serviceAccount:{email}"
-    ),
+    members=[
+        cloud_function_service_account.email.apply(
+            lambda email: f"serviceAccount:{email}"
+        )
+    ],
 )
 
 fxn = cloudfunctions.Function(
