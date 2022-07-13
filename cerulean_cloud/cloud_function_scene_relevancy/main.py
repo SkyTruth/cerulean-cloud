@@ -125,7 +125,7 @@ def handler_queue():
     location = os.getenv("GCP_LOCATION")
     url = os.getenv("ORCHESTRATOR_URL")
 
-    payload = None
+    payload = {}
 
     # Construct the fully qualified queue name.
     parent = client.queue_path(project, location, queue)
@@ -138,12 +138,8 @@ def handler_queue():
         }
     }
 
-    if payload is not None:
-        # The API expects a payload of type bytes.
-        converted_payload = payload.encode()
-
     # Add the payload to the request.
-    task["http_request"]["body"] = converted_payload
+    task["http_request"]["body"] = payload
 
     # Use the client to build and send the task.
     response = client.create_task(request={"parent": parent, "task": task})
