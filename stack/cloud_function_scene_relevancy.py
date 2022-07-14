@@ -70,18 +70,10 @@ cloud_function_service_account = serviceaccount.Account(
     account_id=f"{stack}-cloud-function",
     display_name="Service Account for cloud function.",
 )
-cloud_function_service_account_iam_sql = projects.IAMMember(
-    construct_name("cloud-function-iam-sql"),
+cloud_function_service_account_iam = projects.IAMMember(
+    construct_name("cloud-function-iam"),
     project=pulumi.Config("gcp").require("project"),
-    role="roles/cloudsql.client",
-    member=cloud_function_service_account.email.apply(
-        lambda email: f"serviceAccount:{email}"
-    ),
-)
-cloud_function_service_account_iam_tasks = projects.IAMMember(
-    construct_name("cloud-function-iam-tasks"),
-    project=pulumi.Config("gcp").require("project"),
-    role="roles/cloudtasks.enqueuer",
+    role="projects/cerulean-338116/roles/cloudfunctionscenerelevancyrole",
     member=cloud_function_service_account.email.apply(
         lambda email: f"serviceAccount:{email}"
     ),
