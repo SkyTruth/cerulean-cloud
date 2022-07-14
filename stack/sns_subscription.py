@@ -5,7 +5,7 @@ import pulumi_aws as aws
 from utils import construct_name
 
 iam_for_lambda = aws.iam.Role(
-    "iamForLambda",
+    construct_name("lambda-sentinel1-iam"),
     assume_role_policy="""{
   "Version": "2012-10-17",
   "Statement": [
