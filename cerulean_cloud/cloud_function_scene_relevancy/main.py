@@ -133,7 +133,7 @@ def handler_queue():
     # Construct the request body.
     task = {
         "http_request": {  # Specify the type of request.
-            "http_method": tasks_v2.HttpMethod.POST,
+            "http_method": tasks_v2.HttpMethod.GET,
             "url": url,  # The full url path that the task will be sent to.
         }
     }
