@@ -5,6 +5,8 @@ inspired by https://github.com/jonaraphael/ceruleanserver/tree/master/lambda/Mac
 import asyncio
 import json
 import os
+import urllib.parse as urlparse
+from datetime import datetime, timedelta
 
 import asyncpg
 import shapely.geometry as sh  # https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
@@ -21,7 +23,34 @@ def load_ocean_poly(file_path="OceanGeoJSON_lowres.geojson"):
     return geom
 
 
-async def add_trigger_row(n_scenes=1, n_filtered_scenes=1):
+def make_cloud_function_logs_url(
+    function_name: str, start_time, project_id: str, duration=2
+) -> str:
+    """Forges a cloud log url given a service name, a date and a project id
+
+    Args:
+        function_name (str): the cloud run service name
+        start_time (datetime.datetime): the start time of the cloud run
+        project_id (str): a project id
+        duration (int, optional): Default duration of the logs to show (in min). Defaults to 2.
+
+    Returns:
+        str: A cloud log url.
+    """
+    base_url = "https://console.cloud.google.com/logs/query;query="
+    query = f'resource.type = "cloud_function" resource.labels.function_name = "{function_name}"'
+    formatted_time = start_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    end_time = (start_time + timedelta(minutes=duration)).strftime(
+        "%Y-%m-%dT%H:%M:%S.%fZ"
+    )
+    t_range = f";timeRange={formatted_time}%2F{end_time}"
+    t = f";cursorTimestamp={formatted_time}"
+    project_id = f"?project={project_id}"
+    url = base_url + urlparse.quote(query) + t_range + t + project_id
+    return url
+
+
+async def add_trigger_row(n_scenes=1, n_filtered_scenes=1, logs_url=""):
     """get a row"""
     conn = await asyncpg.connect(os.getenv("DB_URL"))
     row = await conn.fetchrow("SELECT * FROM trigger")
@@ -32,7 +61,7 @@ async def add_trigger_row(n_scenes=1, n_filtered_scenes=1):
     """,
         n_scenes,
         n_filtered_scenes,
-        "",
+        logs_url,
         "SNS_TOPIC",
     )
     return row
@@ -47,6 +76,7 @@ def main(request):
         Response object using
         `make_response <http://flask.pocoo.org/docs/1.0/api/#flask.Flask.make_response>`.
     """
+    start_time = datetime.now()
 
     request_json = request.get_json()
     print(request_json)
@@ -59,7 +89,13 @@ def main(request):
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    row = loop.run_until_complete(add_trigger_row(scenes_count, filtered_scene_count))
+    logs_url = make_cloud_function_logs_url(
+        os.getenv("FUNCTION_NAME"), start_time, os.getenv("GCP_PROJECT")
+    )
+    print(logs_url)
+    row = loop.run_until_complete(
+        add_trigger_row(scenes_count, filtered_scene_count, logs_url=logs_url)
+    )
     print(row)
 
     handler_queue(filtered_scenes, row["id"])
