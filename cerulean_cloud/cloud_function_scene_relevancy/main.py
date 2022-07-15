@@ -82,7 +82,6 @@ def handle_notification(request_json, ocean_poly):
         is_oceanic = scene_poly.intersects(ocean_poly)
         print(is_highdef, is_vv, is_oceanic)
         if is_highdef and is_vv and is_oceanic:
-            # TODO add to queue
             filtered_scenes.append(msg["id"])
     return filtered_scenes
 
@@ -102,6 +101,7 @@ def handler_queue(filtered_scenes, trigger_id):
 
     for scene in filtered_scenes:
         # Construct the request body.
+        # TODO: Add orchestrate and POST method instead
         task = {
             "http_request": {  # Specify the type of request.
                 "http_method": tasks_v2.HttpMethod.GET,
@@ -110,6 +110,7 @@ def handler_queue(filtered_scenes, trigger_id):
         }
 
         payload = {"sceneid": scene, "trigger": trigger_id}
+        print(payload)
         # Add the payload to the request.
         if payload is not None:
             # The API expects a payload of type bytes.
