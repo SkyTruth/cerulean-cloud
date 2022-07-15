@@ -52,12 +52,17 @@ def main(request):
     print(request_json)
     ocean_poly = load_ocean_poly()
 
-    filtered_scene_count = handle_notification(request_json, ocean_poly=ocean_poly)
+    scenes_count = len(request_json.get("Records"))
+    filtered_scenes = handle_notification(request_json, ocean_poly=ocean_poly)
+    filtered_scene_count = len(filtered_scenes)
+    print(filtered_scenes)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    row = loop.run_until_complete(add_trigger_row(1, filtered_scene_count))
+    row = loop.run_until_complete(add_trigger_row(scenes_count, filtered_scene_count))
     print(row)
+
+    handler_queue(filtered_scenes, row.id)
 
     return "Success!"
 
@@ -82,40 +87,39 @@ def handle_notification(request_json, ocean_poly):
     return filtered_scenes
 
 
-def handler_queue():
+def handler_queue(filtered_scenes, trigger_id):
     """handler queue"""
     # Create a client.
     client = tasks_v2.CloudTasksClient()
 
-    # TODO(developer): Uncomment these lines and replace with your values.
     project = os.getenv("GCP_PROJECT")
     queue = os.getenv("QUEUE")
     location = os.getenv("GCP_LOCATION")
     url = os.getenv("ORCHESTRATOR_URL")
 
-    payload = None
-
     # Construct the fully qualified queue name.
     parent = client.queue_path(project, location, queue)
 
-    # Construct the request body.
-    task = {
-        "http_request": {  # Specify the type of request.
-            "http_method": tasks_v2.HttpMethod.GET,
-            "url": url,  # The full url path that the task will be sent to.
+    for scene in filtered_scenes:
+        # Construct the request body.
+        task = {
+            "http_request": {  # Specify the type of request.
+                "http_method": tasks_v2.HttpMethod.GET,
+                "url": url,  # The full url path that the task will be sent to.
+            }
         }
-    }
 
-    # Add the payload to the request.
-    if payload is not None:
-        # The API expects a payload of type bytes.
-        converted_payload = payload.encode()
-
+        payload = {"sceneid": scene, "trigger": trigger_id}
         # Add the payload to the request.
-        task["http_request"]["body"] = converted_payload
+        if payload is not None:
+            # The API expects a payload of type bytes.
+            converted_payload = payload.encode()
 
-    # Use the client to build and send the task.
-    response = client.create_task(request={"parent": parent, "task": task})
+            # Add the payload to the request.
+            task["http_request"]["body"] = converted_payload
 
-    print("Created task {}".format(response.name))
+        # Use the client to build and send the task.
+        response = client.create_task(request={"parent": parent, "task": task})
+
+        print("Created task {}".format(response.name))
     return response
