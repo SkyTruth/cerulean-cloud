@@ -36,12 +36,14 @@ queue = cloudtasks.Queue(
     ),
 )
 
+function_name = construct_name("cloud-function-scene-relevancy")
 config_values = {
     "DB_URL": database.sql_instance_url,
     "GCP_PROJECT": pulumi.Config("gcp").require("project"),
     "GCP_LOCATION": pulumi.Config("gcp").require("region"),
     "QUEUE": queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
+    "FUNCTION_NAME": function_name,
 }
 
 # The Cloud Function source code itself needs to be zipped up into an
@@ -80,7 +82,8 @@ cloud_function_service_account_iam = projects.IAMMember(
 )
 
 fxn = cloudfunctions.Function(
-    construct_name("cloud-function-scene-relevancy"),
+    function_name,
+    name=function_name,
     entry_point="main",
     environment_variables=config_values,
     region=pulumi.Config("gcp").require("region"),
