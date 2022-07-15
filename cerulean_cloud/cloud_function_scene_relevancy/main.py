@@ -159,4 +159,3 @@ def handler_queue(filtered_scenes, trigger_id):
         response = client.create_task(request={"parent": parent, "task": task})
 
         print("Created task {}".format(response.name))
-    return response
