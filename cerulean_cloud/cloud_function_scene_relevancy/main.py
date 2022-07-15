@@ -11,17 +11,14 @@ import shapely.geometry as sh  # https://docs.aws.amazon.com/lambda/latest/dg/py
 from google.cloud import tasks_v2
 
 
-def load_ocean_poly():
+def load_ocean_poly(file_path="OceanGeoJSON_lowres.geojson"):
     """load ocean boundary polygon"""
-    with open("OceanGeoJSON_lowres.geojson") as f:
+    with open(file_path) as f:
         ocean_features = json.load(f)["features"]
     geom = sh.GeometryCollection(
         [sh.shape(feature["geometry"]).buffer(0) for feature in ocean_features]
     )[0]
     return geom
-
-
-ocean_poly = load_ocean_poly()
 
 
 async def add_trigger_row(n_scenes=1, n_filtered_scenes=1):
@@ -53,8 +50,9 @@ def main(request):
 
     request_json = request.get_json()
     print(request_json)
+    ocean_poly = load_ocean_poly()
 
-    filtered_scene_count = handle_notification(request_json)
+    filtered_scene_count = handle_notification(request_json, ocean_poly=ocean_poly)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -64,10 +62,10 @@ def main(request):
     return "Success!"
 
 
-def handle_notification(request_json):
+def handle_notification(request_json, ocean_poly):
     """handle notification"""
-    filtered_scene_count = 0
-    if request_json.get("Records"):
+    filtered_scenes = []
+    for r in request_json.get("Records"):
         sns = request_json["Records"][0]["Sns"]
         msg = json.loads(sns["Message"])
         scene_poly = sh.polygon.Polygon(msg["footprint"]["coordinates"][0][0])
@@ -80,8 +78,8 @@ def handle_notification(request_json):
         print(is_highdef, is_vv, is_oceanic)
         if is_highdef and is_vv and is_oceanic:
             # TODO add to queue
-            pass
-    return filtered_scene_count
+            filtered_scenes.append(msg["id"])
+    return filtered_scenes
 
 
 def handler_queue():

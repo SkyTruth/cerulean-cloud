@@ -4,3 +4,4 @@ pytest-httpx
 pytest-asyncio
 pytest-postgresql
 asyncpg
+google-cloud-tasks
