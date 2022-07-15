@@ -1,0 +1,22 @@
+{
+    "Records": [
+        {
+            "EventSource": "aws:sns",
+            "EventVersion": "1.0",
+            "EventSubscriptionArn": "arn:aws:sns:eu-central-1: 214830741341:SentinelS1L1C:a4c010c6-46e7-41e4-907b-34bdbe3a22b4",
+            "Sns": {
+                "Type": "Notification",
+                "MessageId": "459945a3-3b97-544a-bd87-131dad818ee2",
+                "TopicArn": "arn:aws:sns:eu-central-1: 214830741341:SentinelS1L1C",
+                "Subject": "productAdded",
+                "Message": "{\"id\":\"S1A_IW_GRDH_1SSH_20200212T213817_20200212T213846_031225_03973F_2170\",\"path\": \"GRD/2020/2/12/IW/SH/S1A_IW_GRDH_1SSH_20200212T213817_20200212T213846_031225_03973F_2170\",\"missionId\": \"S1A\",\"productType\": \"GRD\",\"mode\": \"IW\",\"polarization\": \"SH\",\"startTime\": \"2020-02-12T21: 38: 17\",\"stopTime\": \"2020-02-12T21: 38: 46\",\"absoluteOrbitNumber\": 31225,\"missionDataTakeId\": 235327,\"productUniqueIdentifier\": \"2170\",\"sciHubIngestion\": \"2020-02-12T23: 54: 21.845Z\",\"s3Ingestion\": \"2020-02-13T00: 09: 38.317Z\",\"sciHubId\": \"88189f17-5103-412e-b843-502f115ade7d\",\"footprint\": {\"type\": \"MultiPolygon\",\"crs\": {\"type\": \"name\",\"properties\": {\"name\": \"urn:ogc:def:crs:EPSG: 8.8.1: 4326\"}},\"coordinates\": [[[[-70.846283, 73.771324 ], [ -62.887867, 74.371246 ], [ -64.32048, 76.077477 ], [ -73.131508, 75.423004 ], [ -70.846283, 73.771324 ] ] ] ] },\"filenameMap\": {\"support/s1-level-1-calibration.xsd\": \"support/s1-level-1-calibration.xsd\",\"support/s1-map-overlay.xsd\": \"support/s1-map-overlay.xsd\",    \"preview/map-overlay.kml\": \"preview/map-overlay.kml\",\"S1A_IW_GRDH_1SSH_20200212T213817_20200212T213846_031225_03973F_2170.SAFE-report-20200212T232904.pdf\": \"report-20200212T232904.pdf\",\"support/s1-product-preview.xsd\": \"support/s1-product-preview.xsd\",\"annotation/calibration/noise-s1a-iw-grd-hh-20200212t213817-20200212t213846-031225-03973f-001.xml\": \"annotation/calibration/noise-iw-hh.xml\",\"preview/product-preview.html\": \"preview/product-preview.html\",\"support/s1-object-types.xsd\": \"support/s1-object-types.xsd\",\"support/s1-level-1-quicklook.xsd\": \"support/s1-level-1-quicklook.xsd\", \"support/s1-level-1-measurement.xsd\": \"support/s1-level-1-measurement.xsd\",\"support/s1-level-1-noise.xsd\": \"support/s1-level-1-noise.xsd\",\"support/s1-level-1-product.xsd\": \"support/s1-level-1-product.xsd\",\"measurement/s1a-iw-grd-hh-20200212t213817-20200212t213846-031225-03973f-001.tiff\": \"measurement/iw-hh.tiff\",\"preview/quick-look.png\": \"preview/quick-look.png\",\"manifest.safe\": \"manifest.safe\",    \"preview/icons/logo.png\": \"preview/icons/logo.png\",\"annotation/calibration/calibration-s1a-iw-grd-hh-20200212t213817-20200212t213846-031225-03973f-001.xml\": \"annotation/calibration/calibration-iw-hh.xml\",\"annotation/s1a-iw-grd-hh-20200212t213817-20200212t213846-031225-03973f-001.xml\": \"annotation/iw-hh.xml\"}}",
+                "Timestamp": "2020-02-13T00: 09: 58.461Z",
+                "SignatureVersion": "1",
+                "Signature": "Unqt54n71SUI0PGZuqcWhvz8ONcqmHf++hTF6pZeOgb9HYXiNK2Muoi3jMbP5X1jUjBJ4NN6JEdKvxgOgr68UV/NPbSW8mgxRZcL9ZUFq1nI52UYMfNu0nMJLglKGBVrwEnvSXqY8TBRIpGVhSoHakKduDGJDtuJLju02C3hb7K3r5k5Z745VKHHgJ2dZZqqPCUftnE1GDrBSiuE+qkWknMxrc/XoK/ZYK8u7+H/mW9hMUcG9lYbuwuMnBUKkC+dMRgTUt+4hgb7MsjUmBUlDjABxnrJRBg4SKG6EiiiqEIjZxlR2rCNCm1M2rIfxWtEfKuTPytmOOwp69+mRHiWMQ==",
+                "SigningCertUrl": "https: //sns.eu-central-1.amazonaws.com/SimpleNotificationService-a86cb10b4e1f29c941702d737128f7b6.pem",
+                "UnsubscribeUrl": "https://sns.eu-central-1.amazonaws.com/?Action=Unsubscribe&SubscriptionArn=arn:aws:sns:eu-central-1:214830741341:SentinelS1L1C:a4c010c6-46e7-41e4-907b-34bdbe3a22b4",
+                "MessageAttributes": {}
+            }
+        }
+    ]
+}

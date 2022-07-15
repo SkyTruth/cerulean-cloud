@@ -1,1 +1,3 @@
-mangum
+asyncpg
+shapely
+google-cloud-tasks
