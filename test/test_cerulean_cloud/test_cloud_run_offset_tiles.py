@@ -53,7 +53,7 @@ def test_inference():
 
     tensor = handler.b64_image_to_tensor(encoded)
     tensor = tensor[None, :, :, :]
-    tensor = tensor.float()
+    tensor = tensor.float() / 255
 
     model = handler.load_tracing_model(
         "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
