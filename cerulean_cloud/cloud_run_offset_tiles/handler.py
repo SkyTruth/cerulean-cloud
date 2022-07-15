@@ -110,7 +110,9 @@ def _predict(
     tensor = torch.stack(stack_tensors)
 
     print(f"Original tensor has shape {tensor.shape}")
-    tensor = tensor.float()
+    print(f"tensor max is {torch.max(tensor)}")
+    tensor = tensor.float() / 255
+    print(f"tensor max is {torch.max(tensor)}")
     print(f"Expanded tensor has shape {tensor.shape}")
 
     print("Running inference...")
