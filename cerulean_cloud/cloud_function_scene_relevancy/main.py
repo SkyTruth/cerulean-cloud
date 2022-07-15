@@ -62,7 +62,7 @@ def main(request):
     row = loop.run_until_complete(add_trigger_row(scenes_count, filtered_scene_count))
     print(row)
 
-    handler_queue(filtered_scenes, row.id)
+    handler_queue(filtered_scenes, row["id"])
 
     return "Success!"
 
