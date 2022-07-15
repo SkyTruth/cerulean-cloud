@@ -30,5 +30,5 @@ def test_make_logs():
         "https://console.cloud.google.com/logs/query;"
         "query=resource.type%20%3D%20%22cloud_function%22%20resource.labels.function_name%20%3D%20%22cerulean-cloud-test-cloud-function-scene-relevancy-4f8e4cf%22;"
         "timeRange=2022-07-15T11:13:12.183229Z%2F2022-07-15T11:15:12.183229Z;"
-        "cursorTimestamp=2022-07-15T11:13:12.183229Z?project=cerulean-33811"
+        "cursorTimestamp=2022-07-15T11:13:12.183229Z?project=cerulean-338116"
     )
