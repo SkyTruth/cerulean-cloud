@@ -1,5 +1,4 @@
 """Test database client"""
-import asyncio
 import json
 from datetime import datetime
 
@@ -132,19 +131,17 @@ async def test_create_slick(setup_database, engine):
                 None,
             )
 
-        async with db_client.session.begin():
-            slicks = await asyncio.gather(
-                *[
-                    db_client.add_slick_with_eez(
-                        feat, orchestrator_run, sentinel1_grd.start_time
-                    )
-                    for feat in out_fc.features
-                ]
-            )
+        for feat in out_fc.features:
+            async with db_client.session.begin():
+                slick = await db_client.add_slick_with_eez(
+                    feat, orchestrator_run, sentinel1_grd.start_time
+                )
+                print(f"Added last eez for slick {slick}")
 
-        assert len(slicks) == 1
+        slicks = await db_client.session.execute(sa.select(database_schema.Slick))
+        assert len(slicks.scalars().all()) == 2
         o_r = await db_client.session.execute(sa.select(database_schema.SlickToEez))
-        assert len(o_r.scalars().all()) == 2
+        assert len(o_r.scalars().all()) == 4
 
 
 @pytest.mark.asyncio

@@ -160,17 +160,17 @@ class DatabaseClient:
 
     async def add_slick_with_eez(self, feat, orchestrator_run, slick_timestamp):
         """add a slick with eez"""
-        async with self.session.begin():
-            slick_class = await self.get_slick_class(feat.properties["classification"])
-            slick = self.add_slick(
-                orchestrator_run,
-                slick_timestamp,
-                feat.geometry,
-                slick_class,
-            )
-            self.session.add(slick)
+        slick_class = await self.get_slick_class(feat.properties["classification"])
+        slick = self.add_slick(
+            orchestrator_run,
+            slick_timestamp,
+            feat.geometry,
+            slick_class,
+        )
+        self.session.add(slick)
 
-            await self.add_eez_to_slick(slick)
+        await self.add_eez_to_slick(slick)
+        return slick
 
     def add_slick(self, orchestrator_run, slick_timestamp, slick_shape, slick_class):
         """add a slick"""
