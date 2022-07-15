@@ -346,27 +346,9 @@ async def _orchestrate(
 
         for feat in out_fc.features:
             async with db_client.session.begin():
-                asyncio.gather(
-                    *[
-                        db_client.add_slick_with_eez(
-                            feat, orchestrator_run, sentinel1_grd.start_time
-                        )
-                        for feat in out_fc.features
-                    ]
+                slick = await db_client.add_slick_with_eez(
+                    feat, orchestrator_run, sentinel1_grd.start_time
                 )
-
-                slick_class = await db_client.get_slick_class(
-                    feat.properties["classification"]
-                )
-                slick = db_client.add_slick(
-                    orchestrator_run,
-                    sentinel1_grd.start_time,
-                    feat.geometry,
-                    slick_class,
-                )
-                db_client.session.add(slick)
-
-                await db_client.add_eez_to_slick(slick)
                 print(f"Added last eez for slick {slick}")
 
         print("Merging offset tiles!")
