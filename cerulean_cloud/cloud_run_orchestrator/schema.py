@@ -16,6 +16,7 @@ class OrchestratorInput(BaseModel):
     infra_distance: Optional[str]
     zoom: int = 9
     scale: int = 2
+    dry_run: bool = False
 
 
 class OrchestratorResult(BaseModel):
