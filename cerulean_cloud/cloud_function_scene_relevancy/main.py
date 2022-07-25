@@ -151,6 +151,12 @@ def handler_queue(filtered_scenes, trigger_id):
         print(payload)
         # Add the payload to the request.
         if payload is not None:
+            if isinstance(payload, dict):
+                # Convert dict to JSON string
+                payload = json.dumps(payload)
+                # specify http content-type to application/json
+                task["http_request"]["headers"] = {"Content-type": "application/json"}
+
             # The API expects a payload of type bytes.
             converted_payload = payload.encode()
 
