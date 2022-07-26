@@ -5,7 +5,8 @@ from datetime import datetime
 import geojson
 import pytest
 import sqlalchemy as sa
-from shapely.geometry import box
+from geoalchemy2.shape import from_shape
+from shapely.geometry import MultiPolygon, box
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -83,56 +84,67 @@ async def test_create_slick(setup_database, engine):
             features=[
                 geojson.Feature(
                     geometry=box(1, 2, 3, 4), properties={"classification": 1}
-                )
+                ),
+                geojson.Feature(
+                    geometry=box(1, 2, 3, 4), properties={"classification": 2}
+                ),
             ]
         )
+        async with db_client.session.begin():
+            geom = MultiPolygon([box(*[1, 2, 3, 4])])
+            eezs = [
+                database_schema.Eez(mrgid=1, geoname="test", geometry=from_shape(geom)),
+                database_schema.Eez(mrgid=1, geoname="test", geometry=from_shape(geom)),
+            ]
+            db_client.session.add_all(eezs)
+            db_client.session.add_all(
+                [database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")]
+            )
+
+            with open("test/test_cerulean_cloud/fixtures/productInfo.json") as src:
+                info = json.load(src)
+            db_client.session.add(
+                database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")
+            )
+            db_client.session.add(
+                database_schema.Model(file_path="model_path", name="model_path")
+            )
+            sentinel1_grd = await db_client.get_sentinel1_grd(
+                info["id"],
+                info,
+                titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
+            )
+            trigger = await db_client.get_trigger(1)
+            model = await db_client.get_model("model_path")
+            orchestrator_run = db_client.add_orchestrator(
+                datetime.now(),
+                datetime.now(),
+                1,
+                1,
+                "",
+                "",
+                "",
+                1,
+                1,
+                [1, 2, 3, 4],
+                trigger,
+                model,
+                sentinel1_grd,
+                None,
+                None,
+            )
+
         for feat in out_fc.features:
             async with db_client.session.begin():
-                with open("test/test_cerulean_cloud/fixtures/productInfo.json") as src:
-                    info = json.load(src)
-                db_client.session.add(
-                    database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")
+                slick = await db_client.add_slick_with_eez(
+                    feat, orchestrator_run, sentinel1_grd.start_time
                 )
-                db_client.session.add(
-                    database_schema.Model(file_path="model_path", name="model_path")
-                )
-                sentinel1_grd = await db_client.get_sentinel1_grd(
-                    info["id"],
-                    info,
-                    titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
-                )
-                trigger = await db_client.get_trigger()
-                model = await db_client.get_model("model_path")
-                orchestrator_run = db_client.add_orchestrator(
-                    datetime.now(),
-                    datetime.now(),
-                    1,
-                    1,
-                    "",
-                    "",
-                    "",
-                    1,
-                    1,
-                    [1, 2, 3, 4],
-                    trigger,
-                    model,
-                    sentinel1_grd,
-                    None,
-                    None,
-                )
-                slick_class = await db_client.get_slick_class(
-                    feat.properties["classification"]
-                )
-                slick = db_client.add_slick(
-                    orchestrator_run,
-                    sentinel1_grd.start_time,
-                    feat.geometry,
-                    slick_class,
-                )
-                db_client.session.add(slick)
-
-                await db_client.add_eez_to_slick(slick)
                 print(f"Added last eez for slick {slick}")
+
+        slicks = await db_client.session.execute(sa.select(database_schema.Slick))
+        assert len(slicks.scalars().all()) == 2
+        o_r = await db_client.session.execute(sa.select(database_schema.SlickToEez))
+        assert len(o_r.scalars().all()) == 4
 
 
 @pytest.mark.asyncio
