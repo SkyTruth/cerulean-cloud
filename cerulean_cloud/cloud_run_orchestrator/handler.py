@@ -22,6 +22,7 @@ import rasterio
 import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from global_land_mask import globe
 from rasterio.io import MemoryFile
 from rasterio.merge import merge
 
@@ -201,6 +202,12 @@ def create_dataset_from_inference_result(
     ) as dst:
         dst.write(ar)
     return memfile.open()
+
+
+def is_tile_over_water(tile_bounds: List[float]) -> bool:
+    """are the tile bounds over water"""
+    minx, miny, maxx, maxy = tile_bounds
+    return any(globe.is_ocean([miny, maxy], [minx, maxx]))
 
 
 async def _orchestrate(
