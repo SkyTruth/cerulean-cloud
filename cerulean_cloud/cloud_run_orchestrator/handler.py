@@ -11,7 +11,7 @@ needs env vars:
 import asyncio
 import os
 import urllib.parse as urlparse
-from base64 import b64decode, b64encode
+from base64 import b64decode  # , b64encode
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
@@ -341,7 +341,6 @@ async def _orchestrate(
                 count=ar.shape[0],
                 dtype=ar.dtype,
                 transform=transform,
-                compress="JPEG",
                 crs="EPSG:4326",
             ) as dst:
                 dst.write(ar)
@@ -365,16 +364,15 @@ async def _orchestrate(
                 count=ar.shape[0],
                 dtype=ar.dtype,
                 transform=transform,
-                compress="JPEG",
                 crs="EPSG:4326",
             ) as dst:
                 dst.write(ar)
 
             print("Encoding results!")
-            base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
-            offset_inference = b64encode(offset_tile_inference_file.read()).decode(
-                "ascii"
-            )
+            # base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
+            # offset_inference = b64encode(offset_tile_inference_file.read()).decode(
+            #    "ascii"
+            # )
             end_time = datetime.now()
             print(f"End time: {end_time}")
             print("Returning results!")
@@ -384,8 +382,8 @@ async def _orchestrate(
                 orchestrator_run.inference_end_time = end_time
 
             orchestrator_result = OrchestratorResult(
-                base_inference=base_inference,
-                offset_inference=offset_inference,
+                base_inference="",
+                offset_inference="",
                 classification=out_fc,
                 ntiles=ntiles,
                 noffsettiles=noffsettiles,
