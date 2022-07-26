@@ -227,12 +227,17 @@ async def _orchestrate(
     offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=scale)
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
     offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
+    print(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
+
+    # Filter out land tiles
+    base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
+    offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
 
     ntiles = len(base_tiles)
     noffsettiles = len(offset_tiles_bounds)
 
-    print(f"Preparing {ntiles} base tiles.")
-    print(f"Preparing {noffsettiles} offset tiles.")
+    print(f"Preparing {ntiles} base tiles (no land).")
+    print(f"Preparing {noffsettiles} offset tiles (no land).")
 
     print(f"Scene bounds are {bounds}, stats are {stats}.")
     print(f"Offset image size is {offset_image_shape} with {offset_bounds} bounds.")
