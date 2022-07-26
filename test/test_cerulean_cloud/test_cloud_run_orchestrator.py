@@ -22,6 +22,7 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     b64_image_to_array,
     from_bounds_get_offset_bounds,
     from_tiles_get_offset_shape,
+    is_tile_over_water,
     make_cloud_log_url,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
@@ -230,6 +231,52 @@ def test_from_bounds_get_offset_bounds():
             45.5273437500000568,
         ]
     )
+
+
+def test_is_tile_over_water():
+    # land and water
+    bounds = [32.989094, 43.338009, 36.540836, 45.235191]
+    base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
+    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    assert len(base_tiles) == 66
+    assert len(offset_tiles_bounds) == 84
+
+    base_tiles_over_water = [t for t in base_tiles if is_tile_over_water(TMS.bounds(t))]
+    assert len(base_tiles_over_water) == 59
+
+    offset_bounds_over_water = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
+    assert len(offset_bounds_over_water) == 75
+
+    # Fully over water
+    bounds = [-13.461797, 37.952782, -10.128826, 39.863739]
+    base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
+    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    assert len(base_tiles) == 77
+    assert len(offset_tiles_bounds) == 96
+
+    base_tiles_over_water = [t for t in base_tiles if is_tile_over_water(TMS.bounds(t))]
+    assert len(base_tiles_over_water) == 77
+
+    offset_bounds_over_water = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
+    assert len(offset_bounds_over_water) == 96
+
+    # Fully over land
+    bounds = [
+        -74.82934700262595,
+        -2.2906399527608623,
+        -72.28342220242573,
+        -0.18418333168440187,
+    ]
+    base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
+    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    assert len(base_tiles) == 56
+    assert len(offset_tiles_bounds) == 72
+
+    base_tiles_over_water = [t for t in base_tiles if is_tile_over_water(TMS.bounds(t))]
+    assert len(base_tiles_over_water) == 0
+
+    offset_bounds_over_water = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
+    assert len(offset_bounds_over_water) == 0
 
 
 def custom_response(url, data, timeout):
