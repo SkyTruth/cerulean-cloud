@@ -140,15 +140,23 @@ def handler_queue(filtered_scenes, trigger_id):
         # TODO: Add orchestrate and POST method instead
         task = {
             "http_request": {  # Specify the type of request.
-                "http_method": tasks_v2.HttpMethod.GET,
-                "url": url,  # The full url path that the task will be sent to.
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": urlparse.urljoin(
+                    url, "orchestrate"
+                ),  # The full url path that the task will be sent to.
             }
         }
 
-        payload = {"sceneid": scene, "trigger": trigger_id}
+        payload = {"sceneid": scene, "trigger": trigger_id, "dry_run": True}
         print(payload)
         # Add the payload to the request.
         if payload is not None:
+            if isinstance(payload, dict):
+                # Convert dict to JSON string
+                payload = json.dumps(payload)
+                # specify http content-type to application/json
+                task["http_request"]["headers"] = {"Content-type": "application/json"}
+
             # The API expects a payload of type bytes.
             converted_payload = payload.encode()
 

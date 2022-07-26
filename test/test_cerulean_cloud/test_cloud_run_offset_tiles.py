@@ -4,9 +4,11 @@ import numpy as np
 import pytest
 import rasterio
 import torch
+from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 
 import cerulean_cloud.cloud_run_offset_tiles.handler as handler
+import cerulean_cloud.cloud_run_orchestrator.handler as orch_handler
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInput,
     InferenceInputStack,
@@ -67,6 +69,21 @@ def test_inference():
         assert conf.shape == torch.Size([512, 512])
         assert classes.shape == torch.Size([512, 512])
         assert high_conf_classes.shape == torch.Size([512, 512])
+
+        conf = high_conf_classes.detach().numpy().astype("int8")
+
+        with MemoryFile() as memfile:
+            with memfile.open(
+                driver="GTiff",
+                count=1,
+                dtype=conf.dtype,
+                width=conf.shape[0],
+                height=conf.shape[1],
+            ) as dataset:
+                dataset.write(conf, 1)
+
+            out_fc = orch_handler.get_fc_from_raster(memfile)
+            assert len(out_fc.features) == 0
 
 
 @pytest.mark.skip

@@ -11,7 +11,7 @@ needs env vars:
 import asyncio
 import os
 import urllib.parse as urlparse
-from base64 import b64decode, b64encode
+from base64 import b64decode  # , b64encode
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
@@ -118,7 +118,7 @@ def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
     """
     with raster.open() as dataset:
         shapes = rasterio.features.shapes(
-            dataset.read(1).astype("uint8"), transform=dataset.transform
+            dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
         )
     out_fc = geojson.FeatureCollection(
         features=[
@@ -274,122 +274,128 @@ async def _orchestrate(
             await db_client.session.close()
             raise
 
-        print(f"Instantiating inference client with aux_dataset = {aux_datasets}...")
-        cloud_run_inference = CloudRunInferenceClient(
-            url=os.getenv("INFERENCE_URL"),
-            titiler_client=titiler_client,
-            sceneid=payload.sceneid,
-            offset_bounds=offset_bounds,
-            offset_image_shape=offset_image_shape,
-            aux_datasets=aux_datasets,
-        )
+        if not payload.dry_run:
 
-        print("Inference on base tiles!")
-        base_tiles_inference = await asyncio.gather(
-            *[
-                cloud_run_inference.get_base_tile_inference(
-                    tile=base_tile,
-                    rescale=(stats["min"], stats["max"]),
-                )
-                for base_tile in base_tiles
-            ],
-            return_exceptions=True,
-        )
-
-        print("Inference on offset tiles!")
-        offset_tiles_inference = await asyncio.gather(
-            *[
-                cloud_run_inference.get_offset_tile_inference(
-                    bounds=offset_tile_bounds,
-                    rescale=(stats["min"], stats["max"]),
-                )
-                for offset_tile_bounds in offset_tiles_bounds
-            ],
-            return_exceptions=True,
-        )
-
-        print("Loading all tiles into memory for merge!")
-        ds_base_tiles = []
-        for base_tile_inference in base_tiles_inference:
-            ds_base_tiles.append(
-                *[
-                    create_dataset_from_inference_result(b)
-                    for b in base_tile_inference.stack
-                ]
+            print(
+                f"Instantiating inference client with aux_dataset = {aux_datasets}..."
+            )
+            cloud_run_inference = CloudRunInferenceClient(
+                url=os.getenv("INFERENCE_URL"),
+                titiler_client=titiler_client,
+                sceneid=payload.sceneid,
+                offset_bounds=offset_bounds,
+                offset_image_shape=offset_image_shape,
+                aux_datasets=aux_datasets,
             )
 
-        ds_offset_tiles = []
-        for offset_tile_inference in offset_tiles_inference:
-            ds_offset_tiles.append(
+            print("Inference on base tiles!")
+            base_tiles_inference = await asyncio.gather(
                 *[
-                    create_dataset_from_inference_result(b)
-                    for b in offset_tile_inference.stack
-                ]
+                    cloud_run_inference.get_base_tile_inference(
+                        tile=base_tile,
+                        rescale=(stats["min"], stats["max"]),
+                    )
+                    for base_tile in base_tiles
+                ],
+                return_exceptions=True,
             )
 
-        print("Merging base tiles!")
-        base_tile_inference_file = MemoryFile()
-        ar, transform = merge(ds_base_tiles)
-        with base_tile_inference_file.open(
-            driver="GTiff",
-            height=ar.shape[1],
-            width=ar.shape[2],
-            count=ar.shape[0],
-            dtype=ar.dtype,
-            transform=transform,
-            compress="JPEG",
-            crs="EPSG:4326",
-        ) as dst:
-            dst.write(ar)
+            print("Inference on offset tiles!")
+            offset_tiles_inference = await asyncio.gather(
+                *[
+                    cloud_run_inference.get_offset_tile_inference(
+                        bounds=offset_tile_bounds,
+                        rescale=(stats["min"], stats["max"]),
+                    )
+                    for offset_tile_bounds in offset_tiles_bounds
+                ],
+                return_exceptions=True,
+            )
 
-        out_fc = get_fc_from_raster(base_tile_inference_file)
+            print("Loading all tiles into memory for merge!")
+            ds_base_tiles = []
+            for base_tile_inference in base_tiles_inference:
+                ds_base_tiles.append(
+                    *[
+                        create_dataset_from_inference_result(b)
+                        for b in base_tile_inference.stack
+                    ]
+                )
 
-        for feat in out_fc.features:
+            ds_offset_tiles = []
+            for offset_tile_inference in offset_tiles_inference:
+                ds_offset_tiles.append(
+                    *[
+                        create_dataset_from_inference_result(b)
+                        for b in offset_tile_inference.stack
+                    ]
+                )
+
+            print("Merging base tiles!")
+            base_tile_inference_file = MemoryFile()
+            ar, transform = merge(ds_base_tiles)
+            with base_tile_inference_file.open(
+                driver="GTiff",
+                height=ar.shape[1],
+                width=ar.shape[2],
+                count=ar.shape[0],
+                dtype=ar.dtype,
+                transform=transform,
+                crs="EPSG:4326",
+            ) as dst:
+                dst.write(ar)
+
+            out_fc = get_fc_from_raster(base_tile_inference_file)
+
+            for feat in out_fc.features:
+                async with db_client.session.begin():
+                    slick = await db_client.add_slick_with_eez(
+                        feat, orchestrator_run, sentinel1_grd.start_time
+                    )
+                    print(f"Added last eez for slick {slick}")
+
+            print("Merging offset tiles!")
+            offset_tile_inference_file = MemoryFile()
+            ar, transform = merge(ds_offset_tiles)
+            with offset_tile_inference_file.open(
+                driver="GTiff",
+                height=ar.shape[1],
+                width=ar.shape[2],
+                count=ar.shape[0],
+                dtype=ar.dtype,
+                transform=transform,
+                crs="EPSG:4326",
+            ) as dst:
+                dst.write(ar)
+
+            print("Encoding results!")
+            # base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
+            # offset_inference = b64encode(offset_tile_inference_file.read()).decode(
+            #    "ascii"
+            # )
+            end_time = datetime.now()
+            print(f"End time: {end_time}")
+            print("Returning results!")
+
             async with db_client.session.begin():
-                slick_class = await db_client.get_slick_class(
-                    feat.properties["classification"]
-                )
-                slick = db_client.add_slick(
-                    orchestrator_run,
-                    sentinel1_grd.start_time,
-                    feat.geometry,
-                    slick_class,
-                )
-                db_client.session.add(slick)
+                orchestrator_run.success = True
+                orchestrator_run.inference_end_time = end_time
 
-                await db_client.add_eez_to_slick(slick)
-                print(f"Added last eez for slick {slick}")
+            orchestrator_result = OrchestratorResult(
+                base_inference="",
+                offset_inference="",
+                classification=out_fc,
+                ntiles=ntiles,
+                noffsettiles=noffsettiles,
+            )
+        else:
+            print("DRY RUN!!")
+            orchestrator_result = OrchestratorResult(
+                base_inference="",
+                offset_inference="",
+                classification=geojson.FeatureCollection(features=[]),
+                ntiles=ntiles,
+                noffsettiles=noffsettiles,
+            )
 
-        print("Merging offset tiles!")
-        offset_tile_inference_file = MemoryFile()
-        ar, transform = merge(ds_offset_tiles)
-        with offset_tile_inference_file.open(
-            driver="GTiff",
-            height=ar.shape[1],
-            width=ar.shape[2],
-            count=ar.shape[0],
-            dtype=ar.dtype,
-            transform=transform,
-            compress="JPEG",
-            crs="EPSG:4326",
-        ) as dst:
-            dst.write(ar)
-
-        print("Encoding results!")
-        base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
-        offset_inference = b64encode(offset_tile_inference_file.read()).decode("ascii")
-        end_time = datetime.now()
-        print(f"End time: {end_time}")
-        print("Returning results!")
-
-        async with db_client.session.begin():
-            orchestrator_run.success = True
-            orchestrator_run.inference_end_time = end_time
-
-    return OrchestratorResult(
-        base_inference=base_inference,
-        offset_inference=offset_inference,
-        classification=out_fc,
-        ntiles=ntiles,
-        noffsettiles=noffsettiles,
-    )
+    return orchestrator_result

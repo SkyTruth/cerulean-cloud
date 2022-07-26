@@ -76,7 +76,7 @@ default = gcp.cloudrun.Service(
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
                 ),
             ],
-            timeout_seconds=420,
+            timeout_seconds=3540,
         ),
         metadata=dict(
             name=service_name + "-" + cloud_run_images.cloud_run_orchestrator_sha,
