@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
+import torchvision
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
@@ -41,8 +42,8 @@ def logits_to_classes(out_batch_logits):
     """returns the confidence scores of the max confident classes
     and an array of max confident class ids for a single tile of shape [classes, H, W].
     """
-    probs = torch.nn.functional.softmax(out_batch_logits, dim=0)  # 0 is the class dim
-    conf, classes = torch.max(probs, 0)
+    probs = torch.nn.functional.softmax(out_batch_logits, dim=1)
+    conf, classes = torch.max(probs, 1)
     return (conf, classes)
 
 
@@ -153,3 +154,80 @@ def predict(
         )
     record_timing(request, note="Returning")
     return InferenceResultStack(stack=inference_result_stack)
+
+def apply_conf_threshold_instances(pred_dict, bbox_conf_threshold):
+    """Apply a confidence threshold to the output of logits_to_classes for a tile.
+    Args:
+        pred_dict (dict): a dict with (for example):
+
+        {'boxes': tensor([[  0.00000,  14.11488, 206.41418, 210.23907],
+          [ 66.99806, 119.41994, 107.67549, 224.00000],
+          [ 47.37723,  41.04019, 122.53947, 224.00000]], grad_fn=<StackBackward0>),
+        'labels': tensor([2, 2, 2]),
+        'scores': tensor([0.99992, 0.99763, 0.22231], grad_fn=<IndexBackward0>),
+        'masks': tensor([[[[0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    ...,
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.]]],
+
+
+                [[[0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    ...,
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.]]],
+
+
+                [[[0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    ...,
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.]]]], grad_fn=<UnsqueezeBackward0>)}
+        bbox_conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
+    Returns:
+        dict: The confidence thresholded dict result, using the bbox conf threshold. Value sof dict are now list sinstead of tensors: {'boxes':[], 'labels':[], 'scores':[], 'masks':[]}
+    """
+    new_dict = {"boxes": [], "labels": [], "scores": [], "masks": []}
+    for i, score in enumerate(pred_dict["scores"]):
+        if score > bbox_conf_threshold:
+            new_dict["boxes"].append(pred_dict["boxes"][i])
+            new_dict["labels"].append(pred_dict["labels"][i])
+            new_dict["scores"].append(pred_dict["scores"][i])
+            new_dict["masks"].append(pred_dict["masks"][i])
+    return new_dict
+
+
+def apply_conf_threshold_masks(pred_dict, mask_conf_threshold, size):
+    """Apply a confidence threshold to the output of apply_conf_threshold_instances on the masks to get class masks.
+
+    Output is equivalent in shape and content to apply_conf_threshold.
+
+    Args:
+        pred_dict (dict): a dict with {'boxes':[], 'labels':[], 'scores':[], 'masks':[]}
+        classes (np.ndarray): an array of shape [H, W] of class integers for the max confidence scores for each pixel
+        conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
+    Returns:
+        torch.Tensor: An array of shape [H,W] with the class ids that satisfy the confidence threshold. This can be vectorized.
+    """
+    high_conf_classes = []
+    if len(pred_dict["masks"]) > 0:
+        for i, mask in enumerate(pred_dict["masks"]):
+            classes = torch.ones_like(mask) * pred_dict["labels"][i]
+            classes = classes.long().squeeze()
+            high_conf_class_mask = torch.where(mask > mask_conf_threshold, 1, 0)
+            high_conf_class_mask = torch.where(high_conf_class_mask.bool(), classes, 0)
+            high_conf_classes.append(high_conf_class_mask.squeeze())
+        if len(high_conf_classes) > 1:
+            stacked_arr = torch.dstack(high_conf_classes)
+            return torch.max(stacked_arr, axis=2)[0]  # we only want the value array
+        else:
+            return high_conf_class_mask.squeeze()
+    else:
+        return torch.zeros(size, size).long()
