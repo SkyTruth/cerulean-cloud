@@ -118,7 +118,7 @@ def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
     """
     with raster.open() as dataset:
         shapes = rasterio.features.shapes(
-            dataset.read(1).astype("uint8"), transform=dataset.transform
+            dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
         )
     out_fc = geojson.FeatureCollection(
         features=[
