@@ -97,6 +97,9 @@ async def test_create_slick(setup_database, engine):
                 database_schema.Eez(mrgid=1, geoname="test", geometry=from_shape(geom)),
             ]
             db_client.session.add_all(eezs)
+            db_client.session.add_all(
+                [database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")]
+            )
 
             with open("test/test_cerulean_cloud/fixtures/productInfo.json") as src:
                 info = json.load(src)
@@ -111,7 +114,7 @@ async def test_create_slick(setup_database, engine):
                 info,
                 titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
             )
-            trigger = await db_client.get_trigger()
+            trigger = await db_client.get_trigger(1)
             model = await db_client.get_model("model_path")
             orchestrator_run = db_client.add_orchestrator(
                 datetime.now(),
