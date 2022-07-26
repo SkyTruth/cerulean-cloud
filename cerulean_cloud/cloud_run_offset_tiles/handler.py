@@ -155,6 +155,7 @@ def predict(
     record_timing(request, note="Returning")
     return InferenceResultStack(stack=inference_result_stack)
 
+
 def apply_conf_threshold_instances(pred_dict, bbox_conf_threshold):
     """Apply a confidence threshold to the output of logits_to_classes for a tile.
     Args:
