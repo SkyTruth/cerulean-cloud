@@ -46,7 +46,9 @@ class DatabaseClient:
     async def get_trigger(self, trigger: Optional[int] = None):
         """get trigger from id"""
         if trigger:
-            return await existing_or_new(self, database_schema.Trigger, id=trigger)
+            return await existing_or_new(
+                self.session, database_schema.Trigger, id=trigger
+            )
         else:
             return await existing_or_new(
                 self.session,
