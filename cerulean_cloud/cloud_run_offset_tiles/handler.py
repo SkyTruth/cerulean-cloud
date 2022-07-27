@@ -117,17 +117,52 @@ def _predict(
     print(f"Expanded tensor has shape {tensor.shape}")
 
     print("Running inference...")
-    out_batch_logits = model(tensor)
-    print("Finished inference, applying softmax")
+    model_type = "MASKRCNN"
+    print(f"Model type is {model_type}")
+    if model_type == "UNET":
+        confidence_threshold = 0.9
 
-    res = []
-    for i, inference_input in enumerate(payload.stack):
-        conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
-        classes = apply_conf_threshold(conf, _classes, 0.9)
-        print(f"Output classes array is {classes.shape}")
-        res.append(
-            (conf.detach().numpy(), classes.detach().numpy(), inference_input.bounds)
-        )
+        out_batch_logits = model(tensor)
+        print("Finished inference, applying softmax")
+
+        res = []
+        for i, inference_input in enumerate(payload.stack):
+            conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
+            classes = apply_conf_threshold(conf, _classes, confidence_threshold)
+            print(f"Output classes array is {classes.shape}")
+            res.append(
+                (
+                    conf.detach().numpy(),
+                    classes.detach().numpy(),
+                    inference_input.bounds,
+                )
+            )
+    if model_type == "MASKRCNN":
+        bbox_conf_threshold = 0.5
+        mask_conf_threshold = 0.05
+        size = 512
+
+        res_list = model(torch.unbind(tensor))
+        print("Finished inference, applying post-process, thresholding")
+
+        res = []
+        for i, inference_input in enumerate(payload.stack):
+            pred_dict = apply_conf_threshold_instances(
+                res_list[1][i], bbox_conf_threshold=bbox_conf_threshold
+            )
+            high_conf_classes = apply_conf_threshold_masks(
+                pred_dict, mask_conf_threshold=mask_conf_threshold, size=size
+            )
+            print(f"Output classes array is {high_conf_classes.shape}")
+            # for now pass classes as conf, since we don't have conf map
+            res.append(
+                (
+                    high_conf_classes.detach().numpy(),
+                    high_conf_classes.detach().numpy(),
+                    inference_input.bounds,
+                )
+            )
+
     return res
 
 
