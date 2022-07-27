@@ -15,7 +15,7 @@ import cerulean_cloud.database_schema as database_schema
 
 def get_engine(db_url: str = os.getenv("DB_URL")):
     """get database engine"""
-    return create_async_engine(db_url, echo=True)
+    return create_async_engine(db_url, echo=False)
 
 
 async def existing_or_new(sess, kls, **kwargs):
