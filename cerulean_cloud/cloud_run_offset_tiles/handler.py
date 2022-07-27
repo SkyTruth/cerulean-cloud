@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
-import torchvision
+import torchvision  # noqa
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
@@ -42,8 +42,8 @@ def logits_to_classes(out_batch_logits):
     """returns the confidence scores of the max confident classes
     and an array of max confident class ids for a single tile of shape [classes, H, W].
     """
-    probs = torch.nn.functional.softmax(out_batch_logits, dim=1)
-    conf, classes = torch.max(probs, 1)
+    probs = torch.nn.functional.softmax(out_batch_logits, dim=0)
+    conf, classes = torch.max(probs, 0)
     return (conf, classes)
 
 
