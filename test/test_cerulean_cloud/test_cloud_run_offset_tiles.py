@@ -118,15 +118,19 @@ def test_inference_mrcnn():
         encoded = handler.b64encode(src.read()).decode("ascii")
 
     tensor = handler.b64_image_to_tensor(encoded)
+    tensor = torch.stack([tensor, tensor, tensor])
+
     tensor = tensor.float() / 255
 
     model = handler.load_tracing_model(
         "cerulean_cloud/cloud_run_offset_tiles/model/model_mrcnn.pt"
     )
+    print(torch.unbind(tensor))
     res_list = model(
-        [tensor, tensor, tensor]
+        torch.unbind(tensor)
     )  # icevision mrcnn takes a list of 3D tensors not a 4D tensor like fastai unet
     print(res_list)  # Tuple[dict, list[dict]]
+    res = []
     for tile in res_list[1]:  # iterating through the batch dimension.
         print(tile)
         pred_dict = handler.apply_conf_threshold_instances(
@@ -136,3 +140,5 @@ def test_inference_mrcnn():
             pred_dict, mask_conf_threshold=mask_conf_threshold, size=size
         )
         assert high_conf_classes.shape == torch.Size([512, 512])
+        res.append(high_conf_classes)
+    assert len(res) == 3
