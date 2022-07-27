@@ -73,7 +73,7 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("gcp").require("project"),
                         ),
                     ],
-                    resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
+                    resources=dict(limits=dict(memory="4Gi", cpu="4000m")),
                 ),
             ],
             timeout_seconds=3540,
