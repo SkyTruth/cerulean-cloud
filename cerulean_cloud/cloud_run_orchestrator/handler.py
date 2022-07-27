@@ -22,6 +22,7 @@ import rasterio
 import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from global_land_mask import globe
 from rasterio.io import MemoryFile
 from rasterio.merge import merge
 
@@ -203,6 +204,12 @@ def create_dataset_from_inference_result(
     return memfile.open()
 
 
+def is_tile_over_water(tile_bounds: List[float]) -> bool:
+    """are the tile bounds over water"""
+    minx, miny, maxx, maxy = tile_bounds
+    return any(globe.is_ocean([miny, maxy], [minx, maxx]))
+
+
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
@@ -220,12 +227,17 @@ async def _orchestrate(
     offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=scale)
     offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
     offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
+    print(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
+
+    # Filter out land tiles
+    base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
+    offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
 
     ntiles = len(base_tiles)
     noffsettiles = len(offset_tiles_bounds)
 
-    print(f"Preparing {ntiles} base tiles.")
-    print(f"Preparing {noffsettiles} offset tiles.")
+    print(f"Preparing {ntiles} base tiles (no land).")
+    print(f"Preparing {noffsettiles} offset tiles (no land).")
 
     print(f"Scene bounds are {bounds}, stats are {stats}.")
     print(f"Offset image size is {offset_image_shape} with {offset_bounds} bounds.")

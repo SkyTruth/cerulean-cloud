@@ -171,7 +171,7 @@ class DatabaseClient:
         )
         self.session.add(slick)
 
-        await self.add_eez_to_slick(slick)
+        # await self.add_eez_to_slick(slick)
         return slick
 
     def add_slick(self, orchestrator_run, slick_timestamp, slick_shape, slick_class):

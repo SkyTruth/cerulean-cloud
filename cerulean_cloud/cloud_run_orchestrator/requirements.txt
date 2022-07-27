@@ -16,3 +16,4 @@ GeoAlchemy2
 Shapely
 asyncpg
 python-dateutil
+global-land-mask

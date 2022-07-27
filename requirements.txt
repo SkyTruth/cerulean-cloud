@@ -21,3 +21,4 @@ GitPython
 sqlacodegen
 psycopg2-binary
 python-dateutil
+global-land-mask
