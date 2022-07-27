@@ -5,7 +5,7 @@ import pytest
 import rasterio
 import torch
 from rasterio.io import MemoryFile
-import torchvision # necessary for torch.jit.load of icevision mrcnn model 
+import torchvision  # noqa necessary for torch.jit.load of icevision mrcnn model
 from rasterio.plot import reshape_as_raster
 
 import cerulean_cloud.cloud_run_offset_tiles.handler as handler
@@ -109,6 +109,7 @@ def test_inference_():
     assert array_conf.shape == torch.Size([1, 512, 512])
 
 
+@pytest.mark.skip
 def test_inference_mrcnn():
     bbox_conf_threshold = 0.5
     mask_conf_threshold = 0.05
