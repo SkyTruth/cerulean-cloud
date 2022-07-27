@@ -301,11 +301,13 @@ async def _orchestrate(
             )
 
             print("Inference on base tiles!")
+            base_tile_semaphore = asyncio.Semaphore(value=20)
             base_tiles_inference = await asyncio.gather(
                 *[
                     cloud_run_inference.get_base_tile_inference(
                         tile=base_tile,
                         rescale=(stats["min"], stats["max"]),
+                        semaphore=base_tile_semaphore,
                     )
                     for base_tile in base_tiles
                 ],
@@ -313,11 +315,13 @@ async def _orchestrate(
             )
 
             print("Inference on offset tiles!")
+            offset_tile_semaphore = asyncio.Semaphore(value=20)
             offset_tiles_inference = await asyncio.gather(
                 *[
                     cloud_run_inference.get_offset_tile_inference(
                         bounds=offset_tile_bounds,
                         rescale=(stats["min"], stats["max"]),
+                        semaphore=offset_tile_semaphore,
                     )
                     for offset_tile_bounds in offset_tiles_bounds
                 ],
