@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 import rasterio
 import torch
-from rasterio.io import MemoryFile
 import torchvision  # noqa necessary for torch.jit.load of icevision mrcnn model
+from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 
 import cerulean_cloud.cloud_run_offset_tiles.handler as handler
@@ -124,11 +124,13 @@ def test_inference_mrcnn():
         "cerulean_cloud/cloud_run_offset_tiles/model/model_mrcnn.pt"
     )
     res_list = model(
-        [tensor]
+        [tensor, tensor, tensor]
     )  # icevision mrcnn takes a list of 3D tensors not a 4D tensor like fastai unet
-    for tile in res_list:  # iterating through the batch dimension.
+    print(res_list)  # Tuple[dict, list[dict]]
+    for tile in res_list[1]:  # iterating through the batch dimension.
+        print(tile)
         pred_dict = handler.apply_conf_threshold_instances(
-            res_list[0], bbox_conf_threshold=bbox_conf_threshold
+            tile, bbox_conf_threshold=bbox_conf_threshold
         )
         high_conf_classes = handler.apply_conf_threshold_masks(
             pred_dict, mask_conf_threshold=mask_conf_threshold, size=size
