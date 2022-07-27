@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import patch
 
 import numpy as np
@@ -76,11 +77,19 @@ async def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock)
             stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
         ).dict(),
     )
-
-    res = await fixture_cloud_inference_tile.get_base_tile_inference(
-        tile=TMS._tile(0, 0, 0), rescale=(0, 100)
-    )
-    assert res.stack[0].classes == ""
+    semaphore = asyncio.Semaphore(20)
+    tasks = [
+        fixture_cloud_inference_tile.get_base_tile_inference(
+            tile=TMS._tile(0, 0, 0), semaphore=semaphore, rescale=(0, 100)
+        ),
+        fixture_cloud_inference_tile.get_base_tile_inference(
+            tile=TMS._tile(0, 0, 0), semaphore=semaphore, rescale=(0, 100)
+        ),
+    ]
+    res = await asyncio.gather(*tasks, return_exceptions=True)
+    print(res)
+    assert res[0].stack[0].classes == ""
+    assert res[1].stack[0].classes == ""
 
 
 @patch.object(
@@ -96,10 +105,23 @@ async def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_moc
         ).dict(),
     )
 
-    res = await fixture_cloud_inference_tile.get_offset_tile_inference(
-        bounds=list(TMS.bounds(TMS._tile(0, 0, 0))), rescale=(0, 100)
-    )
-    assert res.stack[0].classes == ""
+    semaphore = asyncio.Semaphore(20)
+    tasks = [
+        fixture_cloud_inference_tile.get_offset_tile_inference(
+            bounds=list(TMS.bounds(TMS._tile(0, 0, 0))),
+            rescale=(0, 100),
+            semaphore=semaphore,
+        ),
+        fixture_cloud_inference_tile.get_offset_tile_inference(
+            bounds=list(TMS.bounds(TMS._tile(0, 0, 0))),
+            rescale=(0, 100),
+            semaphore=semaphore,
+        ),
+    ]
+    res = await asyncio.gather(*tasks, return_exceptions=True)
+    print(res)
+    assert res[0].stack[0].classes == ""
+    assert res[1].stack[0].classes == ""
 
 
 def test_get_ship_density(httpx_mock):

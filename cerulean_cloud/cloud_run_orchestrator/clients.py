@@ -1,4 +1,5 @@
 """Clients for other cloud run functions"""
+import asyncio
 import json
 import zipfile
 from base64 import b64encode
@@ -64,55 +65,57 @@ class CloudRunInferenceClient:
         self.scale = 2  # 1=256, 2=512, 3=...
 
     async def get_base_tile_inference(
-        self, tile: morecantile.Tile, rescale=(0, 100)
+        self, tile: morecantile.Tile, semaphore: asyncio.Semaphore, rescale=(0, 100)
     ) -> InferenceResultStack:
         """fetch inference for base tiles"""
-        img_array = await self.titiler_client.get_base_tile(
-            sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
-        )
-        img_array = reshape_as_raster(img_array)
-        bounds = list(TMS.bounds(tile))
-        with self.aux_datasets.open() as src:
-            window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
-            height, width = img_array.shape[1:]
-            aux_ds = src.read(window=window, out_shape=(height, width))
+        async with semaphore:
+            img_array = await self.titiler_client.get_base_tile(
+                sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
+            )
+            img_array = reshape_as_raster(img_array)
+            bounds = list(TMS.bounds(tile))
+            with self.aux_datasets.open() as src:
+                window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
+                height, width = img_array.shape[1:]
+                aux_ds = src.read(window=window, out_shape=(height, width))
 
-        img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
+            img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
 
-        encoded = img_array_to_b64_image(img_array)
+            encoded = img_array_to_b64_image(img_array)
 
-        inference_input = InferenceInputStack(
-            stack=[InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
-        )
-        res = await self.client.post(
-            self.url + "/predict", data=inference_input.json(), timeout=None
-        )
+            inference_input = InferenceInputStack(
+                stack=[InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
+            )
+            res = await self.client.post(
+                self.url + "/predict", data=inference_input.json(), timeout=None
+            )
         return InferenceResultStack(**res.json())
 
     async def get_offset_tile_inference(
-        self, bounds: List[float], rescale=(0, 100)
+        self, bounds: List[float], semaphore: asyncio.Semaphore, rescale=(0, 100)
     ) -> InferenceResultStack:
         """fetch inference for offset tiles"""
-        hw = self.scale * 256
-        img_array = await self.titiler_client.get_offset_tile(
-            self.sceneid, *bounds, width=hw, height=hw, rescale=rescale
-        )
-        img_array = reshape_as_raster(img_array)
-        with self.aux_datasets.open() as src:
-            window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
-            height, width = img_array.shape[1:]
-            aux_ds = src.read(window=window, out_shape=(height, width))
+        async with semaphore:
+            hw = self.scale * 256
+            img_array = await self.titiler_client.get_offset_tile(
+                self.sceneid, *bounds, width=hw, height=hw, rescale=rescale
+            )
+            img_array = reshape_as_raster(img_array)
+            with self.aux_datasets.open() as src:
+                window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
+                height, width = img_array.shape[1:]
+                aux_ds = src.read(window=window, out_shape=(height, width))
 
-        img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
+            img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
 
-        encoded = img_array_to_b64_image(img_array)
+            encoded = img_array_to_b64_image(img_array)
 
-        inference_input = InferenceInputStack(
-            stack=[InferenceInput(image=encoded, bounds=bounds)]
-        )
-        res = await self.client.post(
-            self.url + "/predict", data=inference_input.json(), timeout=None
-        )
+            inference_input = InferenceInputStack(
+                stack=[InferenceInput(image=encoded, bounds=bounds)]
+            )
+            res = await self.client.post(
+                self.url + "/predict", data=inference_input.json(), timeout=None
+            )
         return InferenceResultStack(**res.json())
 
 
