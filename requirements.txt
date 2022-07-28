@@ -22,3 +22,5 @@ sqlacodegen
 psycopg2-binary
 python-dateutil
 global-land-mask
+eodag
+eodag-sentinelsat
