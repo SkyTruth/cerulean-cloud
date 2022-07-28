@@ -25,18 +25,18 @@ def eodag(date_start, date_end):
     click.echo(f"Start: {date_start}, End: {date_end} ")
 
     dag = EODataAccessGateway()
-    dag.set_preferred_provider("peps")
 
     default_search_criteria = {
-        "productType": "S2_MSI_L1C",
+        "productType": "S1_SAR_GRD",
+        "polarization": "VV",
         "start": "2021-03-01",
         "end": "2021-03-31",
         "geom": {"lonmin": 1, "latmin": 43, "lonmax": 2, "latmax": 44},
     }
 
-    products_first_page, estimated_total_number = dag.search(**default_search_criteria)
+    search_results, total_count = dag.search(**default_search_criteria)
     print(
-        f"Got a hand on {len(products_first_page)} products and an estimated total number of {estimated_total_number} products available."
+        f"Got a hand on {len(search_results)} products and an estimated total number of {total_count} products available."
     )
 
 
