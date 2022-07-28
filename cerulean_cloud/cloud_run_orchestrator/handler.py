@@ -384,11 +384,8 @@ async def _orchestrate(
             ) as dst:
                 dst.write(ar)
 
-            print("Encoding results!")
-            # base_inference = b64encode(base_tile_inference_file.read()).decode("ascii")
-            # offset_inference = b64encode(offset_tile_inference_file.read()).decode(
-            #    "ascii"
-            # )
+            out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
+
             end_time = datetime.now()
             print(f"End time: {end_time}")
             print("Returning results!")
@@ -398,18 +395,16 @@ async def _orchestrate(
                 orchestrator_run.inference_end_time = end_time
 
             orchestrator_result = OrchestratorResult(
-                base_inference="",
-                offset_inference="",
-                classification=out_fc,
+                classification_base=out_fc,
+                classification_offset=out_fc_offset,
                 ntiles=ntiles,
                 noffsettiles=noffsettiles,
             )
         else:
             print("DRY RUN!!")
             orchestrator_result = OrchestratorResult(
-                base_inference="",
-                offset_inference="",
-                classification=geojson.FeatureCollection(features=[]),
+                classificatio_base=geojson.FeatureCollection(features=[]),
+                classification_offset=geojson.FeatureCollection(features=[]),
                 ntiles=ntiles,
                 noffsettiles=noffsettiles,
             )
