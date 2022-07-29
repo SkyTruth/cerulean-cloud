@@ -398,7 +398,11 @@ def test_flatten_result():
         InferenceResultStack(
             stack=[
                 InferenceResult(
-                    features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
+                    features=[
+                        geojson.Feature(geometry=box(1, 2, 3, 4)),
+                        geojson.Feature(geometry=box(1, 2, 3, 4)),
+                        geojson.Feature(geometry=box(1, 2, 3, 4)),
+                    ],
                     bounds=[1, 2, 3, 4],
                 ),
                 InferenceResult(
@@ -411,7 +415,7 @@ def test_flatten_result():
 
     flat_list = flatten_feature_list(res)
 
-    assert len(flat_list) == 3
+    assert len(flat_list) == 5
     assert isinstance(flat_list[0], geojson.Feature)
 
     res = [result_stack, InferenceResultStack(stack=[])]
