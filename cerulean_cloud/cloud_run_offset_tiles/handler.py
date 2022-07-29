@@ -12,6 +12,8 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
 from rasterio.io import MemoryFile
+import rasterio
+import geojson
 from starlette.requests import Request
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
@@ -172,9 +174,7 @@ def _predict(
     tags=["Run inference"],
     response_model=InferenceResultStack,
 )
-def predict(
-    request: Request, payload: InferenceInputStack, model=Depends(get_model)
-) -> Dict:
+def predict(request: Request, payload: InferenceInputStack, model=Depends(get_model)) -> Dict:
     """predict"""
     record_timing(request, note="Started")
     results = _predict(payload, model)
@@ -250,7 +250,7 @@ def apply_conf_threshold_masks(pred_dict, mask_conf_threshold, size):
         classes (np.ndarray): an array of shape [H, W] of class integers for the max confidence scores for each pixel
         conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
     Returns:
-        torch.Tensor: An array of shape [H,W] with the class ids that satisfy the confidence threshold. This can be vectorized.
+        List[torch.Tensor]: A list of arrays of shape [H,W] with the class ids that satisfy the confidence threshold. These can be vectorized.
     """
     high_conf_classes = []
     if len(pred_dict["masks"]) > 0:
@@ -260,10 +260,55 @@ def apply_conf_threshold_masks(pred_dict, mask_conf_threshold, size):
             high_conf_class_mask = torch.where(mask > mask_conf_threshold, 1, 0)
             high_conf_class_mask = torch.where(high_conf_class_mask.bool(), classes, 0)
             high_conf_classes.append(high_conf_class_mask.squeeze())
-        if len(high_conf_classes) > 1:
-            stacked_arr = torch.dstack(high_conf_classes)
-            return torch.max(stacked_arr, axis=2)[0]  # we only want the value array
-        else:
-            return high_conf_class_mask.squeeze()
+        return high_conf_classes
     else:
-        return torch.zeros(size, size).long()
+        return [torch.zeros(size, size).long()]
+
+
+def vectorize_mask_instances(high_conf_classes, transform):
+    geojson_fcs = []
+    for mask_instance in high_conf_classes:
+        geojson_fc = vectorize_mask_instance(mask_instance, transform)
+        geojson_fcs.append(geojson_fc)
+    return geojson_fcs
+
+
+def vectorize_mask_instance(high_conf_mask, transform):
+
+    memfile = MemoryFile()
+    with memfile.open(
+        driver="GTiff",
+        height=high_conf_mask.shape[0],
+        width=high_conf_mask.shape[1],
+        count=1,
+        dtype=high_conf_mask.dtype,
+        transform=transform,
+        crs="EPSG:4326",
+    ) as dst:
+        dst.write(high_conf_mask)
+
+    return get_fc_from_raster(memfile)
+
+
+# taken from cloud run orchestrator
+def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
+    """create a geojson from an input raster with classification
+
+    Args:
+        raster (MemoryFile): input raster
+
+    Returns:
+        geojson.FeatureCollection: output feature collection
+    """
+    with raster.open() as dataset:
+        shapes = rasterio.features.shapes(
+            dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
+        )
+    out_fc = geojson.FeatureCollection(
+        features=[
+            geojson.Feature(geometry=geom, properties=dict(classification=classification))
+            for geom, classification in shapes
+            if int(classification) != 0
+        ]
+    )
+    return out_fc

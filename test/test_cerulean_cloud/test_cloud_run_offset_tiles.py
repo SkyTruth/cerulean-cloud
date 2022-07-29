@@ -58,15 +58,11 @@ def test_inference():
     tensor = tensor[None, :, :, :]
     tensor = tensor.float() / 255
 
-    model = handler.load_tracing_model(
-        "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
-    )
+    model = handler.load_tracing_model("cerulean_cloud/cloud_run_offset_tiles/model/model.pt")
     res = model(tensor)
     for tile in res:  # iterating through the batch dimension.
         conf, classes = handler.logits_to_classes(tile)
-        high_conf_classes = handler.apply_conf_threshold(
-            conf, classes, conf_threshold=0.9
-        )
+        high_conf_classes = handler.apply_conf_threshold(conf, classes, conf_threshold=0.9)
         assert conf.shape == torch.Size([512, 512])
         assert classes.shape == torch.Size([512, 512])
         assert high_conf_classes.shape == torch.Size([512, 512])
@@ -92,9 +88,7 @@ def test_inference_():
     with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
         encoded = handler.b64encode(src.read()).decode("ascii")
 
-    model = handler.load_tracing_model(
-        "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
-    )
+    model = handler.load_tracing_model("cerulean_cloud/cloud_run_offset_tiles/model/model.pt")
     payload = InferenceInputStack(stack=[InferenceInput(image=encoded)])
 
     inference_stack = handler._predict(payload, model)
@@ -109,12 +103,13 @@ def test_inference_():
     assert array_conf.shape == torch.Size([1, 512, 512])
 
 
-@pytest.mark.skip
-def test_inference_mrcnn():
+def test_inference_mrcnn(url="https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/"):
     bbox_conf_threshold = 0.5
     mask_conf_threshold = 0.05
     size = 512
-    with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
+    with open(
+        "cerulean-cloud/test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb"
+    ) as src:
         encoded = handler.b64encode(src.read()).decode("ascii")
 
     tensor = handler.b64_image_to_tensor(encoded)
@@ -123,22 +118,31 @@ def test_inference_mrcnn():
     tensor = tensor.float() / 255
 
     model = handler.load_tracing_model(
-        "cerulean_cloud/cloud_run_offset_tiles/model/model_mrcnn.pt"
+        "/root/data/experiments/cv2/20_Jul_2022_00_14_15_icevision_maskrcnn/scripting_cpu_test_28_34_224_58.pt"
+    )
+    titiler_client = TitilerClient(url=url)
+    S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
+    transform = rasterio.transform.from_bounds(
+        *titiler_client.get_bounds(S1_ID), width=size, height=size
     )
     print(torch.unbind(tensor))
     res_list = model(
         torch.unbind(tensor)
     )  # icevision mrcnn takes a list of 3D tensors not a 4D tensor like fastai unet
     print(res_list)  # Tuple[dict, list[dict]]
-    res = []
+
+    res_pred_dicts = []
     for tile in res_list[1]:  # iterating through the batch dimension.
         print(tile)
         pred_dict = handler.apply_conf_threshold_instances(
             tile, bbox_conf_threshold=bbox_conf_threshold
         )
-        high_conf_classes = handler.apply_conf_threshold_masks(
+
+        high_conf_class_masks = handler.apply_conf_threshold_masks(  # no prediction dict data changed in this step that we store in db
             pred_dict, mask_conf_threshold=mask_conf_threshold, size=size
         )
-        assert high_conf_classes.shape == torch.Size([512, 512])
-        res.append(high_conf_classes)
-    assert len(res) == 3
+        assert high_conf_class_masks[0].shape == torch.Size([512, 512])
+        geojson_fcs = handler.vectorize_mask_instances(high_conf_class_masks, transform)
+        pred_dict["geojsons"] = geojson_fcs
+        res_pred_dicts.append(pred_dict)
+    assert len(res_pred_dicts) == 3
