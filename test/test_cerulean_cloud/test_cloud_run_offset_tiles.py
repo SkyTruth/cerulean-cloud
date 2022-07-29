@@ -150,4 +150,9 @@ def test_inference_mrcnn():
         geojson_fcs = handler.vectorize_mask_instances(high_conf_class_masks, transform)
         pred_dict["geojsons"] = geojson_fcs
         res_pred_dicts.append(pred_dict)
+        print(pred_dict["geojsons"])
+    print(res_pred_dicts)
+    assert res_pred_dicts[0]["geojsons"] == [
+        {"features": [], "type": "FeatureCollection"}
+    ]
     assert len(res_pred_dicts) == 3
