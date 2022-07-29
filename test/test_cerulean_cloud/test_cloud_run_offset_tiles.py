@@ -18,7 +18,7 @@ from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
 
-# @pytest.mark.skip
+@pytest.mark.skip
 @pytest.mark.asyncio
 async def test_create_fixture_tile(
     url="https://vvxmig4pha.execute-api.eu-central-1.amazonaws.com/",
@@ -134,7 +134,6 @@ def test_inference_mrcnn():
     )
     tile = tiles[20]
     tile_bounds = TMS.bounds(tile)
-    transform = rasterio.transform.from_bounds(*tile_bounds, width=size, height=size)
     print(torch.unbind(tensor))
     res_list = model(
         torch.unbind(tensor)
@@ -148,16 +147,14 @@ def test_inference_mrcnn():
             tile, bbox_conf_threshold=bbox_conf_threshold
         )
 
-        high_conf_class_masks = handler.apply_conf_threshold_masks(  # no prediction dict data changed in this step that we store in db
-            pred_dict, mask_conf_threshold=mask_conf_threshold, size=size
+        out_features = handler.apply_conf_threshold_masks_vectorize(  # no prediction dict data changed in this step that we store in db
+            pred_dict,
+            mask_conf_threshold=mask_conf_threshold,
+            size=size,
+            bounds=tile_bounds,
         )
-        assert high_conf_class_masks[0].shape == torch.Size([512, 512])
-        geojson_fcs = handler.vectorize_mask_instances(high_conf_class_masks, transform)
-        pred_dict["geojsons"] = geojson_fcs
-        res_pred_dicts.append(pred_dict)
-        print(pred_dict["geojsons"])
-    print(res_pred_dicts)
-    assert res_pred_dicts[0]["geojsons"] == [
-        {"features": [], "type": "FeatureCollection"}
-    ]
+        assert len(out_features) == 1
+        assert out_features[0]["properties"]["classification"] == 2
+        assert out_features[0]["properties"]["confidence"] == 0.9999234676361084
+        res_pred_dicts.append(out_features)
     assert len(res_pred_dicts) == 3

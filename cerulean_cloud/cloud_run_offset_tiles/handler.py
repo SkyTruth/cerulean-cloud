@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
 from rasterio.io import MemoryFile
+from shapely.geometry import MultiPolygon, shape
 from starlette.requests import Request
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
@@ -267,20 +268,44 @@ def apply_conf_threshold_masks(pred_dict, mask_conf_threshold, size):
         return [torch.zeros(size, size).long()]
 
 
-def vectorize_mask_instances(
-    high_conf_classes: torch.Tensor, transform
-) -> List[geojson.FeatureCollection]:
-    """vectorize multiple mask instances"""
-    geojson_fcs = []
-    for mask_instance in high_conf_classes:
-        geojson_fc = vectorize_mask_instance(mask_instance, transform)
-        geojson_fcs.append(geojson_fc)
-    return geojson_fcs
+def apply_conf_threshold_masks_vectorize(
+    pred_dict, mask_conf_threshold, size, bounds
+) -> List[geojson.Feature]:
+    """Apply a confidence threshold to the output of apply_conf_threshold_instances on the masks to get class masks.
+
+    Output is equivalent in shape and content to apply_conf_threshold.
+
+    Args:
+        pred_dict (dict): a dict with {'boxes':[], 'labels':[], 'scores':[], 'masks':[]}
+        classes (np.ndarray): an array of shape [H, W] of class integers for the max confidence scores for each pixel
+        conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
+    Returns:
+        List[torch.Tensor]: A list of arrays of shape [H,W] with the class ids that satisfy the confidence threshold. These can be vectorized.
+    """
+    out_features = []
+    if len(pred_dict["masks"]) > 0:
+        for i, mask in enumerate(pred_dict["masks"]):
+            classes = torch.ones_like(mask) * pred_dict["labels"][i]
+            classes = classes.long().squeeze()
+            high_conf_class_mask = torch.where(mask > mask_conf_threshold, 1, 0)
+            high_conf_class_mask = torch.where(high_conf_class_mask.bool(), classes, 0)
+            high_conf_class_mask = high_conf_class_mask.squeeze()
+
+            transform = rasterio.transform.from_bounds(*bounds, width=size, height=size)
+            out_features.append(
+                vectorize_mask_instance(
+                    high_conf_class_mask,
+                    pred_dict["scores"][i].detach().item(),
+                    transform,
+                )
+            )
+
+    return out_features
 
 
 def vectorize_mask_instance(
-    high_conf_mask: torch.Tensor, transform
-) -> geojson.FeatureCollection:
+    high_conf_mask: torch.Tensor, confindence: float, transform
+) -> geojson.Feature:
     """From a hight conf mask generate a feature collection"""
 
     memfile = MemoryFile()
@@ -296,30 +321,19 @@ def vectorize_mask_instance(
     ) as dst:
         dst.write(high_conf_mask, 1)
 
-    return get_fc_from_raster(memfile)
-
-
-# taken from cloud run orchestrator
-def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
-    """create a geojson from an input raster with classification
-
-    Args:
-        raster (MemoryFile): input raster
-
-    Returns:
-        geojson.FeatureCollection: output feature collection
-    """
-    with raster.open() as dataset:
+    with memfile.open() as dataset:
         shapes = rasterio.features.shapes(
             dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
         )
-    out_fc = geojson.FeatureCollection(
-        features=[
-            geojson.Feature(
-                geometry=geom, properties=dict(classification=classification)
-            )
-            for geom, classification in shapes
-            if int(classification) != 0
-        ]
+        geoms = []
+        classifications = []
+        for geom, classification in shapes:
+            if classification != 0:
+                geoms.append(shape(geom))
+                classifications.append(int(classification))
+        print(classifications)
+        multipoly = MultiPolygon(geoms)
+    return geojson.Feature(
+        geometry=multipoly,
+        properties=dict(classification=classifications[0], confidence=confindence),
     )
-    return out_fc
