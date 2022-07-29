@@ -26,7 +26,10 @@ from global_land_mask import globe
 from rasterio.io import MemoryFile
 from rasterio.merge import merge
 
-from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceResult
+from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceResult,
+    InferenceResultStack,
+)
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
@@ -210,6 +213,17 @@ def is_tile_over_water(tile_bounds: List[float]) -> bool:
     return any(globe.is_ocean([miny, maxy], [minx, maxx]))
 
 
+def flatten_feature_list(
+    stack_list: List[InferenceResultStack],
+) -> List[geojson.Feature]:
+    """flatten a feature list coming from inference"""
+    flat_list: List[geojson.Feature] = []
+    for r in stack_list:
+        for i in r.stack:
+            flat_list.append(*i.features)
+    return flat_list
+
+
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
@@ -328,40 +342,66 @@ async def _orchestrate(
                 return_exceptions=True,
             )
 
-            print("Loading all tiles into memory for merge!")
-            ds_base_tiles = []
-            for base_tile_inference in base_tiles_inference:
-                ds_base_tiles.append(
-                    *[
-                        create_dataset_from_inference_result(b)
-                        for b in base_tile_inference.stack
-                    ]
+            if base_tiles_inference[0].stack[0].dict().get("classes"):
+
+                print("Loading all tiles into memory for merge!")
+                ds_base_tiles = []
+                for base_tile_inference in base_tiles_inference:
+                    ds_base_tiles.append(
+                        *[
+                            create_dataset_from_inference_result(b)
+                            for b in base_tile_inference.stack
+                        ]
+                    )
+
+                ds_offset_tiles = []
+                for offset_tile_inference in offset_tiles_inference:
+                    ds_offset_tiles.append(
+                        *[
+                            create_dataset_from_inference_result(b)
+                            for b in offset_tile_inference.stack
+                        ]
+                    )
+
+                print("Merging base tiles!")
+                base_tile_inference_file = MemoryFile()
+                ar, transform = merge(ds_base_tiles)
+                with base_tile_inference_file.open(
+                    driver="GTiff",
+                    height=ar.shape[1],
+                    width=ar.shape[2],
+                    count=ar.shape[0],
+                    dtype=ar.dtype,
+                    transform=transform,
+                    crs="EPSG:4326",
+                ) as dst:
+                    dst.write(ar)
+
+                out_fc = get_fc_from_raster(base_tile_inference_file)
+
+                print("Merging offset tiles!")
+                offset_tile_inference_file = MemoryFile()
+                ar, transform = merge(ds_offset_tiles)
+                with offset_tile_inference_file.open(
+                    driver="GTiff",
+                    height=ar.shape[1],
+                    width=ar.shape[2],
+                    count=ar.shape[0],
+                    dtype=ar.dtype,
+                    transform=transform,
+                    crs="EPSG:4326",
+                ) as dst:
+                    dst.write(ar)
+
+                out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
+
+            else:
+                out_fc = geojson.FeatureCollection(
+                    features=flatten_feature_list(base_tiles_inference)
                 )
-
-            ds_offset_tiles = []
-            for offset_tile_inference in offset_tiles_inference:
-                ds_offset_tiles.append(
-                    *[
-                        create_dataset_from_inference_result(b)
-                        for b in offset_tile_inference.stack
-                    ]
+                out_fc_offset = geojson.FeatureCollection(
+                    features=flatten_feature_list(offset_tiles_inference)
                 )
-
-            print("Merging base tiles!")
-            base_tile_inference_file = MemoryFile()
-            ar, transform = merge(ds_base_tiles)
-            with base_tile_inference_file.open(
-                driver="GTiff",
-                height=ar.shape[1],
-                width=ar.shape[2],
-                count=ar.shape[0],
-                dtype=ar.dtype,
-                transform=transform,
-                crs="EPSG:4326",
-            ) as dst:
-                dst.write(ar)
-
-            out_fc = get_fc_from_raster(base_tile_inference_file)
 
             for feat in out_fc.features:
                 async with db_client.session.begin():
@@ -369,22 +409,6 @@ async def _orchestrate(
                         feat, orchestrator_run, sentinel1_grd.start_time
                     )
                     print(f"Added last eez for slick {slick}")
-
-            print("Merging offset tiles!")
-            offset_tile_inference_file = MemoryFile()
-            ar, transform = merge(ds_offset_tiles)
-            with offset_tile_inference_file.open(
-                driver="GTiff",
-                height=ar.shape[1],
-                width=ar.shape[2],
-                count=ar.shape[0],
-                dtype=ar.dtype,
-                transform=transform,
-                crs="EPSG:4326",
-            ) as dst:
-                dst.write(ar)
-
-            out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
 
             end_time = datetime.now()
             print(f"End time: {end_time}")
