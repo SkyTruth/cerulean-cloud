@@ -20,24 +20,35 @@ def cli():
 @click.option(
     "--date-end", type=click.DateTime(formats=["%Y-%m-%d"]), default=str(date.today())
 )
-def eodag(date_start, date_end):
+@click.option("--geometry", type=click.File(mode="r"))
+@click.option("--scihub-username", envvar="SCIHUB_USERNAME")
+@click.option("--scihub-password", envvar="SCIHUB_PASSWORD")
+def eodag(date_start, date_end, geometry, scihub_username, scihub_password):
     """Use start and end date to add Sentinel-1 scenes to Cloud Task queue"""
     click.echo(f"Start: {date_start}, End: {date_end} ")
 
     dag = EODataAccessGateway()
+    dag.update_providers_config(
+        f"""
+    scihub:
+        api:
+            credentials:
+                username: "{scihub_username}"
+                password: "{scihub_password}"
+    """
+    )
+    dag.set_preferred_provider("scihub")
 
     default_search_criteria = {
         "productType": "S1_SAR_GRD",
         "polarization": "VV",
-        "start": "2021-03-01",
-        "end": "2021-03-31",
+        "start": date_start.strftime("%Y-%m-%d"),
+        "end": date_end.strftime("%Y-%m-%d"),
         "geom": {"lonmin": 1, "latmin": 43, "lonmax": 2, "latmax": 44},
     }
 
-    search_results, total_count = dag.search(**default_search_criteria)
-    print(
-        f"Got a hand on {len(search_results)} products and an estimated total number of {total_count} products available."
-    )
+    search_results = dag.search_all(**default_search_criteria)
+    print(f"Got a hand on {len(search_results)} products.")
 
 
 cli.add_command(eodag)
