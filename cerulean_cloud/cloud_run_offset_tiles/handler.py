@@ -13,6 +13,7 @@ import torchvision  # noqa
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
+from rasterio.features import shapes
 from rasterio.io import MemoryFile
 from shapely.geometry import MultiPolygon, shape
 from starlette.requests import Request
@@ -333,12 +334,12 @@ def vectorize_mask_instance(
         dst.write(high_conf_mask, 1)
 
     with memfile.open() as dataset:
-        shapes = rasterio.features.shapes(
+        shps = shapes(
             dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
         )
         geoms = []
         classifications = []
-        for geom, classification in shapes:
+        for geom, classification in shps:
             if classification != 0:
                 geoms.append(shape(geom))
                 classifications.append(int(classification))
