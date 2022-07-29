@@ -19,17 +19,20 @@ from cerulean_cloud.titiler_client import TitilerClient
 
 
 @pytest.mark.skip
-def test_create_fixture_tile(
-    url="https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/",
+@pytest.mark.asyncio
+async def test_create_fixture_tile(
+    url="https://vvxmig4pha.execute-api.eu-central-1.amazonaws.com/",
 ):
     titiler_client = TitilerClient(url=url)
-    S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
-
-    tiles = list(TMS.tiles(*titiler_client.get_bounds(S1_ID), [10], truncate=False))
-    tile = tiles[20]
-    array = titiler_client.get_base_tile(S1_ID, tile=tile, scale=2, rescale=(0, 100))
+    S1_ID = "S1A_IW_GRDH_1SDV_20201121T225759_20201121T225828_035353_04216C_62EA"
+    tile = TMS.tile(-74.47852171444801, 36.09607988649725, 9)
+    print(tile)
+    array = await titiler_client.get_base_tile(
+        S1_ID, tile=tile, scale=2, rescale=(0, 100)
+    )
+    print(array)
     with rasterio.open(
-        "test/test_cerulean_cloud/fixtures/tile_512_512_3band.png",
+        "test/test_cerulean_cloud/fixtures/tile_with_slick_512_512_3band.png",
         "w",
         driver="PNG",
         height=array.shape[0],
