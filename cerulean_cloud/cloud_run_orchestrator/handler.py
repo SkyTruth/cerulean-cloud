@@ -220,7 +220,8 @@ def flatten_feature_list(
     flat_list: List[geojson.Feature] = []
     for r in stack_list:
         for i in r.stack:
-            flat_list.append(*i.features)
+            if i.features:
+                flat_list.append(*i.features)
     return flat_list
 
 
