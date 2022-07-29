@@ -1,12 +1,63 @@
 """Utility to ruin historical inference"""
+import json
+import os
 from datetime import date
 
 import click
 import geojson
+import urlparse
 from eodag import EODataAccessGateway, setup_logging
+from google.cloud import tasks_v2
 from shapely.geometry import MultiPolygon, shape
 
 setup_logging(2)
+
+
+def handler_queue(filtered_scenes):
+    """handler queue"""
+    # Create a client.
+    client = tasks_v2.CloudTasksClient()
+
+    project = os.getenv("GCP_PROJECT")
+    queue = os.getenv("QUEUE")
+    location = os.getenv("GCP_LOCATION")
+    url = os.getenv("ORCHESTRATOR_URL")
+
+    # Construct the fully qualified queue name.
+    parent = client.queue_path(project, location, queue)
+
+    for scene in filtered_scenes:
+        # Construct the request body.
+        # TODO: Add orchestrate and POST method instead
+        task = {
+            "http_request": {  # Specify the type of request.
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": urlparse.urljoin(
+                    url, "orchestrate"
+                ),  # The full url path that the task will be sent to.
+            }
+        }
+
+        payload = {"sceneid": scene, "trigger": 1, "dry_run": True}
+        print(payload)
+        # Add the payload to the request.
+        if payload is not None:
+            if isinstance(payload, dict):
+                # Convert dict to JSON string
+                payload = json.dumps(payload)
+                # specify http content-type to application/json
+                task["http_request"]["headers"] = {"Content-type": "application/json"}
+
+            # The API expects a payload of type bytes.
+            converted_payload = payload.encode()
+
+            # Add the payload to the request.
+            task["http_request"]["body"] = converted_payload
+
+        # Use the client to build and send the task.
+        response = client.create_task(request={"parent": parent, "task": task})
+
+        print("Created task {}".format(response.name))
 
 
 @click.group()
@@ -56,6 +107,13 @@ def eodag(date_start, date_end, geometry, scihub_username, scihub_password):
 
     search_results = dag.search_all(**default_search_criteria)
     print(f"Got a hand on {len(search_results)} products.")
+
+    filtered_scenes = []
+    for result in search_results:
+        print(f"Adding {result}...")
+        filtered_scenes.append(result.properties.get("id"))
+
+    handler_queue(filtered_scenes[0])
 
 
 cli.add_command(eodag)
