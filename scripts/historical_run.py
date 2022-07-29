@@ -2,7 +2,9 @@
 from datetime import date
 
 import click
+import geojson
 from eodag import EODataAccessGateway, setup_logging
+from shapely.geometry import MultiPolygon, shape
 
 setup_logging(2)
 
@@ -39,12 +41,17 @@ def eodag(date_start, date_end, geometry, scihub_username, scihub_password):
     )
     dag.set_preferred_provider("scihub")
 
+    with geometry as src:
+        fc = geojson.load(src)
+
+    overall_geom = MultiPolygon([shape(f.geometry) for f in fc.features])
+
     default_search_criteria = {
         "productType": "S1_SAR_GRD",
         "polarization": "VV",
         "start": date_start.strftime("%Y-%m-%d"),
         "end": date_end.strftime("%Y-%m-%d"),
-        "geom": {"lonmin": 1, "latmin": 43, "lonmax": 2, "latmax": 44},
+        "geom": overall_geom.wkt,
     }
 
     search_results = dag.search_all(**default_search_criteria)
