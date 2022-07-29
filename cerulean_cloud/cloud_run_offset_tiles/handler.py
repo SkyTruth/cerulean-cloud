@@ -3,7 +3,7 @@ Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
 from base64 import b64decode, b64encode
 from functools import lru_cache
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
 import geojson
 import numpy as np
@@ -22,6 +22,8 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResult,
     InferenceResultStack,
 )
+
+# mypy: ignore-errors
 
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
@@ -104,7 +106,12 @@ def ping() -> Dict:
 
 def _predict(
     payload: InferenceInputStack, model
-) -> List[Tuple[np.ndarray, np.ndarray, List[float]]]:
+) -> List[
+    Union[
+        Tuple[np.ndarray, np.ndarray, List[float]],
+        Tuple[List[geojson.Feature], List[float]],
+    ]
+]:
     print("Loading tensor!")
     stack_tensors = []
     for inference_input in payload.stack:
@@ -128,7 +135,7 @@ def _predict(
         out_batch_logits = model(tensor)
         print("Finished inference, applying softmax")
 
-        res = []
+        res: Tuple[np.ndarray, np.ndarray, List[float]] = []
         for i, inference_input in enumerate(payload.stack):
             conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
             classes = apply_conf_threshold(conf, _classes, confidence_threshold)
@@ -148,23 +155,20 @@ def _predict(
         res_list = model(torch.unbind(tensor))
         print("Finished inference, applying post-process, thresholding")
 
-        res = []
+        res: Tuple[List[geojson.Feature], List[float]] = []
         for i, inference_input in enumerate(payload.stack):
             pred_dict = apply_conf_threshold_instances(
                 res_list[1][i], bbox_conf_threshold=bbox_conf_threshold
             )
-            high_conf_classes = apply_conf_threshold_masks(
-                pred_dict, mask_conf_threshold=mask_conf_threshold, size=size
+            out_features = apply_conf_threshold_masks_vectorize(  # no prediction dict data changed in this step that we store in db
+                pred_dict,
+                mask_conf_threshold=mask_conf_threshold,
+                size=size,
+                bounds=inference_input.bounds,
             )
-            print(f"Output classes array is {high_conf_classes.shape}")
+            print(f"Output is {len(out_features)} features, {out_features}")
             # for now pass classes as conf, since we don't have conf map
-            res.append(
-                (
-                    high_conf_classes.detach().numpy(),
-                    high_conf_classes.detach().numpy(),
-                    inference_input.bounds,
-                )
-            )
+            res.append((out_features, inference_input.bounds))
 
     return res
 
@@ -184,12 +188,19 @@ def predict(
     record_timing(request, note="Finished inference")
 
     inference_result_stack = []
-    for conf, classes, bounds in results:
-        enc_classes = array_to_b64_image(classes)
-        enc_conf = array_to_b64_image(conf)
-        inference_result_stack.append(
-            InferenceResult(classes=enc_classes, confidence=enc_conf, bounds=bounds)
-        )
+    if len(results[0]) == 2:
+        for feats, bounds in results:
+            inference_result_stack.append(
+                InferenceResult(features=feats, bounds=bounds)
+            )
+
+    else:
+        for conf, classes, bounds in results:
+            enc_classes = array_to_b64_image(classes)
+            enc_conf = array_to_b64_image(conf)
+            inference_result_stack.append(
+                InferenceResult(classes=enc_classes, confidence=enc_conf, bounds=bounds)
+            )
     record_timing(request, note="Returning")
     return InferenceResultStack(stack=inference_result_stack)
 
