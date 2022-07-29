@@ -18,7 +18,7 @@ from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
 
-@pytest.mark.skip
+# @pytest.mark.skip
 @pytest.mark.asyncio
 async def test_create_fixture_tile(
     url="https://vvxmig4pha.execute-api.eu-central-1.amazonaws.com/",
@@ -28,7 +28,7 @@ async def test_create_fixture_tile(
     tile = TMS.tile(-74.47852171444801, 36.09607988649725, 9)
     print(tile)
     array = await titiler_client.get_base_tile(
-        S1_ID, tile=tile, scale=2, rescale=(0, 100)
+        S1_ID, tile=tile, scale=2, rescale=(17.0, 608.0)
     )
     print(array)
     with rasterio.open(
@@ -116,7 +116,9 @@ def test_inference_mrcnn():
     bbox_conf_threshold = 0.5
     mask_conf_threshold = 0.05
     size = 512
-    with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
+    with open(
+        "test/test_cerulean_cloud/fixtures/tile_with_slick_512_512_3band.png", "rb"
+    ) as src:
         encoded = handler.b64encode(src.read()).decode("ascii")
 
     tensor = handler.b64_image_to_tensor(encoded)
