@@ -168,13 +168,22 @@ class DatabaseClient:
             slick_timestamp,
             feat.geometry,
             slick_class,
+            machine_confidence=feat.properties.get("confidence"),
         )
+
         self.session.add(slick)
 
         # await self.add_eez_to_slick(slick)
         return slick
 
-    def add_slick(self, orchestrator_run, slick_timestamp, slick_shape, slick_class):
+    def add_slick(
+        self,
+        orchestrator_run,
+        slick_timestamp,
+        slick_shape,
+        slick_class,
+        machine_confidence=None,
+    ):
         """add a slick"""
         s = shape(slick_shape)
         if not isinstance(s, MultiPolygon):
@@ -186,6 +195,7 @@ class DatabaseClient:
             validated=False,
             slick_class1=slick_class,
             orchestrator_run1=orchestrator_run,
+            machine_confidence=machine_confidence,
         )
         return slick
 
