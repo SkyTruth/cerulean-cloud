@@ -5,15 +5,15 @@ from base64 import b64decode, b64encode
 from functools import lru_cache
 from typing import Dict, List, Tuple
 
+import geojson
 import numpy as np
+import rasterio
 import torch
 import torchvision  # noqa
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
 from rasterio.io import MemoryFile
-import rasterio
-import geojson
 from starlette.requests import Request
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
@@ -174,7 +174,9 @@ def _predict(
     tags=["Run inference"],
     response_model=InferenceResultStack,
 )
-def predict(request: Request, payload: InferenceInputStack, model=Depends(get_model)) -> Dict:
+def predict(
+    request: Request, payload: InferenceInputStack, model=Depends(get_model)
+) -> Dict:
     """predict"""
     record_timing(request, note="Started")
     results = _predict(payload, model)
@@ -265,7 +267,10 @@ def apply_conf_threshold_masks(pred_dict, mask_conf_threshold, size):
         return [torch.zeros(size, size).long()]
 
 
-def vectorize_mask_instances(high_conf_classes, transform):
+def vectorize_mask_instances(
+    high_conf_classes: torch.Tensor, transform
+) -> List[geojson.FeatureCollection]:
+    """vectorize multiple mask instances"""
     geojson_fcs = []
     for mask_instance in high_conf_classes:
         geojson_fc = vectorize_mask_instance(mask_instance, transform)
@@ -273,9 +278,13 @@ def vectorize_mask_instances(high_conf_classes, transform):
     return geojson_fcs
 
 
-def vectorize_mask_instance(high_conf_mask, transform):
+def vectorize_mask_instance(
+    high_conf_mask: torch.Tensor, transform
+) -> geojson.FeatureCollection:
+    """From a hight conf mask generate a feature collection"""
 
     memfile = MemoryFile()
+    high_conf_mask = high_conf_mask.detach().numpy().astype("int16")
     with memfile.open(
         driver="GTiff",
         height=high_conf_mask.shape[0],
@@ -285,7 +294,7 @@ def vectorize_mask_instance(high_conf_mask, transform):
         transform=transform,
         crs="EPSG:4326",
     ) as dst:
-        dst.write(high_conf_mask)
+        dst.write(high_conf_mask, 1)
 
     return get_fc_from_raster(memfile)
 
@@ -306,7 +315,9 @@ def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
         )
     out_fc = geojson.FeatureCollection(
         features=[
-            geojson.Feature(geometry=geom, properties=dict(classification=classification))
+            geojson.Feature(
+                geometry=geom, properties=dict(classification=classification)
+            )
             for geom, classification in shapes
             if int(classification) != 0
         ]
