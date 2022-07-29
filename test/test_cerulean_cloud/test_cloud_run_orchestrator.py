@@ -380,6 +380,3 @@ def test_flatten_result():
 
     assert len(flat_list) == 4
     assert isinstance(flat_list[0], geojson.Feature)
-    import pdb
-
-    pdb.set_trace()
