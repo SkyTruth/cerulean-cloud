@@ -58,11 +58,15 @@ def test_inference():
     tensor = tensor[None, :, :, :]
     tensor = tensor.float() / 255
 
-    model = handler.load_tracing_model("cerulean_cloud/cloud_run_offset_tiles/model/model.pt")
+    model = handler.load_tracing_model(
+        "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
+    )
     res = model(tensor)
     for tile in res:  # iterating through the batch dimension.
         conf, classes = handler.logits_to_classes(tile)
-        high_conf_classes = handler.apply_conf_threshold(conf, classes, conf_threshold=0.9)
+        high_conf_classes = handler.apply_conf_threshold(
+            conf, classes, conf_threshold=0.9
+        )
         assert conf.shape == torch.Size([512, 512])
         assert classes.shape == torch.Size([512, 512])
         assert high_conf_classes.shape == torch.Size([512, 512])
@@ -88,7 +92,9 @@ def test_inference_():
     with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
         encoded = handler.b64encode(src.read()).decode("ascii")
 
-    model = handler.load_tracing_model("cerulean_cloud/cloud_run_offset_tiles/model/model.pt")
+    model = handler.load_tracing_model(
+        "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
+    )
     payload = InferenceInputStack(stack=[InferenceInput(image=encoded)])
 
     inference_stack = handler._predict(payload, model)
@@ -103,13 +109,11 @@ def test_inference_():
     assert array_conf.shape == torch.Size([1, 512, 512])
 
 
-def test_inference_mrcnn(url="https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/"):
+def test_inference_mrcnn():
     bbox_conf_threshold = 0.5
     mask_conf_threshold = 0.05
     size = 512
-    with open(
-        "cerulean-cloud/test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb"
-    ) as src:
+    with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
         encoded = handler.b64encode(src.read()).decode("ascii")
 
     tensor = handler.b64_image_to_tensor(encoded)
@@ -118,13 +122,14 @@ def test_inference_mrcnn(url="https://0xshe4bmk8.execute-api.eu-central-1.amazon
     tensor = tensor.float() / 255
 
     model = handler.load_tracing_model(
-        "/root/data/experiments/cv2/20_Jul_2022_00_14_15_icevision_maskrcnn/scripting_cpu_test_28_34_224_58.pt"
+        "cerulean_cloud/cloud_run_offset_tiles/model/model_mrcnn.pt"
     )
-    titiler_client = TitilerClient(url=url)
-    S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
-    transform = rasterio.transform.from_bounds(
-        *titiler_client.get_bounds(S1_ID), width=size, height=size
+    tiles = list(
+        TMS.tiles(*[32.989094, 43.338009, 36.540836, 45.235191], [10], truncate=False)
     )
+    tile = tiles[20]
+    tile_bounds = TMS.bounds(tile)
+    transform = rasterio.transform.from_bounds(*tile_bounds, width=size, height=size)
     print(torch.unbind(tensor))
     res_list = model(
         torch.unbind(tensor)
