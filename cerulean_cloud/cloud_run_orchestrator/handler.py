@@ -428,7 +428,7 @@ async def _orchestrate(
         else:
             print("DRY RUN!!")
             orchestrator_result = OrchestratorResult(
-                classificatio_base=geojson.FeatureCollection(features=[]),
+                classification_base=geojson.FeatureCollection(features=[]),
                 classification_offset=geojson.FeatureCollection(features=[]),
                 ntiles=ntiles,
                 noffsettiles=noffsettiles,
