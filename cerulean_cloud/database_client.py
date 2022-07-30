@@ -168,7 +168,7 @@ class DatabaseClient:
             slick_timestamp,
             feat.geometry,
             slick_class,
-            machine_confidence=feat.properties.get("confidence"),
+            machine_confidence=feat.get("properties").get("confidence"),
         )
 
         self.session.add(slick)
