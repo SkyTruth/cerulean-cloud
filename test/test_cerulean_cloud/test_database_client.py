@@ -139,7 +139,7 @@ async def test_create_slick(setup_database, engine):
         for feat in out_fc.features:
             async with db_client.session.begin():
                 slick = await db_client.add_slick_with_eez(
-                    feat, orchestrator_run, sentinel1_grd.start_time
+                    dict(feat), orchestrator_run, sentinel1_grd.start_time
                 )
                 print(f"Added last eez for slick {slick}")
 
