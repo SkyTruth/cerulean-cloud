@@ -1,6 +1,12 @@
 # cerulean-cloud
 Pulumi repository with infrastructure for Cerulean, including all cloud services and database structure.
 
+## Architecture
+
+The cerulean-cloud architecture diagram can be found [here](https://lucid.app/lucidchart/26eb638d-3ba3-4461-aa1d-04ae4ec55d52/edit?viewport_loc=-2228%2C-1113%2C2759%2C3315%2CHowzCfBBZfS3&invitationId=inv_65f7accd-dc09-4ef1-9c28-81a34ce0976e#).
+
+![Cerulean Cloud Architecture](architecture.png)
+
 ## Setup cloud authentication
 ### GCS auth
 ```
