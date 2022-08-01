@@ -3,14 +3,19 @@ Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
 from base64 import b64decode, b64encode
 from functools import lru_cache
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
 
+import geojson
 import numpy as np
+import rasterio
 import torch
+import torchvision  # noqa
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
+from rasterio.features import shapes
 from rasterio.io import MemoryFile
+from shapely.geometry import MultiPolygon, shape
 from starlette.requests import Request
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
@@ -18,6 +23,8 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResult,
     InferenceResultStack,
 )
+
+# mypy: ignore-errors
 
 app = FastAPI(title="Cloud Run for offset tiles")
 # Allow CORS for local debugging
@@ -41,7 +48,7 @@ def logits_to_classes(out_batch_logits):
     """returns the confidence scores of the max confident classes
     and an array of max confident class ids for a single tile of shape [classes, H, W].
     """
-    probs = torch.nn.functional.softmax(out_batch_logits, dim=0)  # 0 is the class dim
+    probs = torch.nn.functional.softmax(out_batch_logits, dim=0)
     conf, classes = torch.max(probs, 0)
     return (conf, classes)
 
@@ -100,7 +107,12 @@ def ping() -> Dict:
 
 def _predict(
     payload: InferenceInputStack, model
-) -> List[Tuple[np.ndarray, np.ndarray, List[float]]]:
+) -> List[
+    Union[
+        Tuple[np.ndarray, np.ndarray, List[float]],
+        Tuple[List[geojson.Feature], List[float]],
+    ]
+]:
     print("Loading tensor!")
     stack_tensors = []
     for inference_input in payload.stack:
@@ -116,17 +128,49 @@ def _predict(
     print(f"Expanded tensor has shape {tensor.shape}")
 
     print("Running inference...")
-    out_batch_logits = model(tensor)
-    print("Finished inference, applying softmax")
+    model_type = "MASKRCNN"
+    print(f"Model type is {model_type}")
+    if model_type == "UNET":
+        confidence_threshold = 0.9
 
-    res = []
-    for i, inference_input in enumerate(payload.stack):
-        conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
-        classes = apply_conf_threshold(conf, _classes, 0.9)
-        print(f"Output classes array is {classes.shape}")
-        res.append(
-            (conf.detach().numpy(), classes.detach().numpy(), inference_input.bounds)
-        )
+        out_batch_logits = model(tensor)
+        print("Finished inference, applying softmax")
+
+        res: Tuple[np.ndarray, np.ndarray, List[float]] = []
+        for i, inference_input in enumerate(payload.stack):
+            conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
+            classes = apply_conf_threshold(conf, _classes, confidence_threshold)
+            print(f"Output classes array is {classes.shape}")
+            res.append(
+                (
+                    conf.detach().numpy(),
+                    classes.detach().numpy(),
+                    inference_input.bounds,
+                )
+            )
+    if model_type == "MASKRCNN":
+        bbox_conf_threshold = 0.5
+        mask_conf_threshold = 0.05
+        size = 512
+
+        res_list = model(torch.unbind(tensor))
+        print("Finished inference, applying post-process, thresholding")
+
+        res: Tuple[List[geojson.Feature], List[float]] = []
+        for i, inference_input in enumerate(payload.stack):
+            pred_dict = apply_conf_threshold_instances(
+                res_list[1][i], bbox_conf_threshold=bbox_conf_threshold
+            )
+            out_features = apply_conf_threshold_masks_vectorize(  # no prediction dict data changed in this step that we store in db
+                pred_dict,
+                mask_conf_threshold=mask_conf_threshold,
+                size=size,
+                bounds=inference_input.bounds,
+            )
+            print(f"Output is {len(out_features)} features, {out_features}")
+            # for now pass classes as conf, since we don't have conf map
+            res.append((out_features, inference_input.bounds))
+
     return res
 
 
@@ -145,11 +189,163 @@ def predict(
     record_timing(request, note="Finished inference")
 
     inference_result_stack = []
-    for conf, classes, bounds in results:
-        enc_classes = array_to_b64_image(classes)
-        enc_conf = array_to_b64_image(conf)
-        inference_result_stack.append(
-            InferenceResult(classes=enc_classes, confidence=enc_conf, bounds=bounds)
-        )
+    if len(results[0]) == 2:
+        for feats, bounds in results:
+            inference_result_stack.append(
+                InferenceResult(features=feats, bounds=bounds)
+            )
+
+    else:
+        for conf, classes, bounds in results:
+            enc_classes = array_to_b64_image(classes)
+            enc_conf = array_to_b64_image(conf)
+            inference_result_stack.append(
+                InferenceResult(classes=enc_classes, confidence=enc_conf, bounds=bounds)
+            )
     record_timing(request, note="Returning")
     return InferenceResultStack(stack=inference_result_stack)
+
+
+def apply_conf_threshold_instances(pred_dict, bbox_conf_threshold):
+    """Apply a confidence threshold to the output of logits_to_classes for a tile.
+    Args:
+        pred_dict (dict): a dict with (for example):
+
+        {'boxes': tensor([[  0.00000,  14.11488, 206.41418, 210.23907],
+          [ 66.99806, 119.41994, 107.67549, 224.00000],
+          [ 47.37723,  41.04019, 122.53947, 224.00000]], grad_fn=<StackBackward0>),
+        'labels': tensor([2, 2, 2]),
+        'scores': tensor([0.99992, 0.99763, 0.22231], grad_fn=<IndexBackward0>),
+        'masks': tensor([[[[0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    ...,
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.]]],
+
+
+                [[[0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    ...,
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.]]],
+
+
+                [[[0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    ...,
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.],
+                    [0., 0., 0.,  ..., 0., 0., 0.]]]], grad_fn=<UnsqueezeBackward0>)}
+        bbox_conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
+    Returns:
+        dict: The confidence thresholded dict result, using the bbox conf threshold. Value sof dict are now list sinstead of tensors: {'boxes':[], 'labels':[], 'scores':[], 'masks':[]}
+    """
+    new_dict = {"boxes": [], "labels": [], "scores": [], "masks": []}
+    for i, score in enumerate(pred_dict["scores"]):
+        if score > bbox_conf_threshold:
+            new_dict["boxes"].append(pred_dict["boxes"][i])
+            new_dict["labels"].append(pred_dict["labels"][i])
+            new_dict["scores"].append(pred_dict["scores"][i])
+            new_dict["masks"].append(pred_dict["masks"][i])
+    return new_dict
+
+
+def apply_conf_threshold_masks(pred_dict, mask_conf_threshold, size):
+    """Apply a confidence threshold to the output of apply_conf_threshold_instances on the masks to get class masks.
+
+    Output is equivalent in shape and content to apply_conf_threshold.
+
+    Args:
+        pred_dict (dict): a dict with {'boxes':[], 'labels':[], 'scores':[], 'masks':[]}
+        classes (np.ndarray): an array of shape [H, W] of class integers for the max confidence scores for each pixel
+        conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
+    Returns:
+        List[torch.Tensor]: A list of arrays of shape [H,W] with the class ids that satisfy the confidence threshold. These can be vectorized.
+    """
+    high_conf_classes = []
+    if len(pred_dict["masks"]) > 0:
+        for i, mask in enumerate(pred_dict["masks"]):
+            classes = torch.ones_like(mask) * pred_dict["labels"][i]
+            classes = classes.long().squeeze()
+            high_conf_class_mask = torch.where(mask > mask_conf_threshold, 1, 0)
+            high_conf_class_mask = torch.where(high_conf_class_mask.bool(), classes, 0)
+            high_conf_classes.append(high_conf_class_mask.squeeze())
+        return high_conf_classes
+    else:
+        return [torch.zeros(size, size).long()]
+
+
+def apply_conf_threshold_masks_vectorize(
+    pred_dict, mask_conf_threshold, size, bounds
+) -> List[geojson.Feature]:
+    """Apply a confidence threshold to the output of apply_conf_threshold_instances on the masks to get class masks.
+
+    Output is equivalent in shape and content to apply_conf_threshold.
+
+    Args:
+        pred_dict (dict): a dict with {'boxes':[], 'labels':[], 'scores':[], 'masks':[]}
+        classes (np.ndarray): an array of shape [H, W] of class integers for the max confidence scores for each pixel
+        conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
+    Returns:
+        List[torch.Tensor]: A list of arrays of shape [H,W] with the class ids that satisfy the confidence threshold. These can be vectorized.
+    """
+    out_features = []
+    if len(pred_dict["masks"]) > 0:
+        for i, mask in enumerate(pred_dict["masks"]):
+            classes = torch.ones_like(mask) * pred_dict["labels"][i]
+            classes = classes.long().squeeze()
+            high_conf_class_mask = torch.where(mask > mask_conf_threshold, 1, 0)
+            high_conf_class_mask = torch.where(high_conf_class_mask.bool(), classes, 0)
+            high_conf_class_mask = high_conf_class_mask.squeeze()
+
+            transform = rasterio.transform.from_bounds(*bounds, width=size, height=size)
+            out_features.append(
+                vectorize_mask_instance(
+                    high_conf_class_mask,
+                    pred_dict["scores"][i].detach().item(),
+                    transform,
+                )
+            )
+
+    return out_features
+
+
+def vectorize_mask_instance(
+    high_conf_mask: torch.Tensor, confindence: float, transform
+) -> geojson.Feature:
+    """From a hight conf mask generate a feature collection"""
+
+    memfile = MemoryFile()
+    high_conf_mask = high_conf_mask.detach().numpy().astype("int16")
+    with memfile.open(
+        driver="GTiff",
+        height=high_conf_mask.shape[0],
+        width=high_conf_mask.shape[1],
+        count=1,
+        dtype=high_conf_mask.dtype,
+        transform=transform,
+        crs="EPSG:4326",
+    ) as dst:
+        dst.write(high_conf_mask, 1)
+
+    with memfile.open() as dataset:
+        shps = shapes(
+            dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
+        )
+        geoms = []
+        classifications = []
+        for geom, classification in shps:
+            if classification != 0:
+                geoms.append(shape(geom))
+                classifications.append(int(classification))
+        print(classifications)
+        multipoly = MultiPolygon(geoms)
+    return geojson.Feature(
+        geometry=multipoly,
+        properties=dict(classification=classifications[0], confidence=confindence),
+    )
