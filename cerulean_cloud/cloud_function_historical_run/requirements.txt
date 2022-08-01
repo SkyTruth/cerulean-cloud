@@ -1,0 +1,5 @@
+asyncpg
+shapely
+google-cloud-tasks
+eodag
+eodag-sentinelsat

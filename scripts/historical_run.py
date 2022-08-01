@@ -1,0 +1,50 @@
+"""Utility to ruin historical inference
+Client for historical run cloud functions"""
+from datetime import date
+
+import click
+import geojson
+import httpx
+
+
+def handler_historical_run(date_start, date_end, geometry, url):
+    """makes a post request to the cloud function historical run"""
+    with geometry as src:
+        fc = geojson.load(src)
+
+    payload = {
+        "start": date_start.strftime("%Y-%m-%d"),
+        "end": date_end.strftime("%Y-%m-%d"),
+        "geometry": dict(fc),
+    }
+
+    res = httpx.post(url, json=payload)
+    return res
+
+
+@click.group()
+def cli():
+    """Command line tool to add tasks to Cloud Task queue, to run inference on"""
+    pass
+
+
+@click.command()
+@click.option(
+    "--date-start", type=click.DateTime(formats=["%Y-%m-%d"]), default=str(date.today())
+)
+@click.option(
+    "--date-end", type=click.DateTime(formats=["%Y-%m-%d"]), default=str(date.today())
+)
+@click.option("--geometry", type=click.File(mode="r"))
+@click.option("--url", envvar="URL", default="")
+def eodag(date_start, date_end, geometry, url):
+    """Use start and end date to add Sentinel-1 scenes to Cloud Task queue"""
+    click.echo(f"Start: {date_start}, End: {date_end} ")
+    res = handler_historical_run(date_start, date_end, geometry, url)
+    click.echo(f"{res}")
+
+
+cli.add_command(eodag)
+
+if __name__ == "__main__":
+    cli()
