@@ -1,23 +1,29 @@
 import json
 
+import pytest
 from dateutil.parser import parse
 
 from cerulean_cloud.cloud_function_historical_run.main import (
-    handle_notification,
+    handle_search,
     load_ocean_poly,
     make_cloud_function_logs_url,
 )
 
 
-def test_handle_notification():
+@pytest.mark.skip
+def test_handle_search():
+    # Needs SCIHUB_USERNAME and SCIHUB_PASSWORD to run
     ocean_poly = load_ocean_poly(
         "cerulean_cloud/cloud_function_scene_relevancy/OceanGeoJSON_lowres.geojson"
     )
-    with open("test/test_cerulean_cloud/fixtures/event.json") as src:
-        event = json.load(src)
+    with open("test/test_cerulean_cloud/fixtures/search_geom.geojson") as src:
+        geom = json.load(src)
 
-    res = handle_notification(event, ocean_poly=ocean_poly)
-    assert len(res) == 0
+    request = {"start": "2022-01-01", "end": "2022-01-02", "geometry": geom}
+
+    total_scenes, filtered_scenes = handle_search(request, ocean_poly=ocean_poly)
+    assert total_scenes == 2
+    assert len(filtered_scenes) == 2
 
 
 def test_make_logs():
