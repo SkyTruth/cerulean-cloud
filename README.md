@@ -7,6 +7,11 @@ The cerulean-cloud architecture diagram can be found [here](https://lucid.app/lu
 
 ![Cerulean Cloud Architecture](architecture.png)
 
+## Deployment
+
+github actions, stages
+
+#TODO: docker, python3.8, gcp, aws, pulumi...
 ## Setup cloud authentication
 ### GCS auth
 ```
@@ -33,6 +38,7 @@ pip install -r requirements-test.txt
 # Setup pre-commit
 pre-commit install
 ```
+#TODO: add command to install all requiremnts
 ## Install pulumi
 ```
 brew install pulumi
