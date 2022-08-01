@@ -19,6 +19,8 @@ config_values = {
     "QUEUE": cloud_function_scene_relevancy.queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
     "FUNCTION_NAME": function_name,
+    "SCIHUB_USERNAME": pulumi.Config("scihub").require("username"),
+    "SCIHUB_PASSWORD": pulumi.Config("scihub").require("password"),
 }
 
 # The Cloud Function source code itself needs to be zipped up into an
