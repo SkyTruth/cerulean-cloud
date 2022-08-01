@@ -1,5 +1,7 @@
 """Utility to ruin historical inference
-Client for historical run cloud functions"""
+Client for historical run cloud functions
+i.e. python scripts/historical_run.py eodag --date-start 2022-01-01 --date-end 2022-01-02 --geometry test/test_cerulean_cloud/fixtures/search_geom.geojson
+"""
 from datetime import date
 
 import click
@@ -18,7 +20,7 @@ def handler_historical_run(date_start, date_end, geometry, url):
         "geometry": dict(fc),
     }
 
-    res = httpx.post(url, json=payload)
+    res = httpx.post(url, json=payload, timeout=None)
     return res
 
 
@@ -36,7 +38,11 @@ def cli():
     "--date-end", type=click.DateTime(formats=["%Y-%m-%d"]), default=str(date.today())
 )
 @click.option("--geometry", type=click.File(mode="r"))
-@click.option("--url", envvar="URL", default="")
+@click.option(
+    "--url",
+    envvar="URL",
+    default="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-test-cloud-function-historical-run",
+)
 def eodag(date_start, date_end, geometry, url):
     """Use start and end date to add Sentinel-1 scenes to Cloud Task queue"""
     click.echo(f"Start: {date_start}, End: {date_end} ")
