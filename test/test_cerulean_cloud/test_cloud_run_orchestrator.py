@@ -5,11 +5,13 @@ from base64 import b64decode
 from datetime import datetime
 from unittest.mock import patch
 
+import geojson
 import httpx
 import pytest
 import rasterio
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
+from shapely.geometry import box
 
 import cerulean_cloud
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
@@ -20,6 +22,7 @@ from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClien
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
     b64_image_to_array,
+    flatten_feature_list,
     from_bounds_get_offset_bounds,
     from_tiles_get_offset_shape,
     is_tile_over_water,
@@ -356,3 +359,68 @@ def test_make_cloud_log_url():
         "cursorTimestamp=2022-07-06T13:39:30.563960Z?"
         "project=cerulean-338116"
     )
+
+
+def test_flatten_result():
+    result_stack = InferenceResultStack(
+        stack=[
+            InferenceResult(
+                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
+                bounds=[1, 2, 3, 4],
+            ),
+            InferenceResult(
+                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
+                bounds=[1, 2, 3, 4],
+            ),
+        ]
+    )
+    res = [result_stack, result_stack]
+
+    flat_list = flatten_feature_list(res)
+
+    assert len(flat_list) == 4
+    assert isinstance(flat_list[0], geojson.Feature)
+
+    result_stack = InferenceResultStack(
+        stack=[
+            InferenceResult(
+                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
+                bounds=[1, 2, 3, 4],
+            ),
+            InferenceResult(
+                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
+                bounds=[1, 2, 3, 4],
+            ),
+        ]
+    )
+    res = [
+        result_stack,
+        InferenceResultStack(
+            stack=[
+                InferenceResult(
+                    features=[
+                        geojson.Feature(geometry=box(1, 2, 3, 4)),
+                        geojson.Feature(geometry=box(1, 2, 3, 4)),
+                        geojson.Feature(geometry=box(1, 2, 3, 4)),
+                    ],
+                    bounds=[1, 2, 3, 4],
+                ),
+                InferenceResult(
+                    features=[],
+                    bounds=[1, 2, 3, 4],
+                ),
+            ]
+        ),
+    ]
+
+    flat_list = flatten_feature_list(res)
+
+    assert len(flat_list) == 5
+    assert isinstance(flat_list[0], geojson.Feature)
+
+    res = [result_stack, InferenceResultStack(stack=[])]
+
+    flat_list = flatten_feature_list(res)
+
+    assert len(flat_list) == 2
+    assert isinstance(flat_list[0], geojson.Feature)

@@ -24,8 +24,7 @@ class OrchestratorResult(BaseModel):
     orchestrator result from the model
     """
 
-    base_inference: str
-    offset_inference: str
-    classification: geojson.FeatureCollection
+    classification_base: geojson.FeatureCollection
+    classification_offset: geojson.FeatureCollection
     ntiles: int
     noffsettiles: int

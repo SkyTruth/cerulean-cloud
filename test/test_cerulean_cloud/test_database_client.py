@@ -83,10 +83,12 @@ async def test_create_slick(setup_database, engine):
         out_fc = geojson.FeatureCollection(
             features=[
                 geojson.Feature(
-                    geometry=box(1, 2, 3, 4), properties={"classification": 1}
+                    geometry=box(1, 2, 3, 4),
+                    properties={"classification": 1, "confidence": 0.99},
                 ),
                 geojson.Feature(
-                    geometry=box(1, 2, 3, 4), properties={"classification": 2}
+                    geometry=box(1, 2, 3, 4),
+                    properties={"classification": 2, "confidence": 0.99},
                 ),
             ]
         )
@@ -137,14 +139,16 @@ async def test_create_slick(setup_database, engine):
         for feat in out_fc.features:
             async with db_client.session.begin():
                 slick = await db_client.add_slick_with_eez(
-                    feat, orchestrator_run, sentinel1_grd.start_time
+                    dict(feat), orchestrator_run, sentinel1_grd.start_time
                 )
                 print(f"Added last eez for slick {slick}")
 
         slicks = await db_client.session.execute(sa.select(database_schema.Slick))
-        assert len(slicks.scalars().all()) == 2
+        all_slicks = slicks.scalars().all()
+        assert len(all_slicks) == 2
+        assert all_slicks[0].machine_confidence == 0.99
         o_r = await db_client.session.execute(sa.select(database_schema.SlickToEez))
-        assert len(o_r.scalars().all()) == 4
+        assert len(o_r.scalars().all()) == 0
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import rasterio
 import torch
+import torchvision  # noqa necessary for torch.jit.load of icevision mrcnn model
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 
@@ -18,17 +19,20 @@ from cerulean_cloud.titiler_client import TitilerClient
 
 
 @pytest.mark.skip
-def test_create_fixture_tile(
-    url="https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/",
+@pytest.mark.asyncio
+async def test_create_fixture_tile(
+    url="https://vvxmig4pha.execute-api.eu-central-1.amazonaws.com/",
 ):
     titiler_client = TitilerClient(url=url)
-    S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
-
-    tiles = list(TMS.tiles(*titiler_client.get_bounds(S1_ID), [10], truncate=False))
-    tile = tiles[20]
-    array = titiler_client.get_base_tile(S1_ID, tile=tile, scale=2, rescale=(0, 100))
+    S1_ID = "S1A_IW_GRDH_1SDV_20201121T225759_20201121T225828_035353_04216C_62EA"
+    tile = TMS.tile(-74.47852171444801, 36.09607988649725, 9)
+    print(tile)
+    array = await titiler_client.get_base_tile(
+        S1_ID, tile=tile, scale=2, rescale=(17.0, 608.0)
+    )
+    print(array)
     with rasterio.open(
-        "test/test_cerulean_cloud/fixtures/tile_512_512_3band.png",
+        "test/test_cerulean_cloud/fixtures/tile_with_slick_512_512_3band.png",
         "w",
         driver="PNG",
         height=array.shape[0],
@@ -106,3 +110,52 @@ def test_inference_():
 
     array_conf = handler.b64_image_to_tensor(enc_conf)
     assert array_conf.shape == torch.Size([1, 512, 512])
+
+
+@pytest.mark.skip
+def test_inference_mrcnn():
+    bbox_conf_threshold = 0.5
+    mask_conf_threshold = 0.05
+    size = 512
+    with open(
+        "test/test_cerulean_cloud/fixtures/tile_with_slick_512_512_3band.png", "rb"
+    ) as src:
+        encoded = handler.b64encode(src.read()).decode("ascii")
+
+    tensor = handler.b64_image_to_tensor(encoded)
+    tensor = torch.stack([tensor, tensor, tensor])
+
+    tensor = tensor.float() / 255
+
+    model = handler.load_tracing_model(
+        "cerulean_cloud/cloud_run_offset_tiles/model/model_mrcnn.pt"
+    )
+    tiles = list(
+        TMS.tiles(*[32.989094, 43.338009, 36.540836, 45.235191], [10], truncate=False)
+    )
+    tile = tiles[20]
+    tile_bounds = TMS.bounds(tile)
+    print(torch.unbind(tensor))
+    res_list = model(
+        torch.unbind(tensor)
+    )  # icevision mrcnn takes a list of 3D tensors not a 4D tensor like fastai unet
+    print(res_list)  # Tuple[dict, list[dict]]
+
+    res_pred_dicts = []
+    for tile in res_list[1]:  # iterating through the batch dimension.
+        print(tile)
+        pred_dict = handler.apply_conf_threshold_instances(
+            tile, bbox_conf_threshold=bbox_conf_threshold
+        )
+
+        out_features = handler.apply_conf_threshold_masks_vectorize(  # no prediction dict data changed in this step that we store in db
+            pred_dict,
+            mask_conf_threshold=mask_conf_threshold,
+            size=size,
+            bounds=tile_bounds,
+        )
+        assert len(out_features) == 1
+        assert out_features[0]["properties"]["classification"] == 2
+        assert out_features[0]["properties"]["confidence"] == 0.9999234676361084
+        res_pred_dicts.append(out_features)
+    assert len(res_pred_dicts) == 3

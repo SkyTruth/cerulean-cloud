@@ -1,6 +1,7 @@
 """schema for inference enpoint"""
 from typing import List, Optional
 
+import geojson
 from pydantic import BaseModel
 
 
@@ -26,9 +27,10 @@ class InferenceResult(BaseModel):
     Inference result from the model
     """
 
-    classes: str
-    confidence: str
+    classes: Optional[str]
+    confidence: Optional[str]
     bounds: Optional[List[float]]
+    features: Optional[List[geojson.Feature]]
 
 
 class InferenceResultStack(BaseModel):

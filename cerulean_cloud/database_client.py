@@ -15,7 +15,7 @@ import cerulean_cloud.database_schema as database_schema
 
 def get_engine(db_url: str = os.getenv("DB_URL")):
     """get database engine"""
-    return create_async_engine(db_url, echo=True)
+    return create_async_engine(db_url, echo=False)
 
 
 async def existing_or_new(sess, kls, **kwargs):
@@ -162,19 +162,30 @@ class DatabaseClient:
 
     async def add_slick_with_eez(self, feat, orchestrator_run, slick_timestamp):
         """add a slick with eez"""
-        slick_class = await self.get_slick_class(feat.properties["classification"])
+        slick_class = await self.get_slick_class(
+            feat.get("properties").get("classification")
+        )
         slick = self.add_slick(
             orchestrator_run,
             slick_timestamp,
-            feat.geometry,
+            feat.get("geometry"),
             slick_class,
+            machine_confidence=feat.get("properties").get("confidence"),
         )
+
         self.session.add(slick)
 
         # await self.add_eez_to_slick(slick)
         return slick
 
-    def add_slick(self, orchestrator_run, slick_timestamp, slick_shape, slick_class):
+    def add_slick(
+        self,
+        orchestrator_run,
+        slick_timestamp,
+        slick_shape,
+        slick_class,
+        machine_confidence=None,
+    ):
         """add a slick"""
         s = shape(slick_shape)
         if not isinstance(s, MultiPolygon):
@@ -186,6 +197,7 @@ class DatabaseClient:
             validated=False,
             slick_class1=slick_class,
             orchestrator_run1=orchestrator_run,
+            machine_confidence=machine_confidence,
         )
         return slick
 
