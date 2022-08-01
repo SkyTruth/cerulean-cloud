@@ -8,3 +8,6 @@ config:
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
+  scihub:password:
+    secure: v1:T3jiPt6oPDfUpLMb:fiKGt0JR1Vpk3T33k19Z8KiWLkLemE2f
+  scihub:username: rodrigo1234
