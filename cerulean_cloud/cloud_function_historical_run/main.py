@@ -9,8 +9,13 @@ import urllib.parse as urlparse
 from datetime import datetime, timedelta
 
 import asyncpg
+import geojson
 import shapely.geometry as sh  # https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
+from eodag import EODataAccessGateway, setup_logging
 from google.cloud import tasks_v2
+from shapely.geometry import MultiPolygon, shape
+
+setup_logging(2)
 
 
 def load_ocean_poly(file_path="OceanGeoJSON_lowres.geojson"):
@@ -62,7 +67,7 @@ async def add_trigger_row(n_scenes=1, n_filtered_scenes=1, logs_url=""):
         n_scenes,
         n_filtered_scenes,
         logs_url,
-        "SNS_TOPIC",
+        "HISTORICAL_RUN",
     )
     return row
 
@@ -82,8 +87,9 @@ def main(request):
     print(request_json)
     ocean_poly = load_ocean_poly()
 
-    scenes_count = len(request_json.get("Records"))
-    filtered_scenes = handle_notification(request_json, ocean_poly=ocean_poly)
+    len_total_scene, filtered_scenes = handle_search(
+        request_json, ocean_poly=ocean_poly
+    )
     filtered_scene_count = len(filtered_scenes)
     print(filtered_scenes)
 
@@ -94,7 +100,7 @@ def main(request):
     )
     print(logs_url)
     row = loop.run_until_complete(
-        add_trigger_row(scenes_count, filtered_scene_count, logs_url=logs_url)
+        add_trigger_row(len_total_scene, filtered_scene_count, logs_url=logs_url)
     )
     print(row)
 
@@ -103,23 +109,46 @@ def main(request):
     return "Success!"
 
 
-def handle_notification(request_json, ocean_poly):
-    """handle notification"""
-    filtered_scenes = []
-    for r in request_json.get("Records"):
-        sns = request_json["Records"][0]["Sns"]
-        msg = json.loads(sns["Message"])
-        scene_poly = sh.polygon.Polygon(msg["footprint"]["coordinates"][0][0])
+def handle_search(request_json, ocean_poly):
+    """handle search"""
 
-        is_highdef = "H" == msg["id"][10]
-        is_vv = (
-            "V" == msg["id"][15]
-        )  # we don't want to process any polarization other than vv XXX This is hardcoded in the server, where we look for a vv.grd file
-        is_oceanic = scene_poly.intersects(ocean_poly)
-        print(is_highdef, is_vv, is_oceanic)
-        if is_highdef and is_vv and is_oceanic:
-            filtered_scenes.append(msg["id"])
-    return filtered_scenes
+    dag = EODataAccessGateway()
+    dag.update_providers_config(
+        f"""
+    scihub:
+        api:
+            credentials:
+                username: "{os.getenv("SCIHUB_USERNAME")}"
+                password: "{os.getenv("SCIHUB_PASSWORD")}"
+    """
+    )
+    dag.set_preferred_provider("scihub")
+
+    fc = geojson.FeatureCollection(**request_json["geometry"])
+
+    overall_geom = MultiPolygon([shape(f.get("geometry")) for f in fc.features])
+
+    default_search_criteria = {
+        "productType": "S1_SAR_GRD",
+        "polarization": "VV",
+        "start": request_json["start"],
+        "end": request_json["end"],
+        "geom": overall_geom.wkt,
+    }
+
+    search_results = dag.search_all(**default_search_criteria)
+    print(f"Got a hand on {len(search_results)} products.")
+
+    len_total_scenes = len(search_results)
+
+    filtered_scenes = []
+    for result in search_results:
+        print(f"Adding {result}...")
+        is_oceanic = result.geometry.intersects(ocean_poly)
+        if is_oceanic:
+            filtered_scenes.append(result.properties.get("id"))
+
+    return len_total_scenes, filtered_scenes
 
 
 def handler_queue(filtered_scenes, trigger_id):
