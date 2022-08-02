@@ -9,7 +9,7 @@ The cerulean-cloud architecture diagram can be found [here](https://lucid.app/lu
 
 ## Deployment
 
-Deployment is fully managed by Git Hub actions and Pulumi and the entire workflow defined in [this](.github/workflows/test_and_deploy.yml) YAML file. 
+Deployment is fully managed by GitHub actions and Pulumi and the entire workflow defined in [this](.github/workflows/test_and_deploy.yml) YAML file. 
 
 We have defined three development stages / stacks:
 - __TEST__: this is the Work in Progress (WIP) deployment stage. Will often be broken. Deployment can be triggered to TEST using the [workflow_dispatch](https://github.blog/changelog/2020-07-06-github-actions-manual-triggers-with-workflow_dispatch/) from any branch.
@@ -33,6 +33,7 @@ In order to develop in cerulean-cloud repository we recommend the following syst
 - [virtualenvwrapper](https://virtualenvwrapper.readthedocs.io/en/latest/install.html#)
 - [Google Cloud Platform (GCP) CLI](https://cloud.google.com/sdk/docs/install)
 - [Amazon Web Services (AWS) CLI](https://aws.amazon.com/cli/)
+- [Pulumi](https://www.pulumi.com/docs/get-started/install/) - can be installed with `brew install pulumi`
 
 ### Setup cloud authentication
 #### GCP authentication
@@ -62,17 +63,8 @@ pip install -r requirements-test.txt
 pre-commit install
 ```
 
-### Install pulumi
-```
-brew install pulumi
-```
-
-And login to state management:
-```
-pulumi login gs://cerulean-cloud-state
-```
-
-### Check available stages
+### Pulumi
+#### Check available stages
 ```
 pulumi stack ls
 ```
@@ -81,17 +73,19 @@ Select another stage
 pulumi stack select test
 ```
 
-## Preview changes
+### Preview changes
 ```
 pulumi preview
 ```
 
-### Deploy changes
+#### Deploy changes
 ```
 pulumi up
 ```
 
-## Connect to database
+## Database
+
+### Connecting
 
 In order to connect to the deployed database, you can use the [Cloud SQL proxy for authentication](https://cloud.google.com/sql/docs/mysql/connect-admin-proxy). First install the proxy in your local machine (instructions [here](https://cloud.google.com/sql/docs/mysql/connect-admin-proxy#install)).
 
@@ -111,6 +105,20 @@ In another process connect to the database (i.e. with `psql`):
 ```
 psql database_url_alembic
 ```
+
+### Migrations
+
+We are using [alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html) to run migration in our database. You can create a new revision using:
+```
+alembic revision -m "Add new table"
+```
+And apply this revision with:
+```
+# Ensure you have access to your database and have setup DB_URL environment variable with the connection string above
+alembic upgrade head
+```
+
+During the deployment process with GitHub Actions, migrations will be automatically run when new revisions are included in the branch/commit.
 
 ## Troubleshooting
 
