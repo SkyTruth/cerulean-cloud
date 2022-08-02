@@ -184,7 +184,10 @@ def handler_queue(filtered_scenes, trigger_id):
                 # Convert dict to JSON string
                 payload = json.dumps(payload)
                 # specify http content-type to application/json
-                task["http_request"]["headers"] = {"Content-type": "application/json"}
+                task["http_request"]["headers"] = {
+                    "Content-type": "application/json",
+                    "Authorization": f"Bearer {os.getenv('API_KEY')}",
+                }
 
             # The API expects a payload of type bytes.
             converted_payload = payload.encode()
