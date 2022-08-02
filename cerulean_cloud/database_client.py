@@ -2,13 +2,11 @@
 import os
 from typing import Optional
 
-import geoalchemy2.functions as func
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, box, shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import defer
 
 import cerulean_cloud.database_schema as database_schema
 
@@ -175,7 +173,6 @@ class DatabaseClient:
 
         self.session.add(slick)
 
-        # await self.add_eez_to_slick(slick)
         return slick
 
     def add_slick(
@@ -200,15 +197,3 @@ class DatabaseClient:
             machine_confidence=machine_confidence,
         )
         return slick
-
-    async def add_eez_to_slick(self, slick):
-        """add a slick"""
-        stmt = (
-            select(database_schema.Eez)
-            .where(func.ST_Intersects(slick.geometry, database_schema.Eez.geometry_005))
-            .options(defer("geometry"))
-        )
-        eez = await self.session.stream(stmt)
-        async for e in eez.scalars():
-            print(f"Adding to {slick} eez {e}")
-            self.session.add(database_schema.SlickToEez(slick=slick.id, eez=e.id))

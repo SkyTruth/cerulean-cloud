@@ -225,22 +225,12 @@ class Slick(Base):  # noqa
     slick = Column(ARRAY(BigInteger()))
     notes = Column(Text)
     meta = Column(JSONB)
+    eezs = Column(ARRAY(Text))
     orchestrator_run = Column(ForeignKey("orchestrator_run.id"), nullable=False)
     slick_class = Column(ForeignKey("slick_class.id"), nullable=False)
 
     orchestrator_run1 = relationship("OrchestratorRun")
     slick_class1 = relationship("SlickClass")
-
-
-class SlickToEez(Base):  # noqa
-    __tablename__ = "slick_to_eez"
-
-    id = Column(BigInteger, primary_key=True)
-    slick = Column(ForeignKey("slick.id"), nullable=False)
-    eez = Column(ForeignKey("eez.id"), nullable=False)
-
-    eez1 = relationship("Eez")
-    slick1 = relationship("Slick")
 
 
 class SlickToSlickSource(Base):  # noqa

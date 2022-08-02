@@ -147,8 +147,6 @@ async def test_create_slick(setup_database, engine):
         all_slicks = slicks.scalars().all()
         assert len(all_slicks) == 2
         assert all_slicks[0].machine_confidence == 0.99
-        o_r = await db_client.session.execute(sa.select(database_schema.SlickToEez))
-        assert len(o_r.scalars().all()) == 0
 
 
 @pytest.mark.asyncio
