@@ -54,6 +54,7 @@ fxn = cloudfunctions.Function(
     source_archive_object=source_archive_object.name,
     trigger_http=True,
     service_account_email=cloud_function_scene_relevancy.cloud_function_service_account.email,
+    timeout=500,
 )
 
 invoker = cloudfunctions.FunctionIamMember(
