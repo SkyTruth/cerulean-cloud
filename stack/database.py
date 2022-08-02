@@ -12,6 +12,7 @@ instance = gcp.sql.DatabaseInstance(
     settings=gcp.sql.DatabaseInstanceSettingsArgs(
         tier=pulumi.Config("db").require("db-instance"),
         backup_configuration=dict(enabled=True),
+        database_flags=[dict(name="max_connections", value=200)],
     ),
     deletion_protection=True,
 )
