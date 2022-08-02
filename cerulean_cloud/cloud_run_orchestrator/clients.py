@@ -1,6 +1,7 @@
 """Clients for other cloud run functions"""
 import asyncio
 import json
+import os
 import zipfile
 from base64 import b64encode
 from datetime import datetime
@@ -62,9 +63,9 @@ class CloudRunInferenceClient:
             aux_datasets, self.sceneid, offset_bounds, offset_image_shape
         )
         self.client = httpx.AsyncClient(
-            headers={"Authorization": "Bearer some_api_key"}
+            headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
         )
-        self.scale = 2  # 1=256, 2=512, 3=...
+        self.scale = scale  # 1=256, 2=512, 3=...
 
     async def get_base_tile_inference(
         self, tile: morecantile.Tile, semaphore: asyncio.Semaphore, rescale=(0, 100)
