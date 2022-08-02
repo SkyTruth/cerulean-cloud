@@ -42,7 +42,7 @@ from starlette_cramjam.middleware import CompressionMiddleware
 from titiler.core.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from titiler.core.factory import MultiBandTilerFactory
 
-app = FastAPI(title="Sentinel-1 API", dependencies=[Depends(api_key_auth)])
+app = FastAPI(title="Sentinel-1 API")
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
 add_exception_handlers(
     app,
@@ -107,7 +107,7 @@ def viewer(
     )
 
 
-app.include_router(S1Endpoints.router)
+app.include_router(S1Endpoints.router, dependencies=[Depends(api_key_auth)])
 
 
 @app.get("/healthz", description="Health Check", tags=["Health Check"])
