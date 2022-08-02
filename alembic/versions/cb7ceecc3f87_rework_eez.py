@@ -56,8 +56,6 @@ def upgrade() -> None:
         ),
     )
 
-    op.drop_table("slick_to_eez")
-
     slick_with_eez_and_source = PGView(
         schema="public",
         signature="slick_with_eez_and_source",
@@ -86,6 +84,8 @@ def upgrade() -> None:
     """,
     )
     op.create_entity(slick_with_source)
+
+    op.drop_table("slick_to_eez")
 
 
 def downgrade() -> None:
