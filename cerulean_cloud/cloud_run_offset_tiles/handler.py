@@ -151,7 +151,7 @@ def _predict(
     if model_type == "MASKRCNN":
         bbox_conf_threshold = 0.5
         mask_conf_threshold = 0.05
-        size = 512
+        size = tensor.size(dim=2)
 
         res_list = model(torch.unbind(tensor))
         print("Finished inference, applying post-process, thresholding")
