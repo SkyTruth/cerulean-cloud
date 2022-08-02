@@ -18,6 +18,7 @@ from rasterio.io import MemoryFile
 from shapely.geometry import MultiPolygon, shape
 from starlette.requests import Request
 
+from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInputStack,
     InferenceResult,
@@ -26,7 +27,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 
 # mypy: ignore-errors
 
-app = FastAPI(title="Cloud Run for offset tiles")
+app = FastAPI(title="Cloud Run for offset tiles", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 add_timing_middleware(app, prefix="app")

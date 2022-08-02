@@ -28,6 +28,7 @@ import logging
 import os
 from typing import Dict
 
+from auth import api_key_auth
 from fastapi import Depends, FastAPI, Query
 from mangum import Mangum
 from rio_tiler_pds.errors import InvalidSentinelSceneId
@@ -41,7 +42,7 @@ from starlette_cramjam.middleware import CompressionMiddleware
 from titiler.core.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from titiler.core.factory import MultiBandTilerFactory
 
-app = FastAPI(title="Sentinel-1 API")
+app = FastAPI(title="Sentinel-1 API", dependencies=[Depends(api_key_auth)])
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
 add_exception_handlers(
     app,

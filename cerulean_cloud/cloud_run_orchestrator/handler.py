@@ -26,6 +26,7 @@ from global_land_mask import globe
 from rasterio.io import MemoryFile
 from rasterio.merge import merge
 
+from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResult,
     InferenceResultStack,
@@ -40,7 +41,7 @@ from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
-app = FastAPI(title="Cloud Run orchestratort")
+app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
