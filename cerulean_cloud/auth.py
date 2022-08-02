@@ -1,8 +1,10 @@
 """Generic auth module for fast API using hardcoded api key"""
+import os
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
-api_keys = ["some_api_key"]  # This is encrypted in the database
+api_keys = [os.getenv("API_KEY")]
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")  # use token authentication
 
