@@ -19,7 +19,9 @@ class TitilerClient:
     def __init__(self, url: str, timeout=None):
         """use deployment of titiler URL"""
         self.url = url
-        self.client = httpx.AsyncClient()
+        self.client = httpx.AsyncClient(
+            headers={"Authorization": "Bearer some_api_key"}
+        )
         self.timeout = timeout
 
     async def get_bounds(self, sceneid: str) -> List[float]:
