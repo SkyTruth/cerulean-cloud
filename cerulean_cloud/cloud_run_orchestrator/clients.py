@@ -62,7 +62,7 @@ class CloudRunInferenceClient:
             aux_datasets, self.sceneid, offset_bounds, offset_image_shape
         )
         self.client = httpx.AsyncClient()
-        self.scale = 2  # 1=256, 2=512, 3=...
+        self.scale = scale  # 1=256, 2=512, 3=...
 
     async def get_base_tile_inference(
         self, tile: morecantile.Tile, semaphore: asyncio.Semaphore, rescale=(0, 100)

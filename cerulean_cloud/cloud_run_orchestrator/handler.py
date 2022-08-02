@@ -313,6 +313,7 @@ async def _orchestrate(
                 offset_bounds=offset_bounds,
                 offset_image_shape=offset_image_shape,
                 aux_datasets=aux_datasets,
+                scale=scale,
             )
 
             print("Inference on base tiles!")
