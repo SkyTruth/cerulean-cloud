@@ -6,7 +6,8 @@ Create Date: 2022-08-01 16:18:55.163046
 
 """
 import sqlalchemy as sa
-from alembic_utils.pg_function import PGFunction, PGView
+from alembic_utils.pg_function import PGFunction
+from alembic_utils.pg_view import PGView
 from geoalchemy2 import Geography
 from sqlalchemy.types import ARRAY
 
@@ -25,7 +26,7 @@ def upgrade() -> None:
         "eez_parts",
         sa.Column("partid", sa.BigInteger, primary_key=True),
         sa.Column("geoname", sa.Text),
-        sa.Column("geometry", Geography("MULTIPOLYGON"), nullable=False),
+        sa.Column("geometry", Geography("POLYGON"), nullable=False),
     )
     op.execute(
         """
@@ -41,7 +42,7 @@ def upgrade() -> None:
         RETURNS text[] AS $$
         SELECT array_agg(distinct geoname) FROM eez_parts
         WHERE ST_Intersects(geometry, g);
-        $$ LANGUAGE SQL STABLE;
+        $$ LANGUAGE SQL IMMUTABLE;
         """,
     )
     op.create_entity(eezs)
