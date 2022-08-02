@@ -61,7 +61,9 @@ class CloudRunInferenceClient:
         self.aux_datasets = handle_aux_datasets(
             aux_datasets, self.sceneid, offset_bounds, offset_image_shape
         )
-        self.client = httpx.AsyncClient()
+        self.client = httpx.AsyncClient(
+            headers={"Authorization": "Bearer some_api_key"}
+        )
         self.scale = 2  # 1=256, 2=512, 3=...
 
     async def get_base_tile_inference(
