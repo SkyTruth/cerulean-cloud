@@ -411,7 +411,7 @@ async def _orchestrate(
                     slick = await db_client.add_slick_with_eez(
                         feat, orchestrator_run, sentinel1_grd.start_time
                     )
-                    print(f"Added last eez for slick {slick}")
+                    print(f"Added slick {slick}")
 
             end_time = datetime.now()
             print(f"End time: {end_time}")
