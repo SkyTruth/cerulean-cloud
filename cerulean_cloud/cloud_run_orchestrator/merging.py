@@ -1,4 +1,6 @@
 """merging inference from base and offset tiles"""
+from typing import Optional
+
 import geojson
 import geopandas as gpd
 import libpysal
@@ -33,13 +35,18 @@ def concat_grids_adjust_conf(grid_base, grid_offset, offset_max_acceptable_dista
 
 
 def merge_inferences(
-    base_tile_fc: geojson.FeatureCollection, offset_tile_fc: geojson.FeatureCollection
+    base_tile_fc: geojson.FeatureCollection,
+    offset_tile_fc: geojson.FeatureCollection,
+    offset_max_acceptable_distance: int = 70 * 8,
+    buffer_distance: Optional[int] = None,  # 2 * 70
 ) -> geojson.FeatureCollection:
     """merge base and offset tile inference"""
     pd.options.mode.chained_assignment = None
 
-    offset_max_acceptable_distance = 70 * 8
-    # buffer_distance = 2 * 70
+    print(
+        f"Params for determining base and offset inference match are offset_max_acceptable_distance: {offset_max_acceptable_distance}"
+    )
+    print(f"Using buffer_distance: {buffer_distance} for erosion and dilation")
 
     grid_base = gpd.GeoDataFrame.from_features(base_tile_fc["features"], crs=4326)
     grid_offset = gpd.GeoDataFrame.from_features(offset_tile_fc["features"], crs=4326)
@@ -60,4 +67,15 @@ def merge_inferences(
     all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
         by=components, aggfunc={"confidence": "median", "classification": "max"}
     )
-    return all_grid_dissolved_class_dominance_median_conf.__geo_interface__
+
+    if buffer_distance:
+        # Do some erosion and dilation
+        all_grid_dissolved_class_dominance_median_conf = (
+            all_grid_dissolved_class_dominance_median_conf.buffer(
+                buffer_distance
+            ).buffer(-buffer_distance)
+        )
+
+    result = all_grid_dissolved_class_dominance_median_conf.to_crs(crs=4326)
+
+    return result.__geo_interface__
