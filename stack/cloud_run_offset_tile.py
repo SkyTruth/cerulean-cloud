@@ -21,6 +21,10 @@ default = gcp.cloudrun.Service(
                             name="SOURCE",
                             value="remote",
                         ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="API_KEY",
+                            value=pulumi.Config("cerulean-cloud").require("apikey"),
+                        ),
                     ],
                     resources=dict(limits=dict(memory="4Gi", cpu="8000m")),
                 ),

@@ -18,6 +18,7 @@ from rasterio.io import MemoryFile
 from shapely.geometry import MultiPolygon, shape
 from starlette.requests import Request
 
+from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInputStack,
     InferenceResult,
@@ -26,7 +27,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 
 # mypy: ignore-errors
 
-app = FastAPI(title="Cloud Run for offset tiles")
+app = FastAPI(title="Cloud Run for offset tiles", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 add_timing_middleware(app, prefix="app")
@@ -151,7 +152,7 @@ def _predict(
     if model_type == "MASKRCNN":
         bbox_conf_threshold = 0.5
         mask_conf_threshold = 0.05
-        size = 512
+        size = tensor.size(dim=2)
 
         res_list = model(torch.unbind(tensor))
         print("Finished inference, applying post-process, thresholding")

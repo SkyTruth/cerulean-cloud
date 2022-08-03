@@ -24,6 +24,26 @@ In order to make development easier we have defined two pulumi deployments that 
 
 For each of these deployments there exists a configuration directory that includes a YAML configuration file per stage / stack (named with the stage name itself i.e. `Pulumi.test.yaml`, `Pulumi.staging.yaml`, `Pulumi.production.yaml`). These files include configuration that is stage / stack specific, such as deployment regions, usernames and passwords for external services, etc. They should be managed using the Pulumi CLI (`pulumi config set someparam`) but can also be edited directly.
 
+## Authentication
+
+Most services deployed with cerulean-cloud are safeguarded against abuse by outside actors using an API key authentication. This means that when interacting with the majority of the endpoints in your client of choice (i.e. `httpx` in Python, `curl` in your terminal, Postman or QGIS) you should make sure to include the following authentication header:
+
+```json
+{"Authorization": "Bearer SOME_API_KEY"}
+```
+
+The API_KEY we use is set on the stack configuration file with pulumi and is encrypted. In order to access the API key for the currently selected stack you can run:
+```
+pulumi stack output api_key
+```
+
+You could then save this value as an environment variable for later use.
+
+The services deployed by cerulean-cloud that DO NOT require this API key are:
+- Tifeatures Cloud Run
+- Historical run Cloud Function
+- Scene relevancy Cloud Function
+
 ## Development
 
 In order to develop in cerulean-cloud repository we recommend the following system wide requirements (for MacOS), in addition to the python specific requirements listed below:

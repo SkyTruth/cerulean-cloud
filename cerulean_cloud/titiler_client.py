@@ -1,4 +1,5 @@
 """client code to interact with titiler for sentinel 1"""
+import os
 import urllib.parse as urlib
 from typing import Dict, List, Optional, Tuple
 
@@ -19,7 +20,9 @@ class TitilerClient:
     def __init__(self, url: str, timeout=None):
         """use deployment of titiler URL"""
         self.url = url
-        self.client = httpx.AsyncClient()
+        self.client = httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+        )
         self.timeout = timeout
 
     async def get_bounds(self, sceneid: str) -> List[float]:

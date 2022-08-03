@@ -1,6 +1,8 @@
 encryptionsalt: v1:/dV9M1NH8EA=:v1:IPmnUfz0q6E6S8y7:fl72KMTy2rm7uY4bZzP4p790z9k8cA==
 config:
   aws:region: eu-central-1
+  cerulean-cloud:apikey:
+    secure: v1:l5zmQowhnE9RJZC7:tyonyHOMqQ34wlv3eBD1LPUrqnJ0jMtWAzJdkJE5rp75r/qSG9CGWVeLM176tGOZz6G4sA==
   cerulean-cloud:infra_distance: https://storage.googleapis.com/ceruleanml/aux_datasets/infra_locations_01_cogeo.tiff
   db:db-instance: db-f1-micro
   db:db-password:

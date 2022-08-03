@@ -47,6 +47,17 @@ class Eez(Base):  # noqa
     )
 
 
+class EezParts(Base):  # noqa
+    __tablename__ = "eez_parts"
+
+    partid = Column(BigInteger, primary_key=True)
+    geoname = Column(Text)
+    geometry = Column(
+        Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
+        nullable=False,
+    )
+
+
 class InfraDistance(Base):  # noqa
     __tablename__ = "infra_distance"
 
@@ -225,7 +236,6 @@ class Slick(Base):  # noqa
     slick = Column(ARRAY(BigInteger()))
     notes = Column(Text)
     meta = Column(JSONB)
-    eezs = Column(ARRAY(Text))
     orchestrator_run = Column(ForeignKey("orchestrator_run.id"), nullable=False)
     slick_class = Column(ForeignKey("slick_class.id"), nullable=False)
 

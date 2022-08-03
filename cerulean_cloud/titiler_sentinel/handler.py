@@ -28,6 +28,7 @@ import logging
 import os
 from typing import Dict
 
+from auth import api_key_auth
 from fastapi import Depends, FastAPI, Query
 from mangum import Mangum
 from rio_tiler_pds.errors import InvalidSentinelSceneId
@@ -106,7 +107,7 @@ def viewer(
     )
 
 
-app.include_router(S1Endpoints.router)
+app.include_router(S1Endpoints.router, dependencies=[Depends(api_key_auth)])
 
 
 @app.get("/healthz", description="Health Check", tags=["Health Check"])
