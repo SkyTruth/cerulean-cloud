@@ -44,6 +44,7 @@ config_values = {
     "QUEUE": queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
     "FUNCTION_NAME": function_name,
+    "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
 }
 
 # The Cloud Function source code itself needs to be zipped up into an

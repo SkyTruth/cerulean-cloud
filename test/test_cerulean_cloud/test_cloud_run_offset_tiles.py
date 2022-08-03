@@ -116,7 +116,7 @@ def test_inference_():
 def test_inference_mrcnn():
     bbox_conf_threshold = 0.5
     mask_conf_threshold = 0.05
-    size = 512
+
     with open(
         "test/test_cerulean_cloud/fixtures/tile_with_slick_512_512_3band.png", "rb"
     ) as src:
@@ -135,11 +135,13 @@ def test_inference_mrcnn():
     )
     tile = tiles[20]
     tile_bounds = TMS.bounds(tile)
+    size = tensor.size(dim=2)
     print(torch.unbind(tensor))
     res_list = model(
         torch.unbind(tensor)
     )  # icevision mrcnn takes a list of 3D tensors not a 4D tensor like fastai unet
     print(res_list)  # Tuple[dict, list[dict]]
+    print(size)
 
     res_pred_dicts = []
     for tile in res_list[1]:  # iterating through the batch dimension.
