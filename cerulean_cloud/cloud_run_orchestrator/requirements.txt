@@ -19,3 +19,4 @@ python-dateutil
 global-land-mask
 libpysal
 geopandas
+pygeos

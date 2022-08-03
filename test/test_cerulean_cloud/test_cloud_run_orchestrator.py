@@ -6,7 +6,10 @@ from datetime import datetime
 from unittest.mock import patch
 
 import geojson
+import geopandas as gpd
 import httpx
+import libpysal
+import pandas as pd
 import pytest
 import rasterio
 from rasterio.io import MemoryFile
@@ -27,6 +30,10 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     from_tiles_get_offset_shape,
     is_tile_over_water,
     make_cloud_log_url,
+)
+from cerulean_cloud.cloud_run_orchestrator.merging import (
+    concat_grids_adjust_conf,
+    reproject_to_utm,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
@@ -424,3 +431,44 @@ def test_flatten_result():
 
     assert len(flat_list) == 2
     assert isinstance(flat_list[0], geojson.Feature)
+
+
+def test_merge_inferences():
+
+    pd.options.mode.chained_assignment = None
+
+    offset_p = "test/test_cerulean_cloud/fixtures/offset.geojson"
+    base_p = "test/test_cerulean_cloud/fixtures/base.geojson"
+    offset_max_acceptable_distance = 70 * 8
+    buffer_distance = 2 * 70
+
+    grid_base = gpd.read_file(base_p)
+    grid_offset = gpd.read_file(offset_p)
+
+    grid_base = reproject_to_utm(grid_base)
+    grid_offset = reproject_to_utm(grid_offset)
+
+    all_grid_gdf = concat_grids_adjust_conf(
+        grid_base, grid_offset, offset_max_acceptable_distance
+    )
+
+    # create spatial weights matrix
+    W = libpysal.weights.Queen.from_dataframe(all_grid_gdf)
+
+    # get component labels
+    components = W.component_labels
+
+    all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
+        by=components, aggfunc={"confidence": "median", "classification": "max"}
+    )
+
+    all_grid_dissolved_class_dominance_median_conf[
+        "geometry"
+    ] = all_grid_dissolved_class_dominance_median_conf.buffer(buffer_distance).buffer(
+        -buffer_distance
+    )
+
+    assert (
+        all_grid_dissolved_class_dominance_median_conf.__geo_interface__["type"]
+        == "FeatureCollection"
+    )
