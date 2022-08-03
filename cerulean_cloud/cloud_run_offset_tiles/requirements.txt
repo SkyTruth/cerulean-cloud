@@ -9,5 +9,3 @@ numpy
 fastapi-utils
 geojson
 Shapely
-libpysal
-geopandas
