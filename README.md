@@ -83,6 +83,11 @@ pip install -r requirements-test.txt
 pre-commit install
 ```
 
+## For notebook development
+```
+pip install ipykernel
+python -m ipykernel install --user --name=cerulean-cloud
+```
 ### Pulumi
 #### Check available stages
 ```
