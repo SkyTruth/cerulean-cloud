@@ -225,7 +225,13 @@ class Slick(Base):  # noqa
     slick = Column(ARRAY(BigInteger()))
     notes = Column(Text)
     meta = Column(JSONB)
-    eezs = Column(ARRAY(Text))
+    eezs = Column(
+        ARRAY(Text),
+        Computed(
+            "eezs(geometry)",
+            persisted=True,
+        ),
+    )
     orchestrator_run = Column(ForeignKey("orchestrator_run.id"), nullable=False)
     slick_class = Column(ForeignKey("slick_class.id"), nullable=False)
 
