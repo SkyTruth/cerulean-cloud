@@ -26,5 +26,6 @@ class OrchestratorResult(BaseModel):
 
     classification_base: geojson.FeatureCollection
     classification_offset: geojson.FeatureCollection
+    classification_merged: geojson.FeatureCollection
     ntiles: int
     noffsettiles: int
