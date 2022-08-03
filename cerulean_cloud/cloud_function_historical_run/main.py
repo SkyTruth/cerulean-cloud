@@ -160,6 +160,7 @@ def handler_queue(filtered_scenes, trigger_id):
     queue = os.getenv("QUEUE")
     location = os.getenv("GCP_LOCATION")
     url = os.getenv("ORCHESTRATOR_URL")
+    dry_run = bool(os.getenv("DRY_RUN"))
 
     # Construct the fully qualified queue name.
     parent = client.queue_path(project, location, queue)
@@ -176,7 +177,7 @@ def handler_queue(filtered_scenes, trigger_id):
             }
         }
 
-        payload = {"sceneid": scene, "trigger": trigger_id, "dry_run": True}
+        payload = {"sceneid": scene, "trigger": trigger_id, "dry_run": dry_run}
         print(payload)
         # Add the payload to the request.
         if payload is not None:

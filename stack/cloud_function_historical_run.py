@@ -22,6 +22,7 @@ config_values = {
     "SCIHUB_USERNAME": pulumi.Config("scihub").require("username"),
     "SCIHUB_PASSWORD": pulumi.Config("scihub").require("password"),
     "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
+    "DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun"),
 }
 
 # The Cloud Function source code itself needs to be zipped up into an
