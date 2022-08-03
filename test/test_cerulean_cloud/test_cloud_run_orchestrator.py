@@ -33,6 +33,7 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
 )
 from cerulean_cloud.cloud_run_orchestrator.merging import (
     concat_grids_adjust_conf,
+    merge_inferences,
     reproject_to_utm,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
@@ -472,3 +473,23 @@ def test_merge_inferences():
         all_grid_dissolved_class_dominance_median_conf.__geo_interface__["type"]
         == "FeatureCollection"
     )
+
+
+def test_func_merge_inferences():
+    with open("test/test_cerulean_cloud/fixtures/base.geojson") as src:
+        base_tile_fc = dict(geojson.load(src))
+
+    with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
+        offset_tile_fc = dict(geojson.load(src))
+
+    merged = merge_inferences(base_tile_fc=base_tile_fc, offset_tile_fc=offset_tile_fc)
+    assert merged["type"] == "FeatureCollection"
+    assert len(merged["features"]) == 15
+
+    for f in merged["features"]:
+        print(f)
+        assert f["geometry"]
+        assert f["geometry"]["type"] in ["Polygon", "MultiPolygon"]
+        assert f["properties"]
+        assert f["properties"]["confidence"]
+        assert f["properties"]["classification"]
