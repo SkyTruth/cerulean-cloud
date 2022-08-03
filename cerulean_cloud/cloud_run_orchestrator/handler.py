@@ -32,6 +32,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResultStack,
 )
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
+from cerulean_cloud.cloud_run_orchestrator.merging import merge_inferences
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
@@ -406,7 +407,9 @@ async def _orchestrate(
                     features=flatten_feature_list(offset_tiles_inference)
                 )
 
-            for feat in out_fc.features:
+            merged_inferences = merge_inferences(out_fc, out_fc_offset)
+
+            for feat in out_fc.get("features"):
                 async with db_client.session.begin():
                     slick = await db_client.add_slick_with_eez(
                         feat, orchestrator_run, sentinel1_grd.start_time
@@ -424,6 +427,7 @@ async def _orchestrate(
             orchestrator_result = OrchestratorResult(
                 classification_base=out_fc,
                 classification_offset=out_fc_offset,
+                classification_merged=merged_inferences,
                 ntiles=ntiles,
                 noffsettiles=noffsettiles,
             )
@@ -432,6 +436,7 @@ async def _orchestrate(
             orchestrator_result = OrchestratorResult(
                 classification_base=geojson.FeatureCollection(features=[]),
                 classification_offset=geojson.FeatureCollection(features=[]),
+                classification_merged=geojson.FeatureCollection(features=[]),
                 ntiles=ntiles,
                 noffsettiles=noffsettiles,
             )
