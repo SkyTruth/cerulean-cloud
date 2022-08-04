@@ -17,6 +17,7 @@ import pydantic
 from fastapi import FastAPI
 from mangum import Mangum
 from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
 from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 from tifeatures import __version__ as tifeatures_version
@@ -105,13 +106,22 @@ async def startup_event() -> None:
     """Connect to database on startup."""
     print("using new connection")
     await connect_to_db(app, settings=PostgresSettings())
-    await register_table_catalog(app)
+    try:
+        await register_table_catalog(app)
+    except:  # noqa
+        app.state.table_catalog = {}
 
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     """Close database connection."""
     await close_db_connection(app)
+
+
+@app.get("/register", include_in_schema=False)
+async def register_table(request: Request):
+    """Manually register tables"""
+    await register_table_catalog(request.app)
 
 
 @app.get("/healthz", description="Health Check", tags=["Health Check"])
