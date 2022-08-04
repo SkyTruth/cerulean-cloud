@@ -32,12 +32,12 @@ default = gcp.cloudrun.Service(
             container_concurrency=3,
         ),
         metadata=dict(
-            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha
+            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
+            annotations={"autoscaling.knative.dev/minScale": "1"},
         ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
         annotations={
-            "autoscaling.knative.dev/minScale": "1",
             "run.googleapis.com/launch-stage": "BETA",
         }
     ),
