@@ -86,7 +86,6 @@ default = gcp.cloudrun.Service(
             name=service_name + "-" + cloud_run_images.cloud_run_orchestrator_sha,
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
-                "autoscaling.knative.dev/minScale": "1",
             },
         ),
     ),
