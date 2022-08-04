@@ -85,13 +85,13 @@ default = gcp.cloudrun.Service(
         metadata=dict(
             name=service_name + "-" + cloud_run_images.cloud_run_orchestrator_sha,
             annotations={
-                "run.googleapis.com/cloudsql-instances": instance.connection_name
+                "run.googleapis.com/cloudsql-instances": instance.connection_name,
+                "autoscaling.knative.dev/minScale": "1",
             },
         ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
         annotations={
-            "autoscaling.knative.dev/minScale": "1",
             "run.googleapis.com/launch-stage": "BETA",
         },
     ),
