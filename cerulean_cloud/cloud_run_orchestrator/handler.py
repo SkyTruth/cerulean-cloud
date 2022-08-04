@@ -409,7 +409,7 @@ async def _orchestrate(
 
             merged_inferences = merge_inferences(out_fc, out_fc_offset)
 
-            for feat in out_fc.get("features"):
+            for feat in merged_inferences.get("features"):
                 async with db_client.session.begin():
                     slick = await db_client.add_slick_with_eez(
                         feat, orchestrator_run, sentinel1_grd.start_time
