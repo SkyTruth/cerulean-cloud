@@ -160,7 +160,7 @@ def handler_queue(filtered_scenes, trigger_id):
     queue = os.getenv("QUEUE")
     location = os.getenv("GCP_LOCATION")
     url = os.getenv("ORCHESTRATOR_URL")
-    dry_run = bool(os.getenv("DRY_RUN"))
+    dry_run = bool(os.getenv("IS_DRY_RUN"))
 
     # Construct the fully qualified queue name.
     parent = client.queue_path(project, location, queue)
