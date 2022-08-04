@@ -98,7 +98,17 @@ Select another stage
 pulumi stack select test
 ```
 
-### Preview changes
+#### Set config
+Set secret values with (passwords, keys, etc):
+```
+pulumi config set db:db-password --secret
+```
+
+Set other config values with:
+```
+pulumi config set infra_distance
+```
+#### Preview changes
 ```
 pulumi preview
 ```
