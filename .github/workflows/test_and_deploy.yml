@@ -40,7 +40,7 @@ jobs:
 
       # Run pre-commit
       - name: run pre-commit
-        run: SKIP=mypy pre-commit run --all-files
+        run: pre-commit run --all-files
 
   preview-test:
     name: Preview [TEST]
