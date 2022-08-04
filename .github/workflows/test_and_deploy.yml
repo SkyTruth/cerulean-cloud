@@ -46,7 +46,7 @@ jobs:
     name: Preview [TEST]
     needs: [tests]
     runs-on: ubuntu-latest
-    if: github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch' && startsWith(github.event.ref, 'refs/tags') != true
+    if: github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch' && startsWith(github.event.ref, 'refs/tags') != true && github.ref != 'refs/heads/jona'
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: test
     needs: [tests]
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/jona'
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
@@ -248,6 +248,61 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
+
+      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
+        with:
+          instance: ${{ steps.pulumi.outputs.database_instance_name }}
+      
+      - name: Run database migrations
+        env:
+          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
+        run: alembic upgrade head
+
+  deploy-jona:
+    name: Deploy [JONA]
+    runs-on: ubuntu-latest
+    environment: jona
+    needs: [tests]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/jona'
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: 3.8
+
+      - name: Configure GCP Credentials
+        uses: "google-github-actions/auth@v0"
+        with:
+          workload_identity_provider: "projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider"
+          service_account: "git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
+          aws-region: eu-central-1
+
+      - name: Configure docker
+        run: gcloud auth configure-docker -q
+
+      - run: pip install -r requirements.txt
+      - uses: pulumi/actions@v3
+        id: pulumi-images
+        env:
+          PULUMI_CONFIG_PASSPHRASE: "jona"
+        with:
+          work-dir: images/
+          command: up
+          stack-name: jona
+
+      - uses: pulumi/actions@v3
+        id: pulumi
+        env:
+          PULUMI_CONFIG_PASSPHRASE: "jona"
+          MODEL: ${{ steps.pulumi-images.outputs.model }}
+        with:
+          command: up
+          stack-name: jona
 
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
