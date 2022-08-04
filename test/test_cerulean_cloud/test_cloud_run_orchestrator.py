@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import geojson
 import geopandas as gpd
+import git
 import httpx
 import libpysal
 import pandas as pd
@@ -493,3 +494,11 @@ def test_func_merge_inferences():
         assert f["properties"]
         assert f["properties"]["confidence"]
         assert f["properties"]["classification"]
+
+
+def test_get_tag():
+    repo = git.Repo(search_parent_directories=True)
+    git_tag = next(
+        (tag.name for tag in repo.tags if tag.commit == repo.head.commit), None
+    )
+    assert isinstance(git_tag, str)
