@@ -17,7 +17,7 @@ config = pulumi.Config()
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
-git_tag = next((tag for tag in repo.tags if tag.commit == repo.head.commit), None)
+git_tag = next((tag.name for tag in repo.tags if tag.commit == repo.head.commit), None)
 
 infra_distance_raster = config.require("infra_distance")
 
