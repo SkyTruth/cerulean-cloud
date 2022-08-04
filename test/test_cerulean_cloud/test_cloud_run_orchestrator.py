@@ -501,4 +501,5 @@ def test_get_tag():
     git_tag = next(
         (tag.name for tag in repo.tags if tag.commit == repo.head.commit), None
     )
-    assert isinstance(git_tag, str)
+    if git_tag:
+        assert isinstance(git_tag, str)
