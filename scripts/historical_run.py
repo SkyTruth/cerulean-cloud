@@ -34,7 +34,7 @@ def cli(ctx, stage):
     URLS = dict(
         staging="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-staging-cloud-function-historical-run",
         test="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-test-cloud-function-historical-run",
-        production="",
+        production="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-production-cloud-function-historical-run",
     )
     ctx.ensure_object(dict)
     ctx.obj["URL"] = URLS[stage]
