@@ -200,7 +200,7 @@ def get_ship_density(
             day=1, hour=0, minute=0, second=0
         )
         new_scene_date_month = scene_date_month_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
-        print(f"Trying {scene_date_month}...")
+        print(f"Trying {new_scene_date_month}...")
         qs = (
             f"request={json.dumps(get_query(bbox_wms, new_scene_date_month))}"
             "&uParams=action:table/query;formatType:tiff;withgeo:false;withGeoJson:false;includePolicies:true"
