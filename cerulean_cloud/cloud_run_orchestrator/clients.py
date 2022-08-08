@@ -4,7 +4,7 @@ import json
 import os
 import zipfile
 from base64 import b64encode
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import List, Tuple
 
@@ -141,35 +141,42 @@ def get_ship_density(
     """fetch ship density from gmtds service"""
     h, w = img_shape
     bbox_wms = bounds[0], bounds[2], bounds[1], bounds[-1]
-    query = {
-        "action": "table/query",
-        "query": {
-            "engineVersion": 2,
-            "sqlselect": [
-                "category_column",
-                "category",
-                f"GridCrop(grid_float_4326, {', '.join([str(b) for b in bbox_wms])}) as grid_float",
-            ],
-            "table": {
-                "query": {
-                    "table": {"name": "ais/density"},
-                    "where": [
-                        [
-                            {"col": "category_column", "test": "Equal", "value": "All"},
-                            {"col": "category", "test": "Equal", "value": "All"},
-                        ]
-                    ],
-                    "withgeo": True,
-                }
+
+    def get_query(bbox_wms, scene_date_month):
+        query = {
+            "action": "table/query",
+            "query": {
+                "engineVersion": 2,
+                "sqlselect": [
+                    "category_column",
+                    "category",
+                    f"GridCrop(grid_float_4326, {', '.join([str(b) for b in bbox_wms])}) as grid_float",
+                ],
+                "table": {
+                    "query": {
+                        "table": {"name": "ais/density"},
+                        "where": [
+                            [
+                                {
+                                    "col": "category_column",
+                                    "test": "Equal",
+                                    "value": "All",
+                                },
+                                {"col": "category", "test": "Equal", "value": "All"},
+                            ]
+                        ],
+                        "withgeo": True,
+                    }
+                },
+                "where": [
+                    [{"col": "time", "test": "Equal", "value": f"{scene_date_month}"}]
+                ],
             },
-            "where": [
-                [{"col": "time", "test": "Equal", "value": f"{scene_date_month}"}]
-            ],
-        },
-    }
+        }
+        return query
 
     qs = (
-        f"request={json.dumps(query)}"
+        f"request={json.dumps(get_query(bbox_wms, scene_date_month))}"
         "&uParams=action:table/query;formatType:tiff;withgeo:false;withGeoJson:false;includePolicies:true"
     )
 
@@ -185,6 +192,36 @@ def get_ship_density(
                 out_dtype="uint8",
                 resampling=Resampling.nearest,
             )
+    except (ValueError, rasterio.errors.RasterioIOError) as e:
+        print(f"Failed to fetch ship density with {e}, trying previous month...")
+        scene_date_month_obj = datetime.strptime(scene_date_month, "%Y-%m-%dT%H:%M:%SZ")
+        scene_date_month_obj = scene_date_month_obj - timedelta(days=1)
+        scene_date_month_obj = scene_date_month_obj.replace(
+            day=1, hour=0, minute=0, second=0
+        )
+        new_scene_date_month = scene_date_month_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
+        print(f"Trying {new_scene_date_month}...")
+        qs = (
+            f"request={json.dumps(get_query(bbox_wms, new_scene_date_month))}"
+            "&uParams=action:table/query;formatType:tiff;withgeo:false;withGeoJson:false;includePolicies:true"
+        )
+
+        r = httpx.get(f"{url}{qs}", timeout=None, follow_redirects=True)
+        try:
+            r.raise_for_status()
+            tempbuf = BytesIO(r.content)
+            zipfile_ob = zipfile.ZipFile(tempbuf)
+            cont = list(zipfile_ob.namelist())
+            with rasterio.open(BytesIO(zipfile_ob.read(cont[0]))) as dataset:
+                ar = dataset.read(
+                    out_shape=img_shape[0:2],
+                    out_dtype="uint8",
+                    resampling=Resampling.nearest,
+                )
+        except httpx.HTTPError:
+            print("Failed to fetch ship density!")
+            return None
+
     except httpx.HTTPError:
         print("Failed to fetch ship density!")
         return None
