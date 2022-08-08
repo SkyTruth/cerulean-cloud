@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from unittest.mock import patch
 
 import numpy as np
@@ -14,6 +15,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 from cerulean_cloud.cloud_run_orchestrator.clients import (
     CloudRunInferenceClient,
     get_dist_array,
+    get_scene_date_month,
     get_ship_density,
     handle_aux_datasets,
 )
@@ -196,3 +198,26 @@ def test_handle_aux_datasets(httpx_mock):
     with ar_mem_file.open() as src:
         ar = src.read()
         assert ar.shape == (2, 4181, 6458)
+
+
+def test_get_ship_density_recent_live():
+    print(
+        get_scene_date_month(
+            "S1A_IW_GRDH_1SDV_20220808T083805_20220808T083834_044458_054E25_B895"
+        )
+    )
+    # If the month is not long enough, the API returns an empty geotiff
+    date_time_obj = datetime.now().replace(day=1, hour=0, minute=0, second=0)
+    current_month_time = date_time_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(current_month_time)
+    ar = get_ship_density(
+        [
+            145.37495713519354,
+            -10.611489825106801,
+            147.96902460466112,
+            -8.47969827741699,
+        ],
+        (4096, 4608),
+        current_month_time,
+    )
+    assert ar.shape == (4096, 4608)
