@@ -26,18 +26,23 @@ def handler_historical_run(date_start, date_end, geometry, url):
 
 @click.group()
 @click.option(
-    "--stage", default="staging", type=click.Choice(["staging", "test", "production"])
+    "--stage",
+    default="staging",
+    type=click.Choice(["staging", "test", "production", "jona"]),
 )
 @click.pass_context
 def cli(ctx, stage):
     """Command line tool to add tasks to Cloud Task queue, to run inference on"""
-    URLS = dict(
-        staging="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-staging-cloud-function-historical-run",
-        test="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-test-cloud-function-historical-run",
-        production="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-production-cloud-function-historical-run",
-    )
+    # URLS = dict(
+    #     jona="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-jona-cloud-function-historical-run",
+    #     staging="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-staging-cloud-function-historical-run",
+    #     test="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-test-cloud-function-historical-run",
+    #     production="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-production-cloud-function-historical-run",
+    # )
     ctx.ensure_object(dict)
-    ctx.obj["URL"] = URLS[stage]
+    ctx.obj[
+        "URL"
+    ] = f"https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-{stage}-cloud-function-historical-run"
     ctx.obj["STAGE"] = stage
 
 
