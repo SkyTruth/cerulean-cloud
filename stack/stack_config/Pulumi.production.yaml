@@ -1,13 +1,14 @@
 encryptionsalt: v1:F50gicuL4kQ=:v1:YB112UQ2RFpwS0tN:9CsDfYHnWdJI+vG6XDNbMzntP3jRbQ==
 config:
   aws:region: eu-central-1
-  cerulean-cloud:dryrun: "True" # Make empty "" to turn on historical, recurring runs
   cerulean-cloud:apikey:
     secure: v1:IuQ6n+tMG3oHe0pn:0/PQL0VoNoR2uCA9We2m9acc4nX73a0ViqSiHJhNe9X1srrZI4TvmsQZcuUrtzy4EoKSbQ==
+  cerulean-cloud:dryrun_historical: "True"
+  cerulean-cloud:dryrun_relevancy: "True"
   cerulean-cloud:infra_distance: https://storage.googleapis.com/ceruleanml/aux_datasets/infra_locations_01_cogeo.tiff
   db:db-instance: db-g1-small
   db:db-password:
-    secure: v1:K0K4m6cJJeem4Nt2:mppqrxwVYVqh80wRJ7ttI5IlSHSCtLPQZxaR3A==
+    secure: v1:PKkW6hR207H6+aLE:QRMTEAQMB5VFmJt4Sbvzx7i4hkqlO4HomLltlRFYrQ==
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
