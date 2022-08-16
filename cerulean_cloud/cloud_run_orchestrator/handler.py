@@ -346,7 +346,7 @@ async def _orchestrate(
                 return_exceptions=True,
             )
 
-            if base_tiles_inference.stack[0].dict().get("classes"):
+            if base_tiles_inference[0].stack[0].dict().get("classes"):
 
                 print("Loading all tiles into memory for merge!")
                 ds_base_tiles = []
