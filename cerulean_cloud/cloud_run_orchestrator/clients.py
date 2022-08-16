@@ -95,9 +95,12 @@ class CloudRunInferenceClient:
             res = await self.client.post(
                 self.url + "/predict", data=inference_input.json(), timeout=None
             )
-            print("[key for key in res]", [key for key in res])
             print("res", res)
-            print("inference_input[0]", inference_input[0])
+            print("res.json()", res.json())
+            a = InferenceResultStack(**res.json())
+            print("InferenceResultStack(**res.json())", a)
+            print("InferenceResultStack(**res.json())[0]", a[0])
+            print("InferenceResultStack(**res.json())[0].stack", a[0].stack)
         return InferenceResultStack(**res.json())
 
     async def get_offset_tile_inference(
