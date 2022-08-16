@@ -329,7 +329,7 @@ async def _orchestrate(
                     )
                     for base_tile in base_tiles
                 ],
-                return_exceptions=True,
+                return_exceptions=False,
             )
 
             print("Inference on offset tiles!")
