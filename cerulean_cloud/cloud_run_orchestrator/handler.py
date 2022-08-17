@@ -331,9 +331,6 @@ async def _orchestrate(
                 ],
                 return_exceptions=False,
             )
-            print("base_tiles_inference", base_tiles_inference)
-            print("base_tiles_inference[0]", base_tiles_inference[0])
-            print("base_tiles_inference[0].stack", base_tiles_inference[0].stack)
 
             print("Inference on offset tiles!")
             offset_tile_semaphore = asyncio.Semaphore(value=20)

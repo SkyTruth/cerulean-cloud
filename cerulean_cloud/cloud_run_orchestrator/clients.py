@@ -89,17 +89,9 @@ class CloudRunInferenceClient:
             inference_input = InferenceInputStack(
                 stack=[InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
             )
-            print("self.url", self.url)
-            print("inference_input", inference_input)
-            print("inference_input.json()", inference_input.json())
             res = await self.client.post(
                 self.url + "/predict", data=inference_input.json(), timeout=None
             )
-            print("res", res)
-            print("res.json()", res.json())
-            a = InferenceResultStack(**res.json())
-            print("InferenceResultStack(**res.json())", a)
-            print("InferenceResultStack(**res.json()).stack", a.stack)
         return InferenceResultStack(**res.json())
 
     async def get_offset_tile_inference(
