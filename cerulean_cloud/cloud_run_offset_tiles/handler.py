@@ -154,7 +154,10 @@ def _predict(
         mask_conf_threshold = 0.05
         size = tensor.size(dim=2)
 
-        res_list = model(torch.unbind(tensor))
+        print("model", model)
+        a = torch.unbind(tensor)
+        print("torch.unbind(tensor)", a)
+        res_list = model(a)
         print("Finished inference, applying post-process, thresholding")
 
         res: Tuple[List[geojson.Feature], List[float]] = []
