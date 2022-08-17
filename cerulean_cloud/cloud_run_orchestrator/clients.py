@@ -99,8 +99,7 @@ class CloudRunInferenceClient:
             print("res.json()", res.json())
             a = InferenceResultStack(**res.json())
             print("InferenceResultStack(**res.json())", a)
-            print("InferenceResultStack(**res.json())[0]", a[0])
-            print("InferenceResultStack(**res.json())[0].stack", a[0].stack)
+            print("InferenceResultStack(**res.json()).stack", a.stack)
         return InferenceResultStack(**res.json())
 
     async def get_offset_tile_inference(
