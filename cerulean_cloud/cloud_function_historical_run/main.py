@@ -130,7 +130,7 @@ def handle_search(request_json, ocean_poly):
 
     default_search_criteria = {
         "productType": "S1_SAR_GRD",
-        "polarization": "VV",
+        "polarizationChannels": "VV",
         "start": request_json["start"],
         "end": request_json["end"],
         "geom": overall_geom.wkt,
