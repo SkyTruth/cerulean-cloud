@@ -48,34 +48,39 @@ def merge_inferences(
     )
     print(f"Using buffer_distance: {buffer_distance} for erosion and dilation")
 
-    grid_base = gpd.GeoDataFrame.from_features(base_tile_fc["features"], crs=4326)
-    grid_offset = gpd.GeoDataFrame.from_features(offset_tile_fc["features"], crs=4326)
-
-    grid_base = reproject_to_utm(grid_base)
-    grid_offset = reproject_to_utm(grid_offset)
-
-    all_grid_gdf = concat_grids_adjust_conf(
-        grid_base, grid_offset, offset_max_acceptable_distance
-    )
-
-    # create spatial weights matrix
-    W = libpysal.weights.Queen.from_dataframe(all_grid_gdf)
-
-    # get component labels
-    components = W.component_labels
-
-    all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
-        by=components, aggfunc={"confidence": "median", "classification": "max"}
-    )
-
-    if buffer_distance:
-        # Do some erosion and dilation
-        all_grid_dissolved_class_dominance_median_conf = (
-            all_grid_dissolved_class_dominance_median_conf.buffer(
-                buffer_distance
-            ).buffer(-buffer_distance)
+    if base_tile_fc["features"] and offset_tile_fc["features"]:
+        grid_base = gpd.GeoDataFrame.from_features(base_tile_fc["features"], crs=4326)
+        grid_offset = gpd.GeoDataFrame.from_features(
+            offset_tile_fc["features"], crs=4326
         )
 
-    result = all_grid_dissolved_class_dominance_median_conf.to_crs(crs=4326)
+        grid_base = reproject_to_utm(grid_base)
+        grid_offset = reproject_to_utm(grid_offset)
 
-    return result.__geo_interface__
+        all_grid_gdf = concat_grids_adjust_conf(
+            grid_base, grid_offset, offset_max_acceptable_distance
+        )
+
+        # create spatial weights matrix
+        W = libpysal.weights.Queen.from_dataframe(all_grid_gdf)
+
+        # get component labels
+        components = W.component_labels
+
+        all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
+            by=components, aggfunc={"confidence": "median", "classification": "max"}
+        )
+
+        if buffer_distance:
+            # Do some erosion and dilation
+            all_grid_dissolved_class_dominance_median_conf = (
+                all_grid_dissolved_class_dominance_median_conf.buffer(
+                    buffer_distance
+                ).buffer(-buffer_distance)
+            )
+
+        result = all_grid_dissolved_class_dominance_median_conf.to_crs(crs=4326)
+
+        return result.__geo_interface__
+    else:
+        return geojson.FeatureCollection(features=[])

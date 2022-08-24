@@ -496,6 +496,33 @@ def test_func_merge_inferences():
         assert f["properties"]["classification"]
 
 
+def test_func_merge_inferences_empty():
+
+    with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
+        offset_tile_fc = dict(geojson.load(src))
+
+    merged = merge_inferences(
+        base_tile_fc=geojson.FeatureCollection(features=[]),
+        offset_tile_fc=offset_tile_fc,
+    )
+    assert merged["type"] == "FeatureCollection"
+    assert len(merged["features"]) == 0
+
+    merged = merge_inferences(
+        base_tile_fc=offset_tile_fc,
+        offset_tile_fc=geojson.FeatureCollection(features=[]),
+    )
+    assert merged["type"] == "FeatureCollection"
+    assert len(merged["features"]) == 0
+
+    merged = merge_inferences(
+        base_tile_fc=geojson.FeatureCollection(features=[]),
+        offset_tile_fc=geojson.FeatureCollection(features=[]),
+    )
+    assert merged["type"] == "FeatureCollection"
+    assert len(merged["features"]) == 0
+
+
 def test_get_tag():
     repo = git.Repo(search_parent_directories=True)
     git_tag = next(
