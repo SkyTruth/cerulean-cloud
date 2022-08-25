@@ -22,8 +22,8 @@ sqlacodegen
 psycopg2-binary
 python-dateutil
 global-land-mask
-eodag
-eodag-sentinelsat
+eodag==2.5.2
+eodag-sentinelsat==0.4.1
 geopandas
 libpysal
 pygeos
