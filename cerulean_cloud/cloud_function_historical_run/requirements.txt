@@ -1,5 +1,5 @@
 asyncpg
 shapely
 google-cloud-tasks
-eodag
-eodag-sentinelsat
+eodag==2.5.2
+eodag-sentinelsat==0.4.1
