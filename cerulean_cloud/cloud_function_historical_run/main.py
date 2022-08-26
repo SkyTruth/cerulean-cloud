@@ -122,7 +122,7 @@ def handle_search(request_json, ocean_poly):
                 password: "{os.getenv("SCIHUB_PASSWORD")}"
     """
     )
-    dag.set_preferred_provider("scihub")
+    dag.set_preferred_provider("peps")
 
     fc = geojson.FeatureCollection(**request_json["geometry"])
 
@@ -130,13 +130,21 @@ def handle_search(request_json, ocean_poly):
 
     default_search_criteria = {
         "productType": "S1_SAR_GRD",
-        "polarizationChannels": "VV",
+        "polarizationMode": "VV VH",
         "start": request_json["start"],
         "end": request_json["end"],
         "geom": overall_geom.wkt,
     }
 
-    search_results = dag.search_all(**default_search_criteria)
+    all_results = []
+    for i, page_results in enumerate(
+        dag.search_iter_page(**default_search_criteria, items_per_page=25)
+    ):
+        print(f"Got a hand on {len(page_results)} products on page {i+1}")
+        all_results.extend(page_results)
+
+    search_results = all_results
+
     print(f"Got a hand on {len(search_results)} products.")
 
     len_total_scenes = len(search_results)

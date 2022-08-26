@@ -16,16 +16,25 @@ def test_handle_search():
     ocean_poly = load_ocean_poly(
         "cerulean_cloud/cloud_function_scene_relevancy/OceanGeoJSON_lowres.geojson"
     )
-    with open(
-        "test/test_cerulean_cloud/fixtures/whole_world_search_geom.geojson"
-    ) as src:
+    with open("test/test_cerulean_cloud/fixtures/whole_world.geojson") as src:
         geom = json.load(src)
 
     request = {"start": "2022-01-01", "end": "2022-01-02", "geometry": geom}
 
     total_scenes, filtered_scenes = handle_search(request, ocean_poly=ocean_poly)
-    assert total_scenes == 50
-    assert len(filtered_scenes) == 50
+    assert total_scenes == 479
+    assert len(filtered_scenes) == 271
+
+    with open(
+        "test/test_cerulean_cloud/fixtures/whole_world_search_geom.geojson"
+    ) as src:
+        geom = json.load(src)
+
+    request = {"start": "2022-08-07", "end": "2022-08-08", "geometry": geom}
+
+    total_scenes, filtered_scenes = handle_search(request, ocean_poly=ocean_poly)
+    assert total_scenes == 305
+    assert len(filtered_scenes) == 163
 
 
 def test_make_logs():
