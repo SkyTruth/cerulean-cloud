@@ -129,7 +129,7 @@ def handle_search(request_json, ocean_poly):
     overall_geom = MultiPolygon([shape(f.get("geometry")) for f in fc.features])
 
     default_search_criteria = {
-        "items_per_page": 5000,  # XXX DEBUG more than 1500 (from a given day) won't work for more than 1-day searches!
+        "items_per_page": 25,
         "productType": "S1_SAR_GRD",
         "polarizationMode": "VV VH",
         "start": request_json["start"],
