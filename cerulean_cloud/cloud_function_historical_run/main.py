@@ -138,9 +138,7 @@ def handle_search(request_json, ocean_poly):
     }
 
     all_results = []
-    for i, page_results in enumerate(
-        dag.search_iter_page(**default_search_criteria, items_per_page=25)
-    ):
+    for i, page_results in enumerate(dag.search_iter_page(**default_search_criteria)):
         print(f"Got a hand on {len(page_results)} products on page {i+1}")
         all_results.extend(page_results)
 
