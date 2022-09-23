@@ -89,7 +89,11 @@ Then you'll be able to run:
 mkvirtualenv cerulean-cloud --python=$(which python3.8)
 pip install -r requirements.txt
 pip install -r requirements-test.txt
-# Additional requirements files included in this repo are reflected in the main requirements.txt
+# Additional requirements files
+pip install -r cerulean_cloud/cloud_run_offset_tiles/requirements.txt
+pip install -r cerulean_cloud/cloud_run_orchestrator/requirements.txt
+pip install -r cerulean_cloud/cloud_run_tifeatures/requirements.txt
+pip install -r cerulean_cloud/titiler_sentinel/requirements.txt
 # Setup pre-commit
 pre-commit install
 ```
@@ -103,6 +107,16 @@ workon cerulean-cloud
 pip install ipykernel
 python -m ipykernel install --user --name=cerulean-cloud
 ```
+
+### Running tests
+
+You can run tests using `pytest` commands:
+```sh
+pytest
+pytest test/test_cerulean_cloud/test_tiling.py # run only tests in a specific module
+pytest test/test_cerulean_cloud/test_tiling.py::test_from_base_tiles_create_offset_tiles # run only a specific test
+```
+
 ### Pulumi
 #### Check available stages
 ```
