@@ -117,6 +117,10 @@ pytest test/test_cerulean_cloud/test_tiling.py # run only tests in a specific mo
 pytest test/test_cerulean_cloud/test_tiling.py::test_from_base_tiles_create_offset_tiles # run only a specific test
 ```
 
+If you get an error while running tests mentioning that `psycopg` is not installed run:
+```sh
+pip install "psycopg[binary]"
+```
 ### Pulumi
 #### Check available stages
 ```
