@@ -20,6 +20,12 @@ def load_ocean_poly(file_path="OceanGeoJSON_lowres.geojson"):
     geom = sh.GeometryCollection(
         [sh.shape(feature["geometry"]).buffer(0) for feature in ocean_features]
     ).geoms[0]
+    print("#######################################################")
+    import shapely
+
+    print(shapely.__version__)
+    print("#######################################################")
+    assert 0
     return geom
 
 
