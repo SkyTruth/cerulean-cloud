@@ -262,7 +262,11 @@ def handle_aux_datasets(aux_datasets, scene_id, bounds, image_shape, **kwargs):
     for aux_ds in aux_datasets:
         if aux_ds == "ship_density":
             scene_date_month = get_scene_date_month(scene_id)
+            scene_date_month = "2022-03-01T00:00:00Z"  # XXX HACK
             ar = get_ship_density(bounds, image_shape, scene_date_month)
+            # XXX BUG? do the absolute values of this have same mean and deviation as training vessel raster asset? If not, switch over to using a static asset for inference, too
+            # BTW What are we using to train on?
+            # HACK fix this value at a non-pandemic datemonth
         elif aux_ds.endswith(".tiff"):
             ar = get_dist_array(bounds, image_shape, aux_ds)
 
