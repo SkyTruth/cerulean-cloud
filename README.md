@@ -237,6 +237,27 @@ The services deployed by cerulean-cloud that DO NOT require this API key are:
 - Historical run Cloud Function
 - Scene relevancy Cloud Function
 
+
+## Adding a new Pulumi Stack
+Don't forget to edit the following places:
+- historical_run.py (add the stack name to stage options)
+- TODO add other places/steps
+- create a new git branch with the same name
+- copy changes in Git hash 7f1dcda and b55e6c7 (but use more modern yamls as base), commit and push
+- if commit fails due to pre-commit, review files and accept changes, retry
+- go to Git Actions, and manually run Test and Deploy on the new branch (takes about 25 minutes)
+
+## Updating the trained model
+If you are going to deploy a new scripted model, first save it as a tracing model using the function "save_icevision_model_state_dict_and_tracing" in the cerulean-ml repo.
+Then, upload the experiment folder and contents to the GCP `ceruleanml` bucket.
+Update the value of the Pulumi pamater `cerulean-cloud-images:weigths_name` found in your local version of 
+`cerulean-cloud/images/stack_config/Pulumi.STACK_NAME_OF_INTEREST.yaml` to match the experiment naming you just uploaded.
+Finally, do the following stsps:
+1. Go to `https://github.com/SkyTruth/cerulean-cloud/actions` 
+2. Then click "Test and Deploy"
+3. Click on "Run Workflow" and choose either the local branch you are working on
+4. Click "Run Workflow" to kick off the model upload
+
 ## Troubleshooting
 
 If pulumi throws funky errors at deployment, you can run in your current stack:

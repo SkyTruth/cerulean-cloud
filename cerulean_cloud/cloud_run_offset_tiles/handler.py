@@ -118,6 +118,7 @@ def _predict(
     stack_tensors = []
     for inference_input in payload.stack:
         stack_tensors.append(b64_image_to_tensor(inference_input.image))
+    # 1024 to 512 rescale could happen here? XXXJONA
 
     print(f"Stack has {len(stack_tensors)} images")
     tensor = torch.stack(stack_tensors)
