@@ -201,15 +201,23 @@ def test_handle_aux_datasets(httpx_mock):
 
 
 def test_get_ship_density_recent_live():
-    print(
+    # TODO should be an assert, not a print statement
+    assert (
         get_scene_date_month(
-            "S1A_IW_GRDH_1SDV_20220808T083805_20220808T083834_044458_054E25_B895"
+            "S1A_IW_GRDH_1SDV_20220808T083805_20220808T083834_044458_054E25_B895",
+            replace_year=False,
         )
+        == "2022-08-01T00:00:00Z"
     )
-    # If the month is not long enough, the API returns an empty geotiff
-    date_time_obj = datetime.now().replace(day=1, hour=0, minute=0, second=0)
-    current_month_time = date_time_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
-    print(current_month_time)
+    assert (
+        get_scene_date_month(
+            "S1A_IW_GRDH_1SDV_20220808T083805_20220808T083834_044458_054E25_B895",
+            replace_year=2019,
+        )
+        == "2019-08-01T00:00:00Z"
+    )
+    # If the month is not far enough in the past, the data will not be available yet and the API returns an empty geotiff
+    current_month_time = datetime.now().strftime("2019-%m-01T00:00:00Z")
     ar = get_ship_density(
         [
             145.37495713519354,
