@@ -125,7 +125,7 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
           work-dir: images/
-          command: up --refresh true
+          command: up
           stack-name: test
 
       - uses: pulumi/actions@v3
@@ -134,7 +134,7 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
-          command: up --refresh true
+          command: up
           stack-name: test
 
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
@@ -180,13 +180,13 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: "staging"
         with:
           work-dir: images/
-          command: up --refresh true
+          command: up
           stack-name: staging
 
       - uses: pulumi/actions@v3
         id: pulumi
         with:
-          command: up --refresh true
+          command: up
           stack-name: staging
 
         env:
@@ -236,13 +236,13 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: "production"
         with:
           work-dir: images/
-          command: up --refresh true
+          command: up
           stack-name: production
 
       - uses: pulumi/actions@v3
         id: pulumi
         with:
-          command: up --refresh true
+          command: up
           stack-name: production
 
         env:
