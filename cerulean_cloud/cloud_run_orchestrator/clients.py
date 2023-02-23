@@ -122,12 +122,16 @@ class CloudRunInferenceClient:
         return InferenceResultStack(**res.json())
 
 
-def get_scene_date_month(scene_id: str) -> str:
+def get_scene_date_month(scene_id: str, replace_year: int = 2019) -> str:
     """From a scene id, fetch the month of the scene"""
     # i.e. S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5
     date_time_str = scene_id[17:32]
     date_time_obj = datetime.strptime(date_time_str, "%Y%m%dT%H%M%S")
     date_time_obj = date_time_obj.replace(day=1, hour=0, minute=0, second=0)
+    if replace_year:
+        # The service that delivers the vessel-density raster is sometimes 1 or 2 months behind
+        # Currently the default is set to use the current month, but from the year 2019 (the last year before covid)
+        date_time_obj = date_time_obj.replace(year=replace_year)
     return date_time_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
@@ -261,7 +265,7 @@ def handle_aux_datasets(aux_datasets, scene_id, bounds, image_shape, **kwargs):
     aux_dataset_channels = None
     for aux_ds in aux_datasets:
         if aux_ds == "ship_density":
-            scene_date_month = get_scene_date_month(scene_id)
+            scene_date_month = get_scene_date_month(scene_id, replace_year=2019)
             ar = get_ship_density(bounds, image_shape, scene_date_month)
         elif aux_ds.endswith(".tiff"):
             ar = get_dist_array(bounds, image_shape, aux_ds)
