@@ -19,7 +19,7 @@ def load_ocean_poly(file_path="OceanGeoJSON_lowres.geojson"):
         ocean_features = json.load(f)["features"]
     geom = sh.GeometryCollection(
         [sh.shape(feature["geometry"]).buffer(0) for feature in ocean_features]
-    ).geoms[0]
+    )[0]
     return geom
 
 
