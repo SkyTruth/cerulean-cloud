@@ -92,7 +92,9 @@ class CloudRunInferenceClient:
             res = await self.client.post(
                 self.url + "/predict", data=inference_input.json(), timeout=None
             )
-        return InferenceResultStack(**res.json())
+        return InferenceResultStack(
+            **res.json()
+        )  # XXX BUG If the /predict fails, then this produces returns a JSONDecodeError instead of a list of predictions... should instead let the error rise up to be handled correctly.
 
     async def get_offset_tile_inference(
         self, bounds: List[float], semaphore: asyncio.Semaphore, rescale=(0, 100)

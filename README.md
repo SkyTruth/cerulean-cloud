@@ -170,7 +170,7 @@ pulumi stack --show-secrets
 Start the Cloud SQL proxy (make sure you are properly authenticated with GCP):
 ```sh
 cd . # where cloud_sql_proxy
-./cloud_sql_proxy -instances=${database_instance_name}=tcp:0.0.0.0:5432
+./cloud_sql_proxy -instances=$'{database_instance_name}'=tcp:0.0.0.0:5432
 ```
 
 In order to connect in pgAdmin, you can take apart the connection string that you get from the pulumi output:
