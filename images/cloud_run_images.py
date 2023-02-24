@@ -65,7 +65,7 @@ cloud_run_offset_tile_image = docker.Image(
     build=docker.DockerBuild(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_offset",
-        extra_options=["--no-cache", "--quiet"],
+        extra_options=["--quiet"],
     ),
     image_name=cloud_run_offset_tile_image_url,
     registry=registry_info,
@@ -75,7 +75,7 @@ cloud_run_orchestrator_image = docker.Image(
     build=docker.DockerBuild(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_orchestrator",
-        extra_options=["--no-cache", "--quiet"],
+        extra_options=["--quiet"],
         env={"MODEL": weigths_name},
     ),
     image_name=cloud_run_orchestrator_image_url,
@@ -86,7 +86,7 @@ cloud_run_tifeatures_image = docker.Image(
     build=docker.DockerBuild(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_tifeatures",
-        extra_options=["--no-cache", "--quiet"],
+        extra_options=["--quiet"],
     ),
     image_name=cloud_run_tifeatures_image_url,
     registry=registry_info,
