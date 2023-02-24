@@ -35,7 +35,7 @@ add_timing_middleware(app, prefix="app")
 
 def load_tracing_model(savepath):
     """load tracing model. a tracing model must be applied to the same batch dimensions the model was trained on."""
-    tracing_model = torch.jit.load(savepath)
+    tracing_model = torch.jit.load(savepath, map_location="cpu")
     return tracing_model
 
 
