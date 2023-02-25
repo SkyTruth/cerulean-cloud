@@ -13,7 +13,7 @@ rio-tiler-pds
 geojson
 SQLAlchemy[asyncio]
 GeoAlchemy2
-Shapely
+shapely==1.8.2
 asyncpg
 python-dateutil
 global-land-mask
