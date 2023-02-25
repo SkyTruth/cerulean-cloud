@@ -4,7 +4,7 @@ import json
 import os
 import zipfile
 from base64 import b64encode
-from datetime import datetime, timedelta
+from datetime import datetime
 from io import BytesIO
 from typing import List, Tuple
 
@@ -193,12 +193,9 @@ def get_ship_density(
                 resampling=Resampling.nearest,
             )
     except (ValueError, rasterio.errors.RasterioIOError) as e:
-        print(f"Failed to fetch ship density with {e}, trying previous month...")
+        print(f"Failed to fetch ship density with {e}, trying 2019...")
         scene_date_month_obj = datetime.strptime(scene_date_month, "%Y-%m-%dT%H:%M:%SZ")
-        scene_date_month_obj = scene_date_month_obj - timedelta(days=1)
-        scene_date_month_obj = scene_date_month_obj.replace(
-            day=1, hour=0, minute=0, second=0
-        )
+        scene_date_month_obj = scene_date_month_obj.replace(year=1)
         new_scene_date_month = scene_date_month_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
         print(f"Trying {new_scene_date_month}...")
         qs = (
