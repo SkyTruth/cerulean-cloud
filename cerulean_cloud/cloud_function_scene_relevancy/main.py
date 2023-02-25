@@ -17,6 +17,9 @@ def load_ocean_poly(file_path="OceanGeoJSON_lowres.geojson"):
     """load ocean boundary polygon"""
     with open(file_path) as f:
         ocean_features = json.load(f)["features"]
+    import shapely
+
+    print(shapely.__version__)
     geom = sh.GeometryCollection(
         [sh.shape(feature["geometry"]).buffer(0) for feature in ocean_features]
     )[0]
