@@ -195,7 +195,7 @@ def get_ship_density(
     except (ValueError, rasterio.errors.RasterioIOError) as e:
         print(f"Failed to fetch ship density with {e}, trying 2019...")
         scene_date_month_obj = datetime.strptime(scene_date_month, "%Y-%m-%dT%H:%M:%SZ")
-        scene_date_month_obj = scene_date_month_obj.replace(year=1)
+        scene_date_month_obj = scene_date_month_obj.replace(year=2019)
         new_scene_date_month = scene_date_month_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
         print(f"Trying {new_scene_date_month}...")
         qs = (
