@@ -19,14 +19,12 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
-
 from tifeatures import __version__ as tifeatures_version
 from tifeatures.db import close_db_connection, connect_to_db, register_table_catalog
 from tifeatures.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tifeatures.factory import Endpoints
 from tifeatures.middleware import CacheControlMiddleware
 from tifeatures.settings import APISettings, PostgresSettings
-
 
 settings = APISettings()
 postgres_settings = PostgresSettings()
