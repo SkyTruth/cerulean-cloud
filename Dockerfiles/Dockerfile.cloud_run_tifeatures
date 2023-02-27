@@ -17,6 +17,4 @@ RUN pip install -r cerulean_cloud/cloud_run_tifeatures/requirements.txt
 # For environments with multiple CPU cores, increase the number of workers
 # to be equal to the cores available.
 # Timeout is set to 0 to disable the timeouts of the workers to allow Cloud Run to handle instance scaling.
-RUN echo "###DATABASE_URL#### $DATABASE_URL"
-RUN echo "###DB_URL#### $DB_URL"
-CMD exec echo "###DATABASE_URL#### $DATABASE_URL" && uvicorn --port $PORT --host 0.0.0.0 cerulean_cloud.cloud_run_tifeatures.handler:app
+CMD exec uvicorn --port $PORT --host 0.0.0.0 cerulean_cloud.cloud_run_tifeatures.handler:app
