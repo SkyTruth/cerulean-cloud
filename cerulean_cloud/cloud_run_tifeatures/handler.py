@@ -10,9 +10,10 @@ Make sure to set in your environment:
 
 """
 import logging
-from typing import Any, List
+from typing import Any, List, Optional
 
 import jinja2
+import pydantic
 from fastapi import FastAPI
 from mangum import Mangum
 from starlette.middleware.cors import CORSMiddleware
@@ -24,9 +25,48 @@ from tifeatures.db import close_db_connection, connect_to_db, register_table_cat
 from tifeatures.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tifeatures.factory import Endpoints
 from tifeatures.middleware import CacheControlMiddleware
-from tifeatures.settings import APISettings, PostgresSettings
+from tifeatures.settings import APISettings
 
 settings = APISettings()
+
+class PostgresSettings(pydantic.BaseSettings):
+    """Postgres-specific API settings.
+
+    Note: We can't use PostgresSettings from TiFeatures because of the weird GCP DB url
+          See https://github.com/developmentseed/tifeatures/issues/32
+
+    Attributes:
+        postgres_user: postgres username.
+        postgres_pass: postgres password.
+        postgres_host: hostname for the connection.
+        postgres_port: database port.
+        postgres_dbname: database name.
+    """
+
+    postgres_user: Optional[str]
+    postgres_pass: Optional[str]
+    postgres_host: Optional[str]
+    postgres_port: Optional[str]
+    postgres_dbname: Optional[str]
+
+    database_url: Optional[str] = None
+
+    db_min_conn_size: int = 1
+    db_max_conn_size: int = 10
+    db_max_queries: int = 50000
+    db_max_inactive_conn_lifetime: float = 300
+
+    db_schemas: List[str] = ["public"]
+    db_tables: Optional[List[str]]
+
+    only_spatial_tables: bool = True
+
+    class Config:
+        """model config"""
+
+        env_file = ".env"
+
+
 postgres_settings = PostgresSettings()
 
 app = FastAPI(
