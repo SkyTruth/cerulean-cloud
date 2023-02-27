@@ -6,15 +6,12 @@ Create Date: 2022-07-11 11:25:36.754357
 
 """
 import json
+
 import geojson
 import httpx
-from geoalchemy2.shape import from_shape
-from shapely.geometry import shape
-from shapely import to_wkt, from_geojson
-
+from shapely import from_geojson, to_wkt
 from sqlalchemy import orm
 from sqlalchemy import text as _sql_text
-
 
 import cerulean_cloud.database_schema as database_schema
 from alembic import op
@@ -39,8 +36,6 @@ def upgrade() -> None:
 
     bind = op.get_bind()
     session = orm.Session(bind=bind)
-    
-    #connection = op.get_bind()
 
     high_seas = get_eez_from_url()
 
@@ -50,33 +45,28 @@ def upgrade() -> None:
                 mrgid=feat["properties"]["mrgid"],
                 geoname=feat["properties"]["name"],
                 sovereigns=["None"],
-                #geometry=from_shape(shape(feat["geometry"])),
-                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"])))
+                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
             )
-            #session.add(region)
-            sql_string = _sql_text("""
-                INSERT INTO eez (mrgid, geoname, sovereigns, geometry) 
+            sql_string = _sql_text(
+                """
+                INSERT INTO eez (mrgid, geoname, sovereigns, geometry)
                 VALUES (
-                    :mrgid, 
-                    :geoname, 
-                    :sovereigns, 
+                    :mrgid,
+                    :geoname,
+                    :sovereigns,
                     st_geogfromtext(:geometry)
                 )
-            """)
-            # %(mrgid)s,
-            # %(geoname)s,
-            # %(sovereigns)s::TEXT[],
-            # ST_GeogFromText(%(geometry)s)) RETURNING eez.id
-            # ST_AsBinary(eez.geometry_005) AS geometry_005
+            """
+            )
 
             session.execute(
                 sql_string,
                 {
-                    "mrgid":region.mrgid,
-                    "geoname":region.geoname,
-                    "sovereigns":region.sovereigns,
-                    "geometry":region.geometry,
-                }
+                    "mrgid": region.mrgid,
+                    "geoname": region.geoname,
+                    "sovereigns": region.sovereigns,
+                    "geometry": region.geometry,
+                },
             )
 
 
