@@ -10,10 +10,9 @@ Make sure to set in your environment:
 
 """
 import logging
-from typing import Any, List, Optional
+from typing import Any, List
 
 import jinja2
-import pydantic
 from fastapi import FastAPI
 from mangum import Mangum
 from starlette.middleware.cors import CORSMiddleware
