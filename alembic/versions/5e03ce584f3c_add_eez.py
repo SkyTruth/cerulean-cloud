@@ -5,14 +5,16 @@ Revises: c941681a050d
 Create Date: 2022-07-08 11:24:31.802462
 
 """
+import json
 import geoalchemy2.functions as func
 import geojson
 import httpx
 from geoalchemy2 import Geography, Geometry
 from geoalchemy2.shape import from_shape
 from shapely.geometry import box, shape
+from shapely import to_wkt, from_geojson
 from sqlalchemy import orm
-from sqlalchemy.sql import cast
+from sqlalchemy.sql import cast, text as _sql_text
 
 import cerulean_cloud.database_schema as database_schema
 from alembic import op
@@ -44,6 +46,8 @@ def upgrade() -> None:
     """Add eez"""
     bind = op.get_bind()
     session = orm.Session(bind=bind)
+    
+    #connection = op.get_bind()
 
     eez = get_eez_from_url()  # geojson.load(open("eez_8_7_2022.json"))
     for feat in eez.features:
@@ -60,9 +64,37 @@ def upgrade() -> None:
                 mrgid=feat["properties"]["mrgid"],
                 geoname=feat["properties"]["geoname"],
                 sovereigns=sovereigns,
-                geometry=from_shape(shape(feat["geometry"])),
+                #geometry=from_shape(shape(feat["geometry"])),
+                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"])))
             )
-            session.add(region)
+            # session.add(region)
+            # XXX Use SQL instead of ORM for this insert?
+
+            sql_string = _sql_text("""
+                INSERT INTO eez (mrgid, geoname, sovereigns, geometry) 
+                VALUES (
+                    :mrgid, 
+                    :geoname, 
+                    :sovereigns, 
+                    st_geogfromtext(:geometry)
+                )
+            """)
+            # %(mrgid)s,
+            # %(geoname)s,
+            # %(sovereigns)s::TEXT[],
+            # ST_GeogFromText(%(geometry)s)) RETURNING eez.id
+            # ST_AsBinary(eez.geometry_005) AS geometry_005
+
+            session.execute(
+                sql_string,
+                {
+                    "mrgid":region.mrgid,
+                    "geoname":region.geoname,
+                    "sovereigns":region.sovereigns,
+                    "geometry":region.geometry,
+                }
+            )
+
 
     # Add inverted EEZ (no sovereign)
     # Too long to compute, so disabled
