@@ -93,6 +93,7 @@ templates = Jinja2Templates(
 endpoints = Endpoints(title=settings.name, templates=templates)
 app.include_router(endpoints.router)
 
+
 # Set all CORS enabled origins
 if settings.cors_origins:
     app.add_middleware(

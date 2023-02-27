@@ -5,14 +5,18 @@ Revises: c941681a050d
 Create Date: 2022-07-08 11:24:31.802462
 
 """
+import json
+
 import geoalchemy2.functions as func
 import geojson
 import httpx
 from geoalchemy2 import Geography, Geometry
 from geoalchemy2.shape import from_shape
-from shapely.geometry import box, shape
+from shapely import from_geojson, to_wkt
+from shapely.geometry import box
 from sqlalchemy import orm
 from sqlalchemy.sql import cast
+from sqlalchemy.sql import text as _sql_text
 
 import cerulean_cloud.database_schema as database_schema
 from alembic import op
@@ -60,9 +64,29 @@ def upgrade() -> None:
                 mrgid=feat["properties"]["mrgid"],
                 geoname=feat["properties"]["geoname"],
                 sovereigns=sovereigns,
-                geometry=from_shape(shape(feat["geometry"])),
+                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
             )
-            session.add(region)
+
+            sql_string = _sql_text(
+                """
+                INSERT INTO eez (mrgid, geoname, sovereigns, geometry)
+                VALUES (
+                    :mrgid,
+                    :geoname,
+                    :sovereigns,
+                    st_geogfromtext(:geometry)
+                )
+            """
+            )
+            session.execute(
+                sql_string,
+                {
+                    "mrgid": region.mrgid,
+                    "geoname": region.geoname,
+                    "sovereigns": region.sovereigns,
+                    "geometry": region.geometry,
+                },
+            )
 
     # Add inverted EEZ (no sovereign)
     # Too long to compute, so disabled
