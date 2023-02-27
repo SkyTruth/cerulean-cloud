@@ -29,6 +29,7 @@ from tifeatures.settings import APISettings
 
 settings = APISettings()
 
+
 class PostgresSettings(pydantic.BaseSettings):
     """Postgres-specific API settings.
 
