@@ -10,10 +10,9 @@ Make sure to set in your environment:
 
 """
 import logging
-from typing import Any, List, Optional
+from typing import Any, List
 
 import jinja2
-import pydantic
 from fastapi import FastAPI
 from mangum import Mangum
 from starlette.middleware.cors import CORSMiddleware
@@ -24,41 +23,11 @@ from tifeatures import __version__ as tifeatures_version
 from tifeatures.db import close_db_connection, connect_to_db, register_table_catalog
 from tifeatures.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tifeatures.factory import Endpoints
-from tifeatures.layer import FunctionRegistry
 from tifeatures.middleware import CacheControlMiddleware
-from tifeatures.settings import APISettings
-
-
-class PostgresSettings(pydantic.BaseSettings):
-    """Postgres-specific API settings.
-    Attributes:
-        postgres_user: postgres username.
-        postgres_pass: postgres password.
-        postgres_host: hostname for the connection.
-        postgres_port: database port.
-        postgres_dbname: database name.
-    """
-
-    postgres_user: Optional[str]
-    postgres_pass: Optional[str]
-    postgres_host: Optional[str]
-    postgres_port: Optional[str]
-    postgres_dbname: Optional[str]
-
-    database_url: Optional[str] = None
-
-    db_min_conn_size: int = 1
-    db_max_conn_size: int = 10
-    db_max_queries: int = 50000
-    db_max_inactive_conn_lifetime: float = 300
-
-    class Config:
-        """model config"""
-
-        env_file = ".env"
-
+from tifeatures.settings import APISettings, PostgresSettings
 
 settings = APISettings()
+postgres_settings = PostgresSettings()
 
 app = FastAPI(
     title=settings.name,
@@ -83,8 +52,6 @@ templates = Jinja2Templates(
 endpoints = Endpoints(title=settings.name, templates=templates)
 app.include_router(endpoints.router)
 
-# We add the function registry to the application state
-app.state.tifeatures_function_catalog = FunctionRegistry()
 
 # Set all CORS enabled origins
 if settings.cors_origins:
@@ -105,9 +72,14 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 async def startup_event() -> None:
     """Connect to database on startup."""
     print("using new connection")
-    await connect_to_db(app, settings=PostgresSettings())
+    await connect_to_db(app, settings=postgres_settings)
     try:
-        await register_table_catalog(app)
+        await register_table_catalog(
+            app,
+            schemas=postgres_settings.db_schemas,
+            tables=postgres_settings.db_tables,
+            spatial=postgres_settings.only_spatial_tables,
+        )
     except:  # noqa
         app.state.table_catalog = {}
 
@@ -121,7 +93,12 @@ async def shutdown_event() -> None:
 @app.get("/register", include_in_schema=False)
 async def register_table(request: Request):
     """Manually register tables"""
-    await register_table_catalog(request.app)
+    await register_table_catalog(
+        request.app,
+        schemas=postgres_settings.db_schemas,
+        tables=postgres_settings.db_tables,
+        spatial=postgres_settings.only_spatial_tables,
+    )
 
 
 @app.get("/healthz", description="Health Check", tags=["Health Check"])
