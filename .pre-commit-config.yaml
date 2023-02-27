@@ -1,5 +1,5 @@
 repos:
-    -   
+    -
         repo: https://github.com/pre-commit/mirrors-isort
         rev: v5.10.1
         hooks:
@@ -37,7 +37,7 @@ repos:
                  # Don't require docstrings for tests
                  '--match=(?!test).*\.py']
 
-    -   
+    -
         repo: https://github.com/pre-commit/mirrors-mypy
         rev: 'v0.942'
         hooks:
