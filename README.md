@@ -172,6 +172,16 @@ This process is run on push on any open PRs, and you'll be able to see the outpu
 pulumi up
 ```
 
+#### Destroy and rebuild
+pulumi destroy
+Use GUI to delete the database
+pulumi refresh
+pulumi state delete <URN of IAM if sticky>
+pulumi refresh
+pulumi destroy
+test and deploy
+If there is a lock on the stack, you can delete that lock in gs://cerulean-cloud-state/cerulean-cloud-images
+
 ## Database
 
 ### Connecting
