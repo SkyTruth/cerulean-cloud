@@ -1,10 +1,10 @@
 repos:
-    -   
+    -
         repo: https://github.com/pre-commit/mirrors-isort
         rev: v5.10.1
         hooks:
             - id: isort
-              language_version: python3.8
+              language_version: python
               args: ["--profile", "black"]
     -
         repo: 'https://github.com/psf/black'
@@ -12,13 +12,13 @@ repos:
         hooks:
             - id: black
               args: ['--safe']
-              language_version: python3.8
+              language_version: python
     -
         repo: https://github.com/PyCQA/flake8
         rev: 3.9.2
         hooks:
             - id: flake8
-              language_version: python3.8
+              language_version: python
               args: [
                   # E501 let black handle all line length decisions
                   # W503 black conflicts with "line break before operator" rule
@@ -30,14 +30,14 @@ repos:
         rev: v2.1.1
         hooks:
             - id: pydocstyle
-              language_version: python3.8
+              language_version: python
               args: [
                  # Check for docstring presence only
                  '--select=D1',
                  # Don't require docstrings for tests
                  '--match=(?!test).*\.py']
 
-    -   
+    -
         repo: https://github.com/pre-commit/mirrors-mypy
         rev: 'v0.942'
         hooks:

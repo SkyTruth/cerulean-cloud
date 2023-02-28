@@ -1,7 +1,6 @@
 """Utility to ruin historical inference
 Client for historical run cloud functions
-i.e.
-python scripts/historical_run.py --stage jona eodag --date-start 2022-08-07 --date-end 2022-08-08 --geometry test/test_cerulean_cloud/fixtures/whole_world_search_geom.geojson
+i.e. python scripts/historical_run.py --stage jona eodag --date-start 2022-01-01 --date-end 2022-01-02 --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson
 """
 from datetime import date
 
