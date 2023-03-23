@@ -9,7 +9,7 @@ The cerulean-cloud architecture diagram can be found [here](https://lucid.app/lu
 
 ## Deployment
 
-Deployment is fully managed by GitHub actions and Pulumi and the entire workflow defined in [this](.github/workflows/test_and_deploy.yml) YAML file. 
+Deployment is fully managed by GitHub actions and Pulumi and the entire workflow defined in [this](.github/workflows/test_and_deploy.yml) YAML file.
 
 We have defined three development stages / stacks:
 - __TEST__: this is the Work in Progress (WIP) deployment stage. Will often be broken. Deployment can be triggered to TEST using the [workflow_dispatch](https://github.blog/changelog/2020-07-06-github-actions-manual-triggers-with-workflow_dispatch/) from any branch.
@@ -244,9 +244,9 @@ As an example, to place a request to the cloud run orchestrator, using `httpx` y
 import httpx
 URL = "https://cerulean-cloud-test-cloud-run-orchestrator-5qkjkyomta-ew.a.run.app"
 API_KEY= "SOME_API_KEY"
-orchestrator_result = httpx.post(URL+"/orchestrate", 
-                                json={"sceneid": "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"}, 
-                                timeout=None, 
+orchestrator_result = httpx.post(URL+"/orchestrate",
+                                json={"sceneid": "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"},
+                                timeout=None,
                                 headers={"Authorization": f"Bearer {API_KEY}"})
 ```
 
@@ -301,7 +301,7 @@ INSERT INTO slick (
 	orchestrator_run,
 	slick_class
     )
-SELECT 
+SELECT
 	slick_timestamp,
 	geometry,
   machine_confidence,
@@ -336,7 +336,7 @@ INSERT INTO slick (
 	orchestrator_run,
 	slick_class
     )
-SELECT 
+SELECT
 	slick_timestamp,
 	geometry,
   machine_confidence,
@@ -371,7 +371,7 @@ INSERT INTO slick (
 	orchestrator_run,
 	slick_class
     )
-SELECT 
+SELECT
 	MAX(slick_timestamp),
 	ST_Union(geometry::geometry),
   MIN(machine_confidence),
@@ -406,7 +406,7 @@ INSERT INTO slick (
 	orchestrator_run,
 	slick_class
     )
-SELECT 
+SELECT
 	slick_timestamp,
 	ST_Multi(ST_Subdivide(geometry::geometry)),
   machine_confidence,
@@ -443,7 +443,7 @@ INSERT INTO slick (
 	orchestrator_run,
 	slick_class
     )
-SELECT 
+SELECT
 	slick_timestamp,
 	geometry,
   machine_confidence,
