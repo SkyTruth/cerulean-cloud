@@ -18,12 +18,10 @@ from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
 
-@pytest.mark.skip
+# @pytest.mark.skip
 @pytest.mark.asyncio
-async def test_create_fixture_tile(
-    url="https://vvxmig4pha.execute-api.eu-central-1.amazonaws.com/",
-):
-    titiler_client = TitilerClient(url=url)
+async def test_create_fixture_tile(titiler_application):
+    titiler_client = TitilerClient(url=titiler_application)
     S1_ID = "S1A_IW_GRDH_1SDV_20201121T225759_20201121T225828_035353_04216C_62EA"
     tile = TMS.tile(-74.47852171444801, 36.09607988649725, 9)
     print(tile)
