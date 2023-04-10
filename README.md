@@ -229,7 +229,7 @@ If you want to look at common operations with `alembic` make sure to check out t
 - [Adding tables](alembic/versions/3c4693517ef6_add_tables.py)
 - [Adding views](alembic/versions/39277f6278f4_add_view.py)
 - [Adding records](alembic/versions/c941681a050d_add_initial_records.py)
-- [Adding columns to existing tables](alembic/versions/0a4536575154_add_simplified_eez_geom.py)
+- [Adding columns to existing tables](alembic/versions/0a4536575154_add_simplified_eez_geom.py [OUTDATED])
 - And much more!
 
 During the deployment process with GitHub Actions, migrations will be automatically run when new revisions are included in the branch/commit.
@@ -293,6 +293,17 @@ If pulumi throws funky errors at deployment, you can run in your current stack:
 ```sh
 pulumi refresh
 ```
+
+If you need to completely restart your stack, these steps have been found to work:
+'''sh
+pulumi destroy
+(use the GUI delete database)
+pulumi refresh
+pulumi state delete {URN of any sticky resources}
+pulumi refresh
+pulumi destroy
+(If there is a lock on the stack, you can delete that lock in gs://cerulean-cloud-state/cerulean-cloud-images)
+'''
 
 If you get the following error, make sure you have docker running in your machine:
 ```sh
