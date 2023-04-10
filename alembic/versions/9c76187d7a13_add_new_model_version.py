@@ -1,7 +1,7 @@
 """Add new model version
 
 Revision ID: 9c76187d7a13
-Revises: 0a4536575154
+Revises: 5e03ce584f3c
 Create Date: 2022-07-13 10:59:24.267373
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "9c76187d7a13"
-down_revision = "0a4536575154"
+down_revision = "5e03ce584f3c"
 branch_labels = None
 depends_on = None
 
