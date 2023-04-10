@@ -20,20 +20,21 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
-from tifeatures import __version__ as tifeatures_version
-from tifeatures.db import close_db_connection, connect_to_db, register_table_catalog
-from tifeatures.errors import DEFAULT_STATUS_CODES, add_exception_handlers
-from tifeatures.factory import Endpoints
-from tifeatures.middleware import CacheControlMiddleware
-from tifeatures.settings import APISettings
+from tipg import __version__ as tipg_version
+from tipg.db import close_db_connection, connect_to_db, register_collection_catalog
+from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
+from tipg.factory import Endpoints
+from tipg.middleware import CacheControlMiddleware
+from tipg.settings import APISettings, DatabaseSettings
 
 settings = APISettings()
+db_settings = DatabaseSettings()
 
 
 class PostgresSettings(pydantic.BaseSettings):
     """Postgres-specific API settings.
 
-    Note: We can't use PostgresSettings from TiFeatures because of the weird GCP DB url
+    Note: We can't use PostgresSettings from TiPG because of the weird GCP DB url
           See https://github.com/developmentseed/tifeatures/issues/32
 
     Attributes:
@@ -57,11 +58,6 @@ class PostgresSettings(pydantic.BaseSettings):
     db_max_queries: int = 50000
     db_max_inactive_conn_lifetime: float = 300
 
-    db_schemas: List[str] = ["public"]
-    db_tables: Optional[List[str]]
-
-    only_spatial_tables: bool = True
-
     class Config:
         """model config"""
 
@@ -72,7 +68,7 @@ postgres_settings = PostgresSettings()
 
 app = FastAPI(
     title=settings.name,
-    version=tifeatures_version,
+    version=tipg_version,
     openapi_url="/api",
     docs_url="/api.html",
 )
@@ -82,7 +78,7 @@ templates_location: List[Any] = [
     jinja2.FileSystemLoader("cerulean_cloud/cloud_run_tifeatures/templates/")
 ]
 # default template directory
-# templates_location.append(jinja2.PackageLoader(__package__, "templates"))
+# templates_location.append(jinja2.PackageLoader("tipg", "templates"))
 
 templates = Jinja2Templates(
     directory="",  # we need to set a dummy directory variable, see https://github.com/encode/starlette/issues/1214
@@ -112,17 +108,22 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 @app.on_event("startup")
 async def startup_event() -> None:
     """Connect to database on startup."""
-    print("using new connection")
     await connect_to_db(app, settings=postgres_settings)
     try:
-        await register_table_catalog(
+        await register_collection_catalog(
             app,
-            schemas=postgres_settings.db_schemas,
-            tables=postgres_settings.db_tables,
-            spatial=postgres_settings.only_spatial_tables,
+            schemas=db_settings.schemas,
+            exclude_schemas=db_settings.exclude_schemas,
+            tables=db_settings.tables,
+            exclude_tables=db_settings.exclude_tables,
+            function_schemas=db_settings.function_schemas,
+            exclude_function_schemas=db_settings.exclude_function_schemas,
+            functions=db_settings.functions,
+            exclude_functions=db_settings.exclude_functions,
+            spatial=db_settings.only_spatial_tables,
         )
     except:  # noqa
-        app.state.table_catalog = {}
+        app.state.collection_catalog = {}
 
 
 @app.on_event("shutdown")
@@ -134,11 +135,17 @@ async def shutdown_event() -> None:
 @app.get("/register", include_in_schema=False)
 async def register_table(request: Request):
     """Manually register tables"""
-    await register_table_catalog(
+    await register_collection_catalog(
         request.app,
-        schemas=postgres_settings.db_schemas,
-        tables=postgres_settings.db_tables,
-        spatial=postgres_settings.only_spatial_tables,
+        schemas=db_settings.schemas,
+        exclude_schemas=db_settings.exclude_schemas,
+        tables=db_settings.tables,
+        exclude_tables=db_settings.exclude_tables,
+        function_schemas=db_settings.function_schemas,
+        exclude_function_schemas=db_settings.exclude_function_schemas,
+        functions=db_settings.functions,
+        exclude_functions=db_settings.exclude_functions,
+        spatial=db_settings.only_spatial_tables,
     )
 
 

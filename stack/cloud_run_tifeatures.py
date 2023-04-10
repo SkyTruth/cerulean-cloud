@@ -26,7 +26,7 @@ default = gcp.cloudrun.Service(
                             value=sql_instance_url,
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIFEATURES_NAME", value="Cerulean OGC API"
+                            name="TIPG_NAME", value="Cerulean OGC API"
                         ),
                     ],
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
