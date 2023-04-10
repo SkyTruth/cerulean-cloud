@@ -41,21 +41,6 @@ class Eez(Base):  # noqa
         Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
-    geometry_005 = Column(
-        Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
-        Computed("st_simplify(geometry::geometry,0.05)::geography", persisted=True),
-    )
-
-
-class EezParts(Base):  # noqa
-    __tablename__ = "eez_parts"
-
-    partid = Column(BigInteger, primary_key=True)
-    geoname = Column(Text)
-    geometry = Column(
-        Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
-        nullable=False,
-    )
 
 
 class InfraDistance(Base):  # noqa

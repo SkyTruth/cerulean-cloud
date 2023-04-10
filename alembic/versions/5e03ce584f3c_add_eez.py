@@ -7,15 +7,10 @@ Create Date: 2022-07-08 11:24:31.802462
 """
 import json
 
-import geoalchemy2.functions as func
 import geojson
 import httpx
-from geoalchemy2 import Geography, Geometry
-from geoalchemy2.shape import from_shape
 from shapely import from_geojson, to_wkt
-from shapely.geometry import box
 from sqlalchemy import orm
-from sqlalchemy.sql import cast
 from sqlalchemy.sql import text as _sql_text
 
 import cerulean_cloud.database_schema as database_schema
@@ -37,7 +32,7 @@ def save_eez_to_file():
 
 
 def get_eez_from_url(
-    eez_url="https://storage.googleapis.com/ceruleanml/aux_datasets/eez_8_7_2022.json",
+    eez_url="https://storage.googleapis.com/ceruleanml/aux_datasets/EEZ_and_HighSeas_20230410.geojson",
 ):
     """Fetch previously saved file from gcp to avoid interacting with (slow) api"""
     res = geojson.FeatureCollection(**httpx.get(eez_url).json())
@@ -49,7 +44,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 
-    eez = get_eez_from_url()  # geojson.load(open("eez_8_7_2022.json"))
+    eez = get_eez_from_url()  # geojson.load(open("EEZ_and_HighSeas_20230410.json"))
     for feat in eez.features:
         sovereign_keys = [
             k for k in list(feat["properties"].keys()) if k.startswith("sovereign")
@@ -87,31 +82,6 @@ def upgrade() -> None:
                     "geometry": region.geometry,
                 },
             )
-
-    # Add inverted EEZ (no sovereign)
-    # Too long to compute, so disabled
-    if False:
-        with session.begin():
-            outer_geom = session.query(
-                cast(
-                    func.ST_Difference(
-                        cast(
-                            from_shape(box(*[-179, -89, 179, 89])), Geometry(srid=4326)
-                        ),
-                        func.ST_Union(
-                            cast(database_schema.Eez.geometry, Geometry(srid=4326))
-                        ),
-                    ),
-                    Geography(srid=4326),
-                )
-            )
-            outer_region = database_schema.Eez(
-                mrgid=10000000,
-                geoname="International Waters",
-                sovereigns=["None"],
-                geometry=outer_geom,
-            )
-            session.add(outer_region)
 
 
 def downgrade() -> None:
