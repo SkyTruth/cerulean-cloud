@@ -73,12 +73,12 @@ app = FastAPI(
     docs_url="/api.html",
 )
 
-# custom template directory
 templates_location: List[Any] = [
-    jinja2.FileSystemLoader("cerulean_cloud/cloud_run_tifeatures/templates/")
+    jinja2.FileSystemLoader(
+        "cerulean_cloud/cloud_run_tifeatures/templates/"
+    ),  # custom template directory
+    jinja2.PackageLoader("tipg", "templates"),  # default template directory
 ]
-# default template directory
-# templates_location.append(jinja2.PackageLoader("tipg", "templates"))
 
 templates = Jinja2Templates(
     directory="",  # we need to set a dummy directory variable, see https://github.com/encode/starlette/issues/1214
