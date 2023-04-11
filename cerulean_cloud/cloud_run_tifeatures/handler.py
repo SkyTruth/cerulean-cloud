@@ -21,7 +21,7 @@ from starlette.requests import Request
 from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 from tipg import __version__ as tipg_version
-from tipg.db import close_db_connection, connect_to_db, register_collection_catalog
+from tipg.db import connect_to_db, register_collection_catalog
 from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
 from tipg.middleware import CacheControlMiddleware
@@ -108,8 +108,10 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 @app.on_event("startup")
 async def startup_event() -> None:
     """Connect to database on startup."""
-    await connect_to_db(app, settings=postgres_settings)
     try:
+        await connect_to_db(app, settings=postgres_settings)
+        assert getattr(app.state, "pool", None)
+
         await register_collection_catalog(
             app,
             schemas=db_settings.schemas,
@@ -129,12 +131,17 @@ async def startup_event() -> None:
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     """Close database connection."""
-    await close_db_connection(app)
+    if getattr(app.state, "pool", None):
+        await app.state.pool.close()
 
 
 @app.get("/register", include_in_schema=False)
 async def register_table(request: Request):
     """Manually register tables"""
+    if not getattr(request.app.state, "pool", None):
+        await connect_to_db(request.app, settings=postgres_settings)
+
+    assert getattr(request.app.state, "pool", None)
     await register_collection_catalog(
         request.app,
         schemas=db_settings.schemas,
