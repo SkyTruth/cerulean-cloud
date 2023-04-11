@@ -47,7 +47,7 @@ def upgrade() -> None:
     eez = get_eez_from_url()  # geojson.load(open("EEZ_and_HighSeas_20230410.json"))
     for feat in eez.features:
         sovereign_keys = [
-            k for k in list(feat["properties"].keys()) if k.startswith("sovereign")
+            k for k in list(feat["properties"].keys()) if k.startswith("SOVEREIGN")
         ]
         sovereigns = [
             feat["properties"][k]
@@ -56,8 +56,8 @@ def upgrade() -> None:
         ]
         with session.begin():
             region = database_schema.Eez(
-                mrgid=feat["properties"]["mrgid"],
-                geoname=feat["properties"]["geoname"],
+                mrgid=feat["properties"]["MRGID"],
+                geoname=feat["properties"]["GEONAME"],
                 sovereigns=sovereigns,
                 geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
             )
