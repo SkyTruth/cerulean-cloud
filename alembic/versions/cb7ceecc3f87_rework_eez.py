@@ -24,7 +24,7 @@ def upgrade() -> None:
         CREATE OR REPLACE FUNCTION map_slick_to_eez(slick_id bigint, g geography)
         RETURNS void AS $$
         BEGIN
-            INSERT INTO slick_to_eez (slick, mrgid)
+            INSERT INTO slick_to_eez (slick, eez)
             SELECT DISTINCT slick_id, e.mrgid FROM eez e
             WHERE ST_Intersects(e.geometry, g);
         END;
