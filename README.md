@@ -312,6 +312,17 @@ Exception: invoke of docker:index/getRegistryImage:getRegistryImage failed: invo
     error: an unhandled error occurred: Program exited with non-zero exit code: 1
 ```
 
+If you want to run tests on the database migrations locally, you can do the following steps:
+1) Launch Docker on your machine
+2) Run 'docker-compose up --build' in the folder where the alembic.ini is
+3) Run 'DB_URL=postgresql://user:password@localhost:5432/db alembic upgrade head' (or downgrade base) in the folder where the alembic.ini is
+4) To connect with pgAdmin, add a new server with these properties:
+ - Name: local
+ - Host name: localhost
+ - Port: 5432
+ - Username: user
+ - Password: password
+
 ## Human in the loop (HITL) workflows using SQL
 
 In general the HITL process is as follows in all cases:
