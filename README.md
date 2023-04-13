@@ -172,6 +172,16 @@ This process is run on push on any open PRs, and you'll be able to see the outpu
 pulumi up
 ```
 
+#### Destroy and rebuild
+pulumi destroy
+Use GUI to delete the database
+pulumi refresh
+pulumi state delete <URN of IAM if sticky>
+pulumi refresh
+pulumi destroy
+test and deploy
+If there is a lock on the stack, you can delete that lock in gs://cerulean-cloud-state/cerulean-cloud-images
+
 ## Database
 
 ### Connecting
@@ -255,6 +265,28 @@ The services deployed by cerulean-cloud that DO NOT require this API key are:
 - Historical run Cloud Function
 - Scene relevancy Cloud Function
 
+
+## Adding a new Pulumi Stack
+Don't forget to edit the following places:
+- historical_run.py (add the stack name to stage options)
+- TODO add other places/steps
+- create a new git branch with the same name
+- copy changes in Git hash 7f1dcda and b55e6c7 (but use more modern yamls as base), commit and push
+- if commit fails due to pre-commit, review files and accept changes, retry
+- go to Git Actions, and manually run Test and Deploy on the new branch (takes about 25 minutes)
+
+## Updating the trained model
+If you are going to deploy a new scripted model, first save it as a tracing model using the function "save_icevision_model_state_dict_and_tracing" in the cerulean-ml repo.
+Then, upload the experiment folder and contents to the GCP `ceruleanml` bucket.
+Update the value of the Pulumi pamater `cerulean-cloud-images:weigths_name` found in your local version of 
+`cerulean-cloud/images/stack_config/Pulumi.STACK_NAME_OF_INTEREST.yaml` to match the experiment naming you just uploaded. 
+--- You must then push these changes to the git repo. ---
+Finally, do the following stsps:
+1. Go to `https://github.com/SkyTruth/cerulean-cloud/actions` 
+2. Then click "Test and Deploy"
+3. Click on "Run Workflow" and choose either the local branch you are working on
+4. Click "Run Workflow" to kick off the model upload
+
 ## Troubleshooting
 
 If pulumi throws funky errors at deployment, you can run in your current stack:
@@ -262,12 +294,34 @@ If pulumi throws funky errors at deployment, you can run in your current stack:
 pulumi refresh
 ```
 
+If you need to completely restart your stack, these steps have been found to work:
+'''sh
+pulumi destroy
+(use the GUI delete database)
+pulumi refresh
+pulumi state delete {URN of any sticky resources}
+pulumi refresh
+pulumi destroy
+(If there is a lock on the stack, you can delete that lock in gs://cerulean-cloud-state/cerulean-cloud-images)
+'''
+
 If you get the following error, make sure you have docker running in your machine:
 ```sh
 Exception: invoke of docker:index/getRegistryImage:getRegistryImage failed: invocation of docker:index/getRegistryImage:getRegistryImage returned an error: 1 error occurred:
         * Error pinging Docker server: Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?
     error: an unhandled error occurred: Program exited with non-zero exit code: 1
 ```
+
+If you want to run tests on the database migrations locally, you can do the following steps:
+1. Launch Docker on your machine
+2. Run 'docker-compose up --build' in the folder where the alembic.ini is
+3. Run 'DB_URL=postgresql://user:password@localhost:5432/db alembic upgrade head' (or downgrade base) in the folder where the alembic.ini is
+4. To connect with pgAdmin, add a new server with these properties:
+ - Name: local
+ - Host name: localhost
+ - Port: 5432
+ - Username: user
+ - Password: password
 
 ## Human in the loop (HITL) workflows using SQL
 
