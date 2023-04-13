@@ -30,11 +30,10 @@ metadata = Base.metadata
 class Eez(Base):  # noqa
     __tablename__ = "eez"
 
-    id = Column(
-        BigInteger,
+    mrgid = Column(
+        Integer,
         primary_key=True,
     )
-    mrgid = Column(Integer)
     geoname = Column(Text)
     sovereigns = Column(ARRAY(Text()))
     geometry = Column(

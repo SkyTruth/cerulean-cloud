@@ -110,8 +110,7 @@ def upgrade() -> None:
 
     op.create_table(
         "eez",
-        sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("mrgid", sa.Integer),
+        sa.Column("mrgid", sa.Integer, primary_key=True),
         sa.Column("geoname", sa.Text),
         sa.Column("sovereigns", ARRAY(sa.Text)),
         sa.Column("geometry", Geography("MULTIPOLYGON"), nullable=False),
@@ -203,10 +202,18 @@ def upgrade() -> None:
         sa.Column("machine_confidence", sa.Float),
     )
 
+    op.create_table(
+        "slick_to_eez",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
+        sa.Column("eez", sa.BigInteger, sa.ForeignKey("eez.mrgid"), nullable=False),
+    )
+
 
 def downgrade() -> None:
     """drop tables"""
     op.drop_table("slick_to_slick_source")
+    op.drop_table("slick_to_eez")
     op.drop_table("slick")
     op.drop_table("slick_class")
     op.drop_table("orchestrator_run")

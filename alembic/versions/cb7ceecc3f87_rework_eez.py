@@ -5,10 +5,7 @@ Revises: 9c76187d7a13
 Create Date: 2022-08-01 16:18:55.163046
 
 """
-import sqlalchemy as sa
-from alembic_utils.pg_function import PGFunction
 from alembic_utils.pg_view import PGView
-from sqlalchemy.types import ARRAY
 
 from alembic import op
 
@@ -22,25 +19,38 @@ depends_on = None
 def upgrade() -> None:
     """rework eez"""
 
-    eezs = PGFunction(
-        schema="public",
-        signature="eezs(g geography)",
-        definition="""
-        RETURNS integer[] AS $$
-        SELECT array_agg(distinct mrgid) FROM eez
-        WHERE ST_Intersects(geometry, g);
-        $$ LANGUAGE SQL IMMUTABLE;
-        """,
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION map_slick_to_eez(slick_id bigint, g geography)
+        RETURNS void AS $$
+        BEGIN
+            INSERT INTO slick_to_eez (slick, eez)
+            SELECT DISTINCT slick_id, e.mrgid FROM eez e
+            WHERE ST_Intersects(e.geometry, g);
+        END;
+        $$ LANGUAGE plpgsql;
+        """
     )
-    op.create_entity(eezs)
 
-    op.add_column(
-        "slick",
-        sa.Column(
-            "mrgids",
-            ARRAY(sa.Integer),
-            sa.Computed("eezs(geometry)"),
-        ),
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION map_slick_to_eez_inter()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            PERFORM map_slick_to_eez(NEW.id, NEW.geometry);
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+    """
+    )
+
+    op.execute(
+        """
+        CREATE TRIGGER map_slick_to_eez_trigger
+        AFTER INSERT ON slick
+        FOR EACH ROW
+        EXECUTE FUNCTION map_slick_to_eez_inter();
+    """
     )
 
     slick_with_source = PGView(
@@ -68,14 +78,21 @@ def upgrade() -> None:
 def downgrade() -> None:
     """rework eez"""
 
-    eezs = PGFunction(
-        schema="public",
-        signature="eezs(g geography)",
-        definition="// not needed",
+    op.execute(
+        """
+        DROP TRIGGER IF EXISTS map_slick_to_eez_trigger ON slick;
+        """
     )
-    op.drop_entity(eezs)
-
-    op.drop_column("slick", "eezs")
+    op.execute(
+        """
+        DROP FUNCTION IF EXISTS map_slick_to_eez_inter();
+        """
+    )
+    op.execute(
+        """
+        DROP FUNCTION IF EXISTS map_slick_to_eez(bigint, geography);
+        """
+    )
 
     slick_with_source = PGView(
         schema="public",

@@ -122,7 +122,7 @@ async def startup_event() -> None:
             exclude_function_schemas=db_settings.exclude_function_schemas,
             functions=db_settings.functions,
             exclude_functions=db_settings.exclude_functions,
-            spatial=db_settings.only_spatial_tables,
+            spatial=False,  # False means allow non-spatial tables
         )
     except:  # noqa
         app.state.collection_catalog = {}
@@ -152,7 +152,7 @@ async def register_table(request: Request):
         exclude_function_schemas=db_settings.exclude_function_schemas,
         functions=db_settings.functions,
         exclude_functions=db_settings.exclude_functions,
-        spatial=db_settings.only_spatial_tables,
+        spatial=False,  # False means allow non-spatial tables
     )
 
 
