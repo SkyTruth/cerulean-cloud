@@ -6,8 +6,10 @@ sqlacodegen $DB_URL --noviews --noindexes --noinflect > cerulean_cloud/database_
 from geoalchemy2.types import Geography
 from sqlalchemy import (
     ARRAY,
+    JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     Computed,
     DateTime,
@@ -23,16 +25,20 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
+# Base = declarative_base()
 Base: DeclarativeMeta = declarative_base()
 metadata = Base.metadata
 
 
-class Eez(Base):  # noqa
+class Eez(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "eez"
 
     mrgid = Column(
         Integer,
         primary_key=True,
+        server_default=text("nextval('eez_mrgid_seq'::regclass)"),
     )
     geoname = Column(Text)
     sovereigns = Column(ARRAY(Text()))
@@ -42,18 +48,21 @@ class Eez(Base):  # noqa
     )
 
 
-class InfraDistance(Base):  # noqa
+class InfraDistance(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "infra_distance"
 
     id = Column(
         Integer,
         primary_key=True,
+        server_default=text("nextval('infra_distance_id_seq'::regclass)"),
     )
     name = Column(String(200), nullable=False)
     source = Column(Text, nullable=False)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    meta = Column(JSONB)
+    meta = Column(JSONB(astext_type=Text()))
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
@@ -61,12 +70,15 @@ class InfraDistance(Base):  # noqa
     url = Column(Text, nullable=False)
 
 
-class Model(Base):  # noqa
+class Model(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "model"
 
     id = Column(
         Integer,
         primary_key=True,
+        server_default=text("nextval('model_id_seq'::regclass)"),
     )
     name = Column(String(200), nullable=False)
     thresholds = Column(Integer)
@@ -78,12 +90,15 @@ class Model(Base):  # noqa
     updated_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
 
-class Sentinel1Grd(Base):  # noqa
+class Sentinel1Grd(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "sentinel1_grd"
 
     id = Column(
         BigInteger,
         primary_key=True,
+        server_default=text("nextval('sentinel1_grd_id_seq'::regclass)"),
     )
     scene_id = Column(String(200), nullable=False, unique=True)
     absolute_orbit_number = Column(Integer)
@@ -92,7 +107,7 @@ class Sentinel1Grd(Base):  # noqa
     scihub_ingestion_time = Column(DateTime)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    meta = Column(JSONB)
+    meta = Column(JSONB(astext_type=Text()))
     url = Column(Text, nullable=False)
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
@@ -100,10 +115,16 @@ class Sentinel1Grd(Base):  # noqa
     )
 
 
-class SlickClass(Base):  # noqa
+class SlickClass(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "slick_class"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        server_default=text("nextval('slick_class_id_seq'::regclass)"),
+    )
     value = Column(Integer)
     name = Column(String(200))
     notes = Column(Text)
@@ -112,24 +133,45 @@ class SlickClass(Base):  # noqa
     active = Column(Boolean, nullable=False)
 
 
-class SlickSource(Base):  # noqa
-    __tablename__ = "slick_source"
+class SourceClass(Base):
+    """This is a dummy docstring."""
 
-    id = Column(BigInteger, primary_key=True)
-    name = Column(String(200))
-    notes = Column(Text)
-    slick_source = Column(ARRAY(BigInteger()))
-    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
-    active = Column(Boolean, nullable=False)
-    geometry = Column(
-        Geography(srid=4326, from_text="ST_GeogFromText", name="geography")
+    __tablename__ = "source_class"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('source_class_id_seq'::regclass)"),
     )
+    type = Column(String(200))
+    parent = Column(ForeignKey("source_class.id"))
+
+    parent1 = relationship("SourceClass", remote_side=[id])
 
 
-class Trigger(Base):  # noqa
+class SpatialRefSys(Base):
+    """This is a dummy docstring."""
+
+    __tablename__ = "spatial_ref_sys"
+    __table_args__ = (CheckConstraint("(srid > 0) AND (srid <= 998999)"),)
+
+    srid = Column(Integer, primary_key=True)
+    auth_name = Column(String(256))
+    auth_srid = Column(Integer)
+    srtext = Column(String(2048))
+    proj4text = Column(String(2048))
+
+
+class Trigger(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "trigger"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('trigger_id_seq'::regclass)"),
+    )
     trigger_time = Column(DateTime, nullable=False, server_default=text("now()"))
     scene_count = Column(Integer)
     filtered_scene_count = Column(Integer)
@@ -137,34 +179,46 @@ class Trigger(Base):  # noqa
     trigger_type = Column(String(200), nullable=False)
 
 
-class VesselDensity(Base):  # noqa
+class VesselDensity(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "vessel_density"
 
-    id = Column(Integer, primary_key=True)
+    id = Column(
+        Integer,
+        primary_key=True,
+        server_default=text("nextval('vessel_density_id_seq'::regclass)"),
+    )
     name = Column(String(200), nullable=False)
     source = Column(Text, nullable=False)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    meta = Column(JSONB)
+    meta = Column(JSONB(astext_type=Text()))
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
 
 
-class OrchestratorRun(Base):  # noqa
+class OrchestratorRun(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "orchestrator_run"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('orchestrator_run_id_seq'::regclass)"),
+    )
     inference_start_time = Column(DateTime, nullable=False)
     inference_end_time = Column(DateTime, nullable=False)
     base_tiles = Column(Integer)
     offset_tiles = Column(Integer)
     git_hash = Column(Text)
     git_tag = Column(String(200))
-    success = Column(Boolean)
     zoom = Column(Integer)
     scale = Column(Integer)
+    success = Column(Boolean)
     inference_run_logs = Column(Text, nullable=False)
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
@@ -183,10 +237,34 @@ class OrchestratorRun(Base):  # noqa
     vessel_density1 = relationship("VesselDensity")
 
 
-class Slick(Base):  # noqa
+class SlickSource(Base):
+    """This is a dummy docstring."""
+
+    __tablename__ = "slick_source"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('slick_source_id_seq'::regclass)"),
+    )
+    name = Column(String(200))
+    source_class = Column(ForeignKey("source_class.id"), nullable=False)
+    reference = Column(Text)
+    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
+
+    source_class1 = relationship("SourceClass")
+
+
+class Slick(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "slick"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('slick_id_seq'::regclass)"),
+    )
     slick_timestamp = Column(DateTime, nullable=False)
     geometry = Column(
         Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
@@ -219,7 +297,7 @@ class Slick(Base):  # noqa
     validated = Column(Boolean, nullable=False)
     slick = Column(ARRAY(BigInteger()))
     notes = Column(Text)
-    meta = Column(JSONB)
+    meta = Column(JSONB(astext_type=Text()))
     orchestrator_run = Column(ForeignKey("orchestrator_run.id"), nullable=False)
     slick_class = Column(ForeignKey("slick_class.id"), nullable=False)
 
@@ -227,14 +305,44 @@ class Slick(Base):  # noqa
     slick_class1 = relationship("SlickClass")
 
 
-class SlickToSlickSource(Base):  # noqa
+class SlickToEez(Base):
+    """This is a dummy docstring."""
+
+    __tablename__ = "slick_to_eez"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('slick_to_eez_id_seq'::regclass)"),
+    )
+    slick = Column(ForeignKey("slick.id"), nullable=False)
+    eez = Column(ForeignKey("eez.mrgid"), nullable=False)
+
+    eez1 = relationship("Eez")
+    slick1 = relationship("Slick")
+
+
+class SlickToSlickSource(Base):
+    """This is a dummy docstring."""
+
     __tablename__ = "slick_to_slick_source"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('slick_to_slick_source_id_seq'::regclass)"),
+    )
     slick = Column(ForeignKey("slick.id"), nullable=False)
     slick_source = Column(ForeignKey("slick_source.id"), nullable=False)
-    human_confidence = Column(Float(53))
     machine_confidence = Column(Float(53))
+    rank = Column(BigInteger)
+    hitl_coincident = Column(Boolean)
+    geojson_fc = Column(JSON, nullable=False)
+    geometry = Column(
+        Geography("LINESTRING", 4326, from_text="ST_GeogFromText", name="geography"),
+        nullable=False,
+    )
+    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
     slick1 = relationship("Slick")
     slick_source1 = relationship("SlickSource")
