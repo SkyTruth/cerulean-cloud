@@ -57,13 +57,12 @@ def upgrade() -> None:
         schema="public",
         signature="slick_with_source",
         definition="""
-    SELECT slick.*, slick_source.slick_source, slick_source.slick_source_human_confidence FROM slick
+    SELECT slick.*, slick_source.slick_source FROM slick
     LEFT JOIN (
         SELECT slick_to_slick_source_slick_source.slick,
-                array_agg(slick_to_slick_source_slick_source.name) AS slick_source,
-                array_agg(slick_to_slick_source_slick_source.human_confidence) AS slick_source_human_confidence
+                array_agg(slick_to_slick_source_slick_source.name) AS slick_source
         FROM (
-            SELECT slick_to_slick_source.slick, slick_source.name, slick_to_slick_source.human_confidence
+            SELECT slick_to_slick_source.slick, slick_source.name
             FROM slick_to_slick_source
             INNER JOIN slick_source
             ON slick_source.id = slick_to_slick_source.slick_source

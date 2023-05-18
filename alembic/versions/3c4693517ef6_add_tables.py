@@ -130,16 +130,28 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "source_class",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("type", sa.String(200)),
+        sa.Column(
+            "parent", sa.BigInteger, sa.ForeignKey("source_class.id"), nullable=True
+        ),
+    )
+
+    op.create_table(
         "slick_source",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("name", sa.String(200)),
-        sa.Column("notes", sa.Text),
-        sa.Column("slick_source", ARRAY(sa.BigInteger)),
+        sa.Column(
+            "source_class",
+            sa.BigInteger,
+            sa.ForeignKey("source_class.id"),
+            nullable=False,
+        ),
+        sa.Column("reference", sa.Text),
         sa.Column(
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
-        sa.Column("active", sa.Boolean, nullable=False),
-        sa.Column("geometry", Geography("geometry")),
     )
 
     op.create_table(
@@ -198,8 +210,14 @@ def upgrade() -> None:
             sa.ForeignKey("slick_source.id"),
             nullable=False,
         ),
-        sa.Column("human_confidence", sa.Float),
         sa.Column("machine_confidence", sa.Float),
+        sa.Column("rank", sa.BigInteger),
+        sa.Column("hitl_coincident", sa.Boolean),
+        sa.Column("geojson_fc", sa.JSON, nullable=False),
+        sa.Column("geometry", Geography("LINESTRING"), nullable=False),
+        sa.Column(
+            "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
+        ),
     )
 
     op.create_table(
@@ -219,6 +237,7 @@ def downgrade() -> None:
     op.drop_table("orchestrator_run")
     op.drop_table("eez")
     op.drop_table("slick_source")
+    op.drop_table("source_class")
     op.drop_table("trigger")
     op.drop_table("model")
     op.drop_table("sentinel1_grd")

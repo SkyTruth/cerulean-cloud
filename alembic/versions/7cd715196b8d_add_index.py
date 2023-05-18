@@ -40,7 +40,7 @@ def upgrade() -> None:
     op.create_index("idx_slick_class_name", "slick_class", ["name", "active"])
     op.create_index("idx_slick_class_slick_class", "slick_class", ["slick_class"])
 
-    op.create_index("idx_slick_source_name", "slick_source", ["name", "active"])
+    op.create_index("idx_slick_source_name", "slick_source", ["name", "source_class"])
 
     op.create_index(
         "idx_slick_confidence", "slick", ["machine_confidence", "human_confidence"]
