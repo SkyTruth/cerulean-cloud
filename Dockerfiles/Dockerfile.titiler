@@ -6,7 +6,7 @@ WORKDIR /tmp
 
 COPY cerulean_cloud/titiler_sentinel/ /app/titiler_sentinel/
 
-RUN pip install pip==23.0.1 && -r /app/titiler_sentinel/requirements.txt -t /var/task --no-binary numpy,pydantic
+RUN pip install -r /app/titiler_sentinel/requirements.txt -t /var/task --no-binary numpy,pydantic
 
 # Reduce package size and remove useless files
 RUN cd /var/task && find . -type f -name '*.pyc' | while read f; do n=$(echo $f | sed 's/__pycache__\///' | sed 's/.cpython-[2-3][0-9]//'); cp $f $n; done;
