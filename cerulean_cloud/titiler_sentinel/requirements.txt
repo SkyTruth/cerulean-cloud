@@ -1,4 +1,4 @@
-rio-tiler==2.0.0rc2
+pip==23.0.1
 titiler.core==0.5.1
 rio-tiler-pds==0.6.0
 starlette-cramjam==0.1.0
