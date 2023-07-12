@@ -3,4 +3,4 @@ rio-tiler-pds==0.6.0
 starlette-cramjam==0.1.0
 mangum>=0.10
 fastapi>=0.73.0,<0.93
-pydantic~=1.0
+rio-tiler==3.1
