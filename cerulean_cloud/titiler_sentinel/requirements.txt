@@ -1,5 +1,5 @@
 titiler.core==0.5.1
-rio-tiler-pds==0.8.0
+rio-tiler-pds==0.7.0
 starlette-cramjam==0.1.0
 mangum>=0.10
 fastapi>=0.73.0,<0.93
