@@ -1,4 +1,3 @@
-pydantic~=1.0
 fastapi
 starlette-cramjam==0.1.0
 uvicorn
@@ -9,7 +8,7 @@ morecantile
 rasterio
 supermercado
 numpy
-rio-tiler
+rio-tiler~=4.0
 rio-tiler-pds
 geojson
 SQLAlchemy[asyncio]
