@@ -1,3 +1,4 @@
+pydantic~=1.0
 fastapi
 starlette-cramjam==0.1.0
 uvicorn
