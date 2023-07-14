@@ -109,14 +109,6 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "eez",
-        sa.Column("mrgid", sa.Integer, primary_key=True),
-        sa.Column("geoname", sa.Text),
-        sa.Column("sovereigns", ARRAY(sa.Text)),
-        sa.Column("geometry", Geography("MULTIPOLYGON"), nullable=False),
-    )
-
-    op.create_table(
         "slick_class",
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("value", sa.Integer),
@@ -127,19 +119,6 @@ def upgrade() -> None:
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
         sa.Column("active", sa.Boolean, nullable=False),
-    )
-
-    op.create_table(
-        "slick_source",
-        sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("name", sa.String(200)),
-        sa.Column("notes", sa.Text),
-        sa.Column("slick_source", ARRAY(sa.BigInteger)),
-        sa.Column(
-            "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
-        ),
-        sa.Column("active", sa.Boolean, nullable=False),
-        sa.Column("geometry", Geography("geometry")),
     )
 
     op.create_table(
@@ -189,6 +168,83 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "user",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("email", sa.Text, nullable=False, unique=True),
+        sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
+    )
+
+    op.create_table(
+        "aoi_type",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("table_name", sa.Text, nullable=False),
+        sa.Column("long_name", sa.Text),
+        sa.Column("short_name", sa.Text),
+        sa.Column("source_url", sa.Text),
+        sa.Column("citation", sa.Text),
+        sa.Column("update_time", sa.DateTime, server_default=sa.func.now()),
+    )
+
+    op.create_table(
+        "aoi",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("type", sa.BigInteger, sa.ForeignKey("aoi_type.id"), nullable=False),
+        sa.Column("name", sa.Text, nullable=False),
+        sa.Column("geometry", Geography("MULTIPOLYGON"), nullable=False),
+    )
+
+    op.create_table(
+        "aoi_eez",
+        sa.Column("aoi_id", sa.BigInteger, sa.ForeignKey("aoi.id"), primary_key=True),
+        sa.Column("mrgid", sa.Integer),
+        sa.Column("sovereigns", ARRAY(sa.Text)),
+    )
+
+    op.create_table(
+        "aoi_iho",
+        sa.Column("aoi_id", sa.BigInteger, sa.ForeignKey("aoi.id"), primary_key=True),
+        sa.Column("mrgid", sa.Integer),
+    )
+
+    op.create_table(
+        "aoi_mpa",
+        sa.Column("aoi_id", sa.BigInteger, sa.ForeignKey("aoi.id"), primary_key=True),
+        sa.Column("wdpaid", sa.Integer),
+        sa.Column("desig", sa.Text),
+        sa.Column("desig_type", sa.Text),
+        sa.Column("status_yr", sa.Integer),
+        sa.Column("mang_auth", sa.Text),
+        sa.Column("parent_iso", sa.Text),
+    )
+
+    op.create_table(
+        "aoi_user",
+        sa.Column("aoi_id", sa.BigInteger, sa.ForeignKey("aoi.id"), primary_key=True),
+        sa.Column("user", sa.BigInteger, sa.ForeignKey("user.id")),
+        sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
+    )
+
+    op.create_table(
+        "slick_to_aoi",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
+        sa.Column("aoi", sa.BigInteger, sa.ForeignKey("aoi.id"), nullable=False),
+    )
+
+    op.create_table(
+        "slick_source",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("name", sa.String(200)),
+        sa.Column("notes", sa.Text),
+        sa.Column("slick_source", ARRAY(sa.BigInteger)),
+        sa.Column(
+            "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column("active", sa.Boolean, nullable=False),
+        sa.Column("geometry", Geography("geometry")),
+    )
+
+    op.create_table(
         "slick_to_slick_source",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
@@ -202,23 +258,22 @@ def upgrade() -> None:
         sa.Column("machine_confidence", sa.Float),
     )
 
-    op.create_table(
-        "slick_to_eez",
-        sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
-        sa.Column("eez", sa.BigInteger, sa.ForeignKey("eez.mrgid"), nullable=False),
-    )
-
 
 def downgrade() -> None:
     """drop tables"""
     op.drop_table("slick_to_slick_source")
-    op.drop_table("slick_to_eez")
+    op.drop_table("slick_source")
+    op.drop_table("slick_to_aoi")
+    op.drop_table("aoi_user")
+    op.drop_table("aoi_mpa")
+    op.drop_table("aoi_iho")
+    op.drop_table("aoi_eez")
+    op.drop_table("aoi")
+    op.drop_table("aoi_type")
+    op.drop_table("user")
     op.drop_table("slick")
     op.drop_table("slick_class")
     op.drop_table("orchestrator_run")
-    op.drop_table("eez")
-    op.drop_table("slick_source")
     op.drop_table("trigger")
     op.drop_table("model")
     op.drop_table("sentinel1_grd")
