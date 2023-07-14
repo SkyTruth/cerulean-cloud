@@ -255,9 +255,14 @@ import httpx
 URL = "https://cerulean-cloud-test-cloud-run-orchestrator-5qkjkyomta-ew.a.run.app"
 API_KEY= "SOME_API_KEY"
 orchestrator_result = httpx.post(URL+"/orchestrate",
-                                json={"sceneid": "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"},
+                                json={"sceneid": "S1A_IW_GRDH_1SDV_20210523T005625_20210523T005651_038008_047C68_FE94"},
                                 timeout=None,
                                 headers={"Authorization": f"Bearer {API_KEY}"})
+```
+
+Historical run example:
+```sh
+python scripts/historical_run.py --stage jona eodag --date-start 2023-01-01 --date-end 2023-01-02 --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson
 ```
 
 The services deployed by cerulean-cloud that DO NOT require this API key are:
