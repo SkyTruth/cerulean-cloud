@@ -11,7 +11,7 @@ numpy
 rio-tiler~=4.0
 rio-tiler-pds
 geojson
-SQLAlchemy[asyncio]
+SQLAlchemy[asyncio]==2.0.17
 GeoAlchemy2
 shapely==2.0.1
 asyncpg
