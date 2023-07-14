@@ -1,10 +1,15 @@
 """"
-Generated with
-sqlacodegen $DB_URL --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
-and #noqa on every class
-from sqlalchemy.orm.decl_api import DeclarativeMeta
-Base: DeclarativeMeta = declarative_base()
-metadata = Base.metadata
+1. Copy this comment
+2. Run:
+    sqlacodegen $DB_URL --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
+3. Add to every class:
+    #noqa
+4. Add:
+    from sqlalchemy.orm.decl_api import DeclarativeMeta
+5. Replace this definition:
+    Base: DeclarativeMeta = declarative_base()
+    metadata = Base.metadata
+6. Paste this comment
 """
 from geoalchemy2.types import Geography
 
