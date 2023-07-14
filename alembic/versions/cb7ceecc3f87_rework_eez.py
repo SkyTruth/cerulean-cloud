@@ -21,12 +21,12 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE OR REPLACE FUNCTION map_slick_to_eez(slick_id bigint, g geography)
+        CREATE OR REPLACE FUNCTION map_slick_to_aoi(slick_id bigint, g geography)
         RETURNS void AS $$
         BEGIN
-            INSERT INTO slick_to_eez (slick, eez)
-            SELECT DISTINCT slick_id, e.mrgid FROM eez e
-            WHERE ST_Intersects(e.geometry, g);
+            INSERT INTO slick_to_aoi (slick, aoi)
+            SELECT DISTINCT slick_id, aoi.id FROM aoi
+            WHERE ST_Intersects(aoi.geometry, g);
         END;
         $$ LANGUAGE plpgsql;
         """
@@ -34,10 +34,10 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE OR REPLACE FUNCTION map_slick_to_eez_inter()
+        CREATE OR REPLACE FUNCTION map_slick_to_aoi_inter()
         RETURNS TRIGGER AS $$
         BEGIN
-            PERFORM map_slick_to_eez(NEW.id, NEW.geometry);
+            PERFORM map_slick_to_aoi(NEW.id, NEW.geometry);
             RETURN NEW;
         END;
         $$ LANGUAGE plpgsql;
@@ -46,10 +46,10 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TRIGGER map_slick_to_eez_trigger
+        CREATE TRIGGER map_slick_to_aoi_trigger
         AFTER INSERT ON slick
         FOR EACH ROW
-        EXECUTE FUNCTION map_slick_to_eez_inter();
+        EXECUTE FUNCTION map_slick_to_aoi_inter();
     """
     )
 
@@ -80,17 +80,17 @@ def downgrade() -> None:
 
     op.execute(
         """
-        DROP TRIGGER IF EXISTS map_slick_to_eez_trigger ON slick;
+        DROP TRIGGER IF EXISTS map_slick_to_aoi_trigger ON slick;
         """
     )
     op.execute(
         """
-        DROP FUNCTION IF EXISTS map_slick_to_eez_inter();
+        DROP FUNCTION IF EXISTS map_slick_to_aoi_inter();
         """
     )
     op.execute(
         """
-        DROP FUNCTION IF EXISTS map_slick_to_eez(bigint, geography);
+        DROP FUNCTION IF EXISTS map_slick_to_aoi(bigint, geography);
         """
     )
 
