@@ -1,9 +1,19 @@
 """"
-Generated with
-sqlacodegen $DB_URL --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
-
+1. Copy this comment
+2. Run:
+    sqlacodegen $DB_URL --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
+3. Add to every class:
+    #noqa
+4. Add:
+    from sqlalchemy.orm.decl_api import DeclarativeMeta
+5. Replace this definition:
+    Base: DeclarativeMeta = declarative_base()
+    metadata = Base.metadata
+6. Paste this comment
 """
 from geoalchemy2.types import Geography
+
+# coding: utf-8
 from sqlalchemy import (
     ARRAY,
     JSON,
@@ -30,22 +40,20 @@ Base: DeclarativeMeta = declarative_base()
 metadata = Base.metadata
 
 
-class Eez(Base):
-    """This is a dummy docstring."""
+class AoiType(Base):  # noqa
+    __tablename__ = "aoi_type"
 
-    __tablename__ = "eez"
-
-    mrgid = Column(
-        Integer,
+    id = Column(
+        BigInteger,
         primary_key=True,
-        server_default=text("nextval('eez_mrgid_seq'::regclass)"),
+        server_default=text("nextval('aoi_type_id_seq'::regclass)"),
     )
-    geoname = Column(Text)
-    sovereigns = Column(ARRAY(Text()))
-    geometry = Column(
-        Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
-        nullable=False,
-    )
+    table_name = Column(Text, nullable=False)
+    long_name = Column(Text)
+    short_name = Column(Text)
+    source_url = Column(Text)
+    citation = Column(Text)
+    update_time = Column(DateTime, server_default=text("now()"))
 
 
 class InfraDistance(Base):
@@ -136,12 +144,18 @@ class SlickClass(Base):
 class SourceClass(Base):
     """This is a dummy docstring."""
 
-    __tablename__ = "source_class"
-
     id = Column(
         BigInteger,
         primary_key=True,
-        server_default=text("nextval('source_class_id_seq'::regclass)"),
+        server_default=text("nextval('slick_source_id_seq'::regclass)"),
+    )
+    name = Column(String(200))
+    notes = Column(Text)
+    slick_source = Column(ARRAY(BigInteger()))
+    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
+    active = Column(Boolean, nullable=False)
+    geometry = Column(
+        Geography(srid=4326, from_text="ST_GeogFromText", name="geography")
     )
     type = Column(String(200))
     parent = Column(ForeignKey("source_class.id"))
@@ -149,9 +163,7 @@ class SourceClass(Base):
     parent1 = relationship("SourceClass", remote_side=[id])
 
 
-class SpatialRefSys(Base):
-    """This is a dummy docstring."""
-
+class SpatialRefSys(Base):  # noqa
     __tablename__ = "spatial_ref_sys"
     __table_args__ = (CheckConstraint("(srid > 0) AND (srid <= 998999)"),)
 
@@ -162,9 +174,7 @@ class SpatialRefSys(Base):
     proj4text = Column(String(2048))
 
 
-class Trigger(Base):
-    """This is a dummy docstring."""
-
+class Trigger(Base):  # noqa
     __tablename__ = "trigger"
 
     id = Column(
@@ -179,9 +189,19 @@ class Trigger(Base):
     trigger_type = Column(String(200), nullable=False)
 
 
-class VesselDensity(Base):
-    """This is a dummy docstring."""
+class User(Base):  # noqa
+    __tablename__ = "user"
 
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('user_id_seq'::regclass)"),
+    )
+    email = Column(Text, nullable=False, unique=True)
+    create_time = Column(DateTime, server_default=text("now()"))
+
+
+class VesselDensity(Base):  # noqa
     __tablename__ = "vessel_density"
 
     id = Column(
@@ -200,9 +220,62 @@ class VesselDensity(Base):
     )
 
 
-class OrchestratorRun(Base):
-    """This is a dummy docstring."""
+class Aoi(Base):  # noqa
+    __tablename__ = "aoi"
 
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('aoi_id_seq'::regclass)"),
+    )
+    type = Column(ForeignKey("aoi_type.id"), nullable=False)
+    name = Column(Text, nullable=False)
+    geometry = Column(
+        Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
+        nullable=False,
+    )
+
+    aoi_type = relationship("AoiType")
+
+
+class AoiEez(Aoi):  # noqa
+    __tablename__ = "aoi_eez"
+
+    aoi_id = Column(ForeignKey("aoi.id"), primary_key=True)
+    mrgid = Column(Integer)
+    sovereigns = Column(ARRAY(Text()))
+
+
+class AoiIho(Aoi):  # noqa
+    __tablename__ = "aoi_iho"
+
+    aoi_id = Column(ForeignKey("aoi.id"), primary_key=True)
+    mrgid = Column(Integer)
+
+
+class AoiMpa(Aoi):  # noqa
+    __tablename__ = "aoi_mpa"
+
+    aoi_id = Column(ForeignKey("aoi.id"), primary_key=True)
+    wdpaid = Column(Integer)
+    desig = Column(Text)
+    desig_type = Column(Text)
+    status_yr = Column(Integer)
+    mang_auth = Column(Text)
+    parent_iso = Column(Text)
+
+
+class AoiUser(Aoi):  # noqa
+    __tablename__ = "aoi_user"
+
+    aoi_id = Column(ForeignKey("aoi.id"), primary_key=True)
+    user = Column(ForeignKey("user.id"))
+    create_time = Column(DateTime, server_default=text("now()"))
+
+    user1 = relationship("User")
+
+
+class OrchestratorRun(Base):  # noqa
     __tablename__ = "orchestrator_run"
 
     id = Column(
@@ -305,26 +378,22 @@ class Slick(Base):
     slick_class1 = relationship("SlickClass")
 
 
-class SlickToEez(Base):
-    """This is a dummy docstring."""
-
-    __tablename__ = "slick_to_eez"
+class SlickToAoi(Base):  # noqa
+    __tablename__ = "slick_to_aoi"
 
     id = Column(
         BigInteger,
         primary_key=True,
-        server_default=text("nextval('slick_to_eez_id_seq'::regclass)"),
+        server_default=text("nextval('slick_to_aoi_id_seq'::regclass)"),
     )
     slick = Column(ForeignKey("slick.id"), nullable=False)
-    eez = Column(ForeignKey("eez.mrgid"), nullable=False)
+    aoi = Column(ForeignKey("aoi.id"), nullable=False)
 
-    eez1 = relationship("Eez")
+    aoi1 = relationship("Aoi")
     slick1 = relationship("Slick")
 
 
-class SlickToSlickSource(Base):
-    """This is a dummy docstring."""
-
+class SlickToSlickSource(Base):  # noqa
     __tablename__ = "slick_to_slick_source"
 
     id = Column(
