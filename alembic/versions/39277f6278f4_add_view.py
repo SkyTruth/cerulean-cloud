@@ -60,36 +60,9 @@ def upgrade() -> None:
     )
     op.create_entity(get_history_slick)
 
-    slick_with_source = PGView(
-        schema="public",
-        signature="slick_with_source",
-        definition="""
-    SELECT slick.*, slick_source.slick_source FROM slick
-    LEFT JOIN (
-        SELECT slick_to_slick_source_slick_source.slick,
-                array_agg(slick_to_slick_source_slick_source.name) AS slick_source
-        FROM (
-            SELECT slick_to_slick_source.slick, slick_source.name
-            FROM slick_to_slick_source
-            INNER JOIN slick_source
-            ON slick_source.id = slick_to_slick_source.slick_source
-        ) AS slick_to_slick_source_slick_source
-        GROUP BY slick_to_slick_source_slick_source.slick) AS slick_source
-    ON slick_source.slick = slick.id;
-    """,
-    )
-    op.create_entity(slick_with_source)
-
 
 def downgrade() -> None:
     """remove views"""
-    slick_with_source = PGView(
-        schema="public",
-        signature="slick_with_source",
-        definition="// not needed",
-    )
-    op.drop_entity(slick_with_source)
-
     slick_with_urls = PGView(
         schema="public", signature="slick_with_urls", definition="// not needed"
     )
