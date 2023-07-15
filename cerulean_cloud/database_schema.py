@@ -16,6 +16,7 @@ from geoalchemy2.types import Geography
 # coding: utf-8
 from sqlalchemy import (
     ARRAY,
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -131,22 +132,18 @@ class SlickClass(Base):  # noqa
     active = Column(Boolean, nullable=False)
 
 
-class SlickSource(Base):  # noqa
-    __tablename__ = "slick_source"
+class SourceType(Base):  # noqa
+    __tablename__ = "source_type"
 
     id = Column(
         BigInteger,
         primary_key=True,
-        server_default=text("nextval('slick_source_id_seq'::regclass)"),
+        server_default=text("nextval('source_type_id_seq'::regclass)"),
     )
-    name = Column(String(200))
-    notes = Column(Text)
-    slick_source = Column(ARRAY(BigInteger()))
-    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
-    active = Column(Boolean, nullable=False)
-    geometry = Column(
-        Geography(srid=4326, from_text="ST_GeogFromText", name="geography")
-    )
+    table_name = Column(Text)
+    long_name = Column(Text)
+    short_name = Column(Text)
+    citation = Column(Text)
 
 
 class SpatialRefSys(Base):  # noqa
@@ -296,6 +293,45 @@ class OrchestratorRun(Base):  # noqa
     vessel_density1 = relationship("VesselDensity")
 
 
+class Source(Base):  # noqa
+    __tablename__ = "source"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('source_id_seq'::regclass)"),
+    )
+    type = Column(ForeignKey("source_type.id"), nullable=False)
+    st_name = Column(Text, nullable=False)
+
+    source_type = relationship("SourceType")
+
+
+class SourceInfra(Source):  # noqa
+    __tablename__ = "source_infra"
+
+    source_id = Column(ForeignKey("source.id"), primary_key=True)
+    geometry = Column(
+        Geography("POINT", 4326, from_text="ST_GeogFromText", name="geography"),
+        nullable=False,
+    )
+    ext_id = Column(Text)
+    ext_name = Column(Text)
+    operator = Column(Text)
+    sovereign = Column(Text)
+    orig_yr = Column(DateTime)
+    last_known_status = Column(Text)
+
+
+class SourceVessel(Source):  # noqa
+    __tablename__ = "source_vessel"
+
+    source_id = Column(ForeignKey("source.id"), primary_key=True)
+    ext_name = Column(Text)
+    ext_shiptype = Column(Text)
+    flag = Column(Text)
+
+
 class Slick(Base):  # noqa
     __tablename__ = "slick"
 
@@ -359,18 +395,25 @@ class SlickToAoi(Base):  # noqa
     slick1 = relationship("Slick")
 
 
-class SlickToSlickSource(Base):  # noqa
-    __tablename__ = "slick_to_slick_source"
+class SlickToSource(Base):  # noqa
+    __tablename__ = "slick_to_source"
 
     id = Column(
         BigInteger,
         primary_key=True,
-        server_default=text("nextval('slick_to_slick_source_id_seq'::regclass)"),
+        server_default=text("nextval('slick_to_source_id_seq'::regclass)"),
     )
     slick = Column(ForeignKey("slick.id"), nullable=False)
-    slick_source = Column(ForeignKey("slick_source.id"), nullable=False)
-    human_confidence = Column(Float(53))
+    source = Column(ForeignKey("source.id"), nullable=False)
     machine_confidence = Column(Float(53))
+    rank = Column(BigInteger)
+    hitl_confirmed = Column(Boolean)
+    geojson_fc = Column(JSON, nullable=False)
+    geometry = Column(
+        Geography("LINESTRING", 4326, from_text="ST_GeogFromText", name="geography"),
+        nullable=False,
+    )
+    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
     slick1 = relationship("Slick")
-    slick_source1 = relationship("SlickSource")
+    source1 = relationship("Source")
