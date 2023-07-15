@@ -7,8 +7,8 @@ Create Date: 2023-07-15 01:52:45.298587
 """
 import json
 
-# import geojson
-# import httpx
+import geojson
+import httpx
 from shapely import from_geojson, to_wkt
 from sqlalchemy import orm
 
@@ -23,11 +23,10 @@ depends_on = None
 
 
 def get_mpa_from_url(
-    mpa_url="XXX TODO UPLOAD AND ADD HERE",
+    mpa_url="https://storage.googleapis.com/ceruleanml/aux_datasets/mpa_all_deleteholes_simplify_repair1.geojson",
 ):
     """Fetch previously saved file from gcp to avoid interacting with (slow) api"""
-    # res = geojson.FeatureCollection(**httpx.get(mpa_url).json())
-    res = {"features": []}
+    res = geojson.FeatureCollection(**httpx.get(mpa_url).json())
     return res
 
 
@@ -44,12 +43,12 @@ def upgrade() -> None:
                 type=3,
                 name=feat["properties"]["NAME"],
                 geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
-                wdpaid=1234,
-                desig="desig",
-                desig_type="desig_type",
-                status_yr=2023,
-                mang_auth="mang_auth",
-                parent_iso="parent_iso",
+                wdpaid=feat["properties"]["WDPAID"],
+                desig=feat["properties"]["DESIG"],
+                desig_type=feat["properties"]["DESIG_TYPE"],
+                status_yr=feat["properties"]["STATUS_YR"],
+                mang_auth=feat["properties"]["MANG_AUTH"],
+                parent_iso=feat["properties"]["PARENT_ISO"],
             )
             session.add(aoi_mpa)
 
