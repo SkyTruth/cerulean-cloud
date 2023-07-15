@@ -46,10 +46,43 @@ def upgrade() -> None:
             start_time=datetime.now(),
             end_time=datetime.now(),
         )
+        aoi_types = [
+            database_schema.AoiType(
+                table_name="aoi_eez",
+                long_name="Exclusive Economic Zone",
+                short_name="EEZ",
+                source_url="https://www.marineregions.org/eez.php",
+                citation="Flanders Marine Institute (2019). Maritime Boundaries Geodatabase, version 11. Available online at https://www.marineregions.org/. https://doi.org/10.14284/382.",
+                update_time=datetime.now(),
+            ),
+            database_schema.AoiType(
+                table_name="aoi_iho",
+                long_name="IHO Sea Areas",
+                short_name="IHO",
+                source_url="https://www.marineregions.org/sources.php#iho",
+                citation="Flanders Marine Institute (2018). IHO Sea Areas, version 3. Available online at https://www.marineregions.org/. https://doi.org/10.14284/323.",
+                update_time=datetime.now(),
+            ),
+            database_schema.AoiType(
+                table_name="aoi_mpa",
+                long_name="Marine Protected Area",
+                short_name="MPA",
+                source_url="https://www.protectedplanet.net/en/thematic-areas/marine-protected-areas",
+                citation="UNEP-WCMC and IUCN (2023), Protected Planet: The World Database on Protected Areas (WDPA) and World Database on Other Effective Area-based Conservation Measures (WD-OECM) [Online], July 2023, Cambridge, UK: UNEP-WCMC and IUCN. Available at: www.protectedplanet.net.",
+                update_time=datetime.now(),
+            ),
+            database_schema.AoiType(
+                table_name="aoi_user",
+                long_name="User-generated",
+                short_name="USER",
+                update_time=datetime.now(),
+            ),
+        ]
 
         session.add(infra_distance)
         session.add(model)
         session.add(vessel_density)
+        session.add_all(aoi_types)
 
 
 def downgrade() -> None:
@@ -77,7 +110,16 @@ def downgrade() -> None:
             .filter_by(name="Vessel Density")
             .one_or_none()
         )
+        aoi_types = (
+            session.query(database_schema.AoiType)
+            .filter(
+                database_schema.AoiType.short_name.in_(["EEZ", "IHO", "MPA", "USER"])
+            )
+            .all()
+        )
 
         session.delete(infra_distance)
         session.delete(model)
         session.delete(vessel_density)
+        for aoi_type in aoi_types:
+            session.delete(aoi_type)
