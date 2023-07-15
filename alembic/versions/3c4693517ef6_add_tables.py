@@ -234,7 +234,6 @@ def upgrade() -> None:
     op.create_table(
         "source_type",
         sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("parent", sa.BigInteger, sa.ForeignKey("source_type.id")),
         sa.Column("table_name", sa.Text),
         sa.Column("long_name", sa.Text),
         sa.Column("short_name", sa.Text),
@@ -245,11 +244,9 @@ def upgrade() -> None:
         "source",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column(
-            "type",
-            sa.BigInteger,
-            sa.ForeignKey("source_type.id"),
+            "type", sa.BigInteger, sa.ForeignKey("source_type.id"), nullable=False
         ),
-        sa.Column("name", sa.Text),
+        sa.Column("st_name", sa.Text, nullable=False),
     )
 
     op.create_table(
@@ -257,7 +254,9 @@ def upgrade() -> None:
         sa.Column(
             "source_id", sa.BigInteger, sa.ForeignKey("source.id"), primary_key=True
         ),
-        sa.Column("vessel_cols", sa.Text),
+        sa.Column("ext_name", sa.Text),
+        sa.Column("ext_shiptype", sa.Text),
+        sa.Column("flag", sa.Text),
     )
 
     op.create_table(
@@ -265,7 +264,13 @@ def upgrade() -> None:
         sa.Column(
             "source_id", sa.BigInteger, sa.ForeignKey("source.id"), primary_key=True
         ),
-        sa.Column("infra_cols", sa.Text),
+        sa.Column("geometry", Geography("POINT"), nullable=False),
+        sa.Column("ext_id", sa.Text),
+        sa.Column("ext_name", sa.Text),
+        sa.Column("operator", sa.Text),
+        sa.Column("sovereign", sa.Text),
+        sa.Column("orig_yr", sa.DateTime),
+        sa.Column("last_known_status", sa.Text),
     )
 
     op.create_table(

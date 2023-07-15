@@ -79,10 +79,26 @@ def upgrade() -> None:
             ),
         ]
 
+        source_types = [
+            database_schema.SourceType(
+                table_name="source_vessel",
+                long_name="Vessel Source",
+                short_name="VESSEL",
+                citation="AIS from GFW",
+            ),
+            database_schema.SourceType(
+                table_name="source_infra",
+                long_name="Infrastructure Source",
+                short_name="INFRA",
+                citation="SkyTruth",
+            ),
+        ]
+
         session.add(infra_distance)
         session.add(model)
         session.add(vessel_density)
         session.add_all(aoi_types)
+        session.add_all(source_types)
 
 
 def downgrade() -> None:
@@ -117,9 +133,16 @@ def downgrade() -> None:
             )
             .all()
         )
+        source_types = (
+            session.query(database_schema.SourceType)
+            .filter(database_schema.SourceType.short_name.in_(["VESSEL", "INFRA"]))
+            .all()
+        )
 
         session.delete(infra_distance)
         session.delete(model)
         session.delete(vessel_density)
         for aoi_type in aoi_types:
             session.delete(aoi_type)
+        for source_type in source_types:
+            session.delete(source_type)
