@@ -1,7 +1,7 @@
 """"
 1. Copy this comment
 2. Run:
-    sqlacodegen $DB_URL --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
+    sqlacodegen postgresql://user:password@localhost:5432/db --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
 3. Add to every class:
     #noqa
 4. Add:
@@ -16,7 +16,6 @@ from geoalchemy2.types import Geography
 # coding: utf-8
 from sqlalchemy import (
     ARRAY,
-    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
@@ -35,7 +34,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
-# Base = declarative_base()
 Base: DeclarativeMeta = declarative_base()
 metadata = Base.metadata
 
@@ -56,9 +54,7 @@ class AoiType(Base):  # noqa
     update_time = Column(DateTime, server_default=text("now()"))
 
 
-class InfraDistance(Base):
-    """This is a dummy docstring."""
-
+class InfraDistance(Base):  # noqa
     __tablename__ = "infra_distance"
 
     id = Column(
@@ -78,9 +74,7 @@ class InfraDistance(Base):
     url = Column(Text, nullable=False)
 
 
-class Model(Base):
-    """This is a dummy docstring."""
-
+class Model(Base):  # noqa
     __tablename__ = "model"
 
     id = Column(
@@ -98,9 +92,7 @@ class Model(Base):
     updated_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
 
-class Sentinel1Grd(Base):
-    """This is a dummy docstring."""
-
+class Sentinel1Grd(Base):  # noqa
     __tablename__ = "sentinel1_grd"
 
     id = Column(
@@ -123,9 +115,7 @@ class Sentinel1Grd(Base):
     )
 
 
-class SlickClass(Base):
-    """This is a dummy docstring."""
-
+class SlickClass(Base):  # noqa
     __tablename__ = "slick_class"
 
     id = Column(
@@ -141,8 +131,8 @@ class SlickClass(Base):
     active = Column(Boolean, nullable=False)
 
 
-class SourceClass(Base):
-    """This is a dummy docstring."""
+class SlickSource(Base):  # noqa
+    __tablename__ = "slick_source"
 
     id = Column(
         BigInteger,
@@ -157,10 +147,6 @@ class SourceClass(Base):
     geometry = Column(
         Geography(srid=4326, from_text="ST_GeogFromText", name="geography")
     )
-    type = Column(String(200))
-    parent = Column(ForeignKey("source_class.id"))
-
-    parent1 = relationship("SourceClass", remote_side=[id])
 
 
 class SpatialRefSys(Base):  # noqa
@@ -310,27 +296,7 @@ class OrchestratorRun(Base):  # noqa
     vessel_density1 = relationship("VesselDensity")
 
 
-class SlickSource(Base):
-    """This is a dummy docstring."""
-
-    __tablename__ = "slick_source"
-
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('slick_source_id_seq'::regclass)"),
-    )
-    name = Column(String(200))
-    source_class = Column(ForeignKey("source_class.id"), nullable=False)
-    reference = Column(Text)
-    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
-
-    source_class1 = relationship("SourceClass")
-
-
-class Slick(Base):
-    """This is a dummy docstring."""
-
+class Slick(Base):  # noqa
     __tablename__ = "slick"
 
     id = Column(
@@ -403,15 +369,8 @@ class SlickToSlickSource(Base):  # noqa
     )
     slick = Column(ForeignKey("slick.id"), nullable=False)
     slick_source = Column(ForeignKey("slick_source.id"), nullable=False)
+    human_confidence = Column(Float(53))
     machine_confidence = Column(Float(53))
-    rank = Column(BigInteger)
-    hitl_coincident = Column(Boolean)
-    geojson_fc = Column(JSON, nullable=False)
-    geometry = Column(
-        Geography("LINESTRING", 4326, from_text="ST_GeogFromText", name="geography"),
-        nullable=False,
-    )
-    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
     slick1 = relationship("Slick")
     slick_source1 = relationship("SlickSource")

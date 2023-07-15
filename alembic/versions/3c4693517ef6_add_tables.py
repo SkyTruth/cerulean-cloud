@@ -122,31 +122,6 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "source_class",
-        sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("type", sa.String(200)),
-        sa.Column(
-            "parent", sa.BigInteger, sa.ForeignKey("source_class.id"), nullable=True
-        ),
-    )
-
-    op.create_table(
-        "slick_source",
-        sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("name", sa.String(200)),
-        sa.Column(
-            "source_class",
-            sa.BigInteger,
-            sa.ForeignKey("source_class.id"),
-            nullable=False,
-        ),
-        sa.Column("reference", sa.Text),
-        sa.Column(
-            "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
-        ),
-    )
-
-    op.create_table(
         "slick",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("slick_timestamp", sa.DateTime, nullable=False),
@@ -257,31 +232,55 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "slick_source",
+        "source_type",
         sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("name", sa.String(200)),
-        sa.Column("notes", sa.Text),
-        sa.Column("slick_source", ARRAY(sa.BigInteger)),
-        sa.Column(
-            "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
-        ),
-        sa.Column("active", sa.Boolean, nullable=False),
-        sa.Column("geometry", Geography("geometry")),
+        sa.Column("parent", sa.BigInteger, sa.ForeignKey("source_type.id")),
+        sa.Column("table_name", sa.Text),
+        sa.Column("long_name", sa.Text),
+        sa.Column("short_name", sa.Text),
+        sa.Column("citation", sa.Text),
     )
 
     op.create_table(
-        "slick_to_slick_source",
+        "source",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column(
+            "type",
+            sa.BigInteger,
+            sa.ForeignKey("source_type.id"),
+        ),
+        sa.Column("name", sa.Text),
+    )
+
+    op.create_table(
+        "source_vessel",
+        sa.Column(
+            "source_id", sa.BigInteger, sa.ForeignKey("source.id"), primary_key=True
+        ),
+        sa.Column("vessel_cols", sa.Text),
+    )
+
+    op.create_table(
+        "source_infra",
+        sa.Column(
+            "source_id", sa.BigInteger, sa.ForeignKey("source.id"), primary_key=True
+        ),
+        sa.Column("infra_cols", sa.Text),
+    )
+
+    op.create_table(
+        "slick_to_source",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
         sa.Column(
-            "slick_source",
+            "source",
             sa.BigInteger,
-            sa.ForeignKey("slick_source.id"),
+            sa.ForeignKey("source.id"),
             nullable=False,
         ),
         sa.Column("machine_confidence", sa.Float),
         sa.Column("rank", sa.BigInteger),
-        sa.Column("hitl_coincident", sa.Boolean),
+        sa.Column("hitl_confirmed", sa.Boolean),
         sa.Column("geojson_fc", sa.JSON, nullable=False),
         sa.Column("geometry", Geography("LINESTRING"), nullable=False),
         sa.Column(
@@ -292,8 +291,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """drop tables"""
-    op.drop_table("slick_to_slick_source")
-    op.drop_table("slick_source")
+    op.drop_table("slick_to_source")
+    op.drop_table("source_infra")
+    op.drop_table("source_vessel")
+    op.drop_table("source")
+    op.drop_table("source_type")
     op.drop_table("slick_to_aoi")
     op.drop_table("aoi_user")
     op.drop_table("aoi_mpa")
