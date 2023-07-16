@@ -35,10 +35,8 @@ def get_infra_from_url(
 def geom_to_st_name(geom):
     """Given the geom from the geojson, generate a unique name"""
     lon, lat = geom["coordinates"]
-    lon = abs(lon)
-    lat = abs(lat)
     random_string = "".join(random.choices(string.ascii_uppercase, k=3))
-    return f"{lon:.2f}{'W' if lon > 0 else 'E'}_{lat:.2f}{'N' if lat > 0 else 'S'}_{random_string}"
+    return f"{abs(lon):.2f}{'E' if lon > 0 else 'W'}_{abs(lat):.2f}{'N' if lat > 0 else 'S'}_{random_string}"
 
 
 def upgrade() -> None:
