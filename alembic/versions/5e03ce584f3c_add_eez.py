@@ -31,7 +31,7 @@ def save_eez_to_file():
 
 
 def get_eez_from_url(
-    eez_url="https://storage.googleapis.com/ceruleanml/aux_datasets/EEZ_and_HighSeas_20230410.geojson",
+    eez_url="https://storage.googleapis.com/ceruleanml/aux_datasets/EEZ_and_HighSeas_20230410_split.geojson",
 ):
     """Fetch previously saved file from gcp to avoid interacting with (slow) api"""
     res = geojson.FeatureCollection(**httpx.get(eez_url).json())
