@@ -7,6 +7,7 @@ config:
     secure: v1:AN5iTw/inx2j+uZH:hsdb22GXYG5pSU8xfKn2RzG2IqDRl+zXv26ywhOCf5Eli/LlvsnsnCTrzlOWm7/icmVL5g==
   cerulean-cloud:infra_distance: https://storage.googleapis.com/ceruleanml/aux_datasets/infra_locations_01_cogeo.tiff
   db:db-instance: db-f1-micro
+  db:deletion-protection: "False"
   db:db-password:
     secure: v1:syZWo00ed5E67CDk:liey6UPEHhAqSASNHiz9BPA+Nua1P3atsHoeWxGgdofnRhtKKV+U
   gcp:project: cerulean-338116

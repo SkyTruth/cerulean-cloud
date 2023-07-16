@@ -11,7 +11,6 @@ import geojson
 import httpx
 from shapely import from_geojson, to_wkt
 from sqlalchemy import orm
-from sqlalchemy.sql import text as _sql_text
 
 import cerulean_cloud.database_schema as database_schema
 from alembic import op
@@ -32,7 +31,7 @@ def save_eez_to_file():
 
 
 def get_eez_from_url(
-    eez_url="https://storage.googleapis.com/ceruleanml/aux_datasets/EEZ_and_HighSeas_20230410.geojson",
+    eez_url="https://storage.googleapis.com/ceruleanml/aux_datasets/EEZ_and_HighSeas_20230410_split.geojson",
 ):
     """Fetch previously saved file from gcp to avoid interacting with (slow) api"""
     res = geojson.FeatureCollection(**httpx.get(eez_url).json())
@@ -45,7 +44,7 @@ def upgrade() -> None:
     session = orm.Session(bind=bind)
 
     eez = get_eez_from_url()  # geojson.load(open("EEZ_and_HighSeas_20230410.json"))
-    for feat in eez.features:
+    for feat in eez.get("features"):
         sovereign_keys = [
             k for k in list(feat["properties"].keys()) if k.startswith("SOVEREIGN")
         ]
@@ -55,33 +54,14 @@ def upgrade() -> None:
             if feat["properties"][k] is not None
         ]
         with session.begin():
-            region = database_schema.Eez(
-                mrgid=feat["properties"]["MRGID"],
-                geoname=feat["properties"]["GEONAME"],
-                sovereigns=sovereigns,
+            aoi_eez = database_schema.AoiEez(
+                type=1,
+                name=feat["properties"]["GEONAME"],
                 geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
+                mrgid=feat["properties"]["MRGID"],
+                sovereigns=sovereigns,
             )
-
-            sql_string = _sql_text(
-                """
-                INSERT INTO eez (mrgid, geoname, sovereigns, geometry)
-                VALUES (
-                    :mrgid,
-                    :geoname,
-                    :sovereigns,
-                    st_geogfromtext(:geometry)
-                )
-            """
-            )
-            session.execute(
-                sql_string,
-                {
-                    "mrgid": region.mrgid,
-                    "geoname": region.geoname,
-                    "sovereigns": region.sovereigns,
-                    "geometry": region.geometry,
-                },
-            )
+            session.add(aoi_eez)
 
 
 def downgrade() -> None:
@@ -90,4 +70,7 @@ def downgrade() -> None:
     session = orm.Session(bind=bind)
 
     with session.begin():
-        session.query(database_schema.Eez).delete()
+        session.query(database_schema.AoiEez).delete()
+        session.query(database_schema.Aoi).filter(
+            database_schema.Aoi.type == 1
+        ).delete()

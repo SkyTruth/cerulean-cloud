@@ -7,6 +7,7 @@ config:
   cerulean-cloud:dryrun_relevancy: "True"
   cerulean-cloud:infra_distance: https://storage.googleapis.com/ceruleanml/aux_datasets/infra_locations_01_cogeo.tiff
   db:db-instance: db-g1-small
+  db:deletion-protection: "True"
   db:db-password:
     secure: v1:PKkW6hR207H6+aLE:QRMTEAQMB5VFmJt4Sbvzx7i4hkqlO4HomLltlRFYrQ==
   gcp:project: cerulean-338116
