@@ -60,8 +60,6 @@ def upgrade() -> None:
     )
     op.create_entity(get_history_slick)
 
-    pass
-
 
 def downgrade() -> None:
     """remove views"""
