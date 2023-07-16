@@ -14,7 +14,7 @@ instance = gcp.sql.DatabaseInstance(
         backup_configuration=dict(enabled=True),
         database_flags=[dict(name="max_connections", value=200)],
     ),
-    deletion_protection=True,
+    deletion_protection=pulumi.Config("db").require("deletion-protection"),
 )
 db_name = construct_name("database")
 database = gcp.sql.Database(db_name, instance=instance.name, name=db_name)
