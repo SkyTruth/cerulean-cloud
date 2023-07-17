@@ -7,8 +7,8 @@ Create Date: 2023-07-15 01:52:45.298587
 """
 import json
 
-import geojson
-import httpx
+# import geojson
+# import httpx
 from shapely import from_geojson, to_wkt
 from sqlalchemy import orm
 
@@ -26,7 +26,8 @@ def get_mpa_from_url(
     mpa_url="https://storage.googleapis.com/ceruleanml/aux_datasets/mpa_all_deleteholes_simplify_repair1.geojson",
 ):
     """Fetch previously saved file from gcp to avoid interacting with (slow) api"""
-    res = geojson.FeatureCollection(**httpx.get(mpa_url).json())
+    # res = geojson.FeatureCollection(**httpx.get(mpa_url).json())
+    res = {"features": []}
     return res
 
 
@@ -36,7 +37,6 @@ def upgrade() -> None:
     session = orm.Session(bind=bind)
 
     mpa = get_mpa_from_url()
-
     for feat in mpa.get("features"):
         with session.begin():
             aoi_mpa = database_schema.AoiMpa(
