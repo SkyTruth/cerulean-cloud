@@ -1,5 +1,8 @@
 """images for cloud run
 """
+import hashlib
+import os
+
 import pulumi
 import pulumi_docker as docker
 import pulumi_gcp as gcp
@@ -34,6 +37,24 @@ def construct_name(resource_name: str) -> str:
     return f"{project}-{stack}-{resource_name}"
 
 
+def file_hash(path):
+    """Calculates a SHA256 hash for a file."""
+    with open(path, "rb") as f:
+        bytes = f.read()
+        return hashlib.sha256(bytes).hexdigest()
+
+
+def dir_hash(path, substring):
+    """Calculates a hash for all files in a directory."""
+    hashes = []
+    for dirpath, dirnames, filenames in os.walk(path):
+        for filename in filenames:
+            filepath = os.path.join(dirpath, filename)
+            if os.path.isfile(filepath) and (substring in filepath):
+                hashes.append(file_hash(filepath))
+    return hashlib.sha256("".join(hashes).encode()).hexdigest()
+
+
 config = pulumi.Config()
 
 weigths_bucket = config.require("weigths_bucket")
@@ -45,13 +66,13 @@ registry_url = registry.id.apply(
     lambda _: gcp.container.get_registry_repository().repository_url
 )
 cloud_run_offset_tile_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cloud-run-offset-tile-image')}"
+    lambda url: f"{url}/{construct_name('cloud-run-offset-tile-image')}:{dir_hash('../', 'offset')[:32]}"
 )
 cloud_run_orchestrator_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cloud-run-orchestrator-image')}"
+    lambda url: f"{url}/{construct_name('cloud-run-orchestrator-image')}:{dir_hash('../', 'orchestrator')[:32]}"
 )
 cloud_run_tifeatures_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cloud-run-tifeatures-image')}"
+    lambda url: f"{url}/{construct_name('cloud-run-tifeatures-image')}:{dir_hash('../', 'tifeatures')[:32]}"
 )
 registry_info = None  # use gcloud for authentication.
 
