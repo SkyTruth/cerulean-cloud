@@ -55,6 +55,18 @@ class AoiType(Base):  # noqa
     update_time = Column(DateTime, server_default=text("now()"))
 
 
+class Filter(Base):  # noqa
+    __tablename__ = "filter"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('filter_id_seq'::regclass)"),
+    )
+    json = Column(JSON, nullable=False)
+    hash = Column(Text)
+
+
 class Frequency(Base):  # noqa
     __tablename__ = "frequency"
 
@@ -371,12 +383,13 @@ class Subscription(Base):  # noqa
         server_default=text("nextval('subscription_id_seq'::regclass)"),
     )
     user = Column(ForeignKey("user.id"), nullable=False)
-    filter = Column(JSON, nullable=False)
+    filter = Column(ForeignKey("filter.id"), nullable=False)
     frequency = Column(ForeignKey("frequency.id"), nullable=False)
     active = Column(Boolean)
     create_time = Column(DateTime, server_default=text("now()"))
     update_time = Column(DateTime, server_default=text("now()"))
 
+    filter1 = relationship("Filter")
     frequency1 = relationship("Frequency")
     user1 = relationship("User")
 
