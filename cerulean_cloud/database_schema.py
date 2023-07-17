@@ -55,6 +55,30 @@ class AoiType(Base):  # noqa
     update_time = Column(DateTime, server_default=text("now()"))
 
 
+class Filter(Base):  # noqa
+    __tablename__ = "filter"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('filter_id_seq'::regclass)"),
+    )
+    json = Column(JSON, nullable=False)
+    hash = Column(Text)
+
+
+class Frequency(Base):  # noqa
+    __tablename__ = "frequency"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('frequency_id_seq'::regclass)"),
+    )
+    short_name = Column(Text, nullable=False, unique=True)
+    long_name = Column(Text)
+
+
 class InfraDistance(Base):  # noqa
     __tablename__ = "infra_distance"
 
@@ -258,6 +282,24 @@ class AoiUser(Aoi):  # noqa
     user1 = relationship("User")
 
 
+class MagicLink(Base):  # noqa
+    __tablename__ = "magic_link"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('magic_link_id_seq'::regclass)"),
+    )
+    user = Column(ForeignKey("user.id"), nullable=False)
+    token = Column(Text, nullable=False)
+    expiration_time = Column(DateTime, nullable=False)
+    is_used = Column(Boolean, nullable=False)
+    create_time = Column(DateTime, server_default=text("now()"))
+    update_time = Column(DateTime, server_default=text("now()"))
+
+    user1 = relationship("User")
+
+
 class OrchestratorRun(Base):  # noqa
     __tablename__ = "orchestrator_run"
 
@@ -330,6 +372,26 @@ class SourceVessel(Source):  # noqa
     ext_name = Column(Text)
     ext_shiptype = Column(Text)
     flag = Column(Text)
+
+
+class Subscription(Base):  # noqa
+    __tablename__ = "subscription"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('subscription_id_seq'::regclass)"),
+    )
+    user = Column(ForeignKey("user.id"), nullable=False)
+    filter = Column(ForeignKey("filter.id"), nullable=False)
+    frequency = Column(ForeignKey("frequency.id"), nullable=False)
+    active = Column(Boolean)
+    create_time = Column(DateTime, server_default=text("now()"))
+    update_time = Column(DateTime, server_default=text("now()"))
+
+    filter1 = relationship("Filter")
+    frequency1 = relationship("Frequency")
+    user1 = relationship("User")
 
 
 class Slick(Base):  # noqa
