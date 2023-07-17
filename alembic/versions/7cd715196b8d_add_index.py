@@ -42,6 +42,8 @@ def upgrade() -> None:
 
     op.create_index("idx_source_name", "source", ["st_name", "type"])
 
+    op.create_index("idx_filter_hash", "filter", ["hash"])
+
     op.create_index(
         "idx_slick_confidence", "slick", ["machine_confidence", "human_confidence"]
     )
@@ -70,6 +72,8 @@ def downgrade() -> None:
     op.drop_index("idx_slick_class_slick_class", "slick_class")
 
     op.drop_index("idx_source_name", "source")
+
+    op.drop_index("idx_filter_hash", "filter")
 
     op.drop_index("idx_slick_confidence", "slick")
     op.drop_index("idx_slick_polsby_popper", "slick")

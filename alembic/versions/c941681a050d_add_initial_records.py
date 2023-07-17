@@ -35,10 +35,14 @@ def upgrade() -> None:
             url="https://storage.googleapis.com/ceruleanml/aux_datasets/infra_locations_01_cogeo.tiff",
             geometry=from_shape(box(*[-179, -89, 179, 89])),
         )
+        session.add(infra_distance)
+
         model = database_schema.Model(
             name="experiments/cv2/24_May_2022_01_49_56_fastai_unet/tracing_cpu_test_1batch_18_512_0.082.pt",
             file_path="experiments/cv2/24_May_2022_01_49_56_fastai_unet/tracing_cpu_test_1batch_18_512_0.082.pt",
         )
+        session.add(model)
+
         vessel_density = database_schema.VesselDensity(
             name="Vessel Density",
             geometry=from_shape(box(*[-179, -89, 179, 89])),
@@ -46,6 +50,8 @@ def upgrade() -> None:
             start_time=datetime.now(),
             end_time=datetime.now(),
         )
+        session.add(vessel_density)
+
         aoi_types = [
             database_schema.AoiType(
                 table_name="aoi_eez",
@@ -78,6 +84,7 @@ def upgrade() -> None:
                 update_time=datetime.now(),
             ),
         ]
+        session.add_all(aoi_types)
 
         source_types = [
             database_schema.SourceType(
@@ -93,12 +100,27 @@ def upgrade() -> None:
                 citation="SkyTruth",
             ),
         ]
-
-        session.add(infra_distance)
-        session.add(model)
-        session.add(vessel_density)
-        session.add_all(aoi_types)
         session.add_all(source_types)
+
+        frequencies = [
+            database_schema.Frequency(
+                short_name="REALTIME",
+                long_name="Near real-time alerts",
+            ),
+            database_schema.Frequency(
+                short_name="DAILY",
+                long_name="Daily digest",
+            ),
+            database_schema.Frequency(
+                short_name="WEEKLY",
+                long_name="Weekly digest",
+            ),
+            database_schema.Frequency(
+                short_name="MONTHLY",
+                long_name="Monthly digest",
+            ),
+        ]
+        session.add_all(frequencies)
 
 
 def downgrade() -> None:
@@ -114,6 +136,8 @@ def downgrade() -> None:
             )
             .one_or_none()
         )
+        session.delete(infra_distance)
+
         model = (
             session.query(database_schema.Model)
             .filter_by(
@@ -121,11 +145,15 @@ def downgrade() -> None:
             )
             .one_or_none()
         )
+        session.delete(model)
+
         vessel_density = (
             session.query(database_schema.VesselDensity)
             .filter_by(name="Vessel Density")
             .one_or_none()
         )
+        session.delete(vessel_density)
+
         aoi_types = (
             session.query(database_schema.AoiType)
             .filter(
@@ -133,16 +161,25 @@ def downgrade() -> None:
             )
             .all()
         )
+        for aoi_type in aoi_types:
+            session.delete(aoi_type)
+
         source_types = (
             session.query(database_schema.SourceType)
             .filter(database_schema.SourceType.short_name.in_(["VESSEL", "INFRA"]))
             .all()
         )
-
-        session.delete(infra_distance)
-        session.delete(model)
-        session.delete(vessel_density)
-        for aoi_type in aoi_types:
-            session.delete(aoi_type)
         for source_type in source_types:
             session.delete(source_type)
+
+        frequencies = (
+            session.query(database_schema.Frequency)
+            .filter(
+                database_schema.Frequency.short_name.in_(
+                    ["REALTIME", "DAILY", "WEEKLY", "MONTHLY"]
+                )
+            )
+            .all()
+        )
+        for frequency in frequencies:
+            session.delete(frequency)
