@@ -32,7 +32,7 @@ default = gcp.cloudrun.Service(
             container_concurrency=3,
         ),
         metadata=dict(
-            name=service_name,
+            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
         ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
