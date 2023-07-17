@@ -175,6 +175,37 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "frequency",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("short_name", sa.Text, nullable=False, unique=True),
+        sa.Column("long_name", sa.Text),
+    )
+
+    op.create_table(
+        "subscription",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("user", sa.BigInteger, sa.ForeignKey("user.id"), nullable=False),
+        sa.Column("filter", sa.JSON, nullable=False),
+        sa.Column(
+            "frequency", sa.Integer, sa.ForeignKey("frequency.id"), nullable=False
+        ),
+        sa.Column("active", sa.Boolean),
+        sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("update_time", sa.DateTime, server_default=sa.func.now()),
+    )
+
+    op.create_table(
+        "magic_link",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("user", sa.BigInteger, sa.ForeignKey("user.id"), nullable=False),
+        sa.Column("token", sa.Text, nullable=False),
+        sa.Column("expiration_time", sa.DateTime, nullable=False),
+        sa.Column("is_used", sa.Boolean, nullable=False),
+        sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("update_time", sa.DateTime, server_default=sa.func.now()),
+    )
+
+    op.create_table(
         "aoi_type",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("table_name", sa.Text, nullable=False),
@@ -277,12 +308,7 @@ def upgrade() -> None:
         "slick_to_source",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
-        sa.Column(
-            "source",
-            sa.BigInteger,
-            sa.ForeignKey("source.id"),
-            nullable=False,
-        ),
+        sa.Column("source", sa.BigInteger, sa.ForeignKey("source.id"), nullable=False),
         sa.Column("machine_confidence", sa.Float),
         sa.Column("rank", sa.BigInteger),
         sa.Column("hitl_confirmed", sa.Boolean),
@@ -308,6 +334,9 @@ def downgrade() -> None:
     op.drop_table("aoi_eez")
     op.drop_table("aoi")
     op.drop_table("aoi_type")
+    op.drop_table("magic_link")
+    op.drop_table("subscription")
+    op.drop_table("frequency")
     op.drop_table("user")
     op.drop_table("slick")
     op.drop_table("slick_class")
