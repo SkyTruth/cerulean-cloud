@@ -107,12 +107,12 @@ jobs:
         id: pip-cache
         run: |
           python -m pip install pip --upgrade
-          echo "::set-output name=dir::$(python -m pip cache dir)"
+          echo "PIP_CACHE_DIR=$(python -m pip cache dir)" >> $GITHUB_ENV
 
       - name: Cache pip
         uses: actions/cache@v2
         with:
-          path: ${{ steps.pip-cache.outputs.dir }}
+          path: ${{ env.PIP_CACHE_DIR }}
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
