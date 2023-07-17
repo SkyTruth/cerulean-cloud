@@ -175,6 +175,13 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "filter",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("json", sa.JSON, nullable=False),
+        sa.Column("hash", sa.Text),
+    )
+
+    op.create_table(
         "frequency",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("short_name", sa.Text, nullable=False, unique=True),
@@ -185,7 +192,7 @@ def upgrade() -> None:
         "subscription",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("user", sa.BigInteger, sa.ForeignKey("user.id"), nullable=False),
-        sa.Column("filter", sa.JSON, nullable=False),
+        sa.Column("filter", sa.BigInteger, sa.ForeignKey("filter.id"), nullable=False),
         sa.Column(
             "frequency", sa.Integer, sa.ForeignKey("frequency.id"), nullable=False
         ),
@@ -337,6 +344,7 @@ def downgrade() -> None:
     op.drop_table("magic_link")
     op.drop_table("subscription")
     op.drop_table("frequency")
+    op.drop_table("filter")
     op.drop_table("user")
     op.drop_table("slick")
     op.drop_table("slick_class")
