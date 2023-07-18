@@ -21,16 +21,36 @@ depends_on = None
 
 def upgrade() -> None:
     """add tables"""
+
+    op.create_table(
+        "layer",
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("short_name", sa.Text, nullable=False, unique=True),
+        sa.Column("long_name", sa.Text),
+        sa.Column("citation", sa.Text),
+        sa.Column("source_url", sa.Text),
+        sa.Column("notes", sa.Text),
+        sa.Column("start_time", sa.DateTime),
+        sa.Column("end_time", sa.DateTime),
+        sa.Column("json", sa.JSON),
+        sa.Column("update_time", sa.DateTime, server_default=sa.func.now()),
+    )
+
     op.create_table(
         "model",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("name", sa.String(200), nullable=False),
-        sa.Column("thresholds", sa.Integer),
-        sa.Column("fine_pkl_idx", sa.Integer),
-        sa.Column("chip_size_orig", sa.Integer),
-        sa.Column("chip_size_reduced", sa.Integer),
-        sa.Column("overhang", sa.Boolean),
         sa.Column("file_path", sa.Text, nullable=False),
+        sa.Column("layers", ARRAY(sa.Text), nullable=False),
+        sa.Column("cls_map", sa.JSON, nullable=False),
+        sa.Column("name", sa.Text),
+        sa.Column("zoom_level", sa.Integer),
+        sa.Column("rrctile_size", sa.Integer),
+        sa.Column("resolution", sa.Integer),
+        sa.Column("epochs", sa.Integer),
+        sa.Column("thresholds", sa.JSON),
+        sa.Column("backbone_size", sa.Integer),
+        sa.Column("pixel_f1", sa.Float),
+        sa.Column("instance_f1", sa.Float),
         sa.Column(
             "updated_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
@@ -50,27 +70,6 @@ def upgrade() -> None:
         sa.Column("meta", JSONB),
         sa.Column("url", sa.Text, nullable=False),
         sa.Column("geometry", Geography("POLYGON"), nullable=False),
-    )
-    op.create_table(
-        "vessel_density",
-        sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("name", sa.String(200), nullable=False),
-        sa.Column("source", sa.Text, nullable=False),
-        sa.Column("start_time", sa.DateTime, nullable=False),
-        sa.Column("end_time", sa.DateTime, nullable=False),
-        sa.Column("meta", JSONB),
-        sa.Column("geometry", Geography("POLYGON"), nullable=False),
-    )
-    op.create_table(
-        "infra_distance",
-        sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("name", sa.String(200), nullable=False),
-        sa.Column("source", sa.Text, nullable=False),
-        sa.Column("start_time", sa.DateTime, nullable=False),
-        sa.Column("end_time", sa.DateTime, nullable=False),
-        sa.Column("meta", JSONB),
-        sa.Column("geometry", Geography("POLYGON"), nullable=False),
-        sa.Column("url", sa.Text, nullable=False),
     )
 
     op.create_table(
@@ -104,24 +103,22 @@ def upgrade() -> None:
         ),
         sa.Column("model", sa.Integer, sa.ForeignKey("model.id"), nullable=False),
         sa.Column("sentinel1_grd", sa.BigInteger, sa.ForeignKey("sentinel1_grd.id")),
-        sa.Column("vessel_density", sa.Integer, sa.ForeignKey("vessel_density.id")),
-        sa.Column("infra_distance", sa.Integer, sa.ForeignKey("infra_distance.id")),
     )
 
     op.create_table(
-        "class",
+        "cls",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("short_name", sa.Text),
+        sa.Column("short_name", sa.Text, unique=True),
         sa.Column("long_name", sa.Text),
-        sa.Column("superclass", sa.BigInteger, sa.ForeignKey("class.id")),
+        sa.Column("supercls", sa.BigInteger, sa.ForeignKey("cls.id")),
     )
 
     op.create_table(
-        "class_map",
+        "cls_map",
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("model", sa.BigInteger, sa.ForeignKey("model.id")),
         sa.Column("inference_idx", sa.Integer),
-        sa.Column("class", sa.Integer, sa.ForeignKey("class.id")),
+        sa.Column("cls", sa.Integer, sa.ForeignKey("cls.id")),
         sa.UniqueConstraint(
             "model", "inference_idx", name="unique_model_inference_idx"
         ),
@@ -133,7 +130,11 @@ def upgrade() -> None:
         sa.Column("geometry", Geography("MULTIPOLYGON"), nullable=False),
         sa.Column("inference_idx", sa.Integer, nullable=False),
         sa.Column("slick_timestamp", sa.DateTime, nullable=False),
-        sa.Column("hitl_class", sa.BigInteger),
+        sa.Column(
+            "hitl_cls",
+            sa.BigInteger,
+            sa.ForeignKey("cls.id"),
+        ),
         sa.Column("machine_confidence", sa.Float),
         sa.Column(
             "length",
@@ -360,11 +361,10 @@ def downgrade() -> None:
     op.drop_table("filter")
     op.drop_table("user")
     op.drop_table("slick")
-    op.drop_table("class_map")
-    op.drop_table("class")
+    op.drop_table("cls_map")
+    op.drop_table("cls")
     op.drop_table("orchestrator_run")
     op.drop_table("trigger")
     op.drop_table("model")
     op.drop_table("sentinel1_grd")
-    op.drop_table("vessel_density")
-    op.drop_table("infra_distance")
+    op.drop_table("layer")
