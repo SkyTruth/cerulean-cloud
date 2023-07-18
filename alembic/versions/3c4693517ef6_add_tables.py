@@ -365,6 +365,6 @@ def downgrade() -> None:
     op.drop_table("cls")
     op.drop_table("orchestrator_run")
     op.drop_table("trigger")
-    op.drop_table("model")
     op.drop_table("sentinel1_grd")
+    op.drop_table("model")
     op.drop_table("layer")
