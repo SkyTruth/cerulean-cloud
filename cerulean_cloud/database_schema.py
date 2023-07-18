@@ -388,7 +388,7 @@ class Slick(Base):  # noqa
         nullable=False,
     )
     inference_idx = Column(Integer, nullable=False)
-    inferred_cls = Column(Integer)
+    cls = Column(Integer)
     hitl_cls = Column(ForeignKey("cls.id"))
     machine_confidence = Column(Float(53))
     length = Column(

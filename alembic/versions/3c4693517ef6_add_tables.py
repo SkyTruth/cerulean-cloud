@@ -119,7 +119,7 @@ def upgrade() -> None:
         sa.Column("slick_timestamp", sa.DateTime, nullable=False),
         sa.Column("geometry", Geography("MULTIPOLYGON"), nullable=False),
         sa.Column("inference_idx", sa.Integer, nullable=False),
-        sa.Column("inferred_cls", sa.Integer),
+        sa.Column("cls", sa.Integer),
         sa.Column(
             "hitl_cls",
             sa.BigInteger,
