@@ -19,17 +19,17 @@ def upgrade() -> None:
     """Add funcs"""
     op.execute(
         """
-        CREATE OR REPLACE FUNCTION get_slick_subclasses(class_id bigint)
-        RETURNS SETOF class AS $$
+        CREATE OR REPLACE FUNCTION get_slick_subclses(cls_id bigint)
+        RETURNS SETOF cls AS $$
         BEGIN
             RETURN QUERY (
-                WITH RECURSIVE recurse_classes_cte AS (
-                    SELECT id FROM class WHERE id = class_id
+                WITH RECURSIVE recurse_clses_cte AS (
+                    SELECT id FROM cls WHERE id = cls_id
                     UNION
-                    SELECT cls.id FROM class cls
-                    JOIN recurse_classes_cte rc_cte ON cls.superclass = rc_cte.id
+                    SELECT nextcls.id FROM cls nextcls
+                    JOIN recurse_clses_cte rc_cte ON cls.supercls = rc_cte.id
                 )
-                SELECT * FROM recurse_classes_cte
+                SELECT * FROM recurse_clses_cte
             );
         END;
         $$ LANGUAGE plpgsql;
@@ -41,6 +41,6 @@ def downgrade() -> None:
     """Add funcs"""
     op.execute(
         """
-        DROP FUNCTION IF EXISTS get_slick_subclasses(bigint);
+        DROP FUNCTION IF EXISTS get_slick_subclses(bigint);
         """
     )

@@ -23,14 +23,12 @@ def upgrade() -> None:
         schema="public",
         signature="slick_with_urls",
         definition="""
-    SELECT slick.*, orchestrator_run_with_url.sentinel1_grd_url, orchestrator_run_with_url.infra_distance_url FROM slick
+    SELECT slick.*, orchestrator_run_with_url.sentinel1_grd_url FROM slick
     LEFT JOIN (
-        SELECT orchestrator_run.id, sentinel1_grd.url AS sentinel1_grd_url, infra_distance.url AS infra_distance_url
+        SELECT orchestrator_run.id, sentinel1_grd.url AS sentinel1_grd_url
         FROM orchestrator_run
         LEFT JOIN sentinel1_grd
         ON orchestrator_run.sentinel1_grd = sentinel1_grd.id
-        LEFT JOIN infra_distance
-        ON orchestrator_run.infra_distance = infra_distance.id
     ) AS orchestrator_run_with_url
     ON slick.orchestrator_run = orchestrator_run_with_url.id
     """,
