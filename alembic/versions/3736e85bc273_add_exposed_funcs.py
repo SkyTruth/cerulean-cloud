@@ -24,10 +24,10 @@ def upgrade() -> None:
         BEGIN
             RETURN QUERY (
                 WITH RECURSIVE recurse_clses_cte AS (
-                    SELECT id FROM cls WHERE id = cls_id
+                    SELECT * FROM cls WHERE id = cls_id
                     UNION
-                    SELECT nextcls.id FROM cls nextcls
-                    JOIN recurse_clses_cte rc_cte ON cls.supercls = rc_cte.id
+                    SELECT nextcls.* FROM cls nextcls
+                    JOIN recurse_clses_cte rc ON nextcls.supercls = rc.id
                 )
                 SELECT * FROM recurse_clses_cte
             );
