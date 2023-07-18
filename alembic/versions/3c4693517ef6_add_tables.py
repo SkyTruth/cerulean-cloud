@@ -114,22 +114,12 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "cls_map",
-        sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("model", sa.BigInteger, sa.ForeignKey("model.id")),
-        sa.Column("inference_idx", sa.Integer),
-        sa.Column("cls", sa.Integer, sa.ForeignKey("cls.id")),
-        sa.UniqueConstraint(
-            "model", "inference_idx", name="unique_model_inference_idx"
-        ),
-    )
-
-    op.create_table(
         "slick",
         sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("slick_timestamp", sa.DateTime, nullable=False),
         sa.Column("geometry", Geography("MULTIPOLYGON"), nullable=False),
         sa.Column("inference_idx", sa.Integer, nullable=False),
-        sa.Column("slick_timestamp", sa.DateTime, nullable=False),
+        sa.Column("inferred_cls", sa.Integer),
         sa.Column(
             "hitl_cls",
             sa.BigInteger,
@@ -361,7 +351,6 @@ def downgrade() -> None:
     op.drop_table("filter")
     op.drop_table("user")
     op.drop_table("slick")
-    op.drop_table("cls_map")
     op.drop_table("cls")
     op.drop_table("orchestrator_run")
     op.drop_table("trigger")
