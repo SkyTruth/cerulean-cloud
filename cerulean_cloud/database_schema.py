@@ -28,6 +28,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -53,6 +54,21 @@ class AoiType(Base):  # noqa
     source_url = Column(Text)
     citation = Column(Text)
     update_time = Column(DateTime, server_default=text("now()"))
+
+
+class Class(Base):  # noqa
+    __tablename__ = "class"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        server_default=text("nextval('class_id_seq'::regclass)"),
+    )
+    short_name = Column(Text)
+    long_name = Column(Text)
+    superclass = Column(ForeignKey("class.id"))
+
+    parent = relationship("Class", remote_side=[id])
 
 
 class Filter(Base):  # noqa
@@ -138,22 +154,6 @@ class Sentinel1Grd(Base):  # noqa
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
-
-
-class SlickClass(Base):  # noqa
-    __tablename__ = "slick_class"
-
-    id = Column(
-        Integer,
-        primary_key=True,
-        server_default=text("nextval('slick_class_id_seq'::regclass)"),
-    )
-    value = Column(Integer)
-    name = Column(String(200))
-    notes = Column(Text)
-    slick_class = Column(ARRAY(Integer()))
-    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
-    active = Column(Boolean, nullable=False)
 
 
 class SourceType(Base):  # noqa
@@ -282,6 +282,23 @@ class AoiUser(Aoi):  # noqa
     user1 = relationship("User")
 
 
+class ClassMap(Base):  # noqa
+    __tablename__ = "class_map"
+    __table_args__ = (UniqueConstraint("model", "inference_idx"),)
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        server_default=text("nextval('class_map_id_seq'::regclass)"),
+    )
+    model = Column(ForeignKey("model.id"))
+    inference_idx = Column(Integer)
+    _class = Column("class", ForeignKey("class.id"))
+
+    _class1 = relationship("Class")
+    model1 = relationship("Model")
+
+
 class MagicLink(Base):  # noqa
     __tablename__ = "magic_link"
 
@@ -402,13 +419,21 @@ class Slick(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('slick_id_seq'::regclass)"),
     )
-    slick_timestamp = Column(DateTime, nullable=False)
     geometry = Column(
         Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
+    inference_idx = Column(Integer, nullable=False)
+    slick_timestamp = Column(DateTime, nullable=False)
+    hitl_class = Column(BigInteger)
     machine_confidence = Column(Float(53))
-    human_confidence = Column(Float(53))
+    length = Column(
+        Float(53),
+        Computed(
+            "GREATEST(st_distance(st_pointn(st_orientedenvelope((geometry)::geometry), 1), st_pointn(st_orientedenvelope((geometry)::geometry), 2)), st_distance(st_pointn(st_orientedenvelope((geometry)::geometry), 2), st_pointn(st_orientedenvelope((geometry)::geometry), 3)))",
+            persisted=True,
+        ),
+    )
     area = Column(Float(53), Computed("st_area(geometry)", persisted=True))
     perimeter = Column(Float(53), Computed("st_perimeter(geometry)", persisted=True))
     centroid = Column(
@@ -418,7 +443,7 @@ class Slick(Base):  # noqa
     polsby_popper = Column(
         Float(53),
         Computed(
-            "((st_perimeter(geometry) * st_perimeter(geometry)) / st_area(geometry))",
+            "((((4)::double precision * pi()) * st_area(geometry)) / (st_perimeter(geometry) ^ (2)::double precision))",
             persisted=True,
         ),
     )
@@ -431,15 +456,9 @@ class Slick(Base):  # noqa
     )
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))
     active = Column(Boolean, nullable=False)
-    validated = Column(Boolean, nullable=False)
-    slick = Column(ARRAY(BigInteger()))
-    notes = Column(Text)
-    meta = Column(JSONB(astext_type=Text()))
     orchestrator_run = Column(ForeignKey("orchestrator_run.id"), nullable=False)
-    slick_class = Column(ForeignKey("slick_class.id"), nullable=False)
 
     orchestrator_run1 = relationship("OrchestratorRun")
-    slick_class1 = relationship("SlickClass")
 
 
 class SlickToAoi(Base):  # noqa

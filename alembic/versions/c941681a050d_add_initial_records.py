@@ -122,6 +122,43 @@ def upgrade() -> None:
         ]
         session.add_all(frequencies)
 
+        classes = [
+            database_schema.Class(
+                short_name="ANTHRO",
+                long_name="Anthropogenic",
+            ),
+            database_schema.Class(
+                short_name="NATURAL",
+                long_name="Natural",
+            ),
+            database_schema.Class(
+                short_name="INFRA",
+                long_name="Infrastructure",
+                superclass=1,
+            ),
+            database_schema.Class(
+                short_name="VESSEL",
+                long_name="Vessel",
+                superclass=1,
+            ),
+            database_schema.Class(
+                short_name="OLD_VESSEL",
+                long_name="Vessel, old",
+                superclass=4,
+            ),
+            database_schema.Class(
+                short_name="REC_VESSEL",
+                long_name="Vessel, recent",
+                superclass=4,
+            ),
+            database_schema.Class(
+                short_name="COIN_VESSEL",
+                long_name="Vessel, coincident",
+                superclass=6,
+            ),
+        ]
+        session.add_all(classes)
+
 
 def downgrade() -> None:
     """drop initial rows"""
@@ -183,3 +220,23 @@ def downgrade() -> None:
         )
         for frequency in frequencies:
             session.delete(frequency)
+
+        classes = (
+            session.query(database_schema.Class)
+            .filter(
+                database_schema.Class.short_name.in_(
+                    [
+                        "ANTHRO",
+                        "NATURAL",
+                        "INFRA",
+                        "VESSEL",
+                        "OLD_VESSEL",
+                        "REC_VESSEL",
+                        "COIN_VESSEL",
+                    ]
+                )
+            )
+            .all()
+        )
+        for clas in classes:
+            session.delete(clas)
