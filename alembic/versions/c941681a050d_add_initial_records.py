@@ -88,8 +88,8 @@ def upgrade() -> None:
                     "groundtruth_dice_thresh": 0.0,
                 },
                 backbone_size=34,
-                pixel_f1=0.0,
-                instance_f1=0.0,
+                pixel_f1=0.466,
+                instance_f1=0.455,
             ),
         ]
         session.add_all(models)
