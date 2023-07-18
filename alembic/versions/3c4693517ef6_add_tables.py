@@ -109,34 +109,57 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "slick_class",
+        "class",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("value", sa.Integer),
-        sa.Column("name", sa.String(200)),
-        sa.Column("notes", sa.Text),
-        sa.Column("slick_class", ARRAY(sa.Integer)),
-        sa.Column(
-            "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
+        sa.Column("short_name", sa.Text),
+        sa.Column("long_name", sa.Text),
+        sa.Column("superclass", sa.BigInteger, sa.ForeignKey("class.id")),
+    )
+
+    op.create_table(
+        "class_map",
+        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("model", sa.BigInteger, sa.ForeignKey("model.id")),
+        sa.Column("inference_idx", sa.Integer),
+        sa.Column("class", sa.Integer, sa.ForeignKey("class.id")),
+        sa.UniqueConstraint(
+            "model", "inference_idx", name="unique_model_inference_idx"
         ),
-        sa.Column("active", sa.Boolean, nullable=False),
     )
 
     op.create_table(
         "slick",
         sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("slick_timestamp", sa.DateTime, nullable=False),
         sa.Column("geometry", Geography("MULTIPOLYGON"), nullable=False),
+        sa.Column("inference_idx", sa.Integer, nullable=False),
+        sa.Column("slick_timestamp", sa.DateTime, nullable=False),
+        sa.Column("hitl_class", sa.BigInteger),
         sa.Column("machine_confidence", sa.Float),
-        sa.Column("human_confidence", sa.Float),
+        sa.Column(
+            "length",
+            sa.Float,
+            sa.Computed(
+                """
+                GREATEST(
+                    ST_Distance(
+                        ST_PointN(ST_OrientedEnvelope(geometry::geometry), 1),
+                        ST_PointN(ST_OrientedEnvelope(geometry::geometry), 2)
+                    ),
+                    ST_Distance(
+                        ST_PointN(ST_OrientedEnvelope(geometry::geometry), 2),
+                        ST_PointN(ST_OrientedEnvelope(geometry::geometry), 3)
+                    )
+                )
+                """
+            ),
+        ),
         sa.Column("area", sa.Float, sa.Computed("ST_Area(geometry)")),
         sa.Column("perimeter", sa.Float, sa.Computed("ST_Perimeter(geometry)")),
         sa.Column("centroid", Geography("POINT"), sa.Computed("ST_Centroid(geometry)")),
         sa.Column(
             "polsby_popper",
             sa.Float,
-            sa.Computed(
-                "(ST_Perimeter(geometry) * ST_Perimeter(geometry)) / ST_Area(geometry)"
-            ),
+            sa.Computed("4 * pi() * ST_Area(geometry) / ST_Perimeter(geometry)^2"),
         ),
         sa.Column(
             "fill_factor",
@@ -149,20 +172,10 @@ def upgrade() -> None:
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
         sa.Column("active", sa.Boolean, nullable=False),
-        sa.Column("validated", sa.Boolean, nullable=False),
-        sa.Column("slick", ARRAY(sa.BigInteger)),
-        sa.Column("notes", sa.Text),
-        sa.Column("meta", JSONB),
         sa.Column(
             "orchestrator_run",
             sa.BigInteger,
             sa.ForeignKey("orchestrator_run.id"),
-            nullable=False,
-        ),
-        sa.Column(
-            "slick_class",
-            sa.BigInteger,
-            sa.ForeignKey("slick_class.id"),
             nullable=False,
         ),
     )
@@ -347,7 +360,8 @@ def downgrade() -> None:
     op.drop_table("filter")
     op.drop_table("user")
     op.drop_table("slick")
-    op.drop_table("slick_class")
+    op.drop_table("class_map")
+    op.drop_table("class")
     op.drop_table("orchestrator_run")
     op.drop_table("trigger")
     op.drop_table("model")

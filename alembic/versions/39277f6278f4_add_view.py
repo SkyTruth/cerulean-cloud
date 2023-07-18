@@ -5,7 +5,6 @@ Revises: 7cd715196b8d
 Create Date: 2022-07-01 16:59:54.560440
 
 """
-from alembic_utils.pg_function import PGFunction
 from alembic_utils.pg_view import PGView
 
 from alembic import op
@@ -38,28 +37,6 @@ def upgrade() -> None:
     )
     op.create_entity(slick_with_urls)
 
-    # Fiddle: https://dbfiddle.uk/?rdbms=postgres_14&fiddle=a78602f74ea6c2d87a9fa82f1b3a5868
-    get_history_slick = PGFunction(
-        schema="public",
-        signature="slick_history(_slick_id INT)",
-        definition="""
-        RETURNS TABLE(id integer, slick integer ARRAY, create_time timestamp, active BOOLEAN) as
-        $$
-        WITH RECURSIVE ctename AS (
-            SELECT id, slick, create_time, active
-            FROM slick
-            WHERE slick.id = _slick_id
-            UNION ALL
-            SELECT slick.id, slick.slick, slick.create_time, slick.active
-            FROM slick
-                JOIN ctename ON slick.id = any(ctename.slick)
-        )
-        SELECT * FROM ctename;
-        $$ language SQL;
-        """,
-    )
-    op.create_entity(get_history_slick)
-
 
 def downgrade() -> None:
     """remove views"""
@@ -67,10 +44,3 @@ def downgrade() -> None:
         schema="public", signature="slick_with_urls", definition="// not needed"
     )
     op.drop_entity(slick_with_urls)
-
-    get_history_slick = PGFunction(
-        schema="public",
-        signature="slick_history(_slick_id INT)",
-        definition="// not needed",
-    )
-    op.drop_entity(get_history_slick)

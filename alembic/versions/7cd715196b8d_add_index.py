@@ -37,16 +37,16 @@ def upgrade() -> None:
     op.create_index("idx_orchestrator_run_git_tag", "orchestrator_run", ["git_tag"])
     op.create_index("idx_orchestrator_run_git_hash", "orchestrator_run", ["git_hash"])
 
-    op.create_index("idx_slick_class_name", "slick_class", ["name", "active"])
-    op.create_index("idx_slick_class_slick_class", "slick_class", ["slick_class"])
+    op.create_index("idx_class_map_model", "class_map", ["model"])
+    op.create_index("idx_class_map_inference_idx", "class_map", ["inference_idx"])
+    op.create_index("idx_class_map_class", "class_map", ["class"])
 
     op.create_index("idx_source_name", "source", ["st_name", "type"])
 
     op.create_index("idx_filter_hash", "filter", ["hash"])
 
-    op.create_index(
-        "idx_slick_confidence", "slick", ["machine_confidence", "human_confidence"]
-    )
+    op.create_index("idx_slick_hitl", "slick", ["hitl_class"])
+    op.create_index("idx_slick_confidence", "slick", ["machine_confidence"])
     op.create_index("idx_slick_polsby_popper", "slick", ["polsby_popper"])
     op.create_index("idx_slick_fill_factor", "slick", ["fill_factor"])
 
@@ -68,13 +68,15 @@ def downgrade() -> None:
     op.drop_index("idx_orchestrator_run_git_tag", "orchestrator_run")
     op.drop_index("idx_orchestrator_run_git_hash", "orchestrator_run")
 
-    op.drop_index("idx_slick_class_name", "slick_class")
-    op.drop_index("idx_slick_class_slick_class", "slick_class")
+    op.drop_index("idx_class_map_model", "class_map")
+    op.drop_index("idx_class_map_inference_idx", "class_map")
+    op.drop_index("idx_class_map_class", "class_map")
 
     op.drop_index("idx_source_name", "source")
 
     op.drop_index("idx_filter_hash", "filter")
 
+    op.drop_index("idx_slick_hitl", "slick")
     op.drop_index("idx_slick_confidence", "slick")
     op.drop_index("idx_slick_polsby_popper", "slick")
     op.drop_index("idx_slick_fill_factor", "slick")
