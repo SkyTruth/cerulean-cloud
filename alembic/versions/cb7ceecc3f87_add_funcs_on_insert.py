@@ -45,11 +45,11 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE OR REPLACE FUNCTION populate_inferred_cls()
+        CREATE OR REPLACE FUNCTION populate_cls()
         RETURNS TRIGGER AS
         $$
         BEGIN
-            NEW.inferred_cls := (
+            NEW.cls := (
                 SELECT cls.id
                 FROM cls
                 JOIN orchestrator_run ON NEW.orchestrator_run = orchestrator_run.id
@@ -68,10 +68,10 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TRIGGER trigger_populate_inferred_cls
+        CREATE TRIGGER trigger_populate_cls
         BEFORE INSERT ON slick
         FOR EACH ROW
-        EXECUTE FUNCTION populate_inferred_cls();
+        EXECUTE FUNCTION populate_cls();
         """
     )
 
@@ -91,11 +91,11 @@ def downgrade() -> None:
     )
     op.execute(
         """
-        DROP TRIGGER IF EXISTS trigger_populate_inferred_cls ON slick;
+        DROP TRIGGER IF EXISTS trigger_populate_cls ON slick;
         """
     )
     op.execute(
         """
-        DROP FUNCTION IF EXISTS populate_inferred_cls();
+        DROP FUNCTION IF EXISTS populate_cls();
         """
     )
