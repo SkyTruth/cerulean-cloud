@@ -93,17 +93,6 @@ def upgrade() -> None:
             ),
         ]
         session.add_all(models)
-        session.flush()
-
-        class_list = {c.short_name: c.id for c in clses}
-        for model in models:
-            for k, v in model.cls_map.items():
-                cm = database_schema.ClsMap(
-                    model=model.id,
-                    inference_idx=k,
-                    cls=class_list[v],
-                )
-                session.add(cm)
 
         layers = [
             database_schema.Layer(
@@ -205,10 +194,6 @@ def downgrade() -> None:
     session = orm.Session(bind=bind)
 
     with session.begin():
-        cms = session.query(database_schema.ClsMap).all()
-        for cm in cms:
-            session.delete(cm)
-
         models = session.query(database_schema.Model).all()
         for model in models:
             session.delete(model)

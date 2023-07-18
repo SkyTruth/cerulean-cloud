@@ -28,7 +28,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -267,23 +266,6 @@ class AoiUser(Aoi):  # noqa
     user1 = relationship("User")
 
 
-class ClsMap(Base):  # noqa
-    __tablename__ = "cls_map"
-    __table_args__ = (UniqueConstraint("model", "inference_idx"),)
-
-    id = Column(
-        Integer,
-        primary_key=True,
-        server_default=text("nextval('cls_map_id_seq'::regclass)"),
-    )
-    model = Column(ForeignKey("model.id"))
-    inference_idx = Column(Integer)
-    cls = Column(ForeignKey("cls.id"))
-
-    cls1 = relationship("Cls")
-    model1 = relationship("Model")
-
-
 class MagicLink(Base):  # noqa
     __tablename__ = "magic_link"
 
@@ -400,12 +382,13 @@ class Slick(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('slick_id_seq'::regclass)"),
     )
+    slick_timestamp = Column(DateTime, nullable=False)
     geometry = Column(
         Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
     inference_idx = Column(Integer, nullable=False)
-    slick_timestamp = Column(DateTime, nullable=False)
+    inferred_cls = Column(Integer)
     hitl_cls = Column(ForeignKey("cls.id"))
     machine_confidence = Column(Float(53))
     length = Column(

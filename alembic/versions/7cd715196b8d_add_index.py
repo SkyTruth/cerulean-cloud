@@ -35,10 +35,6 @@ def upgrade() -> None:
     op.create_index("idx_orchestrator_run_git_tag", "orchestrator_run", ["git_tag"])
     op.create_index("idx_orchestrator_run_git_hash", "orchestrator_run", ["git_hash"])
 
-    op.create_index("idx_cls_map_model", "cls_map", ["model"])
-    op.create_index("idx_cls_map_inference_idx", "cls_map", ["inference_idx"])
-    op.create_index("idx_cls_map_cls", "cls_map", ["cls"])
-
     op.create_index("idx_source_name", "source", ["st_name", "type"])
 
     op.create_index("idx_filter_hash", "filter", ["hash"])
@@ -63,10 +59,6 @@ def downgrade() -> None:
     op.drop_index("idx_orchestrator_run_time", "orchestrator_run")
     op.drop_index("idx_orchestrator_run_git_tag", "orchestrator_run")
     op.drop_index("idx_orchestrator_run_git_hash", "orchestrator_run")
-
-    op.drop_index("idx_cls_map_model", "cls_map")
-    op.drop_index("idx_cls_map_inference_idx", "cls_map")
-    op.drop_index("idx_cls_map_cls", "cls_map")
 
     op.drop_index("idx_source_name", "source")
 
