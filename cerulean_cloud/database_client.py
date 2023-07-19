@@ -72,7 +72,7 @@ class DatabaseClient:
 
     async def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
-        s1_grd = await get(self.session, db.Sentinel1Grd, scene_id=sceneid)
+        s1_grd = await get(self.session, db.Sentinel1Grd, False, scene_id=sceneid)
 
         if not s1_grd:
             shape_s1 = shape(scene_info["footprint"])
