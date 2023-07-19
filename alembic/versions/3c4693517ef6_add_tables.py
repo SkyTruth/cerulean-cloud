@@ -118,6 +118,16 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("slick_timestamp", sa.DateTime, nullable=False),
         sa.Column("geometry", Geography("MULTIPOLYGON"), nullable=False),
+        sa.Column("active", sa.Boolean, nullable=False),
+        sa.Column(
+            "orchestrator_run",
+            sa.BigInteger,
+            sa.ForeignKey("orchestrator_run.id"),
+            nullable=False,
+        ),
+        sa.Column(
+            "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
+        ),
         sa.Column("inference_idx", sa.Integer, nullable=False),
         sa.Column("cls", sa.Integer),
         sa.Column(
@@ -158,16 +168,6 @@ def upgrade() -> None:
             sa.Computed(
                 "ST_Area(geometry) / ST_Area(ST_OrientedEnvelope(geometry::geometry)::geography)"
             ),
-        ),
-        sa.Column(
-            "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
-        ),
-        sa.Column("active", sa.Boolean, nullable=False),
-        sa.Column(
-            "orchestrator_run",
-            sa.BigInteger,
-            sa.ForeignKey("orchestrator_run.id"),
-            nullable=False,
         ),
     )
 
