@@ -8,7 +8,13 @@ from shapely.geometry import MultiPolygon, Polygon, box, shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-import cerulean_cloud.database_schema as database_schema
+import cerulean_cloud.database_schema as db
+
+
+class InstanceNotFoundError(Exception):
+    """Raised when an instance is not found in the database."""
+
+    pass
 
 
 def get_engine(db_url: str = os.getenv("DB_URL")):
@@ -16,13 +22,19 @@ def get_engine(db_url: str = os.getenv("DB_URL")):
     return create_async_engine(db_url, echo=False)
 
 
-async def existing_or_new(sess, kls, **kwargs):
+async def get(sess, kls, error_if_absent=True, **kwargs):
+    """Return instance if exists else None"""
+    res = await sess.execute(select(kls).filter_by(**kwargs)).scalars().first()
+    if not res and error_if_absent:
+        raise InstanceNotFoundError(
+            f"Instance of {kls} not found with parameters {kwargs}"
+        )
+    return res
+
+
+async def get_or_insert(sess, kls, **kwargs):
     """Check if instance exists, creates it if not"""
-    res = await sess.execute(select(kls).filter_by(**kwargs))
-    inst = res.scalars().first()
-    if not inst:
-        inst = kls(**kwargs)
-    return inst
+    return (await get(sess, kls, False, **kwargs)) or (kls(**kwargs))
 
 
 class DatabaseClient:
@@ -44,34 +56,22 @@ class DatabaseClient:
     async def get_trigger(self, trigger: Optional[int] = None):
         """get trigger from id"""
         if trigger:
-            return await existing_or_new(
-                self.session, database_schema.Trigger, id=trigger
-            )
+            return await get_or_insert(self.session, db.Trigger, id=trigger)
         else:
-            return await existing_or_new(
+            return await get_or_insert(
                 self.session,
-                database_schema.Trigger,
+                db.Trigger,
                 trigger_logs="",
                 trigger_type="MANUAL",
             )
 
     async def get_model(self, model_path: str):
         """get model from path"""
-        return await existing_or_new(
-            self.session, database_schema.Model, file_path=model_path, name=model_path
-        )
+        return await get(self.session, db.Model, file_path=model_path)
 
     async def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
-        s1_grd = (
-            (
-                await self.session.execute(
-                    select(database_schema.Sentinel1Grd).filter_by(scene_id=sceneid)
-                )
-            )
-            .scalars()
-            .first()
-        )
+        s1_grd = get(self.session, db.Sentinel1Grd, scene_id=sceneid)
 
         if not s1_grd:
             shape_s1 = shape(scene_info["footprint"])
@@ -79,9 +79,9 @@ class DatabaseClient:
                 geom = from_shape(shape_s1)
             elif isinstance(shape_s1, MultiPolygon):
                 geom = from_shape(shape_s1.geoms[0])
-            s1_grd = await existing_or_new(
+            s1_grd = await get_or_insert(
                 self.session,
-                database_schema.Sentinel1Grd,
+                db.Sentinel1Grd,
                 scene_id=sceneid,
                 absolute_orbit_number=scene_info["absoluteOrbitNumber"],
                 mode=scene_info["mode"],
@@ -96,28 +96,6 @@ class DatabaseClient:
                 geometry=geom,
             )
         return s1_grd
-
-    async def get_vessel_density(self, vessel_density: str):
-        """get vessel density"""
-        return await existing_or_new(
-            self.session, database_schema.VesselDensity, name=vessel_density
-        )
-
-    async def get_infra_distance(self, infra_distance_url: str):
-        """get infra distance"""
-        return await existing_or_new(
-            self.session, database_schema.InfraDistance, url=infra_distance_url
-        )
-
-    async def get_slick_class(self, slick_class: str):
-        """get slick class"""
-        return await existing_or_new(
-            self.session,
-            database_schema.SlickClass,
-            value=int(slick_class),
-            name=str(int(slick_class)),
-            active=True,
-        )
 
     def add_orchestrator(
         self,
@@ -134,11 +112,9 @@ class DatabaseClient:
         trigger,
         model,
         sentinel1_grd,
-        vessel_density,
-        infra_distance,
     ):
         """add a new orchestrator"""
-        orchestrator_run = database_schema.OrchestratorRun(
+        orchestrator_run = db.OrchestratorRun(
             inference_start_time=inference_start_time,
             inference_end_time=inference_end_time,
             base_tiles=base_tiles,
@@ -153,46 +129,26 @@ class DatabaseClient:
             trigger1=trigger,
             model1=model,
             sentinel1_grd1=sentinel1_grd,
-            vessel_density1=vessel_density,
-            infra_distance1=infra_distance,
         )
         return orchestrator_run
-
-    async def add_slick_with_eez(self, feat, orchestrator_run, slick_timestamp):
-        """add a slick with eez"""
-        slick_class = await self.get_slick_class(
-            feat.get("properties").get("classification")
-        )
-        slick = self.add_slick(
-            orchestrator_run,
-            slick_timestamp,
-            feat.get("geometry"),
-            slick_class,
-            machine_confidence=feat.get("properties").get("confidence"),
-        )
-
-        self.session.add(slick)
-
-        return slick
 
     def add_slick(
         self,
         orchestrator_run,
         slick_timestamp,
         slick_shape,
-        slick_class,
-        machine_confidence=None,
+        inference_idx,
+        machine_confidence,
     ):
         """add a slick"""
         s = shape(slick_shape)
         if not isinstance(s, MultiPolygon):
             s = MultiPolygon([s])
-        slick = database_schema.Slick(
+        slick = db.Slick(
             slick_timestamp=slick_timestamp,
             geometry=from_shape(s),
+            inference_idx=inference_idx,
             active=True,
-            validated=False,
-            slick_class1=slick_class,
             orchestrator_run1=orchestrator_run,
             machine_confidence=machine_confidence,
         )

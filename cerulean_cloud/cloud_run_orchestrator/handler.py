@@ -260,17 +260,17 @@ async def _orchestrate(
     print(f"Offset image size is {offset_image_shape} with {offset_bounds} bounds.")
 
     aux_infra_distance = os.getenv("AUX_INFRA_DISTANCE")
-    aux_datasets = ["ship_density", aux_infra_distance]
+    aux_datasets = [
+        "ship_density",
+        aux_infra_distance,
+    ]  # XXXDB This should pull from the model layers instead
 
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
         try:
             async with db_client.session.begin():
-
                 trigger = await db_client.get_trigger(trigger=payload.trigger)
                 model = await db_client.get_model(os.getenv("MODEL"))
-                vessel_density = await db_client.get_vessel_density("Vessel Density")
-                infra_distance = await db_client.get_infra_distance(aux_infra_distance)
                 sentinel1_grd = await db_client.get_sentinel1_grd(
                     payload.sceneid,
                     info,
@@ -295,8 +295,6 @@ async def _orchestrate(
                     trigger,
                     model,
                     sentinel1_grd,
-                    vessel_density,
-                    infra_distance,
                 )
                 db_client.session.add(orchestrator_run)
         except:  # noqa: E722
@@ -304,7 +302,6 @@ async def _orchestrate(
             raise
 
         if not payload.dry_run:
-
             print(
                 f"Instantiating inference client with aux_dataset = {aux_datasets}..."
             )
@@ -347,7 +344,6 @@ async def _orchestrate(
             )
 
             if base_tiles_inference[0].stack[0].dict().get("classes"):
-
                 print("Loading all tiles into memory for merge!")
                 ds_base_tiles = []
                 for base_tile_inference in base_tiles_inference:
@@ -411,8 +407,12 @@ async def _orchestrate(
 
             for feat in merged_inferences.get("features"):
                 async with db_client.session.begin():
-                    slick = await db_client.add_slick_with_eez(
-                        feat, orchestrator_run, sentinel1_grd.start_time
+                    slick = await db_client.add_slick(
+                        orchestrator_run,
+                        sentinel1_grd.start_time,
+                        feat.get("geometry"),
+                        feat.get("properties").get("classification"),
+                        feat.get("properties").get("confidence"),
                     )
                     print(f"Added slick {slick}")
 

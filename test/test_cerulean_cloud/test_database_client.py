@@ -30,7 +30,6 @@ def engine(postgresql):
 
 @pytest.fixture
 async def setup_database(engine):
-
     async with engine.begin() as conn:
         await conn.execute(sa.text("CREATE EXTENSION postgis"))
         await conn.run_sync(database_schema.Base.metadata.create_all)
@@ -132,14 +131,16 @@ async def test_create_slick(setup_database, engine):
                 trigger,
                 model,
                 sentinel1_grd,
-                None,
-                None,
             )
 
         for feat in out_fc.features:
             async with db_client.session.begin():
-                slick = await db_client.add_slick_with_eez(
-                    dict(feat), orchestrator_run, sentinel1_grd.start_time
+                slick = await db_client.add_slick(
+                    orchestrator_run,
+                    sentinel1_grd.start_time,
+                    dict(feat).get("geometry"),
+                    dict(feat).get("properties").get("classification"),
+                    dict(feat).get("properties").get("confidence"),
                 )
                 print(f"Added last eez for slick {slick}")
 
@@ -183,8 +184,6 @@ async def test_update_orchestrator(setup_database, engine):
                 trigger,
                 model,
                 sentinel1_grd,
-                None,
-                None,
             )
             db_client.session.add(orchestrator_run)
 
