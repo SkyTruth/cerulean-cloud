@@ -407,7 +407,7 @@ async def _orchestrate(
 
             for feat in merged_inferences.get("features"):
                 async with db_client.session.begin():
-                    slick = await db_client.add_slick(
+                    slick = db_client.add_slick(
                         orchestrator_run,
                         sentinel1_grd.start_time,
                         feat.get("geometry"),

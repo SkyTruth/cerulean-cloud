@@ -33,9 +33,16 @@ async def get(sess, kls, error_if_absent=True, **kwargs):
     return res
 
 
+def insert(sess, kls, **kwargs):
+    """Create an instance"""
+    res = kls(**kwargs)
+    sess.add(res)
+    return res
+
+
 async def get_or_insert(sess, kls, **kwargs):
     """Check if instance exists, creates it if not"""
-    return (await get(sess, kls, False, **kwargs)) or (kls(**kwargs))
+    return (await get(sess, kls, False, **kwargs)) or insert(sess, kls, **kwargs)
 
 
 class DatabaseClient:
@@ -72,30 +79,26 @@ class DatabaseClient:
 
     async def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
-        s1_grd = await get(self.session, db.Sentinel1Grd, False, scene_id=sceneid)
+        shape_s1 = shape(scene_info["footprint"])
+        if isinstance(shape_s1, Polygon):
+            geom = from_shape(shape_s1)
+        elif isinstance(shape_s1, MultiPolygon):
+            geom = from_shape(shape_s1.geoms[0])
 
-        if not s1_grd:
-            shape_s1 = shape(scene_info["footprint"])
-            if isinstance(shape_s1, Polygon):
-                geom = from_shape(shape_s1)
-            elif isinstance(shape_s1, MultiPolygon):
-                geom = from_shape(shape_s1.geoms[0])
-            s1_grd = await get_or_insert(
-                self.session,
-                db.Sentinel1Grd,
-                scene_id=sceneid,
-                absolute_orbit_number=scene_info["absoluteOrbitNumber"],
-                mode=scene_info["mode"],
-                polarization=scene_info["polarization"],
-                scihub_ingestion_time=parse(
-                    scene_info["sciHubIngestion"], ignoretz=True
-                ),
-                start_time=parse(scene_info["startTime"]),
-                end_time=parse(scene_info["stopTime"]),
-                meta=scene_info,
-                url=titiler_url,
-                geometry=geom,
-            )
+        s1_grd = get_or_insert(
+            self.session,
+            db.Sentinel1Grd,
+            scene_id=sceneid,
+            absolute_orbit_number=scene_info["absoluteOrbitNumber"],
+            mode=scene_info["mode"],
+            polarization=scene_info["polarization"],
+            scihub_ingestion_time=parse(scene_info["sciHubIngestion"], ignoretz=True),
+            start_time=parse(scene_info["startTime"]),
+            end_time=parse(scene_info["stopTime"]),
+            meta=scene_info,
+            url=titiler_url,
+            geometry=geom,
+        )
         return s1_grd
 
     def add_orchestrator(
@@ -115,7 +118,9 @@ class DatabaseClient:
         sentinel1_grd,
     ):
         """add a new orchestrator"""
-        orchestrator_run = db.OrchestratorRun(
+        orchestrator_run = get_or_insert(
+            self.session,
+            db.OrchestratorRun,
             inference_start_time=inference_start_time,
             inference_end_time=inference_end_time,
             base_tiles=base_tiles,
@@ -125,7 +130,6 @@ class DatabaseClient:
             inference_run_logs=inference_run_logs,
             zoom=zoom,
             scale=scale,
-            success=False,
             geometry=from_shape(box(*bounds)),
             trigger1=trigger,
             model1=model,
@@ -145,7 +149,10 @@ class DatabaseClient:
         s = shape(slick_shape)
         if not isinstance(s, MultiPolygon):
             s = MultiPolygon([s])
-        slick = db.Slick(
+
+        slick = insert(
+            self.session,
+            db.Slick,
             slick_timestamp=slick_timestamp,
             geometry=from_shape(s),
             inference_idx=inference_idx,
