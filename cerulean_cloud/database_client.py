@@ -24,7 +24,8 @@ def get_engine(db_url: str = os.getenv("DB_URL")):
 
 async def get(sess, kls, error_if_absent=True, **kwargs):
     """Return instance if exists else None"""
-    res = await sess.execute(select(kls).filter_by(**kwargs)).scalars().first()
+    res = await sess.execute(select(kls).filter_by(**kwargs))
+    res = res.scalars().first()
     if not res and error_if_absent:
         raise InstanceNotFoundError(
             f"Instance of {kls} not found with parameters {kwargs}"
