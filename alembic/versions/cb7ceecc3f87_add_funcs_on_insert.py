@@ -53,7 +53,7 @@ def upgrade() -> None:
                 SELECT cls.id
                 FROM cls
                 JOIN orchestrator_run ON NEW.orchestrator_run = orchestrator_run.id
-                JOIN LATERAL json_each_text((SELECT class_map FROM model WHERE id = orchestrator_run.model))
+                JOIN LATERAL json_each_text((SELECT cls_map FROM model WHERE id = orchestrator_run.model))
                     m(key, value)
                     ON key::integer = NEW.inference_idx
                     WHERE cls.short_name = value
