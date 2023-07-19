@@ -279,7 +279,7 @@ async def _orchestrate(
                     ),
                 )
                 db_client.session.add(sentinel1_grd)
-                orchestrator_run = db_client.add_orchestrator(
+                orchestrator_run = await db_client.add_orchestrator(
                     start_time,
                     start_time,
                     ntiles,
@@ -407,14 +407,14 @@ async def _orchestrate(
 
             for feat in merged_inferences.get("features"):
                 async with db_client.session.begin():
-                    slick = db_client.add_slick(
+                    slick = await db_client.add_slick(
                         orchestrator_run,
                         sentinel1_grd.start_time,
                         feat.get("geometry"),
                         feat.get("properties").get("classification"),
                         feat.get("properties").get("confidence"),
                     )
-                    print(f"Added slick {slick}")
+                print(f"Added slick {slick}")
 
             end_time = datetime.now()
             print(f"End time: {end_time}")

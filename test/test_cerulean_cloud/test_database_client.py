@@ -117,7 +117,7 @@ async def test_create_slick(setup_database, engine):
             )
             trigger = await db_client.get_trigger(1)
             model = await db_client.get_model("model_path")
-            orchestrator_run = db_client.add_orchestrator(
+            orchestrator_run = await db_client.add_orchestrator(
                 datetime.now(),
                 datetime.now(),
                 1,
@@ -170,7 +170,7 @@ async def test_update_orchestrator(setup_database, engine):
             )
             trigger = await db_client.get_trigger()
             model = await db_client.get_model("model_path")
-            orchestrator_run = db_client.add_orchestrator(
+            orchestrator_run = await db_client.add_orchestrator(
                 datetime.now(),
                 datetime.now(),
                 1,

@@ -85,7 +85,7 @@ class DatabaseClient:
         elif isinstance(shape_s1, MultiPolygon):
             geom = from_shape(shape_s1.geoms[0])
 
-        s1_grd = get_or_insert(
+        s1_grd = await get_or_insert(
             self.session,
             db.Sentinel1Grd,
             scene_id=sceneid,
@@ -101,7 +101,7 @@ class DatabaseClient:
         )
         return s1_grd
 
-    def add_orchestrator(
+    async def add_orchestrator(
         self,
         inference_start_time,
         inference_end_time,
@@ -118,7 +118,7 @@ class DatabaseClient:
         sentinel1_grd,
     ):
         """add a new orchestrator"""
-        orchestrator_run = get_or_insert(
+        orchestrator_run = await get_or_insert(
             self.session,
             db.OrchestratorRun,
             inference_start_time=inference_start_time,
@@ -137,7 +137,7 @@ class DatabaseClient:
         )
         return orchestrator_run
 
-    def add_slick(
+    async def add_slick(
         self,
         orchestrator_run,
         slick_timestamp,
