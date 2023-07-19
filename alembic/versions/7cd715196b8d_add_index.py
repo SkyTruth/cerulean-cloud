@@ -19,13 +19,11 @@ def upgrade() -> None:
     op.create_index("idx_model_name", "model", ["name"])
     op.create_index("idx_model_file_path", "model", ["file_path"])
 
+    op.create_index("idx_layer_short_name", "layer", ["short_name"])
+
     op.create_index(
         "idx_sentinel1_grd_scene_id", "sentinel1_grd", ["scene_id"], unique=True
     )
-
-    op.create_index("idx_vessel_density_name", "vessel_density", ["name"])
-
-    op.create_index("idx_infra_distance_name", "infra_distance", ["name"])
 
     op.create_index("idx_trigger_trigger_time", "trigger", ["trigger_time"])
 
@@ -37,16 +35,12 @@ def upgrade() -> None:
     op.create_index("idx_orchestrator_run_git_tag", "orchestrator_run", ["git_tag"])
     op.create_index("idx_orchestrator_run_git_hash", "orchestrator_run", ["git_hash"])
 
-    op.create_index("idx_slick_class_name", "slick_class", ["name", "active"])
-    op.create_index("idx_slick_class_slick_class", "slick_class", ["slick_class"])
-
     op.create_index("idx_source_name", "source", ["st_name", "type"])
 
     op.create_index("idx_filter_hash", "filter", ["hash"])
 
-    op.create_index(
-        "idx_slick_confidence", "slick", ["machine_confidence", "human_confidence"]
-    )
+    op.create_index("idx_slick_hitl", "slick", ["hitl_cls"])
+    op.create_index("idx_slick_confidence", "slick", ["machine_confidence"])
     op.create_index("idx_slick_polsby_popper", "slick", ["polsby_popper"])
     op.create_index("idx_slick_fill_factor", "slick", ["fill_factor"])
 
@@ -56,11 +50,9 @@ def downgrade() -> None:
     op.drop_index("idx_model_name", "model")
     op.drop_index("idx_model_file_path", "model")
 
+    op.drop_index("idx_layer_short_name", "layer")
+
     op.drop_index("idx_sentinel1_grd_scene_id", "sentinel1_grd")
-
-    op.drop_index("idx_vessel_density_name", "vessel_density")
-
-    op.drop_index("idx_infra_distance_name", "infra_distance")
 
     op.drop_index("idx_trigger_trigger_time", "trigger")
 
@@ -68,13 +60,11 @@ def downgrade() -> None:
     op.drop_index("idx_orchestrator_run_git_tag", "orchestrator_run")
     op.drop_index("idx_orchestrator_run_git_hash", "orchestrator_run")
 
-    op.drop_index("idx_slick_class_name", "slick_class")
-    op.drop_index("idx_slick_class_slick_class", "slick_class")
-
     op.drop_index("idx_source_name", "source")
 
     op.drop_index("idx_filter_hash", "filter")
 
+    op.drop_index("idx_slick_hitl", "slick")
     op.drop_index("idx_slick_confidence", "slick")
     op.drop_index("idx_slick_polsby_popper", "slick")
     op.drop_index("idx_slick_fill_factor", "slick")
