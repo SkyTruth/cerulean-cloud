@@ -55,6 +55,21 @@ class AoiType(Base):  # noqa
     update_time = Column(DateTime, server_default=text("now()"))
 
 
+class Cls(Base):  # noqa
+    __tablename__ = "cls"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        server_default=text("nextval('cls_id_seq'::regclass)"),
+    )
+    short_name = Column(Text, unique=True)
+    long_name = Column(Text)
+    supercls = Column(ForeignKey("cls.id"))
+
+    parent = relationship("Cls", remote_side=[id])
+
+
 class Filter(Base):  # noqa
     __tablename__ = "filter"
 
@@ -79,24 +94,23 @@ class Frequency(Base):  # noqa
     long_name = Column(Text)
 
 
-class InfraDistance(Base):  # noqa
-    __tablename__ = "infra_distance"
+class Layer(Base):  # noqa
+    __tablename__ = "layer"
 
     id = Column(
         Integer,
         primary_key=True,
-        server_default=text("nextval('infra_distance_id_seq'::regclass)"),
+        server_default=text("nextval('layer_id_seq'::regclass)"),
     )
-    name = Column(String(200), nullable=False)
-    source = Column(Text, nullable=False)
-    start_time = Column(DateTime, nullable=False)
-    end_time = Column(DateTime, nullable=False)
-    meta = Column(JSONB(astext_type=Text()))
-    geometry = Column(
-        Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
-        nullable=False,
-    )
-    url = Column(Text, nullable=False)
+    short_name = Column(Text, nullable=False, unique=True)
+    long_name = Column(Text)
+    citation = Column(Text)
+    source_url = Column(Text)
+    notes = Column(Text)
+    start_time = Column(DateTime)
+    end_time = Column(DateTime)
+    json = Column(JSON)
+    update_time = Column(DateTime, server_default=text("now()"))
 
 
 class Model(Base):  # noqa
@@ -107,13 +121,18 @@ class Model(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('model_id_seq'::regclass)"),
     )
-    name = Column(String(200), nullable=False)
-    thresholds = Column(Integer)
-    fine_pkl_idx = Column(Integer)
-    chip_size_orig = Column(Integer)
-    chip_size_reduced = Column(Integer)
-    overhang = Column(Boolean)
     file_path = Column(Text, nullable=False)
+    layers = Column(ARRAY(Text()), nullable=False)
+    cls_map = Column(JSON, nullable=False)
+    name = Column(Text)
+    zoom_level = Column(Integer)
+    rrctile_size = Column(Integer)
+    resolution = Column(Integer)
+    epochs = Column(Integer)
+    thresholds = Column(JSON)
+    backbone_size = Column(Integer)
+    pixel_f1 = Column(Float(53))
+    instance_f1 = Column(Float(53))
     updated_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
 
@@ -138,22 +157,6 @@ class Sentinel1Grd(Base):  # noqa
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
-
-
-class SlickClass(Base):  # noqa
-    __tablename__ = "slick_class"
-
-    id = Column(
-        Integer,
-        primary_key=True,
-        server_default=text("nextval('slick_class_id_seq'::regclass)"),
-    )
-    value = Column(Integer)
-    name = Column(String(200))
-    notes = Column(Text)
-    slick_class = Column(ARRAY(Integer()))
-    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
-    active = Column(Boolean, nullable=False)
 
 
 class SourceType(Base):  # noqa
@@ -206,25 +209,6 @@ class User(Base):  # noqa
     )
     email = Column(Text, nullable=False, unique=True)
     create_time = Column(DateTime, server_default=text("now()"))
-
-
-class VesselDensity(Base):  # noqa
-    __tablename__ = "vessel_density"
-
-    id = Column(
-        Integer,
-        primary_key=True,
-        server_default=text("nextval('vessel_density_id_seq'::regclass)"),
-    )
-    name = Column(String(200), nullable=False)
-    source = Column(Text, nullable=False)
-    start_time = Column(DateTime, nullable=False)
-    end_time = Column(DateTime, nullable=False)
-    meta = Column(JSONB(astext_type=Text()))
-    geometry = Column(
-        Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
-        nullable=False,
-    )
 
 
 class Aoi(Base):  # noqa
@@ -325,14 +309,10 @@ class OrchestratorRun(Base):  # noqa
     trigger = Column(ForeignKey("trigger.id"), nullable=False)
     model = Column(ForeignKey("model.id"), nullable=False)
     sentinel1_grd = Column(ForeignKey("sentinel1_grd.id"))
-    vessel_density = Column(ForeignKey("vessel_density.id"))
-    infra_distance = Column(ForeignKey("infra_distance.id"))
 
-    infra_distance1 = relationship("InfraDistance")
     model1 = relationship("Model")
     sentinel1_grd1 = relationship("Sentinel1Grd")
     trigger1 = relationship("Trigger")
-    vessel_density1 = relationship("VesselDensity")
 
 
 class Source(Base):  # noqa
@@ -407,8 +387,17 @@ class Slick(Base):  # noqa
         Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
+    inference_idx = Column(Integer, nullable=False)
+    cls = Column(Integer)
+    hitl_cls = Column(ForeignKey("cls.id"))
     machine_confidence = Column(Float(53))
-    human_confidence = Column(Float(53))
+    length = Column(
+        Float(53),
+        Computed(
+            "GREATEST(st_distance(st_pointn(st_orientedenvelope((geometry)::geometry), 1), st_pointn(st_orientedenvelope((geometry)::geometry), 2)), st_distance(st_pointn(st_orientedenvelope((geometry)::geometry), 2), st_pointn(st_orientedenvelope((geometry)::geometry), 3)))",
+            persisted=True,
+        ),
+    )
     area = Column(Float(53), Computed("st_area(geometry)", persisted=True))
     perimeter = Column(Float(53), Computed("st_perimeter(geometry)", persisted=True))
     centroid = Column(
@@ -418,7 +407,7 @@ class Slick(Base):  # noqa
     polsby_popper = Column(
         Float(53),
         Computed(
-            "((st_perimeter(geometry) * st_perimeter(geometry)) / st_area(geometry))",
+            "((((4)::double precision * pi()) * st_area(geometry)) / (st_perimeter(geometry) ^ (2)::double precision))",
             persisted=True,
         ),
     )
@@ -431,15 +420,10 @@ class Slick(Base):  # noqa
     )
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))
     active = Column(Boolean, nullable=False)
-    validated = Column(Boolean, nullable=False)
-    slick = Column(ARRAY(BigInteger()))
-    notes = Column(Text)
-    meta = Column(JSONB(astext_type=Text()))
     orchestrator_run = Column(ForeignKey("orchestrator_run.id"), nullable=False)
-    slick_class = Column(ForeignKey("slick_class.id"), nullable=False)
 
+    cls = relationship("Cls")
     orchestrator_run1 = relationship("OrchestratorRun")
-    slick_class1 = relationship("SlickClass")
 
 
 class SlickToAoi(Base):  # noqa
