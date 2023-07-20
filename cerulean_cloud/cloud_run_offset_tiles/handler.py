@@ -6,7 +6,6 @@ from functools import lru_cache
 from typing import Dict, List, Tuple, Union
 
 import geojson
-import googlecloudprofiler
 import numpy as np
 import rasterio
 import torch
@@ -32,16 +31,6 @@ app = FastAPI(title="Cloud Run for offset tiles", dependencies=[Depends(api_key_
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 add_timing_middleware(app, prefix="app")
-
-# Initialize Google Cloud Profiler
-try:
-    googlecloudprofiler.start(
-        service="cloud-run-offset-tiles-profiler",  # replace with your actual service name
-        service_version="0.0.1",  # replace with your actual service version
-        verbose=3,
-    )
-except (ValueError, NotImplementedError) as exc:
-    print(exc)  # Handle errors here
 
 
 def load_tracing_model(savepath):

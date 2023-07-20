@@ -12,7 +12,6 @@ Make sure to set in your environment:
 import logging
 from typing import Any, List, Optional
 
-import googlecloudprofiler
 import jinja2
 import pydantic
 from fastapi import FastAPI
@@ -30,16 +29,6 @@ from tipg.settings import APISettings, DatabaseSettings
 
 settings = APISettings()
 db_settings = DatabaseSettings()
-
-# Initialize Google Cloud Profiler
-try:
-    googlecloudprofiler.start(
-        service="cloud-run-tifeatures-profiler",  # replace with your actual service name
-        service_version="0.0.1",  # replace with your actual service version
-        verbose=3,
-    )
-except (ValueError, NotImplementedError) as exc:
-    print(exc)  # Handle errors here
 
 
 class PostgresSettings(pydantic.BaseSettings):

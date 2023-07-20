@@ -20,4 +20,3 @@ global-land-mask
 libpysal
 geopandas
 pygeos
-google-cloud-profiler
