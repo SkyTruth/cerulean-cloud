@@ -117,10 +117,6 @@ def _predict(
     print("Initiating cloud_run_offset_tiles/_predict()")
     print(f"Model type is {inference_parms['model_type']}")
     print(f"Stack has {len(payload.stack)} images")
-    print(f"XXXDEBUG Images are {type(payload.stack[0].image)}")
-    print(f"XXXDEBUG Images are {payload.stack[0].image}")
-    print(f"Images have shape {payload.stack[0].image.shape}")
-    print(f"Model was trained on {inference_parms['img_shape']}")
 
     if inference_parms["model_type"] == "MASKRCNN":
         bounds = [record.bounds for record in payload.stack]
@@ -128,6 +124,10 @@ def _predict(
             torch.Tensor(np.moveaxis(b64_image_to_tensor(record.image), 2, 0)) / 255
             for record in payload.stack
         ]
+
+        print(f"Images have shape {reshaped_inputs[0].image.shape}")
+        print(f"Model was trained on {inference_parms['img_shape']}")
+
         raw_preds = model(reshaped_inputs)[1]
         print("Finished inference, applying post-process, thresholding")
 
