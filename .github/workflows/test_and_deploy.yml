@@ -25,6 +25,13 @@ jobs:
         with:
           python-version: 3.8
 
+      - name: Set up Google Cloud credentials
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          echo "$GCP_SA_KEY" > key.json
+          export GOOGLE_APPLICATION_CREDENTIALS=key.json
+
       - name: Get pip cache dir
         id: pip-cache
         run: |
