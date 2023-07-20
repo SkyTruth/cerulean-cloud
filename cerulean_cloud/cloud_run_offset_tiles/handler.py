@@ -117,6 +117,8 @@ def _predict(
     print("Initiating cloud_run_offset_tiles/_predict()")
     print(f"Model type is {inference_parms['model_type']}")
     print(f"Stack has {len(payload.stack)} images")
+    print(f"XXXDEBUG Images are {type(payload.stack[0].image)}")
+    print(f"XXXDEBUG Images are {payload.stack[0].image}")
     print(f"Images have shape {payload.stack[0].image.shape}")
     print(f"Model was trained on {inference_parms['img_shape']}")
 
