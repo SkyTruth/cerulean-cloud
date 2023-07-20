@@ -1,4 +1,3 @@
-import os
 from base64 import b64encode
 
 import numpy as np
@@ -17,8 +16,6 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 )
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
-
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "./fake_credentials.json"
 
 
 @pytest.mark.skip
