@@ -122,10 +122,9 @@ def _predict(
         b64_image_to_tensor(record.image) / 255 for record in payload.stack
     ]
     bounds = [record.bounds for record in payload.stack]
-    print("XXXDEBUG len(bounds)", len(bounds))
 
     if inference_parms["model_type"] == "MASKRCNN":
-        print(f"Images have shape {stack_tensors[0].image.shape}")
+        print(f"Images have shape {stack_tensors[0].shape}")
         print(f"Model was trained on {inference_parms['img_shape']}")
 
         raw_preds = model(stack_tensors)[1]
@@ -139,13 +138,8 @@ def _predict(
             poly_score_thresh=inference_parms["poly_score_thresh"],
             bounds=bounds,
         )
-        print("XXXDEBUG len(reduced_preds)", len(reduced_preds))
-        kept_bounds = [
-            record.bounds for i, record in enumerate(payload.stack) if i in kept
-        ]
-        print("XXXDEBUG len(kept_bounds)", len(kept_bounds))
         # returns List[Tuple[List[geojson.Feature], List[float]]]
-        return [(inf["polys"], kept_bounds[i]) for i, inf in enumerate(reduced_preds)]
+        return [(inf["polys"], bounds[i]) for i, inf in enumerate(reduced_preds)]
 
     elif inference_parms["model_type"] == "UNET":
         # out_batch_logits = model(tensor)
