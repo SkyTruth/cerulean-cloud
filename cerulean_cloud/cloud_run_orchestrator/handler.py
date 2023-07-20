@@ -16,7 +16,6 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 import geojson
-import googlecloudprofiler
 import morecantile
 import numpy as np
 import rasterio
@@ -46,17 +45,6 @@ from cerulean_cloud.titiler_client import TitilerClient
 app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
-
-
-# Initialize Google Cloud Profiler
-try:
-    googlecloudprofiler.start(
-        service="cloud-run-orchestrator-profiler",  # replace with your actual service name
-        service_version="0.0.1",  # replace with your actual service version
-        verbose=3,
-    )
-except (ValueError, NotImplementedError) as exc:
-    print(exc)  # Handle errors here
 
 
 def make_cloud_log_url(
