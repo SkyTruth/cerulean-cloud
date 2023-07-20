@@ -91,6 +91,20 @@ def upgrade() -> None:
                 pixel_f1=0.466,
                 instance_f1=0.455,
             ),
+            database_schema.Model(
+                file_path="experiments/20_Jul_2022_00_14_15_icevision_maskrcnn/scripting_cpu_test_28_34_224_58.pt",
+                layers=["VV", "INFRA", "VESSEL"],
+                cls_map={
+                    0: "BACKGROUND",
+                    1: "INFRA",
+                    2: "VESSEL",
+                    3: "NATURAL",
+                },  # inference_idx maps to class table
+                name="OLD, Not working so well",
+                rrctile_size=512,
+                resolution=224,
+                backbone_size=34,
+            ),
         ]
         session.add_all(models)
 
