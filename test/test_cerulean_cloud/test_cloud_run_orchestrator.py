@@ -191,9 +191,6 @@ async def mock_get_product_info(*args, **kwargs):
 async def test_orchestrator(
     httpx_mock, fixture_titiler_client, fixture_roda_sentinelhub_client, monkeypatch
 ):
-    monkeypatch.setenv(
-        "AUX_INFRA_DISTANCE", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
-    )
     payload = OrchestratorInput(sceneid=S1_ID)
     with open(
         "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",

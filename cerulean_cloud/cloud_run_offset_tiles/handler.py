@@ -107,7 +107,7 @@ def ping() -> Dict:
 
 
 def _predict(
-    payload: InferenceInputStack, model, inference_parms
+    payload: InferenceInputStack, model, inference_parms: Dict
 ) -> List[
     Union[
         Tuple[np.ndarray, np.ndarray, List[float]],
@@ -125,17 +125,13 @@ def _predict(
 
     if inference_parms["model_type"] == "MASKRCNN":
         print(f"Images have shape {stack_tensors[0].shape}")
-        print(f"Model was trained on {inference_parms['img_shape']}")
 
         raw_preds = model(stack_tensors)[1]
         print("Finished inference, applying post-process, thresholding")
 
-        kept, reduced_preds = reduce_preds(
+        reduced_preds = reduce_preds(
             raw_preds,
-            bbox_score_thresh=inference_parms["bbox_score_thresh"],
-            pixel_score_thresh=inference_parms["pixel_score_thresh"],
-            pixel_nms_thresh=inference_parms["pixel_nms_thresh"],
-            poly_score_thresh=inference_parms["poly_score_thresh"],
+            **inference_parms["thresholds"],
             bounds=bounds,
         )
         # returns List[Tuple[List[geojson.Feature], List[float]]]
@@ -169,33 +165,31 @@ def _predict(
     tags=["Run inference"],
     response_model=InferenceResultStack,
 )
-def predict(
-    request: Request, payload: InferenceInputStack, model=Depends(get_model)
-) -> Dict:
+def predict(request: Request, payload: Dict, model=Depends(get_model)) -> Dict:
     """predict"""
-    inference_parms = {
-        "model_type": "MASKRCNN",
-        "img_shape": [3, 224, 224],  # rrctile of runlist[-1][0]
-        "classes_to_remove": [
-            "ambiguous",
-        ],
-        "classes_to_remap": {
-            "old_vessel": "recent_vessel",
-            "coincident_vessel": "recent_vessel",
-        },
-        "classes_to_keep": [
-            "background",
-            "infra_slick",
-            "natural_seep",
-            "recent_vessel",
-        ],
-        "pixel_nms_thresh": 0.4,  # prediction vs itself, pixels
-        "bbox_score_thresh": 0.2,  # prediction vs score, bbox
-        "poly_score_thresh": 0.2,  # prediction vs score, polygon
-        "pixel_score_thresh": 0.2,  # prediction vs score, pixels
-    }
+    # inference_parms = {
+    #     "model_type": "MASKRCNN",
+    #     "img_shape": [3, 224, 224],  # rrctile of runlist[-1][0]
+    #     "classes_to_remove": [
+    #         "ambiguous",
+    #     ],
+    #     "classes_to_remap": {
+    #         "old_vessel": "recent_vessel",
+    #         "coincident_vessel": "recent_vessel",
+    #     },
+    #     "classes_to_keep": [
+    #         "background",
+    #         "infra_slick",
+    #         "natural_seep",
+    #         "recent_vessel",
+    #     ],
+    #     "pixel_nms_thresh": 0.4,  # prediction vs itself, pixels
+    #     "bbox_score_thresh": 0.2,  # prediction vs score, bbox
+    #     "poly_score_thresh": 0.2,  # prediction vs score, polygon
+    #     "pixel_score_thresh": 0.2,  # prediction vs score, pixels
+    # }
     record_timing(request, note="Started")
-    results = _predict(payload, model, inference_parms)
+    results = _predict(payload["inference_input"], model, payload["inference_parms"])
     record_timing(request, note="Finished inference")
 
     inference_result_stack = []
@@ -274,7 +268,7 @@ def reduce_preds(
             pred_dict = keep_boxes_by_idx(pred_dict, keep)
 
         reduced_preds.extend([pred_dict])
-    return keep, reduced_preds
+    return reduced_preds
 
 
 def keep_boxes_by_idx(pred_dict, keep_idxs):
