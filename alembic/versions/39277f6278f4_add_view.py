@@ -35,6 +35,25 @@ def upgrade() -> None:
     )
     op.create_entity(slick_with_urls)
 
+    slick_plus = PGView(
+        schema="public",
+        signature="slick_plus",
+        definition="""
+    SELECT
+        slick.*,
+        sentinel1_grd.scene_id AS s1_scene_id,
+        sentinel1_grd.geometry AS s1_geometry,
+        cls.id AS cls_id,
+        cls.short_name AS cls_short_name,
+        cls.long_name AS cls_long_name
+    FROM slick
+    JOIN orchestrator_run ON orchestrator_run.id = slick.orchestrator_run
+    JOIN sentinel1_grd ON sentinel1_grd.id = orchestrator_run.sentinel1_grd
+    JOIN cls ON cls.id = slick.cls;
+    """,
+    )
+    op.create_entity(slick_plus)
+
 
 def downgrade() -> None:
     """remove views"""
@@ -42,3 +61,8 @@ def downgrade() -> None:
         schema="public", signature="slick_with_urls", definition="// not needed"
     )
     op.drop_entity(slick_with_urls)
+
+    slick_plus = PGView(
+        schema="public", signature="slick_plus", definition="// not needed"
+    )
+    op.drop_entity(slick_plus)
