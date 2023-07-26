@@ -77,6 +77,10 @@ class DatabaseClient:
         """get model from path"""
         return await get(self.session, db.Model, file_path=model_path)
 
+    async def get_layer(self, short_name: str):
+        """get layer from short_name"""
+        return await get(self.session, db.Layer, short_name=short_name)
+
     async def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
         """get sentinel1 record"""
         shape_s1 = shape(scene_info["footprint"])

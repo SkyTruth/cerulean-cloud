@@ -24,7 +24,6 @@ from cerulean_cloud.titiler_client import TitilerClient
 
 
 async def mock_get_base_tile(self, sceneid, tile, scale, rescale):
-
     with rasterio.open("test/test_cerulean_cloud/fixtures/example_tile.png") as src:
         img_array = reshape_as_image(src.read())
 
@@ -72,12 +71,16 @@ def fixture_cloud_inference_tile(httpx_mock):
 )
 @pytest.mark.asyncio
 async def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
+    payload = {
+        "inference_input": InferenceResultStack(
+            stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
+        ).dict(),
+        "inference_parms": {"model_type": "MASKRCNN", "thresholds": {}},
+    }
     httpx_mock.add_response(
         method="POST",
         url=fixture_cloud_inference_tile.url + "/predict",
-        json=InferenceResultStack(
-            stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
-        ).dict(),
+        json=payload,
     )
     semaphore = asyncio.Semaphore(20)
     tasks = [
@@ -99,12 +102,16 @@ async def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock)
 )
 @pytest.mark.asyncio
 async def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_mock):
+    payload = {
+        "inference_input": InferenceResultStack(
+            stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
+        ).dict(),
+        "inference_parms": {"model_type": "MASKRCNN", "thresholds": {}},
+    }
     httpx_mock.add_response(
         method="POST",
         url=fixture_cloud_inference_tile.url + "/predict",
-        json=InferenceResultStack(
-            stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
-        ).dict(),
+        json=payload,
     )
 
     semaphore = asyncio.Semaphore(20)
@@ -142,7 +149,6 @@ def test_get_ship_density(httpx_mock):
 
 
 def test_get_dist_array():
-
     arr = get_dist_array(
         bounds=(55.698181, 24.565813, 58.540211, 26.494711),
         img_shape=(4181, 6458),

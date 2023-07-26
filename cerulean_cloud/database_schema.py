@@ -121,6 +121,7 @@ class Model(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('model_id_seq'::regclass)"),
     )
+    type = Column(Text, nullable=False)
     file_path = Column(Text, nullable=False)
     layers = Column(ARRAY(Text()), nullable=False)
     cls_map = Column(JSON, nullable=False)

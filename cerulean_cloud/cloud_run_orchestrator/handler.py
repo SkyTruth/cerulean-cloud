@@ -234,7 +234,9 @@ async def _orchestrate(
     start_time = datetime.now()
     print(f"Start time: {start_time}")
     zoom = payload.zoom
+    print("XXXDEBUG payload.zoom", payload.zoom)
     scale = payload.scale
+    print("XXXDEBUG payload.scale", payload.scale)
     print(f"Orchestrating for sceneid {payload.sceneid}...")
     bounds = await titiler_client.get_bounds(payload.sceneid)
     stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
@@ -259,18 +261,14 @@ async def _orchestrate(
     print(f"Scene bounds are {bounds}, stats are {stats}.")
     print(f"Offset image size is {offset_image_shape} with {offset_bounds} bounds.")
 
-    aux_infra_distance = os.getenv("AUX_INFRA_DISTANCE")
-    aux_datasets = [
-        "ship_density",
-        aux_infra_distance,
-    ]  # XXXDB This should pull from the model layers instead
-
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
         try:
             async with db_client.session.begin():
                 trigger = await db_client.get_trigger(trigger=payload.trigger)
                 model = await db_client.get_model(os.getenv("MODEL"))
+                print("XXXDEBUG model.zoom_level", model.zoom_level)
+                layers = [await db_client.get_layer(layer) for layer in model.layers]
                 sentinel1_grd = await db_client.get_sentinel1_grd(
                     payload.sceneid,
                     info,
@@ -278,7 +276,6 @@ async def _orchestrate(
                         payload.sceneid, rescale=(stats["min"], stats["max"])
                     ),
                 )
-                db_client.session.add(sentinel1_grd)
                 orchestrator_run = await db_client.add_orchestrator(
                     start_time,
                     start_time,
@@ -296,23 +293,42 @@ async def _orchestrate(
                     model,
                     sentinel1_grd,
                 )
-                db_client.session.add(orchestrator_run)
         except:  # noqa: E722
             await db_client.session.close()
             raise
 
-        if not payload.dry_run:
+        if model.zoom_level != zoom:
             print(
-                f"Instantiating inference client with aux_dataset = {aux_datasets}..."
+                f"WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
             )
+            # XXX Should use the model to drive the zoom level instead
+        if model.rrctile_size != scale * 256:
+            print(
+                f"WARNING: Model was trained on image tiles of size {model.rrctile_size} but is being run on {scale*256}"
+            )
+            # XXX Should use the model to drive the tile size instead
+        if model.resolution != scale * 256:
+            print(
+                f"WARNING: Model was trained on image tile of resolution {model.resolution} but is being run on {scale*256}"
+            )
+            # XXX Should use the model to drive the tile resolution instead
+
+        inference_parms = {
+            "model_type": model.type,
+            "thresholds": model.thresholds,
+        }
+
+        if not payload.dry_run:
+            print("Instantiating inference client.")
             cloud_run_inference = CloudRunInferenceClient(
                 url=os.getenv("INFERENCE_URL"),
                 titiler_client=titiler_client,
                 sceneid=payload.sceneid,
                 offset_bounds=offset_bounds,
                 offset_image_shape=offset_image_shape,
-                aux_datasets=aux_datasets,
+                layers=layers,
                 scale=scale,
+                inference_parms=inference_parms,
             )
 
             print("Inference on base tiles!")

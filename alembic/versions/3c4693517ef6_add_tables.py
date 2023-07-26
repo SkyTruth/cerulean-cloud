@@ -39,6 +39,7 @@ def upgrade() -> None:
     op.create_table(
         "model",
         sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("type", sa.Text, nullable=False),
         sa.Column("file_path", sa.Text, nullable=False),
         sa.Column("layers", ARRAY(sa.Text), nullable=False),
         sa.Column("cls_map", sa.JSON, nullable=False),

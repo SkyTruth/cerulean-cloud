@@ -5,7 +5,6 @@ config:
   cerulean-cloud:dryrun_relevancy: "True" # Make empty "" to turn on recurring runs
   cerulean-cloud:apikey:
     secure: v1:l5zmQowhnE9RJZC7:tyonyHOMqQ34wlv3eBD1LPUrqnJ0jMtWAzJdkJE5rp75r/qSG9CGWVeLM176tGOZz6G4sA==
-  cerulean-cloud:infra_distance: https://storage.googleapis.com/ceruleanml/aux_datasets/infra_locations_01_cogeo.tiff
   db:db-instance: db-f1-micro
   db:deletion-protection: "False"
   db:db-password:

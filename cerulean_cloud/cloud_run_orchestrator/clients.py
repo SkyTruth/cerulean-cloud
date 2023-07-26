@@ -52,20 +52,22 @@ class CloudRunInferenceClient:
         sceneid: str,
         offset_bounds: List[float],
         offset_image_shape: Tuple[int, int],
-        aux_datasets: List[str] = [],
-        scale=2,
+        layers: List,
+        scale: int,
+        inference_parms,
     ):
         """init"""
         self.url = url
         self.titiler_client = titiler_client
         self.sceneid = sceneid
         self.aux_datasets = handle_aux_datasets(
-            aux_datasets, self.sceneid, offset_bounds, offset_image_shape
+            layers, self.sceneid, offset_bounds, offset_image_shape
         )
         self.client = httpx.AsyncClient(
             headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
         )
         self.scale = scale  # 1=256, 2=512, 3=...
+        self.inference_parms = inference_parms
 
     async def get_base_tile_inference(
         self, tile: morecantile.Tile, semaphore: asyncio.Semaphore, rescale=(0, 100)
@@ -89,8 +91,12 @@ class CloudRunInferenceClient:
             inference_input = InferenceInputStack(
                 stack=[InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
             )
+            payload = {
+                "inference_input": inference_input.json(),
+                "inference_parms": self.inference_parms,
+            }
             res = await self.client.post(
-                self.url + "/predict", data=inference_input.json(), timeout=None
+                self.url + "/predict", json=payload, timeout=None
             )
         return InferenceResultStack(**res.json())
 
@@ -116,8 +122,12 @@ class CloudRunInferenceClient:
             inference_input = InferenceInputStack(
                 stack=[InferenceInput(image=encoded, bounds=bounds)]
             )
+            payload = {
+                "inference_input": inference_input.json(),
+                "inference_parms": self.inference_parms,
+            }
             res = await self.client.post(
-                self.url + "/predict", data=inference_input.json(), timeout=None
+                self.url + "/predict", json=payload, timeout=None
             )
         return InferenceResultStack(**res.json())
 
@@ -252,16 +262,18 @@ def get_dist_array(
     return data.astype(np.uint8)
 
 
-def handle_aux_datasets(aux_datasets, scene_id, bounds, image_shape, **kwargs):
+def handle_aux_datasets(layers, scene_id, bounds, image_shape, **kwargs):
     """handle aux datasets"""
 
-    aux_dataset_channels = None
-    for aux_ds in aux_datasets:
-        if aux_ds == "ship_density":
+    aux_dataset_channels = None  # XXX Assumes that the VV layer comes first. If it doesn't, then the aux_dataset_channels might be out of order
+    for layer in layers:
+        if layer.short_name == "VV":
+            continue
+        elif layer.short_name == "VESSEL":
             scene_date_month = get_scene_date_month(scene_id)
             ar = get_ship_density(bounds, image_shape, scene_date_month)
-        elif aux_ds.endswith(".tiff"):
-            ar = get_dist_array(bounds, image_shape, aux_ds)
+        elif layer.short_name == "INFRA":
+            ar = get_dist_array(bounds, image_shape, layer.source_url)
 
         ar = np.expand_dims(ar, 2)
         if aux_dataset_channels is None:
@@ -277,7 +289,7 @@ def handle_aux_datasets(aux_datasets, scene_id, bounds, image_shape, **kwargs):
         )
         with aux_memfile.open(
             driver="GTiff",
-            count=len(aux_datasets),
+            count=len(layers) - 1,  # XXX Hack, assumes layers follow a VV layer
             height=height,
             width=width,
             dtype=aux_dataset_channels.dtype,

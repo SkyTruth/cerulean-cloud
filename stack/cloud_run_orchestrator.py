@@ -19,8 +19,6 @@ repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
 git_tag = next((tag.name for tag in repo.tags if tag.commit == repo.head.commit), None)
 
-infra_distance_raster = config.require("infra_distance")
-
 service_name = construct_name("cloud-run-orchestrator")
 default = gcp.cloudrun.Service(
     service_name,
@@ -47,10 +45,6 @@ default = gcp.cloudrun.Service(
                             value=cloud_run_offset_tile.default.statuses.apply(
                                 lambda statuses: statuses[0].url
                             ),
-                        ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="AUX_INFRA_DISTANCE",
-                            value=infra_distance_raster,
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="GIT_HASH",
