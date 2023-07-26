@@ -68,6 +68,7 @@ def upgrade() -> None:
 
         models = [
             database_schema.Model(
+                type="MASKRCNN",
                 file_path="experiments/2023_06_26_09_34_18_4cls_rn34_pr512_px1024_720min_maskrcnn/scripting_cpu_model.pt",
                 layers=["VV", "INFRA", "VESSEL"],
                 cls_map={
@@ -92,6 +93,7 @@ def upgrade() -> None:
                 instance_f1=0.455,
             ),
             database_schema.Model(
+                type="MASKRCNN",
                 file_path="experiments/20_Jul_2022_00_14_15_icevision_maskrcnn/scripting_cpu_test_28_34_224_58.pt",
                 layers=["VV", "INFRA", "VESSEL"],
                 cls_map={
