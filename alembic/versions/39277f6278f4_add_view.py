@@ -45,11 +45,23 @@ def upgrade() -> None:
         sentinel1_grd.geometry AS s1_geometry,
         cls.id AS cls_id,
         cls.short_name AS cls_short_name,
-        cls.long_name AS cls_long_name
+        cls.long_name AS cls_long_name,
+        aoi_agg.aoi_type_1_ids,
+        aoi_agg.aoi_type_2_ids,
+        aoi_agg.aoi_type_3_ids
     FROM slick
     JOIN orchestrator_run ON orchestrator_run.id = slick.orchestrator_run
     JOIN sentinel1_grd ON sentinel1_grd.id = orchestrator_run.sentinel1_grd
-    JOIN cls ON cls.id = slick.cls;
+    JOIN cls ON cls.id = slick.cls
+    JOIN (
+        SELECT slick_to_aoi.slick,
+            array_agg(aoi.id) FILTER (WHERE aoi.type = 1) AS aoi_type_1_ids,
+            array_agg(aoi.id) FILTER (WHERE aoi.type = 2) AS aoi_type_2_ids,
+            array_agg(aoi.id) FILTER (WHERE aoi.type = 3) AS aoi_type_3_ids
+        FROM slick_to_aoi
+        JOIN aoi ON slick_to_aoi.aoi = aoi.id
+        GROUP BY slick_to_aoi.slick
+        ) aoi_agg ON aoi_agg.slick = slick.id;
     """,
     )
     op.create_entity(slick_plus)
