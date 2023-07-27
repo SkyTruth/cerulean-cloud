@@ -232,47 +232,46 @@ async def _orchestrate(
 ):
     # Orchestrate inference
     start_time = datetime.now()
+    print(f"Orchestrating for sceneid {payload.sceneid}")
     print(f"Start time: {start_time}")
+
     zoom = payload.zoom
-    print("XXXDEBUG zoom", zoom)
     scale = payload.scale
-    print("XXXDEBUG scale", scale)
-    print(f"Orchestrating for sceneid {payload.sceneid}...")
+    print(f"zoom: {zoom}.")
+    print(f"scale: {scale}.")
+
+    # XXXBUG What do we do when the scene_bounds traverses the anti-meridian?
+    # XXXBUG Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 produces nonsensical [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
     scene_bounds = await titiler_client.get_bounds(payload.sceneid)
     scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
     scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
-    print(scene_info)
+    print(f"scene_bounds: {scene_bounds}.")
+    print(f"scene_stats: {scene_stats}.")
+    print(f"scene_info: {scene_info}.")
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
     base_tiles_bounds = [tiler.bounds(t) for t in base_tiles]
     base_group_bounds = group_bounds_from_list_of_bounds(base_tiles_bounds)
-    print("XXXDEBUG base_group_bounds", base_group_bounds)
+    print(f"base_group_bounds: {base_group_bounds}.")
 
     offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
     offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
-    print("XXXDEBUG offset_group_bounds", offset_group_bounds)
+    print(f"Offset image size is {offset_group_shape}.")
+    print(f"Offset tile bounds: {offset_group_bounds}.")
+    print(f"offset_group_bounds: {offset_group_bounds}.")
 
     print(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
 
     # Filter out land tiles
-    try:
-        base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
-        offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
-    except ValueError:
-        print(f"XXXDEBUG error found in sceneid {payload.sceneid}")
-        raise
+    # XXX BUG This throws an error if the scene crosses or is close to the antimeridian
+    base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
+    offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
 
     ntiles = len(base_tiles)
     noffsettiles = len(offset_tiles_bounds)
-
     print(f"Preparing {ntiles} base tiles (no land).")
     print(f"Preparing {noffsettiles} offset tiles (no land).")
-
-    print(f"Scene bounds are {scene_bounds}, stats are {scene_stats}.")
-    print(
-        f"Offset image size is {offset_group_shape} with {offset_group_bounds} bounds."
-    )
 
     aux_infra_distance = os.getenv("AUX_INFRA_DISTANCE")
     aux_datasets = [
