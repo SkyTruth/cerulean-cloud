@@ -39,7 +39,7 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
 )
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
-from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
+from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
 app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
@@ -86,7 +86,7 @@ def b64_image_to_array(image: str) -> np.ndarray:
     return np_img
 
 
-def from_tiles_get_offset_shape(
+def offset_group_shape_from_base_tiles(
     tiles: List[morecantile.Tile], scale=2
 ) -> Tuple[int, int]:
     """from a list of tiles, get the expected shape of the image (of offset tiles, +1)"""
@@ -101,7 +101,7 @@ def from_tiles_get_offset_shape(
     return height, width
 
 
-def from_bounds_get_offset_bounds(bounds: List[List[float]]) -> List[float]:
+def group_bounds_from_list_of_bounds(bounds: List[List[float]]) -> List[float]:
     """from a list of bounds, get the merged bounds (min max)"""
     bounds_np = np.array([(b[0], b[1], b[2], b[3]) for b in bounds])
     minx, miny, maxx, maxy = (
@@ -234,21 +234,34 @@ async def _orchestrate(
     start_time = datetime.now()
     print(f"Start time: {start_time}")
     zoom = payload.zoom
+    print("XXXDEBUG zoom", zoom)
     scale = payload.scale
+    print("XXXDEBUG scale", scale)
     print(f"Orchestrating for sceneid {payload.sceneid}...")
-    bounds = await titiler_client.get_bounds(payload.sceneid)
-    stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
-    info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
-    print(info)
-    base_tiles = list(tiler.tiles(*bounds, [zoom], truncate=False))
-    offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=scale)
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
-    offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
+    scene_bounds = await titiler_client.get_bounds(payload.sceneid)
+    scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+    scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+    print(scene_info)
+
+    base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
+    base_tiles_bounds = [tiler.bounds(t) for t in base_tiles]
+    base_group_bounds = group_bounds_from_list_of_bounds(base_tiles_bounds)
+    print("XXXDEBUG base_group_bounds", base_group_bounds)
+
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
+    offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
+    offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
+    print("XXXDEBUG offset_group_bounds", offset_group_bounds)
+
     print(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
 
     # Filter out land tiles
-    base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
-    offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
+    try:
+        base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
+        offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
+    except ValueError:
+        print(f"XXXDEBUG error found in sceneid {payload.sceneid}")
+        raise
 
     ntiles = len(base_tiles)
     noffsettiles = len(offset_tiles_bounds)
@@ -256,8 +269,10 @@ async def _orchestrate(
     print(f"Preparing {ntiles} base tiles (no land).")
     print(f"Preparing {noffsettiles} offset tiles (no land).")
 
-    print(f"Scene bounds are {bounds}, stats are {stats}.")
-    print(f"Offset image size is {offset_image_shape} with {offset_bounds} bounds.")
+    print(f"Scene bounds are {scene_bounds}, stats are {scene_stats}.")
+    print(
+        f"Offset image size is {offset_group_shape} with {offset_group_bounds} bounds."
+    )
 
     aux_infra_distance = os.getenv("AUX_INFRA_DISTANCE")
     aux_datasets = [
@@ -273,9 +288,10 @@ async def _orchestrate(
                 model = await db_client.get_model(os.getenv("MODEL"))
                 sentinel1_grd = await db_client.get_sentinel1_grd(
                     payload.sceneid,
-                    info,
+                    scene_info,
                     titiler_client.get_base_tile_url(
-                        payload.sceneid, rescale=(stats["min"], stats["max"])
+                        payload.sceneid,
+                        rescale=(scene_stats["min"], scene_stats["max"]),
                     ),
                 )
                 db_client.session.add(sentinel1_grd)
@@ -291,7 +307,7 @@ async def _orchestrate(
                     ),
                     zoom,
                     scale,
-                    bounds,
+                    scene_bounds,
                     trigger,
                     model,
                     sentinel1_grd,
@@ -309,8 +325,8 @@ async def _orchestrate(
                 url=os.getenv("INFERENCE_URL"),
                 titiler_client=titiler_client,
                 sceneid=payload.sceneid,
-                offset_bounds=offset_bounds,
-                offset_image_shape=offset_image_shape,
+                offset_bounds=offset_group_bounds,
+                offset_image_shape=offset_group_shape,
                 aux_datasets=aux_datasets,
                 scale=scale,
             )
@@ -321,7 +337,7 @@ async def _orchestrate(
                 *[
                     cloud_run_inference.get_base_tile_inference(
                         tile=base_tile,
-                        rescale=(stats["min"], stats["max"]),
+                        rescale=(scene_stats["min"], scene_stats["max"]),
                         semaphore=base_tile_semaphore,
                     )
                     for base_tile in base_tiles
@@ -335,7 +351,7 @@ async def _orchestrate(
                 *[
                     cloud_run_inference.get_offset_tile_inference(
                         bounds=offset_tile_bounds,
-                        rescale=(stats["min"], stats["max"]),
+                        rescale=(scene_stats["min"], scene_stats["max"]),
                         semaphore=offset_tile_semaphore,
                     )
                     for offset_tile_bounds in offset_tiles_bounds

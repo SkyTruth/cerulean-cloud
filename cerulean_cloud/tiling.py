@@ -56,47 +56,26 @@ def adjacent_tile(tile: morecantile.Tile, dx: int, dy: int) -> morecantile.Tile:
     return other
 
 
-def from_base_tiles_create_offset_tiles(
+def offset_bounds_from_base_tiles(
     tiles: List[morecantile.Tile],
 ) -> List[Tuple[float, float, float, float]]:
     """from a set of base tiles, generate offset tiles"""
     out_offset_tile_bounds = []
-
-    # create offset tile bounds with the up, left translation
-    for tile in tiles:
-        adj_tile = adjacent_tile(tile, -1, -1)
-        minx, maxy = pixel_to_location(adj_tile, 0.5, 0.5)
-        maxx, miny = pixel_to_location(tile, 0.5, 0.5)
-        out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
 
     tiles_np = np.array([(tile.x, tile.y, tile.z) for tile in tiles])
     zoom = tiles_np[:, 2].max()
     tilexmin, tilexmax, tileymin, tileymax = supermercado.super_utils.get_range(
         tiles_np
     )
-    # create offset tile bounds of the down, left translation
-    # (only in the bottom-most boundary)
-    for tilex in range(tilexmin, tilexmax + 1):
-        tile = morecantile.Tile(tilex, tileymax, zoom)
-        adj_tile = adjacent_tile(tile, -1, 1)
-        minx, miny = pixel_to_location(adj_tile, 0.5, 0.5)
-        maxx, maxy = pixel_to_location(tile, 0.5, 0.5)
-        out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
 
-    # create offset tile bounds of the up, ritgh translation
-    # (only in the rigth-most boundary)
-    for tiley in range(tileymin, tileymax + 1):
-        tile = morecantile.Tile(tilexmax, tiley, zoom)
-        adj_tile = adjacent_tile(tile, 1, -1)
-        maxx, maxy = pixel_to_location(adj_tile, 0.5, 0.5)
-        minx, miny = pixel_to_location(tile, 0.5, 0.5)
-        out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
-
-    # bottom rigth corner tile
-    bottom_rigth = morecantile.Tile(tilexmax, tileymax, zoom)
-    adj_tile = adjacent_tile(bottom_rigth, 1, 1)
-    minx, maxy = pixel_to_location(bottom_rigth, 0.5, 0.5)
-    maxx, miny = pixel_to_location(adj_tile, 0.5, 0.5)
-    out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
+    for new_x in range(tilexmin, tilexmax + 2):
+        # +2 because tilexmax needs to be included (+1) and the new grid has one extra row/column (+1)
+        for new_y in range(tileymin, tileymax + 2):
+            # +2 because tileymax needs to be included (+1) and the new grid has one extra row/column (+1)
+            tile = morecantile.Tile(new_x, new_y, zoom)
+            adj_tile = adjacent_tile(tile, -1, -1)
+            minx, miny = pixel_to_location(adj_tile, 0.5, 0.5)
+            maxx, maxy = pixel_to_location(tile, 0.5, 0.5)
+            out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
 
     return out_offset_tile_bounds
