@@ -23,11 +23,7 @@ def test_from_base_tiles_create_offset_tiles(tiles_s1_scene):  # noqa: F811
     tilexmin, tilexmax, tileymin, tileymax = supermercado.super_utils.get_range(
         tiles_np
     )
-
-    expected_result = (
-        len(tiles_s1_scene) + tilexmax - tilexmin + 1 + tileymax - tileymin + 1 + 1
-    )
-    assert len(out) == expected_result
+    assert len(out) == (tilexmax - tilexmin + 2) * (tileymax - tileymin + 2)
     print(out[-1])
     assert out[-1] == pytest.approx(
         (36.518554687499716, 43.28613281250006, 36.606445312499716, 43.37402343750006)
