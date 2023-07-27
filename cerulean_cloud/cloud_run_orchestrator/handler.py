@@ -357,6 +357,15 @@ async def _orchestrate(
                 ],
                 return_exceptions=True,
             )
+            print("XXXDEBUG base_tiles_inference", base_tiles_inference)
+            print("XXXDEBUG base_tiles_inference[0]", base_tiles_inference[0])
+            print(
+                "XXXDEBUG base_tiles_inference[0].stack", base_tiles_inference[0].stack
+            )
+            print(
+                "XXXDEBUG base_tiles_inference[0].stack[0]",
+                base_tiles_inference[0].stack[0],
+            )
 
             if base_tiles_inference[0].stack[0].dict().get("classes"):
                 print("Loading all tiles into memory for merge!")
