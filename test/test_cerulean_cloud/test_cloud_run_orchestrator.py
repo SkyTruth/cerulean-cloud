@@ -27,10 +27,10 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
     b64_image_to_array,
     flatten_feature_list,
-    from_bounds_get_offset_bounds,
-    from_tiles_get_offset_shape,
+    group_bounds_from_list_of_bounds,
     is_tile_over_water,
     make_cloud_log_url,
+    offset_group_shape_from_base_tiles,
 )
 from cerulean_cloud.cloud_run_orchestrator.merging import (
     concat_grids_adjust_conf,
@@ -39,7 +39,7 @@ from cerulean_cloud.cloud_run_orchestrator.merging import (
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
-from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
+from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
 S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
@@ -226,15 +226,15 @@ async def test_orchestrator(
 def test_from_tiles_get_offset_shape():
     bounds = [32.989094, 43.338009, 36.540836, 45.235191]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=2)
+    offset_image_shape = offset_group_shape_from_base_tiles(base_tiles, scale=2)
     assert offset_image_shape == (3584, 6144)
 
 
 def test_from_bounds_get_offset_bounds():
     bounds = [32.989094, 43.338009, 36.540836, 45.235191]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
-    offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
+    offset_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
     assert offset_bounds == pytest.approx(
         [
             32.5195312499997442,
@@ -249,7 +249,7 @@ def test_is_tile_over_water():
     # land and water
     bounds = [32.989094, 43.338009, 36.540836, 45.235191]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     assert len(base_tiles) == 66
     assert len(offset_tiles_bounds) == 84
 
@@ -262,7 +262,7 @@ def test_is_tile_over_water():
     # Fully over water
     bounds = [-13.461797, 37.952782, -10.128826, 39.863739]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     assert len(base_tiles) == 77
     assert len(offset_tiles_bounds) == 96
 
@@ -280,7 +280,7 @@ def test_is_tile_over_water():
         -0.18418333168440187,
     ]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     assert len(base_tiles) == 56
     assert len(offset_tiles_bounds) == 72
 
@@ -436,7 +436,6 @@ def test_flatten_result():
 
 
 def test_merge_inferences():
-
     pd.options.mode.chained_assignment = None
 
     offset_p = "test/test_cerulean_cloud/fixtures/offset.geojson"
@@ -497,7 +496,6 @@ def test_func_merge_inferences():
 
 
 def test_func_merge_inferences_empty():
-
     with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
         offset_tile_fc = dict(geojson.load(src))
 
