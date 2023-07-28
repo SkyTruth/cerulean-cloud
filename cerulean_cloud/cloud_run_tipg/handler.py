@@ -147,10 +147,11 @@ async def register_table(request: Request):
     await register_collection_catalog(
         request.app,
         schemas=db_settings.schemas,
-        exclude_schemas=db_settings.exclude_schemas,
+        # exclude_schemas=db_settings.exclude_schemas,
+        exclude_table_schemas=db_settings.exclude_schemas,
         tables=db_settings.tables,
         exclude_tables=db_settings.exclude_tables,
-        function_schemas=db_settings.function_schemas,
+        # function_schemas=db_settings.function_schemas,
         exclude_function_schemas=db_settings.exclude_function_schemas,
         functions=db_settings.functions,
         exclude_functions=db_settings.exclude_functions,
