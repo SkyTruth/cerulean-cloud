@@ -275,6 +275,9 @@ Don't forget to edit the following places:
 - if commit fails due to pre-commit, review files and accept changes, retry
 - go to Git Actions, and manually run Test and Deploy on the new branch (takes about 25 minutes)
 
+If you are getting this error on test&deploy, then you should try to pulumi refresh and run the github action again.
+`Error 409: Conflict for resource 'cerulean-cloud-test-cloud-run-tipg': version '1690549980909798' was specified but current version is '1690554168522592'`
+
 ## Updating the trained model
 If you are going to deploy a new scripted model, first save it as a tracing model using the function "save_icevision_model_state_dict_and_tracing" in the cerulean-ml repo.
 Then, upload the experiment folder and contents to the GCP `ceruleanml` bucket.
