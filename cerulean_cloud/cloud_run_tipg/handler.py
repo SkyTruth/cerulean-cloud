@@ -21,7 +21,8 @@ from starlette.requests import Request
 from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 from tipg import __version__ as tipg_version
-from tipg.database import connect_to_db, register_collection_catalog
+from tipg.collections import register_collection_catalog
+from tipg.database import connect_to_db
 from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
 from tipg.middleware import CacheControlMiddleware
