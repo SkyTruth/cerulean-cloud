@@ -110,8 +110,11 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 async def startup_event() -> None:
     """Connect to database on startup."""
     try:
+        print("XXXDEBUG starting up")
         await connect_to_db(app, settings=postgres_settings)
+        print("XXXDEBUG starting up 2")
         assert getattr(app.state, "pool", None)
+        print("XXXDEBUG starting up 3")
 
         await register_collection_catalog(
             app,
@@ -125,6 +128,11 @@ async def startup_event() -> None:
             functions=db_settings.functions,
             exclude_functions=db_settings.exclude_functions,
             spatial=False,  # False means allow non-spatial tables
+        )
+        print("XXXDEBUG starting up 4")
+        print(
+            "XXXDEBUG starting up app.state.collection_catalog",
+            app.state.collection_catalog,
         )
     except:  # noqa
         app.state.collection_catalog = {}
@@ -141,9 +149,12 @@ async def shutdown_event() -> None:
 async def register_table(request: Request):
     """Manually register tables"""
     if not getattr(request.app.state, "pool", None):
+        print("XXXDEBUG registering")
         await connect_to_db(request.app, settings=postgres_settings)
 
+    print("XXXDEBUG registering 2")
     assert getattr(request.app.state, "pool", None)
+    print("XXXDEBUG registering 3")
     await register_collection_catalog(
         request.app,
         schemas=db_settings.schemas,
@@ -156,6 +167,11 @@ async def register_table(request: Request):
         functions=db_settings.functions,
         exclude_functions=db_settings.exclude_functions,
         spatial=False,  # False means allow non-spatial tables
+    )
+    print("XXXDEBUG registering 4")
+    print(
+        "XXXDEBUG registering app.state.collection_catalog",
+        app.state.collection_catalog,
     )
 
 
