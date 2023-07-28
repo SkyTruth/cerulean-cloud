@@ -1,11 +1,11 @@
-"""Cloud run main for tifeatures
+"""Cloud run main for tipg
 
 Run this locally with:
-uvicorn --port $PORT --host 0.0.0.0 cerulean_cloud.cloud_run_tifeatures.handler:app
+uvicorn --port $PORT --host 0.0.0.0 cerulean_cloud.cloud_run_tipg.handler:app
 
 Make sure to set in your environment:
-- TIFEATURES_NAME
-- TIFEATURES_TEMPLATES
+- tipg_NAME
+- tipg_TEMPLATES
 - DATABASE_URL
 
 """
@@ -35,7 +35,7 @@ class PostgresSettings(pydantic.BaseSettings):
     """Postgres-specific API settings.
 
     Note: We can't use PostgresSettings from TiPG because of the weird GCP DB url
-          See https://github.com/developmentseed/tifeatures/issues/32
+          See https://github.com/developmentseed/tipg/issues/32
 
     Attributes:
         postgres_user: postgres username.
@@ -75,7 +75,7 @@ app = FastAPI(
 
 templates_location: List[Any] = [
     jinja2.FileSystemLoader(
-        "cerulean_cloud/cloud_run_tifeatures/templates/"
+        "cerulean_cloud/cloud_run_tipg/templates/"
     ),  # custom template directory
     jinja2.PackageLoader("tipg", "templates"),  # default template directory
 ]

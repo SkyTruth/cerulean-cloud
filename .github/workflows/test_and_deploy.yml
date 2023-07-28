@@ -46,7 +46,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install -r cerulean_cloud/cloud_run_offset_tiles/requirements.txt
           python -m pip install -r cerulean_cloud/cloud_run_orchestrator/requirements.txt
-          python -m pip install -r cerulean_cloud/cloud_run_tifeatures/requirements.txt
+          python -m pip install -r cerulean_cloud/cloud_run_tipg/requirements.txt
           python -m pip install -r cerulean_cloud/titiler_sentinel/requirements.txt
 
       - name: Run pytest
