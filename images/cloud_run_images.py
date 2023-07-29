@@ -50,8 +50,8 @@ cloud_run_offset_tile_image_url = registry_url.apply(
 cloud_run_orchestrator_image_url = registry_url.apply(
     lambda url: f"{url}/{construct_name('cloud-run-orchestrator-image')}"
 )
-cloud_run_tifeatures_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cloud-run-tifeatures-image')}"
+cloud_run_tipg_image_url = registry_url.apply(
+    lambda url: f"{url}/{construct_name('cloud-run-tipg-image')}"
 )
 registry_info = None  # use gcloud for authentication.
 
@@ -81,13 +81,13 @@ cloud_run_orchestrator_image = docker.Image(
     image_name=cloud_run_orchestrator_image_url,
     registry=registry_info,
 )
-cloud_run_tifeatures_image = docker.Image(
-    construct_name("cloud-run-tifeatures-image"),
+cloud_run_tipg_image = docker.Image(
+    construct_name("cloud-run-tipg-image"),
     build=docker.DockerBuild(
         context="../",
-        dockerfile="../Dockerfiles/Dockerfile.cloud_run_tifeatures",
+        dockerfile="../Dockerfiles/Dockerfile.cloud_run_tipg",
         extra_options=["--no-cache", "--quiet"],
     ),
-    image_name=cloud_run_tifeatures_image_url,
+    image_name=cloud_run_tipg_image_url,
     registry=registry_info,
 )
