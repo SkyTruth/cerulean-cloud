@@ -10,7 +10,7 @@ from utils import construct_name
 
 config = pulumi.Config()
 
-service_name = construct_name("cloud-run-tifeatures")
+service_name = construct_name("cloud-run-tipg")
 default = gcp.cloudrun.Service(
     service_name,
     name=service_name,
@@ -19,7 +19,7 @@ default = gcp.cloudrun.Service(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image=cloud_run_images.cloud_run_tifeatures_image.name,
+                    image=cloud_run_images.cloud_run_tipg_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="DATABASE_URL",
@@ -35,7 +35,7 @@ default = gcp.cloudrun.Service(
             timeout_seconds=420,
         ),
         metadata=dict(
-            name=service_name + "-" + cloud_run_images.cloud_run_tifeatures_sha,
+            name=service_name + "-" + cloud_run_images.cloud_run_tipg_sha,
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
             },
@@ -54,7 +54,7 @@ default = gcp.cloudrun.Service(
     ],
 )
 noauth_iam_policy = gcp.cloudrun.IamPolicy(
-    construct_name("cloud-run-noauth-iam-policy-tifeatures"),
+    construct_name("cloud-run-noauth-iam-policy-tipg"),
     location=default.location,
     project=default.project,
     service=default.name,

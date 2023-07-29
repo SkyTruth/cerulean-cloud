@@ -1,3 +1,0 @@
-git+https://github.com/developmentseed/tipg.git@a435d30db9aefd8094ece134681e9c562a6f696a#egg=tipg
-uvicorn
-mangum

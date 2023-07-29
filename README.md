@@ -26,7 +26,7 @@ For each of these deployments there exists a configuration directory that includ
 
 __Initial deployment__
 
-If you are deploying a completely new stack, make sure to create matching configuration files in `cerulean-cloud-images` and `cerulean-cloud`, with matching stack names. In addition, specifically for the tifeatures deployment, since the database is empty when a stack is deployed for the first time (alembic migrations occur after the initial migration), if you want to access `tifeatures` after this initial deployment make sure to poll the `/register` endpoint of the resulting URL in order to correctly load the tables (i.e. `curl https://some-tifeatures-url.app/register`). For any deployments after the first one, this is not required.
+If you are deploying a completely new stack, make sure to create matching configuration files in `cerulean-cloud-images` and `cerulean-cloud`, with matching stack names. In addition, specifically for the tipg deployment, since the database is empty when a stack is deployed for the first time (alembic migrations occur after the initial migration), if you want to access `tipg` after this initial deployment make sure to poll the `/register` endpoint of the resulting URL in order to correctly load the tables (i.e. `curl https://some-tipg-url.app/register`). For any deployments after the first one, this is not required.
 
 __Decreasing cold starts for Cloud Run__
 
@@ -38,7 +38,7 @@ Google Cloud provides nice dashboards for tracking the stability, response time 
 - [Cloud Run orchestrator metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cloud-run-orchestrator/metrics?project=cerulean-338116)
 - [Cloud Run offset tile metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cloud-run-offset-tiles/metrics?project=cerulean-338116)
 - [Cloud Tasks queue metrics](https://console.cloud.google.com/cloudtasks/queue/europe-west1/cerulean-cloud-production-queue-cloud-run-orchestrator-d8ed51e/metrics?project=cerulean-338116)
-- [Cloud Run tifeatures metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cloud-run-tifeatures/metrics?project=cerulean-338116)
+- [Cloud Run tipg metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cloud-run-tipg/metrics?project=cerulean-338116)
 - [Cloud Function scene relevancy metrics](https://console.cloud.google.com/functions/details/europe-west1/cerulean-cloud-production-cloud-function-scene-relevancy?env=gen1&project=cerulean-338116)
 - [Cloud Function historical run metrics](https://console.cloud.google.com/functions/details/europe-west1/cerulean-cloud-production-cloud-function-historical-run?env=gen1&project=cerulean-338116)
 
@@ -92,7 +92,7 @@ pip install -r requirements-test.txt
 # Additional requirements files
 pip install -r cerulean_cloud/cloud_run_offset_tiles/requirements.txt
 pip install -r cerulean_cloud/cloud_run_orchestrator/requirements.txt
-pip install -r cerulean_cloud/cloud_run_tifeatures/requirements.txt
+pip install -r cerulean_cloud/cloud_run_tipg/requirements.txt
 pip install -r cerulean_cloud/titiler_sentinel/requirements.txt
 # Setup pre-commit
 pre-commit install
@@ -154,9 +154,9 @@ Previewing update (test):
 
 docker:index:RemoteImage cerulean-cloud-images-test-remote-offset  completing deletion from previous update
 docker:index:RemoteImage cerulean-cloud-images-test-remote-orchestrator  completing deletion from previous update
-docker:index:RemoteImage cerulean-cloud-images-test-remote-tifeatures  completing deletion from previous update
+docker:index:RemoteImage cerulean-cloud-images-test-remote-tipg  completing deletion from previous update
 -  docker:index:RemoteImage cerulean-cloud-images-test-remote-offset delete completing deletion from previous update
--  docker:index:RemoteImage cerulean-cloud-images-test-remote-tifeatures delete completing deletion from previous update
+-  docker:index:RemoteImage cerulean-cloud-images-test-remote-tipg delete completing deletion from previous update
 -  docker:index:RemoteImage cerulean-cloud-images-test-remote-orchestrator delete completing deletion from previous update
 ...
 pulumi:pulumi:Stack cerulean-cloud-test running Creating lambda package [running in Docker]...
@@ -272,7 +272,7 @@ for sceneid in SCENES:
 ```
 
 The services deployed by cerulean-cloud that DO NOT require this API key are:
-- Tifeatures Cloud Run
+- tipg Cloud Run
 - Historical run Cloud Function
 - Scene relevancy Cloud Function
 
@@ -285,6 +285,9 @@ Don't forget to edit the following places:
 - copy changes in Git hash 7f1dcda and b55e6c7 (but use more modern yamls as base), commit and push
 - if commit fails due to pre-commit, review files and accept changes, retry
 - go to Git Actions, and manually run Test and Deploy on the new branch (takes about 25 minutes)
+
+If you are getting this error on test&deploy, then you should try to pulumi refresh and run the github action again.
+`Error 409: Conflict for resource 'cerulean-cloud-test-cloud-run-tipg': version '1690549980909798' was specified but current version is '1690554168522592'`
 
 ## Updating the trained model
 If you are going to deploy a new scripted model, first save it as a tracing model using the function "save_icevision_model_state_dict_and_tracing" in the cerulean-ml repo.
