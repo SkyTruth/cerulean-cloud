@@ -1,11 +1,11 @@
-"""Cloud run main for tifeatures
+"""Cloud run main for tipg
 
 Run this locally with:
-uvicorn --port $PORT --host 0.0.0.0 cerulean_cloud.cloud_run_tifeatures.handler:app
+uvicorn --port $PORT --host 0.0.0.0 cerulean_cloud.cloud_run_tipg.handler:app
 
 Make sure to set in your environment:
-- TIFEATURES_NAME
-- TIFEATURES_TEMPLATES
+- tipg_NAME
+- tipg_TEMPLATES
 - DATABASE_URL
 
 """
@@ -21,7 +21,8 @@ from starlette.requests import Request
 from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 from tipg import __version__ as tipg_version
-from tipg.db import connect_to_db, register_collection_catalog
+from tipg.collections import register_collection_catalog
+from tipg.database import connect_to_db
 from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
 from tipg.middleware import CacheControlMiddleware
@@ -35,7 +36,7 @@ class PostgresSettings(pydantic.BaseSettings):
     """Postgres-specific API settings.
 
     Note: We can't use PostgresSettings from TiPG because of the weird GCP DB url
-          See https://github.com/developmentseed/tifeatures/issues/32
+          See https://github.com/developmentseed/tipg/issues/32
 
     Attributes:
         postgres_user: postgres username.
@@ -75,7 +76,7 @@ app = FastAPI(
 
 templates_location: List[Any] = [
     jinja2.FileSystemLoader(
-        "cerulean_cloud/cloud_run_tifeatures/templates/"
+        "cerulean_cloud/cloud_run_tipg/templates/"
     ),  # custom template directory
     jinja2.PackageLoader("tipg", "templates"),  # default template directory
 ]
@@ -108,24 +109,20 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 @app.on_event("startup")
 async def startup_event() -> None:
     """Connect to database on startup."""
-    try:
-        await connect_to_db(app, settings=postgres_settings)
-        assert getattr(app.state, "pool", None)
+    await connect_to_db(app, settings=postgres_settings)
+    assert getattr(app.state, "pool", None)
 
-        await register_collection_catalog(
-            app,
-            schemas=db_settings.schemas,
-            exclude_schemas=db_settings.exclude_schemas,
-            tables=db_settings.tables,
-            exclude_tables=db_settings.exclude_tables,
-            function_schemas=db_settings.function_schemas,
-            exclude_function_schemas=db_settings.exclude_function_schemas,
-            functions=db_settings.functions,
-            exclude_functions=db_settings.exclude_functions,
-            spatial=False,  # False means allow non-spatial tables
-        )
-    except:  # noqa
-        app.state.collection_catalog = {}
+    await register_collection_catalog(
+        app,
+        schemas=db_settings.schemas,
+        exclude_table_schemas=db_settings.exclude_table_schemas,
+        tables=db_settings.tables,
+        exclude_tables=db_settings.exclude_tables,
+        exclude_function_schemas=db_settings.exclude_function_schemas,
+        functions=db_settings.functions,
+        exclude_functions=db_settings.exclude_functions,
+        spatial=False,  # False means allow non-spatial tables
+    )
 
 
 @app.on_event("shutdown")
@@ -145,10 +142,9 @@ async def register_table(request: Request):
     await register_collection_catalog(
         request.app,
         schemas=db_settings.schemas,
-        exclude_schemas=db_settings.exclude_schemas,
+        exclude_table_schemas=db_settings.exclude_table_schemas,
         tables=db_settings.tables,
         exclude_tables=db_settings.exclude_tables,
-        function_schemas=db_settings.function_schemas,
         exclude_function_schemas=db_settings.exclude_function_schemas,
         functions=db_settings.functions,
         exclude_functions=db_settings.exclude_functions,
