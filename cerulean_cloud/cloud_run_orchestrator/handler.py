@@ -240,8 +240,9 @@ async def _orchestrate(
     print(f"zoom: {zoom}.")
     print(f"scale: {scale}.")
 
-    # XXXBUG What do we do when the scene_bounds traverses the anti-meridian?
-    # XXXBUG Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 produces nonsensical [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
+    # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
+    # When scene traverses the anti-meridian, scene_bounds are nonsensical
+    # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
     scene_bounds = await titiler_client.get_bounds(payload.sceneid)
     scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
     scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
@@ -257,15 +258,14 @@ async def _orchestrate(
     offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
     offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
-    print(f"Offset image size is {offset_group_shape}.")
-    print(f"Offset tile bounds: {offset_group_bounds}.")
+    print(f"Offset image shape is {offset_group_shape}.")
     print(f"offset_group_bounds: {offset_group_bounds}.")
 
     print(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
 
     # Filter out land tiles
-    # XXX BUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
-    # XXX BUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
+    # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
+    # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
     base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
     offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
 
@@ -358,15 +358,6 @@ async def _orchestrate(
                 ],
                 return_exceptions=True,
             )
-            print("XXXDEBUG base_tiles_inference", base_tiles_inference)
-            print("XXXDEBUG base_tiles_inference[0]", base_tiles_inference[0])
-            print(
-                "XXXDEBUG base_tiles_inference[0].stack", base_tiles_inference[0].stack
-            )
-            print(
-                "XXXDEBUG base_tiles_inference[0].stack[0]",
-                base_tiles_inference[0].stack[0],
-            )
 
             if base_tiles_inference[0].stack[0].dict().get("classes"):
                 print("Loading all tiles into memory for merge!")
@@ -428,6 +419,10 @@ async def _orchestrate(
                     features=flatten_feature_list(offset_tiles_inference)
                 )
 
+            # XXXBUG ValueError: Cannot determine common CRS for concatenation inputs, got ['WGS 84 / UTM zone 28N', 'WGS 84 / UTM zone 29N']. Use `to_crs()` to transform geometries to the same CRS before merging."
+            # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
+            print("XXXDEBUG out_fc", out_fc)
+            print("XXXDEBUG out_fc_offset", out_fc_offset)
             merged_inferences = merge_inferences(out_fc, out_fc_offset)
 
             for feat in merged_inferences.get("features"):

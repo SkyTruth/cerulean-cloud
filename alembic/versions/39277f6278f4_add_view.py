@@ -43,7 +43,6 @@ def upgrade() -> None:
         slick.*,
         sentinel1_grd.scene_id AS s1_scene_id,
         sentinel1_grd.geometry AS s1_geometry,
-        cls.id AS cls_id,
         cls.short_name AS cls_short_name,
         cls.long_name AS cls_long_name,
         aoi_agg.aoi_type_1_ids,
