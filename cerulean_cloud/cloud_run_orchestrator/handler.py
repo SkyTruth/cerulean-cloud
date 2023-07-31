@@ -235,10 +235,13 @@ async def _orchestrate(
     print(f"Orchestrating for sceneid {payload.sceneid}")
     print(f"Start time: {start_time}")
 
-    zoom = payload.zoom
-    scale = payload.scale
-    print(f"zoom: {zoom}.")
-    print(f"scale: {scale}.")
+    async with DatabaseClient(db_engine) as db_client:
+        async with db_client.session.begin():
+            model = await db_client.get_model(os.getenv("MODEL"))
+    zoom = payload.zoom or model.zoom
+    scale = payload.scale or model.scale
+    print(f"zoom: {zoom}")
+    print(f"scale: {scale}")
 
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
     # When scene traverses the anti-meridian, scene_bounds are nonsensical
@@ -246,20 +249,20 @@ async def _orchestrate(
     scene_bounds = await titiler_client.get_bounds(payload.sceneid)
     scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
     scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
-    print(f"scene_bounds: {scene_bounds}.")
-    print(f"scene_stats: {scene_stats}.")
-    print(f"scene_info: {scene_info}.")
+    print(f"scene_bounds: {scene_bounds}")
+    print(f"scene_stats: {scene_stats}")
+    print(f"scene_info: {scene_info}")
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
     base_tiles_bounds = [tiler.bounds(t) for t in base_tiles]
     base_group_bounds = group_bounds_from_list_of_bounds(base_tiles_bounds)
-    print(f"base_group_bounds: {base_group_bounds}.")
+    print(f"base_group_bounds: {base_group_bounds}")
 
     offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
     offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
-    print(f"Offset image shape is {offset_group_shape}.")
-    print(f"offset_group_bounds: {offset_group_bounds}.")
+    print(f"Offset image shape is {offset_group_shape}")
+    print(f"offset_group_bounds: {offset_group_bounds}")
 
     print(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
 
@@ -285,7 +288,6 @@ async def _orchestrate(
         try:
             async with db_client.session.begin():
                 trigger = await db_client.get_trigger(trigger=payload.trigger)
-                model = await db_client.get_model(os.getenv("MODEL"))
                 sentinel1_grd = await db_client.get_sentinel1_grd(
                     payload.sceneid,
                     scene_info,
