@@ -77,8 +77,8 @@ def upgrade() -> None:
                     3: "VESSEL",
                 },  # inference_idx maps to class table
                 name="Dummy for testing",
-                rrctile_size=512,
-                resolution=512,
+                tile_width_m=20422,
+                tile_width_px=512,
                 epochs=500,
                 thresholds={
                     "pixel_nms_thresh": 0.4,
@@ -101,8 +101,8 @@ def upgrade() -> None:
                     3: "NATURAL",
                 },  # inference_idx maps to class table
                 name="OLD, Not working so well",
-                rrctile_size=512,
-                resolution=224,
+                tile_width_m=20422,
+                tile_width_px=224,
                 backbone_size=34,
             ),
         ]

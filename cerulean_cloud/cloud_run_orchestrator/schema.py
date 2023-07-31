@@ -14,8 +14,8 @@ class OrchestratorInput(BaseModel):
     trigger: Optional[int]
     vessel_density: Optional[str]
     infra_distance: Optional[str]
-    zoom: int = 9
-    scale: int = 2
+    zoom: Optional[int] = None
+    scale: Optional[int] = None
     dry_run: bool = False
 
 
