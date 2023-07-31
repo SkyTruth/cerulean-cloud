@@ -4,7 +4,7 @@ import pytest
 import shapely.geometry
 import supermercado
 
-from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
+from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 
 
 @pytest.fixture
@@ -17,17 +17,13 @@ def tiles_s1_scene():
 
 
 def test_from_base_tiles_create_offset_tiles(tiles_s1_scene):  # noqa: F811
-    out = from_base_tiles_create_offset_tiles(tiles_s1_scene)
+    out = offset_bounds_from_base_tiles(tiles_s1_scene)
 
     tiles_np = np.array([(tile.x, tile.y, tile.z) for tile in tiles_s1_scene])
     tilexmin, tilexmax, tileymin, tileymax = supermercado.super_utils.get_range(
         tiles_np
     )
-
-    expected_result = (
-        len(tiles_s1_scene) + tilexmax - tilexmin + 1 + tileymax - tileymin + 1 + 1
-    )
-    assert len(out) == expected_result
+    assert len(out) == (tilexmax - tilexmin + 2) * (tileymax - tileymin + 2)
     print(out[-1])
     assert out[-1] == pytest.approx(
         (36.518554687499716, 43.28613281250006, 36.606445312499716, 43.37402343750006)
@@ -59,7 +55,7 @@ def test_save_tiles_to_file():
             geometry=shapely.geometry.mapping(shapely.geometry.box(*bbox)),
             bbox=list(bbox),
         )
-        for bbox in from_base_tiles_create_offset_tiles(tiles_s1_scene)
+        for bbox in offset_bounds_from_base_tiles(tiles_s1_scene)
     ]
     with open("offset_tiles.json", "w") as dst:
         geojson.dump(geojson.FeatureCollection(features=feat_offset), dst)
