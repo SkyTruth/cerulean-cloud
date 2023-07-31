@@ -48,7 +48,7 @@ def upgrade() -> None:
         sa.Column(
             "zoom_level",
             sa.Integer,
-            sa.Computed("ROUND(LOG(2, 40075000 / tile_width_m)))")
+            sa.Computed("ROUND(LOG(2, 40075000 / tile_width_m))")
             # 40075000 = Earth Circumference in meters
         ),
         sa.Column("scale", sa.Integer, sa.Computed("ROUND(tile_width_px / 256)")),
