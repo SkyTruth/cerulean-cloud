@@ -238,7 +238,7 @@ async def _orchestrate(
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
             model = await db_client.get_model(os.getenv("MODEL"))
-    zoom = payload.zoom or model.zoom
+    zoom = payload.zoom or model.zoom_level
     scale = payload.scale or model.scale
     print(f"zoom: {zoom}")
     print(f"scale: {scale}")
