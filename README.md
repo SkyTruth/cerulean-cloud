@@ -83,6 +83,8 @@ export WORKON_HOME=$HOME/.virtualenvs
 export PROJECT_HOME=$HOME/Devel
 source /usr/local/bin/virtualenvwrapper.sh # this path can vary depending on your installation
 ```
+This has also been attempted using conda venv, issues will be reported here.
+
 
 Then you'll be able to run:
 ```sh
