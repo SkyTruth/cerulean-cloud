@@ -243,6 +243,15 @@ async def _orchestrate(
     print(f"zoom: {zoom}")
     print(f"scale: {scale}")
 
+    if model.zoom_level != zoom:
+        print(
+            f"WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
+        )
+    if model.tile_width_px != scale * 256:
+        print(
+            f"WARNING: Model was trained on image tile of resolution {model.tile_width_px} but is being run on {scale*256}"
+        )
+
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
     # When scene traverses the anti-meridian, scene_bounds are nonsensical
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
@@ -311,17 +320,6 @@ async def _orchestrate(
         except:  # noqa: E722
             await db_client.session.close()
             raise
-
-        if model.zoom_level != zoom:
-            print(
-                f"WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
-            )
-            # XXX Should use the model to drive the zoom level instead
-        if model.tile_width_px != scale * 256:
-            print(
-                f"WARNING: Model was trained on image tile of resolution {model.tile_width_px} but is being run on {scale*256}"
-            )
-            # XXX Should use the model to drive the tile resolution instead
 
         inference_parms = {
             "model_type": model.type,
