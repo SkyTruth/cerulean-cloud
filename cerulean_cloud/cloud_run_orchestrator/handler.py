@@ -317,14 +317,9 @@ async def _orchestrate(
                 f"WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
             )
             # XXX Should use the model to drive the zoom level instead
-        if model.rrctile_size != scale * 256:
+        if model.tile_width_px != scale * 256:
             print(
-                f"WARNING: Model was trained on image tiles of size {model.rrctile_size} but is being run on {scale*256}"
-            )
-            # XXX Should use the model to drive the tile size instead
-        if model.resolution != scale * 256:
-            print(
-                f"WARNING: Model was trained on image tile of resolution {model.resolution} but is being run on {scale*256}"
+                f"WARNING: Model was trained on image tile of resolution {model.tile_width_px} but is being run on {scale*256}"
             )
             # XXX Should use the model to drive the tile resolution instead
 
