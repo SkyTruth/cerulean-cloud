@@ -49,8 +49,9 @@ def upgrade() -> None:
         sa.Column(
             "zoom_level",
             sa.Integer,
-            sa.Computed("ROUND(LOG(2, 40075000.0 / tile_width_m))")
+            sa.Computed("ROUND(LOG(2, 40075000.0 / tile_width_m)) - 1")
             # 40075000 = Earth Circumference in meters
+            # '- 1' comes from using WorldCRS84Quad which has the zoom level "off-by-one" compared to WebMercatorQuad
         ),
         sa.Column("scale", sa.Integer, sa.Computed("ROUND(tile_width_px / 256.0)")),
         sa.Column("epochs", sa.Integer),
