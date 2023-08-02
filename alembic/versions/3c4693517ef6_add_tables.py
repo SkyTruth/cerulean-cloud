@@ -150,12 +150,12 @@ def upgrade() -> None:
                 """
                 GREATEST(
                     ST_Distance(
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 1),
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)
+                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 1)::geography,
+                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography
                     ),
                     ST_Distance(
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2),
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 3)
+                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography,
+                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 3)::geography
                     )
                 )
                 """
