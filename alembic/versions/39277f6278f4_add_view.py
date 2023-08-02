@@ -18,23 +18,6 @@ depends_on = None
 
 def upgrade() -> None:
     """add views"""
-    # Fiddle: https://dbfiddle.uk/?rdbms=postgres_14&fiddle=d63d3e9dbfa5522d65076c4f8863b737
-    slick_with_urls = PGView(
-        schema="public",
-        signature="slick_with_urls",
-        definition="""
-    SELECT slick.*, orchestrator_run_with_url.sentinel1_grd_url FROM slick
-    LEFT JOIN (
-        SELECT orchestrator_run.id, sentinel1_grd.url AS sentinel1_grd_url
-        FROM orchestrator_run
-        LEFT JOIN sentinel1_grd
-        ON orchestrator_run.sentinel1_grd = sentinel1_grd.id
-    ) AS orchestrator_run_with_url
-    ON slick.orchestrator_run = orchestrator_run_with_url.id
-    """,
-    )
-    op.create_entity(slick_with_urls)
-
     slick_plus = PGView(
         schema="public",
         signature="slick_plus",
@@ -68,11 +51,6 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """remove views"""
-    slick_with_urls = PGView(
-        schema="public", signature="slick_with_urls", definition="// not needed"
-    )
-    op.drop_entity(slick_with_urls)
-
     slick_plus = PGView(
         schema="public", signature="slick_plus", definition="// not needed"
     )
