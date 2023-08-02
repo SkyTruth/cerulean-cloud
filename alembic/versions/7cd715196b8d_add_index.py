@@ -47,6 +47,7 @@ def upgrade() -> None:
 
     op.create_index("idx_slick_hitl", "slick", ["hitl_cls"])
     op.create_index("idx_slick_confidence", "slick", ["machine_confidence"])
+    op.create_index("idx_slick_length", "slick", ["length"])
     op.create_index("idx_slick_polsby_popper", "slick", ["polsby_popper"])
     op.create_index("idx_slick_fill_factor", "slick", ["fill_factor"])
     op.create_index("idx_slick_orchestrator_run", "slick", ["orchestrator_run"])
@@ -78,6 +79,7 @@ def downgrade() -> None:
 
     op.drop_index("idx_slick_hitl", "slick")
     op.drop_index("idx_slick_confidence", "slick")
+    op.drop_index("idx_slick_length", "slick")
     op.drop_index("idx_slick_polsby_popper", "slick")
     op.drop_index("idx_slick_fill_factor", "slick")
     op.drop_index("idx_slick_orchestrator_run", "slick")
