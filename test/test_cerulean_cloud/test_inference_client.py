@@ -73,6 +73,17 @@ def fixture_cloud_inference_tile(httpx_mock):
                 "INFRA", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
             ),
         ],
+        scale=1,
+        inference_parms={
+            "model_type": "MASKRCNN",
+            "thresholds": {
+                "pixel_nms_thresh": 0.4,
+                "bbox_score_thresh": 0.2,
+                "poly_score_thresh": 0.2,
+                "pixel_score_thresh": 0.2,
+                "groundtruth_dice_thresh": 0.0,
+            },
+        },
     )
 
 
