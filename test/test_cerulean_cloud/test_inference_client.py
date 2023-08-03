@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import pytest
@@ -21,6 +21,13 @@ from cerulean_cloud.cloud_run_orchestrator.clients import (
 )
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
+
+
+def get_mock_layer(short_name, source_url):
+    mock_layer = Mock()
+    mock_layer.short_name = short_name
+    mock_layer.source_url = source_url
+    return mock_layer
 
 
 async def mock_get_base_tile(self, sceneid, tile, scale, rescale):
@@ -165,8 +172,11 @@ def test_get_dist_array():
 def test_handle_aux_datasets(httpx_mock):
     ar_mem_file = handle_aux_datasets(
         [
-            "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
-            "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
+            get_mock_layer("VV", ""),
+            get_mock_layer("VESSEL", ""),
+            get_mock_layer(
+                "INFRA", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
+            ),
         ],
         scene_id="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
         bounds=[
@@ -189,8 +199,11 @@ def test_handle_aux_datasets(httpx_mock):
 
     ar_mem_file = handle_aux_datasets(
         [
-            "ship_density",
-            "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
+            get_mock_layer("VV", ""),
+            get_mock_layer("VESSEL", ""),
+            get_mock_layer(
+                "INFRA", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
+            ),
         ],
         scene_id="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
         bounds=[
