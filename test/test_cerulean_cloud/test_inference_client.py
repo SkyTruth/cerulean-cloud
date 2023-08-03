@@ -96,7 +96,16 @@ async def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock)
         "inference_input": InferenceResultStack(
             stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
         ).dict(),
-        "inference_parms": {"model_type": "MASKRCNN", "thresholds": {}},
+        "inference_parms": {
+            "model_type": "MASKRCNN",
+            "thresholds": {
+                "pixel_nms_thresh": 0.4,
+                "bbox_score_thresh": 0.2,
+                "poly_score_thresh": 0.2,
+                "pixel_score_thresh": 0.2,
+                "groundtruth_dice_thresh": 0.0,
+            },
+        },
     }
     httpx_mock.add_response(
         method="POST",
@@ -127,7 +136,16 @@ async def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_moc
         "inference_input": InferenceResultStack(
             stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
         ).dict(),
-        "inference_parms": {"model_type": "MASKRCNN", "thresholds": {}},
+        "inference_parms": {
+            "model_type": "MASKRCNN",
+            "thresholds": {
+                "pixel_nms_thresh": 0.4,
+                "bbox_score_thresh": 0.2,
+                "poly_score_thresh": 0.2,
+                "pixel_score_thresh": 0.2,
+                "groundtruth_dice_thresh": 0.0,
+            },
+        },
     }
     httpx_mock.add_response(
         method="POST",
