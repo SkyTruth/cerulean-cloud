@@ -173,7 +173,9 @@ def test_handle_aux_datasets(httpx_mock):
     ar_mem_file = handle_aux_datasets(
         [
             get_mock_layer("VV", ""),
-            get_mock_layer("VESSEL", ""),
+            get_mock_layer(
+                "INFRA", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
+            ),
             get_mock_layer(
                 "INFRA", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
             ),
