@@ -23,7 +23,7 @@ from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
 
-def get_mock_layer(short_name, source_url):
+def get_mock_layer(short_name, source_url=""):
     mock_layer = Mock()
     mock_layer.short_name = short_name
     mock_layer.source_url = source_url
@@ -66,9 +66,12 @@ def fixture_cloud_inference_tile(httpx_mock):
             26.496758065384803,
         ],
         offset_image_shape=(4181, 6458),
-        aux_datasets=[
-            "ship_density",
-            "test/test_cerulean_cloud/fixtures/test_cogeo.tiff",
+        layers=[
+            get_mock_layer("VV"),
+            get_mock_layer("VESSEL"),
+            get_mock_layer(
+                "INFRA", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
+            ),
         ],
     )
 
@@ -172,7 +175,7 @@ def test_get_dist_array():
 def test_handle_aux_datasets(httpx_mock):
     ar_mem_file = handle_aux_datasets(
         [
-            get_mock_layer("VV", ""),
+            get_mock_layer("VV"),
             get_mock_layer(
                 "INFRA", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
             ),
@@ -201,8 +204,8 @@ def test_handle_aux_datasets(httpx_mock):
 
     ar_mem_file = handle_aux_datasets(
         [
-            get_mock_layer("VV", ""),
-            get_mock_layer("VESSEL", ""),
+            get_mock_layer("VV"),
+            get_mock_layer("VESSEL"),
             get_mock_layer(
                 "INFRA", "test/test_cerulean_cloud/fixtures/test_cogeo.tiff"
             ),
