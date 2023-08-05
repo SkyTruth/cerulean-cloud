@@ -1,4 +1,5 @@
-FROM python:3.8-slim
+# Stage 1
+FROM lambci/lambda:build-python3.8 as builder
 
 WORKDIR /tmp
 
