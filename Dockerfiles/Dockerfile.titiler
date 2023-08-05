@@ -7,7 +7,7 @@ WORKDIR /tmp
 
 COPY cerulean_cloud/titiler_sentinel/ /app/titiler_sentinel/
 
-RUN pip install -r /app/titiler_sentinel/requirements.txt -t /var/task --no-binary numpy,pydantic
+RUN pip install --no-cache-dir -r /app/titiler_sentinel/requirements.txt -t /var/task
 
 # Reduce package size and remove useless files
 RUN cd /var/task && find . -type f -name '*.pyc' | while read f; do n=$(echo $f | sed 's/__pycache__\///' | sed 's/.cpython-[2-3][0-9]//'); cp $f $n; done;
@@ -19,6 +19,13 @@ RUN rm -rdf /var/task/stack
 RUN find /var/task -type d -name "*.dist-info" -exec rm -r {} +
 
 RUN cd /var/task && zip -r9q /tmp/package.zip *
+
+# Stage 2
+FROM lambci/lambda:build-python3.8
+
+WORKDIR /tmp
+
+COPY --from=builder /tmp/package.zip .
 
 COPY cerulean_cloud/titiler_sentinel/handler.py handler.py
 COPY cerulean_cloud/auth.py auth.py
