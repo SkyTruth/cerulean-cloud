@@ -184,6 +184,8 @@ If there is a lock on the stack, you can delete that lock in gs://cerulean-cloud
 
 ## Database
 
+![Database Schema as of 2023-08-01](<Database Schema 2023-08-01.png>)
+
 ### Connecting
 
 In order to connect to the deployed database, you can use the [Cloud SQL proxy for authentication](https://cloud.google.com/sql/docs/mysql/connect-admin-proxy). First install the proxy in your local machine (instructions [here](https://cloud.google.com/sql/docs/mysql/connect-admin-proxy#install)).
