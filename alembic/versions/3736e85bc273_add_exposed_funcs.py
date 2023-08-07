@@ -6,6 +6,8 @@ Create Date: 2023-07-18 01:07:58.731501
 
 """
 
+from alembic_utils.pg_function import PGFunction
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -36,6 +38,28 @@ def upgrade() -> None:
         """
     )
 
+    # Fiddle: https://dbfiddle.uk/?rdbms=postgres_14&fiddle=a78602f74ea6c2d87a9fa82f1b3a5868
+    get_history_slick = PGFunction(
+        schema="public",
+        signature="slick_history(_slick_id INT)",
+        definition="""
+        RETURNS TABLE(id integer, precursor_slicks integer ARRAY, create_time timestamp, active BOOLEAN) as
+        $$
+        WITH RECURSIVE ctename AS (
+            SELECT id, precursor_slicks, create_time, active
+            FROM slick
+            WHERE id = _slick_id
+            UNION ALL
+            SELECT slick.id, slick.precursor_slicks, slick.create_time, slick.active
+            FROM slick
+            JOIN ctename ON slick.id = ANY(ctename.precursor_slicks)
+        )
+        SELECT * FROM ctename;
+        $$ language SQL
+        """,
+    )
+    op.create_entity(get_history_slick)
+
 
 def downgrade() -> None:
     """Add funcs"""
@@ -44,3 +68,9 @@ def downgrade() -> None:
         DROP FUNCTION IF EXISTS get_slick_subclses(bigint);
         """
     )
+    get_history_slick = PGFunction(
+        schema="public",
+        signature="slick_history(_slick_id INT)",
+        definition="// not needed",
+    )
+    op.drop_entity(get_history_slick)
