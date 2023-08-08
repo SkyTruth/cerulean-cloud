@@ -404,6 +404,8 @@ class Slick(Base):  # noqa
     cls = Column(Integer)
     hitl_cls = Column(ForeignKey("cls.id"))
     machine_confidence = Column(Float(53))
+    precursor_slicks = Column(ARRAY(BigInteger()))
+    notes = Column(Text)
     length = Column(
         Float(53),
         Computed(
