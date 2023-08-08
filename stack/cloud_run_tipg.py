@@ -28,6 +28,21 @@ default = gcp.cloudrun.Service(
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TIPG_NAME", value="Cerulean OGC API"
                         ),
+                        *[
+                            gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                                name=f"TIPG_TABLE_CONFIG__public_{geom_table}__GEOMCOL",
+                                value="geometry",
+                            )
+                            for geom_table in [
+                                "sentinel1_grd",
+                                "orchestrator_run",
+                                "slick",
+                                "aoi",
+                                "slick_plus",
+                                "source_infra",
+                                "slick_to_source",
+                            ]
+                        ],
                     ],
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
                 ),
