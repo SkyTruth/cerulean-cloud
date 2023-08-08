@@ -144,6 +144,8 @@ def upgrade() -> None:
             sa.ForeignKey("cls.id"),
         ),
         sa.Column("machine_confidence", sa.Float),
+        sa.Column("precursor_slicks", ARRAY(sa.BigInteger)),
+        sa.Column("notes", sa.Text),
         sa.Column(
             "length",
             sa.Float,
