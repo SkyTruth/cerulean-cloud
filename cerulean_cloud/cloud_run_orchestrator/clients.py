@@ -94,7 +94,7 @@ class CloudRunInferenceClient:
                 inf_stack=inf_stack, inf_parms=self.inference_parms
             )
             res = await self.client.post(
-                self.url + "/predict", json=payload, timeout=None
+                self.url + "/predict", json=payload.dict(), timeout=None
             )
         return InferenceResultStack(**res.json())
 
@@ -123,7 +123,7 @@ class CloudRunInferenceClient:
                 inf_stack=inf_stack, inf_parms=self.inference_parms
             )
             res = await self.client.post(
-                self.url + "/predict", json=payload, timeout=None
+                self.url + "/predict", json=payload.dict(), timeout=None
             )
         return InferenceResultStack(**res.json())
 
