@@ -128,9 +128,9 @@ def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
         )
     out_fc = geojson.FeatureCollection(
         features=[
-            geojson.Feature(geometry=geom, properties=dict(cls=cls))
-            for geom, cls in shapes
-            if int(cls) != 0
+            geojson.Feature(geometry=geom, properties=dict(inf_idx=inf_idx))
+            for geom, inf_idx in shapes
+            if int(inf_idx) != 0  # XXX HACK This assumes background index is 0
         ]
     )
     return out_fc
@@ -437,7 +437,7 @@ async def _orchestrate(
                         orchestrator_run,
                         sentinel1_grd.start_time,
                         feat.get("geometry"),
-                        feat.get("properties").get("cls"),
+                        feat.get("properties").get("inf_idx"),
                         feat.get("properties").get("machine_confidence"),
                     )
                 print(f"Added slick {slick}")
