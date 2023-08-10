@@ -20,6 +20,7 @@ from starlette.requests import Request
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceInput,
     InferenceResult,
     InferenceResultStack,
     PredictPayload,
@@ -107,7 +108,7 @@ def ping() -> Dict:
 
 
 def _predict(
-    inf_stack: List, model, inf_parms: Dict
+    inf_stack: List[InferenceInput], model, inf_parms: Dict
 ) -> List[
     Union[
         Tuple[np.ndarray, np.ndarray, List[float]],
