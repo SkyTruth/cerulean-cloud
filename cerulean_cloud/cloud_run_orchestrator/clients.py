@@ -122,10 +122,15 @@ class CloudRunInferenceClient:
             inference_input = InferenceInputStack(
                 stack=[InferenceInput(image=encoded, bounds=bounds)]
             )
+            print("XXXDEBUG len(inference_input)", len(inference_input))
+            print("XXXDEBUG inference_input", inference_input)
+            print("XXXDEBUG inference_input.json()", inference_input.json())
+            print("XXXDEBUG self.inference_parms", self.inference_parms)
             payload = {
                 "inference_input": inference_input.json(),
                 "inference_parms": self.inference_parms,
             }
+            print("XXXDEBUG payload", payload)
             res = await self.client.post(
                 self.url + "/predict", json=payload, timeout=None
             )
