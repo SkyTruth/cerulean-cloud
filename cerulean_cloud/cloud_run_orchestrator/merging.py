@@ -23,7 +23,8 @@ def concat_grids_adjust_conf(grid_base, grid_offset, offset_max_acceptable_dista
         max_distance=offset_max_acceptable_distance,
         distance_col="join_distance",
     )
-
+    print("XXXDEBUG grid_offset.columns", grid_offset.columns)
+    print("XXXDEBUG grid_base.columns", grid_base.columns)
     grid_offset.loc[
         ~grid_offset.index.isin(sjoin_result_inner.index), "machine_confidence"
     ] /= 2
