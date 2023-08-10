@@ -55,7 +55,7 @@ def upgrade() -> None:
         ),
         sa.Column("scale", sa.Integer, sa.Computed("ROUND(tile_width_px / 256.0)")),
         sa.Column("epochs", sa.Integer),
-        sa.Column("thresholds", sa.JSON),
+        sa.Column("thresholds", sa.JSON, nullable=False),
         sa.Column("backbone_size", sa.Integer),
         sa.Column("pixel_f1", sa.Float),
         sa.Column("instance_f1", sa.Float),
