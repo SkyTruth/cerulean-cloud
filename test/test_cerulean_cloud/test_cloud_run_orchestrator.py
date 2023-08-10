@@ -457,7 +457,7 @@ def test_merge_inferences():
     components = W.component_labels
 
     all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
-        by=components, aggfunc={"confidence": "median", "classification": "max"}
+        by=components, aggfunc={"machine_confidence": "median", "cls": "max"}
     )
 
     all_grid_dissolved_class_dominance_median_conf[
@@ -488,8 +488,8 @@ def test_func_merge_inferences():
         assert f["geometry"]
         assert f["geometry"]["type"] in ["Polygon", "MultiPolygon"]
         assert f["properties"]
-        assert f["properties"]["confidence"]
-        assert f["properties"]["classification"]
+        assert f["properties"]["machine_confidence"]
+        assert f["properties"]["cls"]
 
 
 def test_func_merge_inferences_empty():

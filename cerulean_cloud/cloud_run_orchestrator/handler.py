@@ -439,8 +439,8 @@ async def _orchestrate(
                         orchestrator_run,
                         sentinel1_grd.start_time,
                         feat.get("geometry"),
-                        feat.get("properties").get("classification"),
-                        feat.get("properties").get("confidence"),
+                        feat.get("properties").get("cls"),
+                        feat.get("properties").get("machine_confidence"),
                     )
                 print(f"Added slick {slick}")
 
