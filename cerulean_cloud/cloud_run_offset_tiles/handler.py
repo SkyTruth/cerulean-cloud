@@ -393,23 +393,28 @@ def polygonize_pixel_segmentations(pred_dict, poly_score_thresh, bounds):
         else None
     )
     pred_dict["polys"] = [
-        vectorize_mask_instance(c, transform) for c in high_conf_classes
+        vectorize_mask_instance(c, pred_dict["scores"][i].detach().item(), transform)
+        for i, c in enumerate(high_conf_classes)
     ]
     keep_masks = [i for i, poly in enumerate(pred_dict["polys"]) if poly]
     return pred_dict, keep_masks
 
 
-def extract_geometries(dataset):
+def extract_geometry(dataset):
     """Extracts the geometries from a raster dataset."""
 
     shps = shapes(
         dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
     )
-    geoms = [shape(geom) for geom, value in shps if value != 0]
-    return geoms
+    geoms, inf_idxs = zip(
+        *[s for s in shps if s[1] != 0]  # XXX HACK assumes inf_idx=0 is background
+    )
+    return MultiPolygon([shape(g) for g in geoms]), next(inf_idxs, 0)
 
 
-def vectorize_mask_instance(high_conf_mask: torch.Tensor, transform):
+def vectorize_mask_instance(
+    high_conf_mask: torch.Tensor, machine_confidence, transform
+):
     """
     From a high confidence mask, generate a GeoJSON feature collection.
 
@@ -424,13 +429,12 @@ def vectorize_mask_instance(high_conf_mask: torch.Tensor, transform):
     memfile = create_memfile(high_conf_mask, transform)
 
     with memfile.open() as dataset:
-        geoms = extract_geometries(dataset)
-        multipoly = MultiPolygon(geoms)
+        multipoly, inf_idx = extract_geometry(dataset)
 
     return (
         geojson.Feature(
             geometry=multipoly,
-            properties=dict(),
+            properties=dict(machine_confidence=machine_confidence, inf_idx=inf_idx),
         )
         if multipoly
         else None
