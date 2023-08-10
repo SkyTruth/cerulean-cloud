@@ -177,7 +177,7 @@ def test_inference_mrcnn():
             bounds=tile_bounds,
         )
         assert len(out_features) == 1
-        assert out_features[0]["properties"]["classification"] == 2
-        assert out_features[0]["properties"]["confidence"] == 0.9999234676361084
+        assert out_features[0]["properties"]["cls"] == 2
+        assert out_features[0]["properties"]["machine_confidence"] == 0.9999234676361084
         res_pred_dicts.append(out_features)
     assert len(res_pred_dicts) == 3
