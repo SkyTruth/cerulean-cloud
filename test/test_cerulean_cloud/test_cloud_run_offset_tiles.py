@@ -10,10 +10,7 @@ from rasterio.plot import reshape_as_raster
 
 import cerulean_cloud.cloud_run_offset_tiles.handler as handler
 import cerulean_cloud.cloud_run_orchestrator.handler as orch_handler
-from cerulean_cloud.cloud_run_offset_tiles.schema import (
-    InferenceInput,
-    InferenceInputStack,
-)
+from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, PredictPayload
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -98,9 +95,32 @@ def test_inference_():
     model = handler.load_tracing_model(
         "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
     )
-    payload = InferenceInputStack(stack=[InferenceInput(image=encoded)])
+    payload = PredictPayload(
+        inf_stack=[InferenceInput(image=encoded)],
+        inf_parms={
+            "model_type": "MASKRCNN",
+            "img_shape": [3, 224, 224],  # rrctile of runlist[-1][0]
+            "classes_to_remove": [
+                "ambiguous",
+            ],
+            "classes_to_remap": {
+                "old_vessel": "recent_vessel",
+                "coincident_vessel": "recent_vessel",
+            },
+            "classes_to_keep": [
+                "background",
+                "infra_slick",
+                "natural_seep",
+                "recent_vessel",
+            ],
+            "pixel_nms_thresh": 0.4,  # prediction vs itself, pixels
+            "bbox_score_thresh": 0.2,  # prediction vs score, bbox
+            "poly_score_thresh": 0.2,  # prediction vs score, polygon
+            "pixel_score_thresh": 0.2,  # prediction vs score, pixels
+        },
+    )
 
-    inference_stack = handler._predict(payload, model)
+    inference_stack = handler._predict(payload.inf_stack, model, payload.inf_parms)
     classes, conf, bounds = inference_stack[0]
     enc_classes = handler.array_to_b64_image(classes)
     enc_conf = handler.array_to_b64_image(conf)

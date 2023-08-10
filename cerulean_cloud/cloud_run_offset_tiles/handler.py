@@ -20,9 +20,9 @@ from starlette.requests import Request
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
-    InferenceInputStack,
     InferenceResult,
     InferenceResultStack,
+    PredictPayload,
 )
 
 # mypy: ignore-errors
@@ -107,7 +107,7 @@ def ping() -> Dict:
 
 
 def _predict(
-    payload: InferenceInputStack, model, inference_parms: Dict
+    inf_stack: List, model, inf_parms: Dict
 ) -> List[
     Union[
         Tuple[np.ndarray, np.ndarray, List[float]],
@@ -115,15 +115,13 @@ def _predict(
     ]
 ]:
     print("Initiating cloud_run_offset_tiles/_predict()")
-    print(f"Model type is {inference_parms['model_type']}")
-    print(f"Stack has {len(payload.stack)} images")
+    print(f"Model type is {inf_parms['model_type']}")
+    print(f"Stack has {len(inf_stack)} images")
 
-    stack_tensors = [
-        b64_image_to_tensor(record.image) / 255 for record in payload.stack
-    ]
-    bounds = [record.bounds for record in payload.stack]
+    stack_tensors = [b64_image_to_tensor(record.image) / 255 for record in inf_stack]
+    bounds = [record.bounds for record in inf_stack]
 
-    if inference_parms["model_type"] == "MASKRCNN":
+    if inf_parms["model_type"] == "MASKRCNN":
         print(f"Images have shape {stack_tensors[0].shape}")
 
         raw_preds = model(stack_tensors)[1]
@@ -131,18 +129,18 @@ def _predict(
 
         reduced_preds = reduce_preds(
             raw_preds,
-            **inference_parms["thresholds"],
+            **inf_parms["thresholds"],
             bounds=bounds,
         )
         # returns List[Tuple[List[geojson.Feature], List[float]]]
         return [(inf["polys"], bounds[i]) for i, inf in enumerate(reduced_preds)]
 
-    elif inference_parms["model_type"] == "UNET":
+    elif inf_parms["model_type"] == "UNET":
         # out_batch_logits = model(tensor)
         # print("Finished inference, applying softmax")
 
         # res: Tuple[np.ndarray, np.ndarray, List[float]] = []
-        # for i, inference_input in enumerate(payload.stack):
+        # for i, inference_input in enumerate(inf_stack):
         #     conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
         #     classes = apply_conf_threshold(conf, _classes, confidence_threshold)
         #     print(f"Output classes array is {classes.shape}")
@@ -165,31 +163,12 @@ def _predict(
     tags=["Run inference"],
     response_model=InferenceResultStack,
 )
-def predict(request: Request, payload: Dict, model=Depends(get_model)) -> Dict:
+def predict(
+    request: Request, payload: PredictPayload, model=Depends(get_model)
+) -> Dict:
     """predict"""
-    # inference_parms = {
-    #     "model_type": "MASKRCNN",
-    #     "img_shape": [3, 224, 224],  # rrctile of runlist[-1][0]
-    #     "classes_to_remove": [
-    #         "ambiguous",
-    #     ],
-    #     "classes_to_remap": {
-    #         "old_vessel": "recent_vessel",
-    #         "coincident_vessel": "recent_vessel",
-    #     },
-    #     "classes_to_keep": [
-    #         "background",
-    #         "infra_slick",
-    #         "natural_seep",
-    #         "recent_vessel",
-    #     ],
-    #     "pixel_nms_thresh": 0.4,  # prediction vs itself, pixels
-    #     "bbox_score_thresh": 0.2,  # prediction vs score, bbox
-    #     "poly_score_thresh": 0.2,  # prediction vs score, polygon
-    #     "pixel_score_thresh": 0.2,  # prediction vs score, pixels
-    # }
     record_timing(request, note="Started")
-    results = _predict(payload["inference_input"], model, payload["inference_parms"])
+    results = _predict(payload.inf_stack, model, payload.inf_parms)
     record_timing(request, note="Finished inference")
 
     inference_result_stack = []
