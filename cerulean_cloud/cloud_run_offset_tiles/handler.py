@@ -409,7 +409,7 @@ def extract_geometry(dataset):
     geoms, inf_idxs = zip(
         *[s for s in shps if s[1] != 0]  # XXX HACK assumes inf_idx=0 is background
     )
-    return MultiPolygon([shape(g) for g in geoms]), next(inf_idxs, 0)
+    return MultiPolygon([shape(g) for g in geoms]), inf_idxs[0] if inf_idxs else 0
 
 
 def vectorize_mask_instance(
