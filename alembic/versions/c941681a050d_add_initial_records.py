@@ -105,6 +105,13 @@ def upgrade() -> None:
                 name="OLD, Not working so well",
                 tile_width_m=20422,
                 tile_width_px=224,
+                thresholds={
+                    "pixel_nms_thresh": 0.4,
+                    "bbox_score_thresh": 0.2,
+                    "poly_score_thresh": 0.2,
+                    "pixel_score_thresh": 0.2,
+                    "groundtruth_dice_thresh": 0.0,
+                },
                 backbone_size=34,
             ),
         ]

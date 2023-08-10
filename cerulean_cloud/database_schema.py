@@ -139,7 +139,7 @@ class Model(Base):  # noqa
         Integer, Computed("round(((tile_width_px)::numeric / 256.0))", persisted=True)
     )
     epochs = Column(Integer)
-    thresholds = Column(JSON)
+    thresholds = Column(JSON, nullable=False)
     backbone_size = Column(Integer)
     pixel_f1 = Column(Float(53))
     instance_f1 = Column(Float(53))
