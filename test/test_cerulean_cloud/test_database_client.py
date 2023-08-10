@@ -83,11 +83,11 @@ async def test_create_slick(setup_database, engine):
             features=[
                 geojson.Feature(
                     geometry=box(1, 2, 3, 4),
-                    properties={"cls": 1, "machine_confidence": 0.99},
+                    properties={"inf_idx": 1, "machine_confidence": 0.99},
                 ),
                 geojson.Feature(
                     geometry=box(1, 2, 3, 4),
-                    properties={"cls": 2, "machine_confidence": 0.99},
+                    properties={"inf_idx": 2, "machine_confidence": 0.99},
                 ),
             ]
         )
@@ -139,7 +139,7 @@ async def test_create_slick(setup_database, engine):
                     orchestrator_run,
                     sentinel1_grd.start_time,
                     dict(feat).get("geometry"),
-                    dict(feat).get("properties").get("cls"),
+                    dict(feat).get("properties").get("inf_idx"),
                     dict(feat).get("properties").get("machine_confidence"),
                 )
                 print(f"Added last eez for slick {slick}")

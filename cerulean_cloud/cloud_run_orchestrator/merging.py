@@ -69,7 +69,7 @@ def merge_inferences(
         components = W.component_labels
 
         all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
-            by=components, aggfunc={"machine_confidence": "median", "cls": "max"}
+            by=components, aggfunc={"machine_confidence": "median", "inf_idx": "max"}
         )
 
         if buffer_distance:
