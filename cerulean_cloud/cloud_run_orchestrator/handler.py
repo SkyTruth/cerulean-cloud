@@ -128,11 +128,9 @@ def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
         )
     out_fc = geojson.FeatureCollection(
         features=[
-            geojson.Feature(
-                geometry=geom, properties=dict(classification=classification)
-            )
-            for geom, classification in shapes
-            if int(classification) != 0
+            geojson.Feature(geometry=geom, properties=dict(cls=cls))
+            for geom, cls in shapes
+            if int(cls) != 0
         ]
     )
     return out_fc
