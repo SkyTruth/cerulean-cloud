@@ -19,8 +19,8 @@ from rio_tiler.io import COGReader
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInput,
-    InferenceInputStack,
     InferenceResultStack,
+    PredictPayload,
 )
 from cerulean_cloud.tiling import TMS
 
@@ -88,13 +88,11 @@ class CloudRunInferenceClient:
 
             encoded = img_array_to_b64_image(img_array)
 
-            inference_input = InferenceInputStack(
-                stack=[InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
+            inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
+
+            payload = PredictPayload(
+                inf_stack=inf_stack, inf_parms=self.inference_parms
             )
-            payload = {
-                "inference_input": inference_input.json(),
-                "inference_parms": self.inference_parms,
-            }
             res = await self.client.post(
                 self.url + "/predict", json=payload, timeout=None
             )
@@ -119,18 +117,11 @@ class CloudRunInferenceClient:
 
             encoded = img_array_to_b64_image(img_array)
 
-            inference_input = InferenceInputStack(
-                stack=[InferenceInput(image=encoded, bounds=bounds)]
+            inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
+
+            payload = PredictPayload(
+                inf_stack=inf_stack, inf_parms=self.inference_parms
             )
-            print("XXXDEBUG len(inference_input)", len(inference_input))
-            print("XXXDEBUG inference_input", inference_input)
-            print("XXXDEBUG inference_input.json()", inference_input.json())
-            print("XXXDEBUG self.inference_parms", self.inference_parms)
-            payload = {
-                "inference_input": inference_input.json(),
-                "inference_parms": self.inference_parms,
-            }
-            print("XXXDEBUG payload", payload)
             res = await self.client.post(
                 self.url + "/predict", json=payload, timeout=None
             )

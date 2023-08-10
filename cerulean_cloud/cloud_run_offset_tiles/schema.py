@@ -1,5 +1,5 @@
 """schema for inference enpoint"""
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import geojson
 from pydantic import BaseModel
@@ -14,12 +14,13 @@ class InferenceInput(BaseModel):
     bounds: Optional[List[float]]
 
 
-class InferenceInputStack(BaseModel):
+class PredictPayload(BaseModel):
     """
-    Stack of InferenceInput
+    Stack of InferenceInputs and a dictionary of parms like thresholds
     """
 
-    stack: List[InferenceInput]
+    inf_stack: List[InferenceInput]
+    inf_parms: Dict[str, Any]
 
 
 class InferenceResult(BaseModel):
