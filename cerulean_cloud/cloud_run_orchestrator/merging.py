@@ -14,7 +14,7 @@ def reproject_to_utm(gdf_wgs84):
 
 
 def concat_grids_adjust_conf(grid_base, grid_offset, offset_max_acceptable_distance):
-    """concats the two grid inferences, divides confidence by two if they are not
+    """concats the two grid inferences, divides machine_confidence by two if they are not
     intersecting or within offset_max_acceptable_distance meters from another grid's
     polygons."""
     sjoin_result_inner = grid_offset.sjoin_nearest(
@@ -25,10 +25,10 @@ def concat_grids_adjust_conf(grid_base, grid_offset, offset_max_acceptable_dista
     )
 
     grid_offset.loc[
-        ~grid_offset.index.isin(sjoin_result_inner.index), "confidence"
+        ~grid_offset.index.isin(sjoin_result_inner.index), "machine_confidence"
     ] /= 2
     grid_base.loc[
-        ~grid_base.index.isin(sjoin_result_inner["index_right"]), "confidence"
+        ~grid_base.index.isin(sjoin_result_inner["index_right"]), "machine_confidence"
     ] /= 2
 
     return pd.concat([grid_offset, grid_base])
@@ -68,7 +68,7 @@ def merge_inferences(
         components = W.component_labels
 
         all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
-            by=components, aggfunc={"confidence": "median", "classification": "max"}
+            by=components, aggfunc={"machine_confidence": "median", "cls": "max"}
         )
 
         if buffer_distance:
