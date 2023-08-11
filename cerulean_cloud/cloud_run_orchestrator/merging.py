@@ -3,7 +3,6 @@ from typing import Optional
 
 import geojson
 import geopandas as gpd
-import libpysal
 import pandas as pd
 
 
@@ -48,37 +47,34 @@ def merge_inferences(
     print(f"Using buffer_distance: {buffer_distance} for erosion and dilation")
 
     if base_tile_fc["features"] and offset_tile_fc["features"]:
-        grid_base = gpd.GeoDataFrame.from_features(base_tile_fc["features"], crs=4326)
-        grid_offset = gpd.GeoDataFrame.from_features(
+        base_gdf = gpd.GeoDataFrame.from_features(base_tile_fc["features"], crs=4326)
+        offset_gdf = gpd.GeoDataFrame.from_features(
             offset_tile_fc["features"], crs=4326
         )
 
-        grid_base = reproject_to_utm(grid_base)
-        grid_offset = reproject_to_utm(grid_offset)
+        base_gdf = reproject_to_utm(base_gdf)
+        offset_gdf = reproject_to_utm(offset_gdf).to_crs(base_gdf.crs)
 
-        all_grid_gdf = concat_grids_adjust_conf(
-            grid_base, grid_offset, offset_max_acceptable_distance
-        )
+        if offset_max_acceptable_distance:
+            concat_gdf = concat_grids_adjust_conf(
+                base_gdf, offset_gdf, offset_max_acceptable_distance
+            )
+        else:
+            concat_gdf = pd.concat([base_gdf, offset_gdf])
 
-        # create spatial weights matrix
-        W = libpysal.weights.Queen.from_dataframe(all_grid_gdf)
+        if buffer_distance:
+            # Do some dilation
+            concat_gdf = concat_gdf.buffer(buffer_distance)
 
-        # get component labels
-        components = W.component_labels
-
-        all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
-            by=components, aggfunc={"machine_confidence": "median", "inf_idx": "max"}
+        dissolved_gdf = concat_gdf.dissolve(
+            aggfunc={"machine_confidence": "median", "inf_idx": "max"}
         )
 
         if buffer_distance:
-            # Do some erosion and dilation
-            all_grid_dissolved_class_dominance_median_conf = (
-                all_grid_dissolved_class_dominance_median_conf.buffer(
-                    buffer_distance
-                ).buffer(-buffer_distance)
-            )
+            # Do some erosion
+            dissolved_gdf = dissolved_gdf.buffer(-buffer_distance)
 
-        result = all_grid_dissolved_class_dominance_median_conf.to_crs(crs=4326)
+        result = dissolved_gdf.to_crs(crs=4326)
 
         return result.__geo_interface__
     else:

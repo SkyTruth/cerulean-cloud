@@ -429,7 +429,12 @@ async def _orchestrate(
             # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
             print("XXXDEBUG out_fc", out_fc)
             print("XXXDEBUG out_fc_offset", out_fc_offset)
-            merged_inferences = merge_inferences(out_fc, out_fc_offset)
+            merged_inferences = merge_inferences(
+                out_fc,
+                out_fc_offset,
+                offset_max_acceptable_distance=1,
+                buffer_distance=500,
+            )
 
             for feat in merged_inferences.get("features"):
                 async with db_client.session.begin():
