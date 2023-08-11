@@ -432,8 +432,10 @@ async def _orchestrate(
             merged_inferences = merge_inferences(
                 out_fc,
                 out_fc_offset,
-                offset_max_acceptable_distance=1,
-                buffer_distance=500,
+                isolated_conf_multiplier=0.5,
+                proximity_meters=500,
+                closing_meters=0,
+                opening_meters=0,
             )
 
             for feat in merged_inferences.get("features"):
