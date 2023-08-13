@@ -43,6 +43,35 @@ default = gcp.cloudrun.Service(
                                 "slick_to_source",
                             ]
                         ],
+                        *[
+                            gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                                name=f"TIPG_TABLE_CONFIG__public_{datetime_table}__DATETIMECOL",
+                                value="update_time",
+                            )
+                            for datetime_table in [
+                                "layer",
+                                "model",
+                                "subscription",
+                                "magic_link",
+                                "aoi_type",
+                            ]
+                        ],
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_TABLE_CONFIG__public_sentinel1_grd__DATETIMECOL",
+                            value="start_time",
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_TABLE_CONFIG__public_orchestrator_run__DATETIMECOL",
+                            value="inference_start_time",
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_TABLE_CONFIG__public_slick__DATETIMECOL",
+                            value="slick_timestamp",
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_TABLE_CONFIG__public_slick_plus__DATETIMECOL",
+                            value="slick_timestamp",
+                        ),
                     ],
                     resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
                 ),
