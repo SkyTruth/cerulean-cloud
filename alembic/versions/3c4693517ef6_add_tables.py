@@ -60,7 +60,7 @@ def upgrade() -> None:
         sa.Column("pixel_f1", sa.Float),
         sa.Column("instance_f1", sa.Float),
         sa.Column(
-            "updated_time", sa.DateTime, nullable=False, server_default=sa.func.now()
+            "update_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
     )
 

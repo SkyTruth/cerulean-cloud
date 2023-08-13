@@ -143,7 +143,7 @@ class Model(Base):  # noqa
     backbone_size = Column(Integer)
     pixel_f1 = Column(Float(53))
     instance_f1 = Column(Float(53))
-    updated_time = Column(DateTime, nullable=False, server_default=text("now()"))
+    update_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
 
 class Sentinel1Grd(Base):  # noqa
