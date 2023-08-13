@@ -6,11 +6,8 @@ from datetime import datetime
 from unittest.mock import patch
 
 import geojson
-import geopandas as gpd
 import git
 import httpx
-import libpysal
-import pandas as pd
 import pytest
 import rasterio
 from rasterio.io import MemoryFile
@@ -32,11 +29,7 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     make_cloud_log_url,
     offset_group_shape_from_base_tiles,
 )
-from cerulean_cloud.cloud_run_orchestrator.merging import (
-    concat_grids_adjust_conf,
-    merge_inferences,
-    reproject_to_utm,
-)
+from cerulean_cloud.cloud_run_orchestrator.merging import merge_inferences
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
@@ -432,46 +425,6 @@ def test_flatten_result():
     assert isinstance(flat_list[0], geojson.Feature)
 
 
-def test_merge_inferences():
-    pd.options.mode.chained_assignment = None
-
-    offset_p = "test/test_cerulean_cloud/fixtures/offset.geojson"
-    base_p = "test/test_cerulean_cloud/fixtures/base.geojson"
-    offset_max_acceptable_distance = 70 * 8
-    buffer_distance = 2 * 70
-
-    grid_base = gpd.read_file(base_p)
-    grid_offset = gpd.read_file(offset_p)
-
-    grid_base = reproject_to_utm(grid_base)
-    grid_offset = reproject_to_utm(grid_offset)
-
-    all_grid_gdf = concat_grids_adjust_conf(
-        grid_base, grid_offset, offset_max_acceptable_distance
-    )
-
-    # create spatial weights matrix
-    W = libpysal.weights.Queen.from_dataframe(all_grid_gdf)
-
-    # get component labels
-    components = W.component_labels
-
-    all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
-        by=components, aggfunc={"machine_confidence": "median", "inf_idx": "max"}
-    )
-
-    all_grid_dissolved_class_dominance_median_conf[
-        "geometry"
-    ] = all_grid_dissolved_class_dominance_median_conf.buffer(buffer_distance).buffer(
-        -buffer_distance
-    )
-
-    assert (
-        all_grid_dissolved_class_dominance_median_conf.__geo_interface__["type"]
-        == "FeatureCollection"
-    )
-
-
 def test_func_merge_inferences():
     with open("test/test_cerulean_cloud/fixtures/base.geojson") as src:
         base_tile_fc = dict(geojson.load(src))
@@ -479,9 +432,18 @@ def test_func_merge_inferences():
     with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
         offset_tile_fc = dict(geojson.load(src))
 
-    merged = merge_inferences(base_tile_fc=base_tile_fc, offset_tile_fc=offset_tile_fc)
+    merged = merge_inferences(
+        base_tile_fc=base_tile_fc,
+        offset_tile_fc=offset_tile_fc,
+        isolated_conf_multiplier=0.1,
+        proximity_meters=500,
+        closing_meters=100,
+        opening_meters=100,
+    )
+    with open("test/test_cerulean_cloud/fixtures/merge.geojson", "w") as outfile:
+        json.dump(merged, outfile)
     assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 15
+    assert len(merged["features"]) == 14
 
     for f in merged["features"]:
         print(f)
