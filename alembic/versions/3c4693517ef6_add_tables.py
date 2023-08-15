@@ -330,7 +330,7 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
         sa.Column("source", sa.BigInteger, sa.ForeignKey("source.id"), nullable=False),
-        sa.Column("machine_confidence", sa.Float),
+        sa.Column("coincidence_score", sa.Float),
         sa.Column("rank", sa.BigInteger),
         sa.Column("hitl_confirmed", sa.Boolean),
         sa.Column("geojson_fc", sa.JSON, nullable=False),

@@ -463,7 +463,7 @@ class SlickToSource(Base):  # noqa
     )
     slick = Column(ForeignKey("slick.id"), nullable=False)
     source = Column(ForeignKey("source.id"), nullable=False)
-    machine_confidence = Column(Float(53))
+    coincidence_score = Column(Float(53))
     rank = Column(BigInteger)
     hitl_confirmed = Column(Boolean)
     geojson_fc = Column(JSON, nullable=False)
