@@ -10,7 +10,7 @@ from utils import construct_name
 stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
-    construct_name("bucket-cloud-function-ais"),
+    construct_name("bucket-cloud-function-ais-analysis"),
     location="EU",
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
@@ -69,12 +69,12 @@ source_archive_object = storage.BucketObject(
 
 # Assign access to cloud SQL
 cloud_function_service_account = serviceaccount.Account(
-    construct_name("cloud-function"),
-    account_id=f"{stack}-cloud-function",
+    construct_name("cloud-function-ais-analysis"),
+    account_id=f"{stack}-cloud-function-ais-analysis",
     display_name="Service Account for cloud function.",
 )
 cloud_function_service_account_iam = projects.IAMMember(
-    construct_name("cloud-function-iam"),
+    construct_name("cloud-function-ais-analysis-iam"),
     project=pulumi.Config("gcp").require("project"),
     role="projects/cerulean-338116/roles/cloudfunctionaisanalysisrole",
     member=cloud_function_service_account.email.apply(

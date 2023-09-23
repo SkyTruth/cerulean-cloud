@@ -11,7 +11,7 @@ from utils import construct_name
 stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
-    construct_name("bucket-cloud-function-relevancy"),
+    construct_name("bucket-cloud-function-scene-relevancy"),
     location="EU",
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
@@ -70,12 +70,12 @@ source_archive_object = storage.BucketObject(
 
 # Assign access to cloud SQL
 cloud_function_service_account = serviceaccount.Account(
-    construct_name("cloud-function"),
-    account_id=f"{stack}-cloud-function",
+    construct_name("cloud-function-scene-relevancy"),
+    account_id=f"{stack}-cloud-function-scene-relevancy",
     display_name="Service Account for cloud function.",
 )
 cloud_function_service_account_iam = projects.IAMMember(
-    construct_name("cloud-function-iam"),
+    construct_name("cloud-function-scene-relevancy-iam"),
     project=pulumi.Config("gcp").require("project"),
     role="projects/cerulean-338116/roles/cloudfunctionscenerelevancyrole",
     member=cloud_function_service_account.email.apply(
