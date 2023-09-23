@@ -11,7 +11,7 @@ from utils import construct_name
 stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
-    construct_name("bucket-cloud-function-scene-relevancy"),
+    construct_name("bucket-cloud-function-sr"),
     location="EU",
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
@@ -36,7 +36,7 @@ queue = cloudtasks.Queue(
     ),
 )
 
-function_name = construct_name("cloud-function-scene-relevancy")
+function_name = construct_name("cloud-function-sr")
 config_values = {
     "DB_URL": database.sql_instance_url,
     "GCP_PROJECT": pulumi.Config("gcp").require("project"),
@@ -62,7 +62,7 @@ archive = pulumi.AssetArchive(assets=assets)
 # Create the single Cloud Storage object, which contains all of the function's
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
-    construct_name("source-cloud-function-scene-relevancy"),
+    construct_name("source-cloud-function-sr"),
     name="handler.py-%f" % time.time(),
     bucket=bucket.name,
     source=archive,
@@ -70,12 +70,12 @@ source_archive_object = storage.BucketObject(
 
 # Assign access to cloud SQL
 cloud_function_service_account = serviceaccount.Account(
-    construct_name("cloud-function-scene-relevancy"),
-    account_id=f"{stack}-cloud-function-scene-relevancy",
+    construct_name("cloud-function-sr"),
+    account_id=f"{stack}-cloud-function-sr",
     display_name="Service Account for cloud function.",
 )
 cloud_function_service_account_iam = projects.IAMMember(
-    construct_name("cloud-function-scene-relevancy-iam"),
+    construct_name("cloud-function-sr-iam"),
     project=pulumi.Config("gcp").require("project"),
     role="projects/cerulean-338116/roles/cloudfunctionscenerelevancyrole",
     member=cloud_function_service_account.email.apply(
@@ -97,7 +97,7 @@ fxn = cloudfunctions.Function(
 )
 
 invoker = cloudfunctions.FunctionIamMember(
-    construct_name("cloud-function-scene-relevancy-invoker"),
+    construct_name("cloud-function-sr-invoker"),
     project=fxn.project,
     region=fxn.region,
     cloud_function=fxn.name,
