@@ -10,7 +10,7 @@ import pandas as pd
 import pandas_gbq
 import shapely
 
-from cerulean_cloud.cloud_function_ais_analysis.utils.constants import (
+from .constants import (
     AIS_BUFFER,
     BUF_VEC,
     D_FORMAT,

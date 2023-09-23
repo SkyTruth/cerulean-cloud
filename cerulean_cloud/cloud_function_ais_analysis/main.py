@@ -9,12 +9,10 @@ from datetime import datetime
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
 
-from cerulean_cloud.cloud_function_ais_analysis.utils.ais import AISConstructor
-from cerulean_cloud.cloud_function_ais_analysis.utils.associate import (
-    associate_ais_to_slicks,
-    slicks_to_curves,
-)
 from cerulean_cloud.database_client import DatabaseClient, get_engine
+
+from .utils.ais import AISConstructor
+from .utils.associate import associate_ais_to_slicks, slicks_to_curves
 
 # mypy: ignore-errors
 
