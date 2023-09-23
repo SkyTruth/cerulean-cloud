@@ -11,7 +11,7 @@ from utils import construct_name
 stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
-    construct_name("bucket-cloud-function"),
+    construct_name("bucket-cloud-function-relevancy"),
     location="EU",
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
