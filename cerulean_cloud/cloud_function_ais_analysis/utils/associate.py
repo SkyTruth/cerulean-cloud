@@ -13,7 +13,7 @@ import scipy.spatial.distance
 import shapely.geometry
 import shapely.ops
 
-from cerulean_cloud.cloud_function_ais_analysis.utils.scoring import (
+from .scoring import (
     compute_frechet_distance,
     compute_overlap_score,
     compute_temporal_score,
