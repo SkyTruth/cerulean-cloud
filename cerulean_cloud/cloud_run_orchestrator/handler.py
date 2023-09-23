@@ -27,6 +27,7 @@ from rasterio.io import MemoryFile
 from rasterio.merge import merge
 
 from cerulean_cloud.auth import api_key_auth
+from cerulean_cloud.cloud_function_ais_analysis.main import add_to_aaa_queue
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResult,
     InferenceResultStack,
@@ -448,6 +449,8 @@ async def _orchestrate(
                         feat.get("properties").get("machine_confidence"),
                     )
                 print(f"Added slick {slick}")
+            if merged_inferences.get("features"):
+                add_to_aaa_queue(sentinel1_grd.scene_id)
 
             end_time = datetime.now()
             print(f"End time: {end_time}")

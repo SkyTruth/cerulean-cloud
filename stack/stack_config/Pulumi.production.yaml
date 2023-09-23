@@ -3,8 +3,9 @@ config:
   aws:region: eu-central-1
   cerulean-cloud:apikey:
     secure: v1:IuQ6n+tMG3oHe0pn:0/PQL0VoNoR2uCA9We2m9acc4nX73a0ViqSiHJhNe9X1srrZI4TvmsQZcuUrtzy4EoKSbQ==
-  cerulean-cloud:dryrun_historical: "True"
-  cerulean-cloud:dryrun_relevancy: "True"
+  cerulean-cloud:dryrun_historical: "" # Make empty "" to turn on historical runs
+  cerulean-cloud:dryrun_relevancy: "" # Make empty "" to turn on recurring runs
+  cerulean-cloud:dryrun_ais: "" # Make empty "" to turn on AIS analysis
   db:db-instance: db-g1-small
   db:deletion-protection: "True"
   db:db-password:
