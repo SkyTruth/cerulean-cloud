@@ -27,3 +27,4 @@ eodag-sentinelsat==0.4.1
 geopandas
 libpysal
 pygeos
+pandas_gbq
