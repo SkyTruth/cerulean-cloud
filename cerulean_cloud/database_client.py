@@ -165,3 +165,45 @@ class DatabaseClient:
             machine_confidence=machine_confidence,
         )
         return slick
+
+    async def get_slicks_without_sources_from_scene_id(self, scene_id, active=True):
+        """
+        Asynchronously queries the database to fetch slicks without associated sources for a given scene ID.
+
+        Args:
+            scene_id (str): The ID of the scene for which slicks are needed.
+            active (bool): Flag to filter slicks based on their active status. Default is True.
+
+        Returns:
+            list: A list of Slick objects that do not have associated sources and belong to the specified scene.
+
+        Notes:
+            - The function uses SQLAlchemy for database queries.
+            - It joins multiple tables: `db.Slick`, `db.SlickToSource`, `db.OrchestratorRun`, and `db.Sentinel1Grd`.
+            - The query uses an outer join to filter out slicks that have associated sources.
+        """
+        return (
+            self.session.query(db.Slick)
+            .outerjoin(db.SlickToSource, db.Slick.id == db.SlickToSource.slick)
+            .filter(db.SlickToSource.slick is None)
+            .join(db.OrchestratorRun)
+            .join(db.Sentinel1Grd)
+            .filter(db.Sentinel1Grd.id == scene_id, db.Slick.active == active)
+            .all()
+        )
+
+    async def get_scene_from_id(self, scene_id):
+        """
+        Asynchronously fetches a scene object from the database based on its ID.
+
+        Args:
+            scene_id (str): The ID of the scene to fetch.
+
+        Returns:
+            Scene Object: The fetched Sentinel1Grd scene object, or `None` if not found.
+
+        Notes:
+            - The function delegates the actual database fetch operation to a generic `get()` function.
+            - It looks for a scene in the `db.Sentinel1Grd` table.
+        """
+        return get(self.session, db.Sentinel1Grd, False, scene_id=scene_id)
