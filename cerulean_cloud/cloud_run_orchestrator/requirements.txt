@@ -22,3 +22,5 @@ libpysal
 geopandas
 pygeos
 networkx
+google-cloud-tasks
+protobuf

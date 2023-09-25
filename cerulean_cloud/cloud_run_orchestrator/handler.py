@@ -27,7 +27,7 @@ from rasterio.io import MemoryFile
 from rasterio.merge import merge
 
 from cerulean_cloud.auth import api_key_auth
-from cerulean_cloud.cloud_function_ais_analysis.main import add_to_aaa_queue
+from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_aaa_queue
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResult,
     InferenceResultStack,
