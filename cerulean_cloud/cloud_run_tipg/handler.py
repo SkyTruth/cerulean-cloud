@@ -109,20 +109,24 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 @app.on_event("startup")
 async def startup_event() -> None:
     """Connect to database on startup."""
-    await connect_to_db(app, settings=postgres_settings)
-    assert getattr(app.state, "pool", None)
+    try:
+        await connect_to_db(app, settings=postgres_settings)
+        assert getattr(app.state, "pool", None)
 
-    await register_collection_catalog(
-        app,
-        schemas=db_settings.schemas,
-        exclude_table_schemas=db_settings.exclude_table_schemas,
-        tables=db_settings.tables,
-        exclude_tables=db_settings.exclude_tables,
-        exclude_function_schemas=db_settings.exclude_function_schemas,
-        functions=db_settings.functions,
-        exclude_functions=db_settings.exclude_functions,
-        spatial=False,  # False means allow non-spatial tables
-    )
+        await register_collection_catalog(
+            app,
+            schemas=db_settings.schemas,
+            exclude_table_schemas=db_settings.exclude_table_schemas,
+            tables=db_settings.tables,
+            exclude_tables=db_settings.exclude_tables,
+            exclude_function_schemas=db_settings.exclude_function_schemas,
+            functions=db_settings.functions,
+            exclude_functions=db_settings.exclude_functions,
+            spatial=False,  # False means allow non-spatial tables
+        )
+    except:  # noqa
+        app.state.collection_catalog = {}
+        raise
 
 
 @app.on_event("shutdown")
