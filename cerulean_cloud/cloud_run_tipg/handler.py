@@ -12,6 +12,7 @@ Make sure to set in your environment:
 import logging
 from typing import Any, List, Optional
 
+import asyncpg
 import jinja2
 import pydantic
 from fastapi import FastAPI
@@ -124,7 +125,9 @@ async def startup_event() -> None:
             exclude_functions=db_settings.exclude_functions,
             spatial=False,  # False means allow non-spatial tables
         )
-    except:  # noqa
+    except asyncpg.exceptions.UndefinedObjectError:
+        # This is the case where TiPG is attempting to
+        # start up BEFORE the alembic code has had the opportunity to launch the DB
         app.state.collection_catalog = {}
 
 
