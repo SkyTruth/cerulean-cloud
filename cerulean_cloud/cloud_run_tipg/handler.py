@@ -126,7 +126,6 @@ async def startup_event() -> None:
         )
     except:  # noqa
         app.state.collection_catalog = {}
-        raise
 
 
 @app.on_event("shutdown")
