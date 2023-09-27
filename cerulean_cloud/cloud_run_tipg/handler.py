@@ -12,6 +12,7 @@ Make sure to set in your environment:
 import logging
 from typing import Any, List, Optional
 
+import asyncpg
 import jinja2
 import pydantic
 from fastapi import FastAPI
@@ -109,20 +110,27 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 @app.on_event("startup")
 async def startup_event() -> None:
     """Connect to database on startup."""
-    await connect_to_db(app, settings=postgres_settings)
-    assert getattr(app.state, "pool", None)
+    try:
+        await connect_to_db(app, settings=postgres_settings)
+        assert getattr(app.state, "pool", None)
 
-    await register_collection_catalog(
-        app,
-        schemas=db_settings.schemas,
-        exclude_table_schemas=db_settings.exclude_table_schemas,
-        tables=db_settings.tables,
-        exclude_tables=db_settings.exclude_tables,
-        exclude_function_schemas=db_settings.exclude_function_schemas,
-        functions=db_settings.functions,
-        exclude_functions=db_settings.exclude_functions,
-        spatial=False,  # False means allow non-spatial tables
-    )
+        await register_collection_catalog(
+            app,
+            schemas=db_settings.schemas,
+            exclude_table_schemas=db_settings.exclude_table_schemas,
+            tables=db_settings.tables,
+            exclude_tables=db_settings.exclude_tables,
+            exclude_function_schemas=db_settings.exclude_function_schemas,
+            functions=db_settings.functions,
+            exclude_functions=db_settings.exclude_functions,
+            spatial=False,  # False means allow non-spatial tables
+        )
+    except asyncpg.exceptions.UndefinedObjectError:
+        # This is the case where TiPG is attempting to start up BEFORE
+        # the alembic code has had the opportunity to launch the database
+        # You will need to poll the /register endpoint of the tipg URL in order to correctly load the tables
+        # i.e. curl https://some-tipg-url.app/register
+        app.state.collection_catalog = {}
 
 
 @app.on_event("shutdown")
