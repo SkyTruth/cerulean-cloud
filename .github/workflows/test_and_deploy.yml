@@ -112,6 +112,9 @@ jobs:
     needs: [tests]
     if: github.event_name == 'workflow_dispatch'
     steps:
+      - name: Log Disk Usage Before Deploy Test
+        run: df -h
+  
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
         with:
@@ -174,6 +177,13 @@ jobs:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
         run: alembic upgrade head
 
+      - name: Log Disk Usage After Deploy Test
+        run: df -h
+      - name: List Docker Images
+        run: docker images
+      - name: Docker System Info
+        run: docker system df -v
+          
   deploy-staging:
     name: Deploy [STAGING]
     needs: [tests]
