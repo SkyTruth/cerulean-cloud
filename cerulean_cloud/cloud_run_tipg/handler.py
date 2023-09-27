@@ -125,10 +125,14 @@ async def startup_event() -> None:
             exclude_functions=db_settings.exclude_functions,
             spatial=False,  # False means allow non-spatial tables
         )
-    except asyncpg.exceptions.UndefinedObjectError:
-        # This is the case where TiPG is attempting to
-        # start up BEFORE the alembic code has had the opportunity to launch the DB
+    except asyncpg.exceptions.UndefinedObjectError as e:
+        # This is the case where TiPG is attempting to start up BEFORE
+        # the alembic code has had the opportunity to launch the database
+        # You will need to poll the /register endpoint of the tipg URL in order to correctly load the tables
+        # i.e. curl https://some-tipg-url.app/register
         app.state.collection_catalog = {}
+        print(e)
+        raise
 
 
 @app.on_event("shutdown")
