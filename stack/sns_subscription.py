@@ -37,7 +37,7 @@ lambda_sentinel1_topic = aws.lambda_.Function(
             "FUNCTION_URL": cloud_function_scene_relevancy.fxn.https_trigger_url
         },
     ),
-    layers=["arn:aws:lambda:eu-central-1:770693421928:layer:Klayers-p38-requests:4"],
+    layers=["arn:aws:lambda:eu-central-1:770693421928:layer:Klayers-p38-requests:15"],
 )
 # Give SNS permissions to invoke the Lambda
 lambda_permission = aws.lambda_.Permission(
