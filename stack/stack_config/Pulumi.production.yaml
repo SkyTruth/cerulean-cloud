@@ -5,7 +5,7 @@ config:
     secure: v1:IuQ6n+tMG3oHe0pn:0/PQL0VoNoR2uCA9We2m9acc4nX73a0ViqSiHJhNe9X1srrZI4TvmsQZcuUrtzy4EoKSbQ==
   cerulean-cloud:dryrun_historical: "True"
   cerulean-cloud:dryrun_relevancy: "True"
-  db:db-instance: db-g1-small
+  db:db-instance: db-custom-4-15360
   db:deletion-protection: "True"
   db:db-password:
     secure: v1:PKkW6hR207H6+aLE:QRMTEAQMB5VFmJt4Sbvzx7i4hkqlO4HomLltlRFYrQ==
