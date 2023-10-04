@@ -72,8 +72,12 @@ default = gcp.cloudrun.Service(
                             name="TIPG_TABLE_CONFIG__public_slick_plus__DATETIMECOL",
                             value="slick_timestamp",
                         ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_MAX_FEATURES_PER_QUERY",
+                            value=50000,
+                        ),
                     ],
-                    resources=dict(limits=dict(memory="2Gi", cpu="4000m")),
+                    resources=dict(limits=dict(memory="8Gi", cpu="6000m")),
                 ),
             ],
             timeout_seconds=420,
