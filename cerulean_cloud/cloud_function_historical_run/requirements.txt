@@ -3,3 +3,5 @@ shapely==2.0.1
 google-cloud-tasks
 eodag==2.5.2
 eodag-sentinelsat==0.4.1
+Flask>=1.0,<3.0
+functions-framework==3.0.0
