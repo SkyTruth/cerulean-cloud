@@ -2,7 +2,7 @@ encryptionsalt: v1:F50gicuL4kQ=:v1:YB112UQ2RFpwS0tN:9CsDfYHnWdJI+vG6XDNbMzntP3jR
 config:
   aws:region: eu-central-1
   cerulean-cloud-images:weigths_bucket: ceruleanml
-  cerulean-cloud-images:weigths_name: experiments/2023_09_26_18_30_13_4cls_rnxt101_pr512_px1024_600min_maskrcnn/scripting_cpu_model.pt
+  cerulean-cloud-images:weigths_name: experiments/2023_10_05_02_22_46_4cls_rnxt101_pr512_px1024_680min_maskrcnn_wd01/scripting_cpu_model.pt
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
