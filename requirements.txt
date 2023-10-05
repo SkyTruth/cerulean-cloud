@@ -33,4 +33,3 @@ sqlalchemy==1.4.32
 centerline==1.0.1
 movingpandas==0.15rc1
 scipy==1.8.0
-flask<3.0
