@@ -38,6 +38,44 @@ def upgrade() -> None:
         """
     )
 
+    op.execute(
+        """
+    CREATE OR REPLACE FUNCTION public.get_slicks_by_source(
+        source_id text,
+        rank integer DEFAULT 1)
+        RETURNS SETOF public.slick_plus
+    LANGUAGE 'sql'
+    COST 100
+    IMMUTABLE PARALLEL SAFE
+    ROWS 1000
+    AS $BODY$
+        SELECT DISTINCT sp.*
+        FROM public.slick_plus sp
+        JOIN slick_to_source sts ON sts.slick = sp.id
+        WHERE sts.source = ANY(string_to_array(source_id, ',')::int[])
+        AND (sts.rank <= rank);
+    $BODY$;
+    """
+    )
+
+    op.execute(
+        """
+    CREATE OR REPLACE FUNCTION public.get_slicks_by_aoi(
+        aoi_id text)
+        RETURNS SETOF public.slick_plus
+    LANGUAGE 'sql'
+    COST 100
+    IMMUTABLE PARALLEL SAFE
+    ROWS 1000
+    AS $BODY$
+        SELECT DISTINCT sp.*
+        FROM public.slick_plus sp
+        JOIN slick_to_aoi sta ON sta.slick = sp.id
+        WHERE sta.aoi = ANY(string_to_array(aoi_id, ',')::int[]);
+    $BODY$;
+    """
+    )
+
     # Fiddle: https://dbfiddle.uk/?rdbms=postgres_14&fiddle=a78602f74ea6c2d87a9fa82f1b3a5868
     get_history_slick = PGFunction(
         schema="public",
@@ -66,6 +104,16 @@ def downgrade() -> None:
     op.execute(
         """
         DROP FUNCTION IF EXISTS get_slick_subclses(bigint);
+        """
+    )
+    op.execute(
+        """
+        DROP FUNCTION public.get_slicks_by_source(text, integer);
+        """
+    )
+    op.execute(
+        """
+        DROP FUNCTION public.get_slicks_by_aoi(text, integer);
         """
     )
     get_history_slick = PGFunction(
