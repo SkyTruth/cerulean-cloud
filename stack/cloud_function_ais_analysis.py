@@ -1,10 +1,10 @@
 """cloud function to find slick culprits from AIS tracks"""
-# import os
-# import time
+import os
+import time
 
 import database
 import pulumi
-from pulumi_gcp import cloudtasks, storage
+from pulumi_gcp import cloudtasks, projects, serviceaccount, storage
 
 # from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
 from utils import construct_name
@@ -52,37 +52,37 @@ config_values = {
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_ais_analysis"
-# assets = {}
-# for file in os.listdir(PATH_TO_SOURCE_CODE):
-#     location = os.path.join(PATH_TO_SOURCE_CODE, file)
-#     asset = pulumi.FileAsset(path=location)
-#     assets[file] = asset
+assets = {}
+for file in os.listdir(PATH_TO_SOURCE_CODE):
+    location = os.path.join(PATH_TO_SOURCE_CODE, file)
+    asset = pulumi.FileAsset(path=location)
+    assets[file] = asset
 
-# archive = pulumi.AssetArchive(assets=assets)
+archive = pulumi.AssetArchive(assets=assets)
 
-# # Create the single Cloud Storage object, which contains all of the function's
-# # source code. ("main.py" and "requirements.txt".)
-# source_archive_object = storage.BucketObject(
-#     construct_name("source-cloud-function-ais"),
-#     name="handler.py-%f" % time.time(),
-#     bucket=bucket.name,
-#     source=archive,
-# )
+# Create the single Cloud Storage object, which contains all of the function's
+# source code. ("main.py" and "requirements.txt".)
+source_archive_object = storage.BucketObject(
+    construct_name("source-cloud-function-ais"),
+    name="handler.py-%f" % time.time(),
+    bucket=bucket.name,
+    source=archive,
+)
 
-# # Assign access to cloud SQL
-# cloud_function_service_account = serviceaccount.Account(
-#     construct_name("cloud-function-ais"),
-#     account_id=f"{stack}-cloud-function-ais",
-#     display_name="Service Account for cloud function.",
-# )
-# cloud_function_service_account_iam = projects.IAMMember(
-#     construct_name("cloud-function-ais-iam"),
-#     project=pulumi.Config("gcp").require("project"),
-#     role="projects/cerulean-338116/roles/cloudfunctionaisanalysisrole",
-#     member=cloud_function_service_account.email.apply(
-#         lambda email: f"serviceAccount:{email}"
-#     ),
-# )
+# Assign access to cloud SQL
+cloud_function_service_account = serviceaccount.Account(
+    construct_name("cloud-function-ais"),
+    account_id=f"{stack}-cloud-function-ais",
+    display_name="Service Account for cloud function.",
+)
+cloud_function_service_account_iam = projects.IAMMember(
+    construct_name("cloud-function-ais-iam"),
+    project=pulumi.Config("gcp").require("project"),
+    role="projects/cerulean-338116/roles/cloudfunctionaisanalysisrole",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
 
 # fxn = cloudfunctions.Function(
 #     function_name,
