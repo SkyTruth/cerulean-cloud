@@ -40,22 +40,22 @@ def upgrade() -> None:
 
     op.execute(
         """
-    CREATE OR REPLACE FUNCTION public.get_slicks_by_source(
-        source_id text,
-        rank integer DEFAULT 1)
-        RETURNS SETOF public.slick_plus
-    LANGUAGE 'sql'
-    COST 100
-    IMMUTABLE PARALLEL SAFE
-    ROWS 1000
-    AS $BODY$
-        SELECT DISTINCT sp.*
-        FROM public.slick_plus sp
-        JOIN slick_to_source sts ON sts.slick = sp.id
-        WHERE sts.source = ANY(string_to_array(source_id, ',')::int[])
-        AND (sts.rank <= rank);
-    $BODY$;
-    """
+        CREATE OR REPLACE FUNCTION public.get_slicks_by_source(
+            source_id text,
+            source_rank integer DEFAULT 1)
+            RETURNS SETOF public.slick_plus
+        LANGUAGE 'sql'
+        COST 100
+        IMMUTABLE PARALLEL SAFE
+        ROWS 1000
+        AS $BODY$
+            SELECT DISTINCT sp.*
+            FROM public.slick_plus sp
+            JOIN slick_to_source sts ON sts.slick = sp.id
+            WHERE sts.source = ANY(string_to_array(source_id, ',')::int[])
+            AND (sts.rank <= source_rank);
+        $BODY$;
+        """
     )
 
     op.execute(
