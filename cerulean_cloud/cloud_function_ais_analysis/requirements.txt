@@ -10,3 +10,4 @@ scipy==1.8.0
 shapely==2.0.1
 Flask>=1.0,<3.0
 functions-framework==3.0.0
+geoalchemy2
