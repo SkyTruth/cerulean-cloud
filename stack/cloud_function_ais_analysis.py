@@ -51,10 +51,13 @@ config_values = {
 # archive, which we create using the pulumi.AssetArchive primitive.
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_ais_analysis"
 assets = {}
-for file in os.listdir(PATH_TO_SOURCE_CODE):
-    location = os.path.join(PATH_TO_SOURCE_CODE, file)
-    asset = pulumi.FileAsset(path=location)
-    assets[file] = asset
+for root, dirs, files in os.walk(PATH_TO_SOURCE_CODE):
+    for file in files:
+        if file.endswith(".py") or file == "requirements.txt":
+            absolute_path = os.path.join(root, file)
+            relative_path = os.path.relpath(absolute_path, PATH_TO_SOURCE_CODE)
+            asset = pulumi.FileAsset(path=absolute_path)
+            assets[relative_path] = asset
 
 archive = pulumi.AssetArchive(assets=assets)
 
