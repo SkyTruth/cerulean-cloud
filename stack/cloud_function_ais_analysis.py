@@ -1,13 +1,12 @@
 """cloud function to find slick culprits from AIS tracks"""
-# import os
 import time
 
 import database
 import pulumi
-from pulumi_gcp import cloudtasks, projects, serviceaccount, storage
-
-# from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
+from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
 from utils import construct_name
+
+pulumi.log.info("XXXJONA Starting the ais_analysis.py file")
 
 stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
@@ -15,6 +14,9 @@ bucket = storage.Bucket(
     construct_name("bucket-cloud-function-ais"),
     location="EU",
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
+)
+pulumi.log.info(
+    f"XXXJONA Bucket {bucket.name} created successfully in location {bucket.location}"
 )
 
 # Create the Queue for tasks
@@ -36,7 +38,13 @@ queue = cloudtasks.Queue(
         sampling_ratio=0.9,
     ),
 )
+pulumi.log.info(
+    f"XXXJONA Queue {queue.name} created successfully in location {queue.location}"
+)
 
+pulumi.log.info(
+    f"XXXJONA SQL Instance URL is available as: {database.sql_instance_url}"
+)
 function_name = construct_name("cloud-function-ais")
 config_values = {
     "DB_URL": database.sql_instance_url,
@@ -62,6 +70,9 @@ source_archive_object = storage.BucketObject(
     bucket=bucket.name,
     source=archive,
 )
+pulumi.log.info(
+    f"XXXJONA BucketObject {source_archive_object.name} created successfully in bucket {source_archive_object.bucket}"
+)
 
 # Assign access to cloud SQL
 cloud_function_service_account = serviceaccount.Account(
@@ -69,6 +80,10 @@ cloud_function_service_account = serviceaccount.Account(
     account_id=f"{stack}-cloud-function-ais",
     display_name="Service Account for cloud function.",
 )
+pulumi.log.info(
+    f"XXXJONA Service Account {cloud_function_service_account.account_id} created successfully"
+)
+
 cloud_function_service_account_iam = projects.IAMMember(
     construct_name("cloud-function-ais-iam"),
     project=pulumi.Config("gcp").require("project"),
@@ -77,27 +92,37 @@ cloud_function_service_account_iam = projects.IAMMember(
         lambda email: f"serviceAccount:{email}"
     ),
 )
+pulumi.log.info(
+    f"XXXJONA IAM Member {cloud_function_service_account_iam.member} assigned role {cloud_function_service_account_iam.role}"
+)
 
-# fxn = cloudfunctions.Function(
-#     function_name,
-#     name=function_name,
-#     entry_point="main",
-#     environment_variables=config_values,
-#     region=pulumi.Config("gcp").require("region"),
-#     runtime="python38",
-#     source_archive_bucket=bucket.name,
-#     source_archive_object=source_archive_object.name,
-#     trigger_http=True,
-#     service_account_email=cloud_function_service_account.email,
-# )
 
-# invoker = cloudfunctions.FunctionIamMember(
-#     construct_name("cloud-function-ais-invoker"),
-#     project=fxn.project,
-#     region=fxn.region,
-#     cloud_function=fxn.name,
-#     role="roles/cloudfunctions.invoker",
-#     member="allUsers",
-# )
+fxn = cloudfunctions.Function(
+    function_name,
+    name=function_name,
+    entry_point="main",
+    environment_variables=config_values,
+    region=pulumi.Config("gcp").require("region"),
+    runtime="python38",
+    source_archive_bucket=bucket.name,
+    source_archive_object=source_archive_object.name,
+    trigger_http=True,
+    service_account_email=cloud_function_service_account.email,
+    opts=pulumi.ResourceOptions(depends_on=[source_archive_object]),
+)
+pulumi.log.info(
+    f"XXXJONA Cloud Function {fxn.name} created successfully in region {fxn.region}"
+)
 
-# config_values["FUNCTION_URL"] = fxn.https_trigger_url
+
+invoker = cloudfunctions.FunctionIamMember(
+    construct_name("cloud-function-ais-invoker"),
+    project=fxn.project,
+    region=fxn.region,
+    cloud_function=fxn.name,
+    role="roles/cloudfunctions.invoker",
+    member="allUsers",
+)
+pulumi.log.info(f"XXXJONA Invoker IAM role set up for function {fxn.name}")
+
+config_values["FUNCTION_URL"] = fxn.https_trigger_url
