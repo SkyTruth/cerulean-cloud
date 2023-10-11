@@ -4,10 +4,10 @@
 import asyncio
 import os
 
-from cerulean_cloud.database_client import DatabaseClient, get_engine
+from utils.ais import AISConstructor
+from utils.associate import associate_ais_to_slicks, slicks_to_curves
 
-from .utils.ais import AISConstructor
-from .utils.associate import associate_ais_to_slicks, slicks_to_curves
+from cerulean_cloud.database_client import DatabaseClient, get_engine
 
 
 def main(request):

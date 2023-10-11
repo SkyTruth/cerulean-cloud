@@ -6,6 +6,7 @@ Create Date: 2022-07-08 11:24:31.802462
 
 """
 import json
+from typing import Any, Dict
 
 import geojson
 import httpx
@@ -43,8 +44,8 @@ def upgrade() -> None:
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 
-    eez = get_eez_from_url()  # geojson.load(open("EEZ_and_HighSeas_20230410.json"))
-    for feat in eez.get("features"):
+    # eez = get_eez_from_url()  # geojson.load(open("EEZ_and_HighSeas_20230410.json"))
+    for feat in []:  # type: Dict[str, Any]
         sovereign_keys = [
             k for k in list(feat["properties"].keys()) if k.startswith("SOVEREIGN")
         ]
