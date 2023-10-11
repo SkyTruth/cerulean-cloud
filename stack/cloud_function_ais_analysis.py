@@ -1,10 +1,12 @@
 """cloud function to find slick culprits from AIS tracks"""
-import os
+# import os
 import time
 
 import database
 import pulumi
-from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
+from pulumi_gcp import cloudtasks, projects, serviceaccount, storage
+
+# from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
 from utils import construct_name
 
 stack = pulumi.get_stack()
@@ -50,16 +52,7 @@ config_values = {
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_ais_analysis"
-assets = {}
-for root, dirs, files in os.walk(PATH_TO_SOURCE_CODE):
-    for file in files:
-        if file.endswith(".py") or file == "requirements.txt":
-            absolute_path = os.path.join(root, file)
-            relative_path = os.path.relpath(absolute_path, PATH_TO_SOURCE_CODE)
-            asset = pulumi.FileAsset(path=absolute_path)
-            assets[relative_path] = asset
-
-archive = pulumi.AssetArchive(assets=assets)
+archive = pulumi.FileArchive(PATH_TO_SOURCE_CODE)
 
 # Create the single Cloud Storage object, which contains all of the function's
 # source code. ("main.py" and "requirements.txt".)
@@ -85,26 +78,26 @@ cloud_function_service_account_iam = projects.IAMMember(
     ),
 )
 
-fxn = cloudfunctions.Function(
-    function_name,
-    name=function_name,
-    entry_point="main",
-    environment_variables=config_values,
-    region=pulumi.Config("gcp").require("region"),
-    runtime="python38",
-    source_archive_bucket=bucket.name,
-    source_archive_object=source_archive_object.name,
-    trigger_http=True,
-    service_account_email=cloud_function_service_account.email,
-)
+# fxn = cloudfunctions.Function(
+#     function_name,
+#     name=function_name,
+#     entry_point="main",
+#     environment_variables=config_values,
+#     region=pulumi.Config("gcp").require("region"),
+#     runtime="python38",
+#     source_archive_bucket=bucket.name,
+#     source_archive_object=source_archive_object.name,
+#     trigger_http=True,
+#     service_account_email=cloud_function_service_account.email,
+# )
 
-invoker = cloudfunctions.FunctionIamMember(
-    construct_name("cloud-function-ais-invoker"),
-    project=fxn.project,
-    region=fxn.region,
-    cloud_function=fxn.name,
-    role="roles/cloudfunctions.invoker",
-    member="allUsers",
-)
+# invoker = cloudfunctions.FunctionIamMember(
+#     construct_name("cloud-function-ais-invoker"),
+#     project=fxn.project,
+#     region=fxn.region,
+#     cloud_function=fxn.name,
+#     role="roles/cloudfunctions.invoker",
+#     member="allUsers",
+# )
 
-config_values["FUNCTION_URL"] = fxn.https_trigger_url
+# config_values["FUNCTION_URL"] = fxn.https_trigger_url
