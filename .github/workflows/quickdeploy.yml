@@ -72,7 +72,7 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
-          command: up --debug
+          command: up
           stack-name: test
 
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
