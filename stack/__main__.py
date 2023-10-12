@@ -27,6 +27,6 @@ pulumi.export(
     "scene_relevancy_url", cloud_function_scene_relevancy.fxn.https_trigger_url
 )
 pulumi.export("historical_run_url", cloud_function_historical_run.fxn.https_trigger_url)
-# pulumi.export("ais_analysis_url", cloud_function_ais_analysis.fxn.https_trigger_url)
+pulumi.export("ais_analysis_url", cloud_function_ais_analysis.fxn.https_trigger_url)
 pulumi.export("sns_topic_subscription", sns_subscription.sentinel1_sqs_target.arn)
 pulumi.export("api_key", pulumi.Config("cerulean-cloud").require("apikey"))
