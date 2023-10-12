@@ -3,7 +3,13 @@ import time
 
 import database
 import pulumi
-from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
+from pulumi_gcp import (  # noqa
+    cloudfunctions,
+    cloudtasks,
+    projects,
+    serviceaccount,
+    storage,
+)
 from utils import construct_name
 
 stack = pulumi.get_stack()
@@ -76,27 +82,26 @@ cloud_function_service_account_iam = projects.IAMMember(
     ),
 )
 
-fxn = cloudfunctions.Function(
-    function_name,
-    name=function_name,
-    entry_point="main",
-    environment_variables=config_values,
-    region=pulumi.Config("gcp").require("region"),
-    runtime="python38",
-    source_archive_bucket=bucket.name,
-    source_archive_object=source_archive_object.name,
-    trigger_http=True,
-    service_account_email=cloud_function_service_account.email,
-    opts=pulumi.ResourceOptions(depends_on=[source_archive_object]),
-)
+# fxn = cloudfunctions.Function(
+#     function_name,
+#     name=function_name,
+#     entry_point="main",
+#     environment_variables=config_values,
+#     region=pulumi.Config("gcp").require("region"),
+#     runtime="python38",
+#     source_archive_bucket=bucket.name,
+#     source_archive_object=source_archive_object.name,
+#     trigger_http=True,
+#     service_account_email=cloud_function_service_account.email,
+# )
 
-invoker = cloudfunctions.FunctionIamMember(
-    construct_name("cloud-function-ais-invoker"),
-    project=fxn.project,
-    region=fxn.region,
-    cloud_function=fxn.name,
-    role="roles/cloudfunctions.invoker",
-    member="allUsers",
-)
+# invoker = cloudfunctions.FunctionIamMember(
+#     construct_name("cloud-function-ais-invoker"),
+#     project=fxn.project,
+#     region=fxn.region,
+#     cloud_function=fxn.name,
+#     role="roles/cloudfunctions.invoker",
+#     member="allUsers",
+# )
 
-config_values["FUNCTION_URL"] = fxn.https_trigger_url
+# config_values["FUNCTION_URL"] = fxn.https_trigger_url
