@@ -1,14 +1,13 @@
 """A Python Pulumi program"""
 
-# import cloud_function_ais_analysis  # noqa
+import cloud_function_ais_analysis  # noqa
 
 # import cloud_function_historical_run
 # import cloud_function_scene_relevancy
 # import cloud_run_offset_tile
 # import cloud_run_orchestrator
 # import cloud_run_tipg
-import database  # noqa
-
+# import database
 # import pulumi
 # import sns_subscription
 # import titiler_sentinel as titiler_sentinel
