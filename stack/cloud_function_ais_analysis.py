@@ -95,13 +95,11 @@ fxn = cloudfunctions.Function(
     service_account_email=cloud_function_service_account.email,
 )
 
-# invoker = cloudfunctions.FunctionIamMember(
-#     construct_name("cloud-function-ais-invoker"),
-#     project=fxn.project,
-#     region=fxn.region,
-#     cloud_function=fxn.name,
-#     role="roles/cloudfunctions.invoker",
-#     member="allUsers",
-# )
-
-config_values["FUNCTION_URL"] = fxn.https_trigger_url
+invoker = cloudfunctions.FunctionIamMember(
+    construct_name("cloud-function-ais-invoker"),
+    project=fxn.project,
+    region=fxn.region,
+    cloud_function=fxn.name,
+    role="roles/cloudfunctions.invoker",
+    member="allUsers",
+)
