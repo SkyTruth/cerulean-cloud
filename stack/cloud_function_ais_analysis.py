@@ -82,18 +82,18 @@ cloud_function_service_account_iam = projects.IAMMember(
     ),
 )
 
-# fxn = cloudfunctions.Function(
-#     function_name,
-#     name=function_name,
-#     entry_point="main",
-#     environment_variables=config_values,
-#     region=pulumi.Config("gcp").require("region"),
-#     runtime="python38",
-#     source_archive_bucket=bucket.name,
-#     source_archive_object=source_archive_object.name,
-#     trigger_http=True,
-#     service_account_email=cloud_function_service_account.email,
-# )
+fxn = cloudfunctions.Function(
+    function_name,
+    name=function_name,
+    entry_point="main",
+    environment_variables=config_values,
+    region=pulumi.Config("gcp").require("region"),
+    runtime="python38",
+    source_archive_bucket=bucket.name,
+    source_archive_object=source_archive_object.name,
+    trigger_http=True,
+    service_account_email=cloud_function_service_account.email,
+)
 
 # invoker = cloudfunctions.FunctionIamMember(
 #     construct_name("cloud-function-ais-invoker"),
