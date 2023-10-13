@@ -6,7 +6,6 @@ Create Date: 2023-07-15 01:52:45.298587
 
 """
 import json
-from typing import Any, Dict
 
 import geojson
 import httpx
@@ -36,8 +35,9 @@ def upgrade() -> None:
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 
-    # mpa = get_mpa_from_url()
-    for feat in []:  # type: Dict[str, Any]
+    mpa = get_mpa_from_url()
+
+    for feat in mpa.get("features"):
         with session.begin():
             aoi_mpa = database_schema.AoiMpa(
                 type=3,

@@ -6,7 +6,6 @@ Create Date: 2023-07-15 00:26:04.493750
 
 """
 import json
-from typing import Any, Dict
 
 import geojson
 import httpx
@@ -36,8 +35,8 @@ def upgrade() -> None:
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 
-    # iho = get_iho_from_url()
-    for feat in []:  # type: Dict[str, Any]
+    iho = get_iho_from_url()
+    for feat in iho.get("features"):
         with session.begin():
             aoi_iho = database_schema.AoiIho(
                 type=2,
