@@ -38,6 +38,114 @@ def upgrade() -> None:
         """
     )
 
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION public.get_slicks_by_source(
+            source_id text,
+            source_rank integer DEFAULT 1,
+            OUT id integer,
+            OUT geometry geography,
+            OUT slick_timestamp timestamp without time zone,
+            OUT cls integer,
+            OUT active boolean,
+            OUT orchestrator_run integer,
+            OUT hitl_cls integer,
+            OUT machine_confidence double precision,
+            OUT area double precision,
+            OUT perimeter double precision,
+            OUT length double precision,
+            OUT polsby_popper double precision,
+            OUT fill_factor double precision,
+            OUT s1_scene_id character varying,
+            OUT cls_id integer,
+            OUT cls_long_name text,
+            OUT cls_short_name text,
+            OUT inference_idx integer)
+            RETURNS SETOF record
+        LANGUAGE 'sql'
+        COST 100
+        IMMUTABLE PARALLEL SAFE
+        ROWS 1000
+        AS $BODY$
+            select distinct sp.id id,
+                    sp.geometry geom,
+                    sp.slick_timestamp,
+                    sp.cls,
+                    sp.active,
+                    sp.orchestrator_run,
+                    sp.hitl_cls hitl_cls,
+                    sp.machine_confidence,
+                    sp.area area,
+                    sp.perimeter,
+                    sp.length,
+                    sp.polsby_popper,
+                    sp.fill_factor,
+                    sp.s1_scene_id,
+                    sp.cls_id,
+                    sp.cls_short_name,
+                    sp.cls_long_name,
+                    sp.inference_idx
+            FROM public.slick_plus sp
+            JOIN slick_to_source sts ON sts.slick = sp.id
+            WHERE sts.source = ANY(string_to_array(source_id, ',')::int[])
+            AND (sts.rank <= source_rank);
+        $BODY$;
+        """
+    )
+
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION public.get_slicks_by_aoi(
+            aoi_id text,
+            OUT id integer,
+            OUT geometry geography,
+            OUT slick_timestamp timestamp without time zone,
+            OUT cls integer,
+            OUT active boolean,
+            OUT orchestrator_run integer,
+            OUT hitl_cls integer,
+            OUT machine_confidence double precision,
+            OUT area double precision,
+            OUT perimeter double precision,
+            OUT length double precision,
+            OUT polsby_popper double precision,
+            OUT fill_factor double precision,
+            OUT s1_scene_id character varying,
+            OUT cls_id integer,
+            OUT cls_long_name text,
+            OUT cls_short_name text,
+            OUT inference_idx integer)
+            RETURNS SETOF record
+        LANGUAGE 'sql'
+        COST 100
+        IMMUTABLE PARALLEL SAFE
+        ROWS 1000
+        AS $BODY$
+            select distinct sp.id id,
+                    sp.geometry geom,
+                    sp.slick_timestamp,
+                    sp.cls,
+                    sp.active,
+                    sp.orchestrator_run,
+                    sp.hitl_cls hitl_cls,
+                    sp.machine_confidence,
+                    sp.area area,
+                    sp.perimeter,
+                    sp.length,
+                    sp.polsby_popper,
+                    sp.fill_factor,
+                    sp.s1_scene_id,
+                    sp.cls_id,
+                    sp.cls_short_name,
+                    sp.cls_long_name,
+                    sp.inference_idx
+            FROM public.slick_plus sp
+            JOIN slick_to_aoi sta ON sta.slick = sp.id
+            WHERE sta.aoi = ANY(string_to_array(aoi_id, ',')::int[]);
+        $BODY$;
+        """
+    )
+
     # Fiddle: https://dbfiddle.uk/?rdbms=postgres_14&fiddle=a78602f74ea6c2d87a9fa82f1b3a5868
     get_history_slick = PGFunction(
         schema="public",
@@ -66,6 +174,16 @@ def downgrade() -> None:
     op.execute(
         """
         DROP FUNCTION IF EXISTS get_slick_subclses(bigint);
+        """
+    )
+    op.execute(
+        """
+        DROP FUNCTION public.get_slicks_by_source(text, integer);
+        """
+    )
+    op.execute(
+        """
+        DROP FUNCTION public.get_slicks_by_aoi(text, integer);
         """
     )
     get_history_slick = PGFunction(
