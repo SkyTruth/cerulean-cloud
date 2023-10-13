@@ -3,13 +3,7 @@ import time
 
 import database
 import pulumi
-from pulumi_gcp import (  # noqa
-    cloudfunctions,
-    cloudtasks,
-    projects,
-    serviceaccount,
-    storage,
-)
+from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
 from utils import construct_name
 
 stack = pulumi.get_stack()

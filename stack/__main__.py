@@ -1,6 +1,6 @@
 """A Python Pulumi program"""
 
-import cloud_function_ais_analysis  # noqa
+import cloud_function_ais_analysis
 import cloud_function_historical_run
 import cloud_function_scene_relevancy
 import cloud_run_offset_tile
