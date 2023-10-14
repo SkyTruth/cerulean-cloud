@@ -5,7 +5,7 @@ from typing import Optional
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, box, shape
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
@@ -182,15 +182,22 @@ class DatabaseClient:
             - It joins multiple tables: `db.Slick`, `db.SlickToSource`, `db.OrchestratorRun`, and `db.Sentinel1Grd`.
             - The query uses an outer join to filter out slicks that have associated sources.
         """
-        return (
-            self.session.query(db.Slick)
+
+        query = (
+            select(db.Slick)
             .outerjoin(db.SlickToSource, db.Slick.id == db.SlickToSource.slick)
-            .filter(db.SlickToSource.slick is None)
             .join(db.OrchestratorRun)
             .join(db.Sentinel1Grd)
-            .filter(db.Sentinel1Grd.id == scene_id, db.Slick.active == active)
-            .all()
+            .where(
+                and_(
+                    db.SlickToSource.slick is None,
+                    db.Sentinel1Grd.scene_id == scene_id,
+                    db.Slick.active == active,
+                )
+            )
         )
+        result = await self.session.execute(query)
+        return result.scalars().all()
 
     async def get_scene_from_id(self, scene_id):
         """
