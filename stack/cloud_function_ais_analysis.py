@@ -36,7 +36,7 @@ queue = cloudtasks.Queue(
 
 function_name = construct_name("cloud-function-ais")
 config_values = {
-    "DB_URL": database.sql_instance_url,
+    "DB_URL": database.sql_instance_url_with_asyncpg,
     "GCP_PROJECT": pulumi.Config("gcp").require("project"),
     "GCP_LOCATION": pulumi.Config("gcp").require("region"),
     "QUEUE": queue.name,
