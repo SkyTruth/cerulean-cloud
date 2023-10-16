@@ -25,7 +25,7 @@ from .constants import (
 )
 
 credentials = Credentials.from_service_account_info(
-    json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
+    json.loads(os.environ.get("AIS_CREDENTIALS"))
 )
 
 
