@@ -4,6 +4,9 @@ config:
   cerulean-cloud:dryrun_historical: "" # Make empty "" to turn on historical runs
   cerulean-cloud:dryrun_relevancy: "" # Make empty "" to turn on recurring runs
   cerulean-cloud:dryrun_ais: "" # Make empty "" to turn on AIS analysis
+  ais:project: world-fishing-827
+  ais:service-account: skytruth-cerulean@world-fishing-827.iam.gserviceaccount.com
+  ais:credentials: world-fishing-827-service-account-json
   cerulean-cloud:apikey:
     secure: v1:GEqP+nWvrQb16t/f:uhLbrS+C7yFjQunkOnBOw9eZXt8JUS5dsiDTSH5hytK5vJ3zO8DJO5bOjQNBOKn/T5AWGA==
   db:db-instance: db-custom-4-15360

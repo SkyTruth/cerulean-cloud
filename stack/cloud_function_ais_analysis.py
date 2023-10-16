@@ -3,14 +3,7 @@ import time
 
 import database
 import pulumi
-from pulumi_gcp import (
-    cloudfunctions,
-    cloudtasks,
-    projects,
-    secretmanager,
-    serviceaccount,
-    storage,
-)
+from pulumi_gcp import cloudfunctions, cloudtasks, secretmanager, storage
 from utils import construct_name
 
 stack = pulumi.get_stack()
@@ -42,7 +35,7 @@ queue = cloudtasks.Queue(
 )
 
 service_account_secret = secretmanager.get_secret_version(
-    secret="world-fishing-827-service-account-json"
+    secret=pulumi.Config("ais").require("credentials")
 )
 
 function_name = construct_name("cloud-function-ais")
@@ -54,8 +47,8 @@ config_values = {
     "FUNCTION_NAME": function_name,
     "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
     "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_ais"),
-    "BQ_PROJECT_ID": "world-fishing-827",
-    "GOOGLE_APPLICATION_CREDENTIALS": service_account_secret.secret_data,
+    "BQ_PROJECT_ID": pulumi.Config("ais").require("project"),
+    "AIS_CREDENTIALS": service_account_secret.secret_data,
 }
 
 # The Cloud Function source code itself needs to be zipped up into an
@@ -72,22 +65,6 @@ source_archive_object = storage.BucketObject(
     source=archive,
 )
 
-# Assign access to cloud SQL
-cloud_function_service_account = serviceaccount.Account(
-    construct_name("cloud-function-ais"),
-    account_id=f"{stack}-cloud-function-ais",
-    display_name="Service Account for cloud function.",
-)
-
-cloud_function_service_account_iam = projects.IAMMember(
-    construct_name("cloud-function-ais-iam"),
-    project=pulumi.Config("gcp").require("project"),
-    role="projects/cerulean-338116/roles/cloudfunctionaisanalysisrole",
-    member=cloud_function_service_account.email.apply(
-        lambda email: f"serviceAccount:{email}"
-    ),
-)
-
 fxn = cloudfunctions.Function(
     function_name,
     name=function_name,
@@ -98,7 +75,8 @@ fxn = cloudfunctions.Function(
     source_archive_bucket=bucket.name,
     source_archive_object=source_archive_object.name,
     trigger_http=True,
-    service_account_email=cloud_function_service_account.email,
+    service_account_email=pulumi.Config("ais").require("service-account"),
+    available_memory_mb=512,
 )
 
 invoker = cloudfunctions.FunctionIamMember(

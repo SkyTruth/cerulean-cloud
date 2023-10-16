@@ -190,7 +190,7 @@ class DatabaseClient:
             .join(db.Sentinel1Grd)
             .where(
                 and_(
-                    db.SlickToSource.slick is None,
+                    db.SlickToSource.slick == None,  # noqa
                     db.Sentinel1Grd.scene_id == scene_id,
                     db.Slick.active == active,
                 )
