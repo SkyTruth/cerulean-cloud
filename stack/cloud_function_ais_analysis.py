@@ -3,7 +3,14 @@ import time
 
 import database
 import pulumi
-from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
+from pulumi_gcp import (
+    cloudfunctions,
+    cloudtasks,
+    projects,
+    secretmanager,
+    serviceaccount,
+    storage,
+)
 from utils import construct_name
 
 stack = pulumi.get_stack()
@@ -34,6 +41,10 @@ queue = cloudtasks.Queue(
     ),
 )
 
+service_account_secret = secretmanager.get_secret_version(
+    secret="world-fishing-827-service-account-json", secret_version="latest"
+)
+
 function_name = construct_name("cloud-function-ais")
 config_values = {
     "DB_URL": database.sql_instance_url_with_asyncpg,
@@ -44,6 +55,7 @@ config_values = {
     "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
     "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_ais"),
     "BQ_PROJECT_ID": "world-fishing-827",
+    "GOOGLE_APPLICATION_CREDENTIALS": service_account_secret.secret_data,
 }
 
 # The Cloud Function source code itself needs to be zipped up into an

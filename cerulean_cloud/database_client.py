@@ -213,4 +213,4 @@ class DatabaseClient:
             - The function delegates the actual database fetch operation to a generic `get()` function.
             - It looks for a scene in the `db.Sentinel1Grd` table.
         """
-        return get(self.session, db.Sentinel1Grd, False, scene_id=scene_id)
+        return await get(self.session, db.Sentinel1Grd, False, scene_id=scene_id)
