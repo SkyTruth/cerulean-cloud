@@ -1,6 +1,7 @@
 """
 Utilities and helper functions for the AIS class
 """
+import json
 import os
 from datetime import datetime, timedelta
 
@@ -9,6 +10,8 @@ import movingpandas as mpd
 import pandas as pd
 import pandas_gbq
 import shapely
+from geoalchemy2.shape import to_shape
+from google.oauth2.service_account import Credentials
 
 from .constants import (
     AIS_BUFFER,
@@ -19,6 +22,10 @@ from .constants import (
     NUM_TIMESTEPS,
     T_FORMAT,
     WEIGHT_VEC,
+)
+
+credentials = Credentials.from_service_account_info(
+    json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
 )
 
 
@@ -76,7 +83,7 @@ class AISConstructor:
         self.weight_vec = weight_vec
 
         # Calculated values
-        self.poly = self.s1.geometry.buffer(self.ais_buffer)
+        self.poly = to_shape(self.s1.geometry).buffer(self.ais_buffer)
         self.start_time = self.s1.start_time - timedelta(hours=self.hours_before)
         self.end_time = self.s1.start_time + timedelta(hours=self.hours_after)
         self.time_vec = pd.date_range(
@@ -116,9 +123,11 @@ class AISConstructor:
             WHERE
                 seg._PARTITIONTIME between '{datetime.strftime(self.start_time, D_FORMAT)}' AND '{datetime.strftime(self.end_time, D_FORMAT)}'
                 AND seg.timestamp between '{datetime.strftime(self.start_time, T_FORMAT)}' AND '{datetime.strftime(self.end_time, T_FORMAT)}'
-                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.poly}'))
+                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.poly.wkt}'))
             """
-        self.ais_df = pandas_gbq.read_gbq(sql, project_id=os.getenv("BQ_PROJECT_ID"))
+        self.ais_df = pandas_gbq.read_gbq(
+            sql, project_id=os.getenv("BQ_PROJECT_ID"), credentials=credentials
+        )
 
     def build_trajectories(self):
         """

@@ -56,9 +56,7 @@ def add_to_aaa_queue(scene_id):
     # Each entry is another retry
     ais_delays = [0, 3, 7]  # TODO Magic number >>> Where should this live?
     for delay in ais_delays:
-        d = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(
-            days=delay
-        )
+        d = datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(days=delay)
 
         # Create Timestamp protobuf.
         timestamp = timestamp_pb2.Timestamp()
