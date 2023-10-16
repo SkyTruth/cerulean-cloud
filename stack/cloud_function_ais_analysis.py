@@ -42,7 +42,7 @@ queue = cloudtasks.Queue(
 )
 
 service_account_secret = secretmanager.get_secret_version(
-    secret="world-fishing-827-service-account-json", secret_version="latest"
+    secret="world-fishing-827-service-account-json"
 )
 
 function_name = construct_name("cloud-function-ais")
