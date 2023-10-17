@@ -78,7 +78,11 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TIPG_DB_EXCLUDE_TABLES",
-                            value=["public.aoi_user", "public.magic_link"],
+                            value='["public.aoi_user", "public.filter", "public.frequency", "public.magic_link", "public.subscription", "public.user", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel"]',
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_EXCLUDE_FUNCTIONS",
+                            value='["public.get_slicks_by_source", "public.get_slicks_by_aoi_or_source"]',
                         ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="6000m")),
