@@ -76,6 +76,10 @@ default = gcp.cloudrun.Service(
                             name="TIPG_MAX_FEATURES_PER_QUERY",
                             value=50000,
                         ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_EXCLUDE_TABLES",
+                            value=["public.aoi_user", "public.magic_link"],
+                        ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="6000m")),
                 ),
