@@ -3,14 +3,7 @@ import time
 
 import database
 import pulumi
-from pulumi_gcp import (
-    cloudfunctions,
-    cloudtasks,
-    projects,
-    secretmanager,
-    serviceaccount,
-    storage,
-)
+from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
 from utils import construct_name
 
 stack = pulumi.get_stack()
@@ -41,10 +34,6 @@ queue = cloudtasks.Queue(
     ),
 )
 
-service_account_secret = secretmanager.get_secret_version(
-    secret=pulumi.Config("ais").require("credentials")
-)
-
 function_name = construct_name("cloud-function-ais")
 config_values = {
     "DB_URL": database.sql_instance_url_with_asyncpg,
@@ -54,8 +43,6 @@ config_values = {
     "FUNCTION_NAME": function_name,
     "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
     "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_ais"),
-    "BQ_PROJECT_ID": pulumi.Config("ais").require("project"),
-    "GOOGLE_APPLICATION_CREDENTIALS": service_account_secret.secret_data,
 }
 
 # The Cloud Function source code itself needs to be zipped up into an
@@ -88,6 +75,12 @@ cloud_function_service_account_iam = projects.IAMMember(
     ),
 )
 
+gfw_credentials = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
+    key="GFW_CREDENTIALS",
+    secret=pulumi.Config("ais").require("credentials"),
+    version="latest",
+)
+
 fxn = cloudfunctions.Function(
     function_name,
     name=function_name,
@@ -100,6 +93,7 @@ fxn = cloudfunctions.Function(
     trigger_http=True,
     service_account_email=cloud_function_service_account.email,
     available_memory_mb=512,
+    secret_environment_variables=[gfw_credentials],
 )
 
 invoker = cloudfunctions.FunctionIamMember(

@@ -25,7 +25,7 @@ from .constants import (
 )
 
 credentials = Credentials.from_service_account_info(
-    json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
+    json.loads(os.environ.get("GFW_CREDENTIALS"))
 )
 
 
@@ -126,7 +126,7 @@ class AISConstructor:
                 AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.poly.wkt}'))
             """
         self.ais_df = pandas_gbq.read_gbq(
-            sql, project_id=os.getenv("BQ_PROJECT_ID"), credentials=credentials
+            sql, project_id="world-fishing-827", credentials=credentials
         )
 
     def build_trajectories(self):
