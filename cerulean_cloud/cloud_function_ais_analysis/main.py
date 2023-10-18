@@ -60,7 +60,7 @@ async def handle_aaa_request(request):
                 if len(slicks_without_sources) > 0:
                     ais_constructor = AISConstructor(s1)
                     ais_constructor.retrieve_ais()
-                    if ais_constructor.ais_df:
+                    if not ais_constructor.ais_df.empty:
                         ais_constructor.build_trajectories()
                         ais_constructor.buffer_trajectories()
                         for slick in slicks_without_sources:
