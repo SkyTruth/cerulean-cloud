@@ -49,7 +49,7 @@ def extract_table_from_request(request: Request) -> Optional[str]:
         Given a request object with URL 'http://localhost:8000/collections/my_table/items',
         this function will return 'my_table'.
     """
-    path_parts = request.url.split("/")
+    path_parts = request.url.path.split("/")
 
     # Check if the request is related to collections
     if "collections" in path_parts:
@@ -101,7 +101,7 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         )
         if table in excluded_collections:
             api_key = request.headers.get("X-API-Key")
-            if not api_key == "XXX_SECRET_API_KEY":
+            if api_key != "XXX_SECRET_API_KEY":
                 raise HTTPException(
                     status_code=403, detail="Access to table restricted"
                 )
