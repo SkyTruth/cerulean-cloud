@@ -25,65 +25,6 @@ default = gcp.cloudrun.Service(
                             name="DATABASE_URL",
                             value=sql_instance_url,
                         ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIPG_NAME", value="Cerulean OGC API"
-                        ),
-                        *[
-                            gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                                name=f"TIPG_TABLE_CONFIG__public_{geom_table}__GEOMCOL",
-                                value="geometry",
-                            )
-                            for geom_table in [
-                                "sentinel1_grd",
-                                "orchestrator_run",
-                                "slick",
-                                "aoi",
-                                "slick_plus",
-                                "source_infra",
-                                "slick_to_source",
-                            ]
-                        ],
-                        *[
-                            gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                                name=f"TIPG_TABLE_CONFIG__public_{datetime_table}__DATETIMECOL",
-                                value="update_time",
-                            )
-                            for datetime_table in [
-                                "layer",
-                                "model",
-                                "subscription",
-                                "magic_link",
-                                "aoi_type",
-                            ]
-                        ],
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIPG_TABLE_CONFIG__public_sentinel1_grd__DATETIMECOL",
-                            value="start_time",
-                        ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIPG_TABLE_CONFIG__public_orchestrator_run__DATETIMECOL",
-                            value="inference_start_time",
-                        ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIPG_TABLE_CONFIG__public_slick__DATETIMECOL",
-                            value="slick_timestamp",
-                        ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIPG_TABLE_CONFIG__public_slick_plus__DATETIMECOL",
-                            value="slick_timestamp",
-                        ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIPG_MAX_FEATURES_PER_QUERY",
-                            value=50000,
-                        ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIPG_DB_EXCLUDE_TABLES",
-                            value='["public.aoi_user", "public.filter", "public.frequency", "public.magic_link", "public.subscription", "public.user", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel"]',
-                        ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIPG_DB_EXCLUDE_FUNCTIONS",
-                            value='["public.get_slicks_by_source", "public.get_slicks_by_aoi_or_source"]',
-                        ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="6000m")),
                 ),
