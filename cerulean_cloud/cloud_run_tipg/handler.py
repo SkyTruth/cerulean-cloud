@@ -9,6 +9,7 @@ Make sure to set in your environment:
 - DATABASE_URL
 
 """
+import json
 import logging
 import os
 from typing import Any, List, Optional
@@ -64,11 +65,16 @@ def extract_table_from_request(request: Request) -> Optional[str]:
 
 
 def get_env_list(env_var: str, default: List[str] = None) -> List[str]:
-    """Get a list from an environment variable. Assumes values are comma-separated."""
+    """
+    Turn a list of strings in the .env into a list of strings in the code
+    """
     raw_value = os.environ.get(env_var)
     if raw_value is None:
         return default if default is not None else []
-    return raw_value.split(",")
+    try:
+        return json.loads(raw_value)
+    except json.JSONDecodeError:
+        return raw_value.split(",")
 
 
 class AccessControlMiddleware(BaseHTTPMiddleware):
