@@ -17,7 +17,8 @@ from typing import Any, List, Optional
 import asyncpg
 import jinja2
 import pydantic
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from mangum import Mangum
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
@@ -101,26 +102,21 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         Returns:
             Response: The outgoing FastAPI response object.
         """
-
-        print(
-            "XXX os.environ.get(SECRET_API_KEY)",
-            os.environ.get("SECRET_API_KEY", "NO SECRET KEY FOUND!!!"),
-        )
-        print("XXX request", request)
-        print("XXX request.headers.get('X-API-Key')", request.headers.get("X-API-Key"))
         table = extract_table_from_request(request)
-        print("XXX table", table)
-        excluded_collections = get_env_list("TIPG_DB_EXCLUDE_TABLES") + get_env_list(
-            "TIPG_DB_EXCLUDE_FUNCTIONS"
-        )
-        print("XXX excluded_collections", excluded_collections)
+        excluded_collections = get_env_list("RESTRICTED_COLLECTIONS")
         if table in excluded_collections:
-            print("XXX table in excluded_collections", table)
+            print(f"XXX {table} is in excluded_collections")
             api_key = request.headers.get("X-API-Key")
-            if api_key != os.environ.get("SECRET_API_KEY", "XXX_SECRET_API_KEY"):
-                raise HTTPException(
-                    status_code=403, detail="Access to table restricted"
+            if api_key != os.environ.get("SECRET_API_KEY"):
+                print(f"XXX {api_key} is invalid")
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "message": f"Access to {table} is restricted.",
+                        "request_key": api_key,
+                    },
                 )
+            print(f"XXX {api_key} is VALID")
         response = await call_next(request)
         return response
 

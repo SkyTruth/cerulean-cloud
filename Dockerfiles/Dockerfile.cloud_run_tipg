@@ -9,9 +9,6 @@ ENV APP_HOME /app
 WORKDIR $APP_HOME
 COPY cerulean_cloud/ /app/cerulean_cloud/
 
-# Copy .env file
-COPY cerulean_cloud/cloud_run_tipg/.env.tipg /app/.env
-
 # Install production dependencies.
 RUN pip install -r cerulean_cloud/cloud_run_tipg/requirements.txt
 
