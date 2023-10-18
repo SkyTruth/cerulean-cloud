@@ -95,13 +95,23 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         Returns:
             Response: The outgoing FastAPI response object.
         """
+
+        print(
+            "XXX os.environ.get(SECRET_API_KEY)",
+            os.environ.get("SECRET_API_KEY", "NO SECRET KEY FOUND!!!"),
+        )
+        print("XXX request", request)
+        print("XXX request.headers.get('X-API-Key')", request.headers.get("X-API-Key"))
         table = extract_table_from_request(request)
+        print("XXX table", table)
         excluded_collections = get_env_list("TIPG_DB_EXCLUDE_TABLES") + get_env_list(
             "TIPG_DB_EXCLUDE_FUNCTIONS"
         )
+        print("XXX excluded_collections", excluded_collections)
         if table in excluded_collections:
+            print("XXX table in excluded_collections", table)
             api_key = request.headers.get("X-API-Key")
-            if api_key != "XXX_SECRET_API_KEY":
+            if api_key != os.environ.get("SECRET_API_KEY", "XXX_SECRET_API_KEY"):
                 raise HTTPException(
                     status_code=403, detail="Access to table restricted"
                 )
