@@ -78,7 +78,7 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="RESTRICTED_COLLECTIONS",
-                            value='["public.aoi_user","public.filter", "public.frequency", "public.magic_link", "public.subscription", "public.user", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel", "public.get_slicks_by_source", "public.get_slicks_by_aoi_or_source"]',
+                            value='["public.aoi_user","public.filter", "public.frequency", "public.magic_link", "public.subscription", "public.user", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel"]',
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SECRET_API_KEY",
