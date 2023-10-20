@@ -25,7 +25,7 @@ async def test_create_fixture_tile(
     tile = TMS.tile(-74.47852171444801, 36.09607988649725, 9)
     print(tile)
     array = await titiler_client.get_base_tile(
-        S1_ID, tile=tile, scale=2, rescale=(17.0, 608.0)
+        S1_ID, tile=tile, scale=2, rescale=(0, 255)
     )
     print(array)
     with rasterio.open(
