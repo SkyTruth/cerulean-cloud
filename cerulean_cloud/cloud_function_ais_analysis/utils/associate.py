@@ -21,7 +21,7 @@ from .scoring import (
 )
 
 
-def associate_ais_to_slicks(
+def associate_ais_to_slick(
     ais: mpd.TrajectoryCollection,
     buffered: gpd.GeoDataFrame,
     weighted: List[gpd.GeoDataFrame],
@@ -117,8 +117,8 @@ def associate_ais_to_slicks(
     return associations
 
 
-def slicks_to_curves(
-    slicks: gpd.GeoDataFrame,
+def slick_to_curves(
+    slick_gdf: gpd.GeoDataFrame,
     buf_size: int = 2000,
     interp_dist: int = 200,
     smoothing_factor: float = 1e9,
@@ -128,7 +128,7 @@ def slicks_to_curves(
     This process transforms a set of slick detections into LineStrings for each detection
 
     Inputs:
-        slicks: GeoDataFrame of slick detections
+        slick: GeoDataFrame of slick detections
         buf_size: buffer size for cleaning up slick detections
         interp_dist: interpolation distance for centerline
         smoothing_factor: smoothing factor for smoothing centerline
@@ -137,21 +137,23 @@ def slicks_to_curves(
     """
     # clean up the slick detections by dilation followed by erosion
     # this process can merge some polygons but not others, depending on proximity
-    slicks_clean = slicks.copy()
-    slicks_clean.geometry = slicks_clean.geometry.buffer(buf_size).buffer(-buf_size)
+    slick_clean = slick_gdf.copy()
+    slick_clean.geometry = slick_clean.geometry.buffer(buf_size).buffer(-buf_size)
 
     # split slicks into individual polygons
-    slicks_clean = slicks_clean.explode(ignore_index=True, index_parts=False)
+    slick_clean = slick_clean.explode(ignore_index=True, index_parts=False)
 
     # find a centerline through detections
     slick_curves = list()
-    for idx, row in slicks_clean.iterrows():
+    for idx, row in slick_clean.iterrows():
         # create centerline -> MultiLineString
         try:
             cl = centerline.geometry.Centerline(
                 row.geometry, interpolation_distance=interp_dist
             )
-        except:  # noqa # unclear what exception was originally thrown here.
+        except (
+            Exception
+        ) as e:  # noqa # unclear what exception was originally thrown here.
             # sometimes the voronoi polygonization fails
             # in this case, just fit a a simple line from the start to the end
             exterior_coords = row.geometry.exterior.coords
@@ -159,6 +161,9 @@ def slicks_to_curves(
             end_point = exterior_coords[-1]
             curve = shapely.geometry.LineString([start_point, end_point])
             slick_curves.append(curve)
+            print(
+                f"XXX ~WARNING~ Blanket try/except caught error but continued on anyway: {e}"
+            )
             continue
 
         # grab coordinates from centerline
@@ -229,5 +234,5 @@ def slicks_to_curves(
         curve = shapely.geometry.LineString(zip(x_new, y_new))
         slick_curves.append(curve)
 
-    slick_curves = gpd.GeoDataFrame(geometry=slick_curves, crs=slicks_clean.crs)
-    return slicks_clean, slick_curves
+    slick_curves = gpd.GeoDataFrame(geometry=slick_curves, crs=slick_clean.crs)
+    return slick_clean, slick_curves
