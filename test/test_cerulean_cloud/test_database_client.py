@@ -70,7 +70,7 @@ async def test_create_s1l(setup_database, engine):
             sentinel1_grd = await db_client.get_sentinel1_grd(
                 info["id"],
                 info,
-                titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
+                titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
             )
     assert sentinel1_grd.scene_id == info["id"]
 
@@ -113,7 +113,7 @@ async def test_create_slick(setup_database, engine):
             sentinel1_grd = await db_client.get_sentinel1_grd(
                 info["id"],
                 info,
-                titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
+                titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
             )
             trigger = await db_client.get_trigger(1)
             model = await db_client.get_model("model_path")
@@ -166,7 +166,7 @@ async def test_update_orchestrator(setup_database, engine):
             sentinel1_grd = await db_client.get_sentinel1_grd(
                 info["id"],
                 info,
-                titiler_client.get_base_tile_url(info["id"], rescale=(0, 100)),
+                titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
             )
             trigger = await db_client.get_trigger()
             model = await db_client.get_model("model_path")
