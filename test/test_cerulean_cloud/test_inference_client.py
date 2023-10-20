@@ -116,10 +116,10 @@ async def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock)
     semaphore = asyncio.Semaphore(20)
     tasks = [
         fixture_cloud_inference_tile.get_base_tile_inference(
-            tile=TMS._tile(0, 0, 0), semaphore=semaphore, rescale=(0, 100)
+            tile=TMS._tile(0, 0, 0), semaphore=semaphore, rescale=(0, 255)
         ),
         fixture_cloud_inference_tile.get_base_tile_inference(
-            tile=TMS._tile(0, 0, 0), semaphore=semaphore, rescale=(0, 100)
+            tile=TMS._tile(0, 0, 0), semaphore=semaphore, rescale=(0, 255)
         ),
     ]
     res = await asyncio.gather(*tasks, return_exceptions=True)
@@ -159,12 +159,12 @@ async def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_moc
     tasks = [
         fixture_cloud_inference_tile.get_offset_tile_inference(
             bounds=list(TMS.bounds(TMS._tile(0, 0, 0))),
-            rescale=(0, 100),
+            rescale=(0, 255),
             semaphore=semaphore,
         ),
         fixture_cloud_inference_tile.get_offset_tile_inference(
             bounds=list(TMS.bounds(TMS._tile(0, 0, 0))),
-            rescale=(0, 100),
+            rescale=(0, 255),
             semaphore=semaphore,
         ),
     ]

@@ -95,7 +95,7 @@ async def test_base_tile(titiler_client, tiles_s1_scene, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=titiler_client.url
-        + f"tiles/{TMS_TITLE}/{tile.z}/{tile.x}/{tile.y}?sceneid={sceneid}&bands=vv&format=png&scale=1&rescale=0,1000",
+        + f"tiles/{TMS_TITLE}/{tile.z}/{tile.x}/{tile.y}?sceneid={sceneid}&bands=vv&format=png&scale=1&rescale=0,255",
         content=img_bytes,
     )
     array = await titiler_client.get_base_tile(S1_IDS[0], tile=tile)
@@ -116,7 +116,7 @@ async def test_offset_tile(titiler_client, tiles_s1_scene, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=titiler_client.url
-        + f"crop/{minx},{miny},{maxx},{maxy}/256x256.png?sceneid={sceneid}&bands=vv&rescale=0,1000",
+        + f"crop/{minx},{miny},{maxx},{maxy}/256x256.png?sceneid={sceneid}&bands=vv&rescale=0,255",
         content=img_bytes,
     )
 
@@ -129,5 +129,5 @@ def test_get_base_tile_url(titiler_client):
     res = titiler_client.get_base_tile_url("ABC")
     assert (
         res
-        == "https://titiler.url/tiles/{z}/{x}/{y}?sceneid=ABC&bands=vv&scale=1&rescale=0,1000"
+        == "https://titiler.url/tiles/{z}/{x}/{y}?sceneid=ABC&bands=vv&scale=1&rescale=0,255"
     )
