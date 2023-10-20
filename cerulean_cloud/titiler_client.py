@@ -66,7 +66,7 @@ class TitilerClient:
         band: str = "vv",
         img_format: Optional[str] = None,
         scale: int = 1,
-        rescale: Tuple[int, int] = (0, 1000),
+        rescale: Tuple[int, int] = (0, 255),
         z="{z}",
         x="{x}",
         y="{y}",
@@ -103,7 +103,7 @@ class TitilerClient:
         band: str = "vv",
         img_format: str = "png",
         scale: int = 1,
-        rescale: Tuple[int, int] = (0, 1000),
+        rescale: Tuple[int, int] = (0, 255),
     ) -> np.ndarray:
         """get base tile as numpy array
 
@@ -144,7 +144,7 @@ class TitilerClient:
         height: int = 256,
         band: str = "vv",
         img_format: str = "png",
-        rescale: Tuple[int, int] = (0, 1000),
+        rescale: Tuple[int, int] = (0, 255),
     ) -> np.ndarray:
         """get offset tile as numpy array (with bounds)
 
