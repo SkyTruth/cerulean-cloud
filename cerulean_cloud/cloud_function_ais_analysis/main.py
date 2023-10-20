@@ -5,7 +5,7 @@ import asyncio
 import os
 
 import geopandas as gpd
-from shapely import wkt
+from shapely import wkb
 from utils.ais import AISConstructor
 from utils.associate import associate_ais_to_slick, slick_to_curves
 
@@ -74,16 +74,26 @@ async def handle_aaa_request(request):
                             )
                             for idx, traj in (
                                 ordered_trajs.get_group(0).iloc[:5].iterrows()
-                            ):  # XXX Magic number 5 = number of sources to record for each slick
-                                # Insert into SlickToSource:::
-                                # slick = slick
-                                # source = get_or_insert(traj["traj_id"])
-                                # coincidence_score = traj["total_score"]
-                                # rank = idx
-                                # hitl_confirmed = False
-                                # geojson_fc from
-                                # geometry from
-                                pass
+                            ):
+                                # XXX Magic number 5 = number of sources to record for each slick
+                                source = await db_client.get_source(
+                                    st_name=traj["st_name"]
+                                )
+                                if source is None:
+                                    # XXX Confirm this returns None if missing
+                                    source = await db_client.insert_source(
+                                        st_name=traj["st_name"],
+                                        source_type=1,  # XXX This will need to be dynamic for SSS
+                                        # XXX This is where we would pass in the kwargs for this source SSS
+                                    )
+                                await db_client.insert_slick_to_source(
+                                    source=source.id,
+                                    slick=slick.id,
+                                    coincidence_score=traj["total_score"],
+                                    rank=idx,
+                                    geojson_fc=None,
+                                    geometry=traj["geometry"],
+                                )
 
     return "Success!"
 
@@ -100,7 +110,7 @@ def automatic_ais_analysis(ais_constructor, slick):
         GroupBy object: The AIS-slick associations sorted and grouped by slick index.
     """
     slick_gdf = gpd.GeoDataFrame(
-        {"geometry": [wkt.loads(str(slick.geometry))]}, crs=ais_constructor.crs_degrees
+        {"geometry": [wkb.loads(str(slick.geometry))]}, crs=ais_constructor.crs_degrees
     ).to_crs(ais_constructor.crs_meters)
     slick_clean, slick_curves = slick_to_curves(slick_gdf)
     slick_ais = associate_ais_to_slick(

@@ -105,10 +105,9 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         table = extract_table_from_request(request)
         excluded_collections = get_env_list("RESTRICTED_COLLECTIONS")
         if table in excluded_collections:
-            print(f"XXX {table} is in excluded_collections")
+            # Use something like "from auth import api_key_auth" instead?
             api_key = request.headers.get("X-API-Key")
             if api_key != os.environ.get("SECRET_API_KEY"):
-                print(f"XXX {api_key} is invalid")
                 return JSONResponse(
                     status_code=403,
                     content={
@@ -116,7 +115,6 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
                         "request_key": api_key,
                     },
                 )
-            print(f"XXX {api_key} is VALID")
         response = await call_next(request)
         return response
 

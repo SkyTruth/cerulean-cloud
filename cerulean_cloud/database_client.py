@@ -33,7 +33,7 @@ async def get(sess, kls, error_if_absent=True, **kwargs):
     return res
 
 
-def insert(sess, kls, **kwargs):
+async def insert(sess, kls, **kwargs):
     """Create an instance"""
     res = kls(**kwargs)
     sess.add(res)
@@ -42,7 +42,9 @@ def insert(sess, kls, **kwargs):
 
 async def get_or_insert(sess, kls, **kwargs):
     """Check if instance exists, creates it if not"""
-    return (await get(sess, kls, False, **kwargs)) or insert(sess, kls, **kwargs)
+    return (await get(sess, kls, False, **kwargs)) or (
+        await insert(sess, kls, **kwargs)
+    )
 
 
 class DatabaseClient:
@@ -154,7 +156,7 @@ class DatabaseClient:
         if not isinstance(s, MultiPolygon):
             s = MultiPolygon([s])
 
-        slick = insert(
+        slick = await insert(
             self.session,
             db.Slick,
             slick_timestamp=slick_timestamp,
@@ -165,6 +167,36 @@ class DatabaseClient:
             machine_confidence=machine_confidence,
         )
         return slick
+
+    async def get_source(self, st_name):
+        """get existing source"""
+        return await get(
+            self.session, db.Source, error_if_absent=False, st_name=st_name
+        )
+
+    async def insert_source(self, st_name, source_type, **kwargs):
+        """add a new source"""
+        tablename_to_class = {
+            subclass.__tablename__: subclass for subclass in db.Source.__subclasses__()
+        }  # Create a mapping from table names (stored in SourceType) to ORM classes
+
+        source_type_obj = await get(self.session, db.SourceType, id=source_type)
+
+        source = await insert(
+            self.session,
+            db.Source,
+            st_name=st_name,
+            type=source_type,
+        )
+
+        await insert(
+            self.session, tablename_to_class[source_type_obj.table_name], **kwargs
+        )
+        return source
+
+    async def insert_slick_to_source(self, **kwargs):
+        """add a new slick_to_source"""
+        return await insert(self.session, db.SlickToSource, **kwargs)
 
     async def get_slicks_without_sources_from_scene_id(self, scene_id, active=True):
         """

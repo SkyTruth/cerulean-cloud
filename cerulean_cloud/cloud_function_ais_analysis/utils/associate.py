@@ -70,7 +70,7 @@ def associate_ais_to_slick(
             entry["overlap_score"] = None
             entry["frechet_dist"] = None
             entry["total_score"] = None
-            entry["traj_id"] = None
+            entry["st_name"] = None
             associations.append(entry)
 
         associations = gpd.GeoDataFrame(associations, crs=slick.crs)
@@ -108,7 +108,7 @@ def associate_ais_to_slick(
             entry["overlap_score"] = overlap_score
             entry["frechet_dist"] = frechet_dist
             entry["total_score"] = total_score
-            entry["traj_id"] = t.id
+            entry["st_name"] = t.id
 
             associations.append(entry)
 

@@ -152,12 +152,12 @@ class AISConstructor:
         The resulting trajectories are stored in the ais_trajectories attribute.
         """
         ais_trajectories = list()
-        for ssvid, group in self.ais_gdf.groupby("ssvid"):
+        for st_name, group in self.ais_gdf.groupby("ssvid"):
             if (
                 len(group) > 1
             ):  # ignore single points # XXX Should NOT ignore single points!
                 # build trajectory
-                traj = mpd.Trajectory(df=group, traj_id=ssvid, t="timestamp")
+                traj = mpd.Trajectory(df=group, traj_id=st_name, t="timestamp")
 
                 # interpolate/extrapolate to times in time_vec
                 times = list()
@@ -173,7 +173,7 @@ class AISConstructor:
                         {"timestamp": times, "geometry": positions},
                         crs=self.crs_degrees,
                     ),
-                    traj_id=ssvid,
+                    traj_id=st_name,
                     t="timestamp",
                 )
 
@@ -224,7 +224,7 @@ class AISConstructor:
             ais_buf.append(poly)
 
         self.ais_buffered = gpd.GeoDataFrame(
-            {"geometry": ais_buf, "ssvid": [t.id for t in self.ais_trajectories]},
+            {"geometry": ais_buf, "st_name": [t.id for t in self.ais_trajectories]},
             crs=self.crs_meters,
         ).to_crs(self.crs_degrees)
         self.ais_weighted = ais_weighted
