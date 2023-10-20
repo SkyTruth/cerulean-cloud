@@ -70,7 +70,7 @@ class CloudRunInferenceClient:
         self.inference_parms = inference_parms
 
     async def get_base_tile_inference(
-        self, tile: morecantile.Tile, semaphore: asyncio.Semaphore, rescale=(0, 100)
+        self, tile: morecantile.Tile, semaphore: asyncio.Semaphore, rescale=(0, 255)
     ) -> InferenceResultStack:
         """fetch inference for base tiles"""
         async with semaphore:
@@ -99,7 +99,7 @@ class CloudRunInferenceClient:
         return InferenceResultStack(**res.json())
 
     async def get_offset_tile_inference(
-        self, bounds: List[float], semaphore: asyncio.Semaphore, rescale=(0, 100)
+        self, bounds: List[float], semaphore: asyncio.Semaphore, rescale=(0, 255)
     ) -> InferenceResultStack:
         """fetch inference for offset tiles"""
         async with semaphore:
