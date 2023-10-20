@@ -41,6 +41,9 @@ default = gcp.cloudrun.Service(
                                 "slick_plus",
                                 "source_infra",
                                 "slick_to_source",
+                                "get_slicks_by_aoi_or_source",
+                                "get_slicks_by_aoi",
+                                "get_slicks_by_source",
                             ]
                         ],
                         *[
