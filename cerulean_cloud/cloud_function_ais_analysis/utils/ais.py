@@ -45,7 +45,7 @@ class AISConstructor:
         start_time (datetime): Start time for the analysis.
         end_time (datetime): End time for the analysis.
         time_vec (list): Vector of datetime objects for interpolation/extrapolation.
-        ais_df (DataFrame): AIS data retrieved from the database.
+        ais_gdf (DataFrame): AIS data retrieved from the database.
         ais_trajectories (list): List of interpolated/extrapolated trajectories.
         ais_buffered (DataFrame): Dataframe containing buffered trajectories.
         ais_weighted (list): List of weighted geometries for each trajectory.
@@ -83,15 +83,25 @@ class AISConstructor:
         self.weight_vec = weight_vec
 
         # Calculated values
-        self.poly = to_shape(self.s1.geometry).buffer(self.ais_buffer)
         self.start_time = self.s1.start_time - timedelta(hours=self.hours_before)
         self.end_time = self.s1.start_time + timedelta(hours=self.hours_after)
         self.time_vec = pd.date_range(
             start=self.start_time, end=self.end_time, periods=self.num_timesteps
         )
+        self.crs_degrees = "EPSG:4326"
+        self.s1_env = gpd.GeoDataFrame(
+            {"geometry": [to_shape(self.s1.geometry)]}, crs=self.crs_degrees
+        )
+        self.crs_meters = self.s1_env.estimate_utm_crs()
+        self.ais_env = (
+            self.s1_env.to_crs(self.crs_meters)
+            .buffer(self.ais_buffer)
+            .to_crs(self.crs_degrees)
+        )
 
         # Placeholder values
-        self.ais_df = None
+        self.sql = None
+        self.ais_gdf = None
         self.ais_trajectories = None
         self.ais_buffered = None
         self.ais_weighted = None
@@ -101,9 +111,9 @@ class AISConstructor:
         Retrieve AIS data from Google BigQuery database.
 
         The function constructs a SQL query and fetches AIS data based on time and spatial constraints.
-        The retrieved data is stored in the ais_df attribute.
+        The retrieved data is stored in the ais_gdf attribute.
         """
-        sql = f"""
+        self.sql = f"""
             SELECT
                 seg.ssvid as ssvid,
                 seg.timestamp as timestamp,
@@ -123,11 +133,15 @@ class AISConstructor:
             WHERE
                 seg._PARTITIONTIME between '{datetime.strftime(self.start_time, D_FORMAT)}' AND '{datetime.strftime(self.end_time, D_FORMAT)}'
                 AND seg.timestamp between '{datetime.strftime(self.start_time, T_FORMAT)}' AND '{datetime.strftime(self.end_time, T_FORMAT)}'
-                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.poly.wkt}'))
+                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.ais_env[0]}'))
             """
-        self.ais_df = pandas_gbq.read_gbq(
-            sql, project_id="world-fishing-827", credentials=credentials
+        df = pandas_gbq.read_gbq(
+            self.sql, project_id="world-fishing-827", credentials=credentials
         )
+        df["geometry"] = df.apply(
+            lambda row: shapely.geometry.Point(row["lon"], row["lat"]), axis=1
+        )
+        self.ais_gdf = gpd.GeoDataFrame(df, crs=self.crs_degrees)
 
     def build_trajectories(self):
         """
@@ -138,7 +152,7 @@ class AISConstructor:
         The resulting trajectories are stored in the ais_trajectories attribute.
         """
         ais_trajectories = list()
-        for ssvid, group in self.ais_df.groupby("ssvid"):
+        for ssvid, group in self.ais_gdf.groupby("ssvid"):
             if (
                 len(group) > 1
             ):  # ignore single points # XXX Should NOT ignore single points!
@@ -156,7 +170,8 @@ class AISConstructor:
                 # store as trajectory
                 interpolated_traj = mpd.Trajectory(
                     df=gpd.GeoDataFrame(
-                        {"timestamp": times, "geometry": positions}, crs=self.ais_df.crs
+                        {"timestamp": times, "geometry": positions},
+                        crs=self.crs_degrees,
                     ),
                     traj_id=ssvid,
                     t="timestamp",
@@ -176,9 +191,9 @@ class AISConstructor:
         """
         ais_buf = list()
         ais_weighted = list()
-        for traj in self.ais_df:
+        for traj in self.ais_trajectories:
             # grab points
-            points = traj.to_point_gdf()
+            points = traj.to_point_gdf().to_crs(self.crs_meters)
             points = points.sort_values(by="timestamp", ascending=False)
 
             # create buffered circles at points
@@ -199,12 +214,17 @@ class AISConstructor:
                 entry["geometry"] = c
                 entry["weight"] = 1.0 / (cidx + 1)  # weight is the inverse of the index
                 weighted.append(entry)
-            weighted = gpd.GeoDataFrame(weighted, crs=traj.crs)
+            weighted = gpd.GeoDataFrame(weighted, crs=self.crs_meters).to_crs(
+                self.crs_degrees
+            )
             ais_weighted.append(weighted)
 
             # create polygon from hulls
             poly = shapely.ops.unary_union(convex_hulls)
             ais_buf.append(poly)
 
-        self.ais_buffered = gpd.GeoDataFrame(geometry=ais_buf, crs=traj.crs)
+        self.ais_buffered = gpd.GeoDataFrame(
+            {"geometry": ais_buf, "ssvid": [t.id for t in self.ais_trajectories]},
+            crs=self.crs_meters,
+        ).to_crs(self.crs_degrees)
         self.ais_weighted = ais_weighted

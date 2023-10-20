@@ -4,8 +4,10 @@
 import asyncio
 import os
 
+import geopandas as gpd
+from shapely import wkt
 from utils.ais import AISConstructor
-from utils.associate import associate_ais_to_slicks, slicks_to_curves
+from utils.associate import associate_ais_to_slick, slick_to_curves
 
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 
@@ -60,11 +62,29 @@ async def handle_aaa_request(request):
                 if len(slicks_without_sources) > 0:
                     ais_constructor = AISConstructor(s1)
                     ais_constructor.retrieve_ais()
-                    if not ais_constructor.ais_df.empty:
+                    if (
+                        ais_constructor.ais_gdf is not None
+                        and not ais_constructor.ais_gdf.empty
+                    ):
                         ais_constructor.build_trajectories()
                         ais_constructor.buffer_trajectories()
                         for slick in slicks_without_sources:
-                            automatic_ais_analysis(ais_constructor, slick)
+                            ordered_trajs = automatic_ais_analysis(
+                                ais_constructor, slick
+                            )
+                            for idx, traj in (
+                                ordered_trajs.get_group(0).iloc[:5].iterrows()
+                            ):  # XXX Magic number 5 = number of sources to record for each slick
+                                # Insert into SlickToSource:::
+                                # slick = slick
+                                # source = get_or_insert(traj["traj_id"])
+                                # coincidence_score = traj["total_score"]
+                                # rank = idx
+                                # hitl_confirmed = False
+                                # geojson_fc from
+                                # geometry from
+                                pass
+
     return "Success!"
 
 
@@ -79,14 +99,16 @@ def automatic_ais_analysis(ais_constructor, slick):
     Returns:
         GroupBy object: The AIS-slick associations sorted and grouped by slick index.
     """
-    slicks = slick.to_crs(ais_constructor.ais_df.estimate_utm_crs())
-    slicks_clean, slicks_curves = slicks_to_curves(slicks)
-    slick_ais = associate_ais_to_slicks(
+    slick_gdf = gpd.GeoDataFrame(
+        {"geometry": [wkt.loads(str(slick.geometry))]}, crs=ais_constructor.crs_degrees
+    ).to_crs(ais_constructor.crs_meters)
+    slick_clean, slick_curves = slick_to_curves(slick_gdf)
+    slick_ais = associate_ais_to_slick(
         ais_constructor.ais_trajectories,
         ais_constructor.ais_buffered,
         ais_constructor.ais_weighted,
-        slicks_clean,
-        slicks_curves,
+        slick_clean.to_crs(ais_constructor.crs_degrees),
+        slick_curves.to_crs(ais_constructor.crs_degrees),
     )
     results = slick_ais.sort_values(
         ["slick_index", "slick_size", "total_score"], ascending=[True, False, False]
