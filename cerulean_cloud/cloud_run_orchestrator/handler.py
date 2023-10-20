@@ -295,7 +295,7 @@ async def _orchestrate(
                     scene_info,
                     titiler_client.get_base_tile_url(
                         payload.sceneid,
-                        rescale=(scene_stats["min"], scene_stats["max"]),
+                        rescale=(0, 255),
                     ),
                 )
                 orchestrator_run = await db_client.add_orchestrator(
@@ -343,7 +343,7 @@ async def _orchestrate(
                 *[
                     cloud_run_inference.get_base_tile_inference(
                         tile=base_tile,
-                        rescale=(scene_stats["min"], scene_stats["max"]),
+                        rescale=(0, 255),
                         semaphore=base_tile_semaphore,
                     )
                     for base_tile in base_tiles
@@ -357,7 +357,7 @@ async def _orchestrate(
                 *[
                     cloud_run_inference.get_offset_tile_inference(
                         bounds=offset_tile_bounds,
-                        rescale=(scene_stats["min"], scene_stats["max"]),
+                        rescale=(0, 255),
                         semaphore=offset_tile_semaphore,
                     )
                     for offset_tile_bounds in offset_tiles_bounds
