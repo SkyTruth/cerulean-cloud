@@ -49,7 +49,7 @@ def associate_ais_to_slick(
         b = buffered.iloc[idx]
 
         # spatially join the weighted trajectory to the slick
-        b_gdf = gpd.GeoDataFrame(index=[0], geometry=[b.geometry], crs=slick.crs)
+        b_gdf = gpd.GeoDataFrame(index=[0], geometry=[b.geometry], crs=buffered.crs)
         matches = gpd.sjoin(b_gdf, slick, how="inner", predicate="intersects")
         if matches.empty:
             continue
@@ -58,61 +58,62 @@ def associate_ais_to_slick(
             weighted_filt.append(w)
             buffered_filt.append(b.geometry)
 
-    associations = list()
-    if not weighted_filt:  # no associations found
+    columns = [
+        "poly_index",
+        "poly_geometry",
+        "poly_size",
+        "st_name",
+        "ais_geometry",
+        "temporal_score",
+        "overlap_score",
+        "frechet_dist",
+        "total_score",
+    ]
+    associations = gpd.GeoDataFrame(
+        columns=columns,
+        geometry="ais_geometry",
+        crs=slick.crs,
+    )
+    # Skip the loop if weighted_filt is empty
+    if weighted_filt:
+        # create trajectory collection from filtered trajectories
+        ais_filt = mpd.TrajectoryCollection(ais_filt)
+
+        # iterate over each poly
         for idx in range(len(slick)):
-            # return a geodataframe that has the same format as the usual case
-            entry = dict()
-            entry["geometry"] = slick.iloc[idx].geometry
-            entry["slick_index"] = idx
-            entry["slick_size"] = None
-            entry["temporal_score"] = None
-            entry["overlap_score"] = None
-            entry["frechet_dist"] = None
-            entry["total_score"] = None
-            entry["st_name"] = None
-            associations.append(entry)
+            poly = slick.iloc[idx]
+            curve = curves.iloc[idx]
 
-        associations = gpd.GeoDataFrame(associations, crs=slick.crs)
-        return associations
+            # iterate over filtered trajectories
+            for t, w, b in zip(ais_filt, weighted_filt, buffered_filt):
+                # compute temporal score
+                temporal_score = compute_temporal_score(w, poly.geometry)
 
-    # create trajectory collection from filtered trajectories
-    ais_filt = mpd.TrajectoryCollection(ais_filt)
+                # compute overlap score
+                overlap_score = compute_overlap_score(b, poly.geometry)
 
-    # iterate over each slick
-    for idx in range(len(slick)):
-        s = slick.iloc[idx]
-        c = curves.iloc[idx]
+                # compute frechet distance between trajectory and slick curve
+                frechet_dist = compute_frechet_distance(t, curve.geometry)
 
-        # iterate over filtered trajectories
-        for t, w, b in zip(ais_filt, weighted_filt, buffered_filt):
-            # compute temporal score
-            temporal_score = compute_temporal_score(w, s.geometry)
+                # compute total score from these three metrics
+                total_score = compute_total_score(
+                    temporal_score, overlap_score, frechet_dist
+                )
 
-            # compute overlap score
-            overlap_score = compute_overlap_score(b, s.geometry)
-
-            # compute frechet distance between trajectory and slick curve
-            frechet_dist = compute_frechet_distance(t, c.geometry)
-
-            # compute total score from these three metrics
-            total_score = compute_total_score(
-                temporal_score, overlap_score, frechet_dist
-            )
-
-            entry = dict()
-            entry["geometry"] = s.geometry
-            entry["slick_index"] = idx
-            entry["slick_size"] = s.geometry.area
-            entry["temporal_score"] = temporal_score
-            entry["overlap_score"] = overlap_score
-            entry["frechet_dist"] = frechet_dist
-            entry["total_score"] = total_score
-            entry["st_name"] = t.id
-
-            associations.append(entry)
-
-    associations = gpd.GeoDataFrame(associations, crs=slick.crs)
+                entry = {
+                    "poly_index": idx,
+                    "poly_geometry": poly.geometry,
+                    "poly_size": poly.geometry.area,
+                    "st_name": t.id,
+                    "ais_geometry": shapely.geometry.LineString(
+                        [p.coords[0] for p in t.df["geometry"]]
+                    ),
+                    "temporal_score": temporal_score,
+                    "overlap_score": overlap_score,
+                    "frechet_dist": frechet_dist,
+                    "total_score": total_score,
+                }
+                associations.loc[len(associations)] = entry
 
     return associations
 
@@ -138,7 +139,7 @@ def slick_to_curves(
     # clean up the slick detections by dilation followed by erosion
     # this process can merge some polygons but not others, depending on proximity
     slick_clean = slick_gdf.copy()
-    slick_clean.geometry = slick_clean.geometry.buffer(buf_size).buffer(-buf_size)
+    slick_clean["geometry"] = slick_clean.buffer(buf_size).buffer(-buf_size)
 
     # split slicks into individual polygons
     slick_clean = slick_clean.explode(ignore_index=True, index_parts=False)
@@ -234,5 +235,5 @@ def slick_to_curves(
         curve = shapely.geometry.LineString(zip(x_new, y_new))
         slick_curves.append(curve)
 
-    slick_curves = gpd.GeoDataFrame(geometry=slick_curves, crs=slick_clean.crs)
+    slick_curves = gpd.GeoDataFrame(geometry=slick_curves, crs=slick_gdf.crs)
     return slick_clean, slick_curves

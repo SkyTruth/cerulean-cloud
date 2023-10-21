@@ -69,31 +69,37 @@ async def handle_aaa_request(request):
                         ais_constructor.build_trajectories()
                         ais_constructor.buffer_trajectories()
                         for slick in slicks_without_sources:
-                            ordered_trajs = automatic_ais_analysis(
-                                ais_constructor, slick
-                            )
-                            for idx, traj in (
-                                ordered_trajs.get_group(0).iloc[:5].iterrows()
-                            ):
-                                # XXX Magic number 5 = number of sources to record for each slick
-                                source = await db_client.get_source(
-                                    st_name=traj["st_name"]
-                                )
-                                if source is None:
-                                    # XXX Confirm this returns None if missing
-                                    source = await db_client.insert_source(
-                                        st_name=traj["st_name"],
-                                        source_type=1,  # XXX This will need to be dynamic for SSS
-                                        # XXX This is where we would pass in the kwargs for this source SSS
+                            ordered_ass = automatic_ais_analysis(ais_constructor, slick)
+                            if len(ordered_ass) > 0:
+                                # XXX What to do if len(ordered_ass)==0 and no sources are associated?
+                                # Then it will trigger another round of this process later! (unnecessary computation)
+                                for idx, traj in (
+                                    ordered_ass.get_group(
+                                        0  # XXX Magic number 0 = first polygon in the slick
                                     )
-                                await db_client.insert_slick_to_source(
-                                    source=source.id,
-                                    slick=slick.id,
-                                    coincidence_score=traj["total_score"],
-                                    rank=idx,
-                                    geojson_fc=None,
-                                    geometry=traj["geometry"],
-                                )
+                                    .iloc[
+                                        :5  # XXX Magic number 5 = number of sources to record for each slick
+                                    ]
+                                    .iterrows()
+                                ):
+                                    source = await db_client.get_source(
+                                        st_name=traj["st_name"]
+                                    )
+                                    if source is None:
+                                        # XXX Confirm this returns None if missing
+                                        source = await db_client.insert_source(
+                                            st_name=traj["st_name"],
+                                            source_type=1,  # XXX This will need to be dynamic for SSS
+                                            # XXX This is where we would pass in the kwargs for this source SSS
+                                        )
+                                    await db_client.insert_slick_to_source(
+                                        source=source.id,
+                                        slick=slick.id,
+                                        coincidence_score=traj["total_score"],
+                                        rank=idx,
+                                        geojson_fc=None,
+                                        geometry=traj["geometry"],
+                                    )
 
     return "Success!"
 
@@ -112,15 +118,17 @@ def automatic_ais_analysis(ais_constructor, slick):
     slick_gdf = gpd.GeoDataFrame(
         {"geometry": [wkb.loads(str(slick.geometry))]}, crs=ais_constructor.crs_degrees
     ).to_crs(ais_constructor.crs_meters)
-    slick_clean, slick_curves = slick_to_curves(slick_gdf)
-    slick_ais = associate_ais_to_slick(
+    slick_clean, slick_curves = slick_to_curves(
+        slick_gdf
+    )  # XXX This splits the gdf into single parts! BAD
+    associations = associate_ais_to_slick(
         ais_constructor.ais_trajectories,
         ais_constructor.ais_buffered,
         ais_constructor.ais_weighted,
-        slick_clean.to_crs(ais_constructor.crs_degrees),
-        slick_curves.to_crs(ais_constructor.crs_degrees),
+        slick_clean,
+        slick_curves,
     )
-    results = slick_ais.sort_values(
-        ["slick_index", "slick_size", "total_score"], ascending=[True, False, False]
-    ).groupby("slick_index")
+    results = associations.sort_values(
+        ["poly_index", "poly_size", "total_score"], ascending=[True, False, False]
+    ).groupby("poly_index")
     return results
