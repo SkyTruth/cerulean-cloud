@@ -141,7 +141,9 @@ class AISConstructor:
         df["geometry"] = df.apply(
             lambda row: shapely.geometry.Point(row["lon"], row["lat"]), axis=1
         )
-        self.ais_gdf = gpd.GeoDataFrame(df, crs=self.crs_degrees)
+        self.ais_gdf = gpd.GeoDataFrame(df, crs=self.crs_degrees).to_crs(
+            self.crs_meters
+        )
 
     def build_trajectories(self):
         """
@@ -171,7 +173,7 @@ class AISConstructor:
                 interpolated_traj = mpd.Trajectory(
                     df=gpd.GeoDataFrame(
                         {"timestamp": times, "geometry": positions},
-                        crs=self.crs_degrees,
+                        crs=self.crs_meters,
                     ),
                     traj_id=st_name,
                     t="timestamp",
@@ -193,7 +195,7 @@ class AISConstructor:
         ais_weighted = list()
         for traj in self.ais_trajectories:
             # grab points
-            points = traj.to_point_gdf().to_crs(self.crs_meters)
+            points = traj.to_point_gdf()
             points = points.sort_values(by="timestamp", ascending=False)
 
             # create buffered circles at points
@@ -214,9 +216,7 @@ class AISConstructor:
                 entry["geometry"] = c
                 entry["weight"] = 1.0 / (cidx + 1)  # weight is the inverse of the index
                 weighted.append(entry)
-            weighted = gpd.GeoDataFrame(weighted, crs=self.crs_meters).to_crs(
-                self.crs_degrees
-            )
+            weighted = gpd.GeoDataFrame(weighted, crs=self.crs_meters)
             ais_weighted.append(weighted)
 
             # create polygon from hulls
@@ -226,5 +226,5 @@ class AISConstructor:
         self.ais_buffered = gpd.GeoDataFrame(
             {"geometry": ais_buf, "st_name": [t.id for t in self.ais_trajectories]},
             crs=self.crs_meters,
-        ).to_crs(self.crs_degrees)
+        )
         self.ais_weighted = ais_weighted
