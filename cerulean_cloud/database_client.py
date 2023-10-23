@@ -189,7 +189,6 @@ class DatabaseClient:
             type=source_type,
             **kwargs,
         )
-        await self.session.flush()
         return source
 
     async def insert_slick_to_source(self, **kwargs):

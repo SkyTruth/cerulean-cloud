@@ -107,6 +107,8 @@ async def handle_aaa_request(request):
                                             source_type=1,  # XXX This will need to be dynamic for SSS
                                             # XXX This is where we would pass in the kwargs for this source SSS
                                         )
+                                    await db_client.session.flush()
+
                                     await db_client.insert_slick_to_source(
                                         source=source.id,
                                         slick=slick.id,
