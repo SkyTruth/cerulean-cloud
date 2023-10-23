@@ -184,14 +184,12 @@ class DatabaseClient:
 
         source = await insert(
             self.session,
-            db.Source,
+            tablename_to_class[source_type_obj.table_name],
             st_name=st_name,
             type=source_type,
+            **kwargs,
         )
-
-        await insert(
-            self.session, tablename_to_class[source_type_obj.table_name], **kwargs
-        )
+        await self.session.flush()
         return source
 
     async def insert_slick_to_source(self, **kwargs):
