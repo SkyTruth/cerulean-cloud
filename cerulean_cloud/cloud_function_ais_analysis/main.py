@@ -113,7 +113,7 @@ async def handle_aaa_request(request):
                                         source=source.id,
                                         slick=slick.id,
                                         coincidence_score=traj["total_score"],
-                                        rank=idx,
+                                        rank=idx + 1,
                                         geojson_fc=single_track.to_json(),
                                         geometry=LineString(
                                             single_track["geometry"]
