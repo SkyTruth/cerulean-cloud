@@ -59,7 +59,6 @@ def associate_ais_to_slick(
             buffered_filt.append(b.geometry)
 
     columns = [
-        "traj_index",
         "st_name",
         "traj_geometry",
         "slick_geometry",
@@ -96,13 +95,12 @@ def associate_ais_to_slick(
             )
 
             entry = {
-                "traj_index": idx,
                 "st_name": t.id,
                 "traj_geometry": shapely.geometry.LineString(
                     [p.coords[0] for p in t.df["geometry"]]
                 ),
-                "slick_geometry": slick.geometry,
-                "slick_size": slick.area,
+                "slick_geometry": slick.geometry.iloc[0],
+                "slick_size": slick.area.iloc[0],
                 "temporal_score": temporal_score,
                 "overlap_score": overlap_score,
                 "frechet_dist": frechet_dist,
