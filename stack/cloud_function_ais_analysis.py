@@ -76,6 +76,13 @@ cloud_function_service_account_iam = projects.IAMMember(
     ),
 )
 
+gfw_credentials = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
+    key="GOOGLE_APPLICATION_CREDENTIALS",
+    secret=pulumi.Config("ais").require("credentials"),
+    version="latest",
+    project_id=pulumi.Config("gcp").require("project"),
+)
+
 fxn = cloudfunctions.Function(
     function_name,
     name=function_name,
@@ -89,13 +96,7 @@ fxn = cloudfunctions.Function(
     service_account_email=cloud_function_service_account.email,
     available_memory_mb=1024,
     timeout=540,
-    secret_environment_variables=[
-        cloudfunctions.FunctionSecretEnvironmentVariableArgs(
-            key="GOOGLE_APPLICATION_CREDENTIALS",
-            secret=pulumi.Config("ais").require("credentials"),
-            version="latest",
-        )
-    ],
+    secret_environment_variables=[gfw_credentials],
 )
 
 invoker = cloudfunctions.FunctionIamMember(
