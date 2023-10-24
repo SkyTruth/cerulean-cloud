@@ -74,17 +74,10 @@ async def handle_aaa_request(request):
                                 ais_constructor, slick
                             )
                             if len(ais_associations) > 0:
-                                # XXX What to do if len(ordered_ass)==0 and no sources are associated?
+                                # XXX What to do if len(ais_associations)==0 and no sources are associated?
                                 # Then it will trigger another round of this process later! (unnecessary computation)
-                                for idx, traj in (
-                                    ais_associations.get_group(
-                                        0  # XXX Magic number 0 = first polygon in the slick
-                                    )
-                                    .iloc[
-                                        :5  # XXX Magic number 5 = number of sources to record for each slick
-                                    ]
-                                    .iterrows()
-                                ):
+                                for idx, traj in ais_associations.iloc[:5].iterrows():
+                                    # XXX Magic number 5 = number of sources to record for each slick
                                     single_track = (
                                         ais_constructor.ais_gdf[
                                             ais_constructor.ais_gdf["ssvid"]
@@ -137,17 +130,15 @@ def automatic_ais_analysis(ais_constructor, slick):
     slick_gdf = gpd.GeoDataFrame(
         {"geometry": [wkb.loads(str(slick.geometry))]}, crs=ais_constructor.crs_degrees
     ).to_crs(ais_constructor.crs_meters)
-    slick_clean, slick_curves = slick_to_curves(
+    _, slick_curves = slick_to_curves(
         slick_gdf
     )  # XXX This splits the gdf into single parts! BAD
     associations = associate_ais_to_slick(
         ais_constructor.ais_trajectories,
         ais_constructor.ais_buffered,
         ais_constructor.ais_weighted,
-        slick_clean,
-        slick_curves,
+        slick_gdf,
+        slick_curves.iloc[0],
     )
-    results = associations.sort_values(
-        ["poly_index", "poly_size", "total_score"], ascending=[True, False, False]
-    ).groupby("poly_index")
+    results = associations.sort_values("total_score", ascending=False)
     return results

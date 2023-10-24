@@ -26,7 +26,7 @@ def associate_ais_to_slick(
     buffered: gpd.GeoDataFrame,
     weighted: List[gpd.GeoDataFrame],
     slick: gpd.GeoDataFrame,
-    curves: gpd.GeoDataFrame,
+    curve: gpd.GeoSeries,
 ):
     """
     Measure association by computing multiple metrics between AIS trajectories and slicks
@@ -59,11 +59,11 @@ def associate_ais_to_slick(
             buffered_filt.append(b.geometry)
 
     columns = [
-        "poly_index",
-        "poly_geometry",
-        "poly_size",
+        "traj_index",
         "st_name",
-        "ais_geometry",
+        "traj_geometry",
+        "slick_geometry",
+        "slick_size",
         "temporal_score",
         "overlap_score",
         "frechet_dist",
@@ -71,7 +71,7 @@ def associate_ais_to_slick(
     ]
     associations = gpd.GeoDataFrame(
         columns=columns,
-        geometry="ais_geometry",
+        geometry="traj_geometry",
         crs=slick.crs,
     )
     # Skip the loop if weighted_filt is empty
@@ -79,41 +79,36 @@ def associate_ais_to_slick(
         # create trajectory collection from filtered trajectories
         ais_filt = mpd.TrajectoryCollection(ais_filt)
 
-        # iterate over each poly
-        for idx in range(len(slick)):
-            poly = slick.iloc[idx]
-            curve = curves.iloc[idx]
+        # iterate over filtered trajectories
+        for t, w, b in zip(ais_filt, weighted_filt, buffered_filt):
+            # compute temporal score
+            temporal_score = compute_temporal_score(w, slick.geometry.iloc[0])
 
-            # iterate over filtered trajectories
-            for t, w, b in zip(ais_filt, weighted_filt, buffered_filt):
-                # compute temporal score
-                temporal_score = compute_temporal_score(w, poly.geometry)
+            # compute overlap score
+            overlap_score = compute_overlap_score(b, slick.geometry.iloc[0])
 
-                # compute overlap score
-                overlap_score = compute_overlap_score(b, poly.geometry)
+            # compute frechet distance between trajectory and slick curve
+            frechet_dist = compute_frechet_distance(t, curve.geometry)
 
-                # compute frechet distance between trajectory and slick curve
-                frechet_dist = compute_frechet_distance(t, curve.geometry)
+            # compute total score from these three metrics
+            total_score = compute_total_score(
+                temporal_score, overlap_score, frechet_dist
+            )
 
-                # compute total score from these three metrics
-                total_score = compute_total_score(
-                    temporal_score, overlap_score, frechet_dist
-                )
-
-                entry = {
-                    "poly_index": idx,
-                    "poly_geometry": poly.geometry,
-                    "poly_size": poly.geometry.area,
-                    "st_name": t.id,
-                    "ais_geometry": shapely.geometry.LineString(
-                        [p.coords[0] for p in t.df["geometry"]]
-                    ),
-                    "temporal_score": temporal_score,
-                    "overlap_score": overlap_score,
-                    "frechet_dist": frechet_dist,
-                    "total_score": total_score,
-                }
-                associations.loc[len(associations)] = entry
+            entry = {
+                "traj_index": idx,
+                "st_name": t.id,
+                "traj_geometry": shapely.geometry.LineString(
+                    [p.coords[0] for p in t.df["geometry"]]
+                ),
+                "slick_geometry": slick.geometry,
+                "slick_size": slick.area,
+                "temporal_score": temporal_score,
+                "overlap_score": overlap_score,
+                "frechet_dist": frechet_dist,
+                "total_score": total_score,
+            }
+            associations.loc[len(associations)] = entry
 
     return associations
 

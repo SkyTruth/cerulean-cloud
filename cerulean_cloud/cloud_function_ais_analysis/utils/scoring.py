@@ -61,7 +61,7 @@ def compute_frechet_distance(traj: mpd.Trajectory, curve: shapely.geometry.LineS
 
 
 def compute_temporal_score(
-    weighted_traj: gpd.GeoDataFrame, slick: shapely.geometry.Polygon
+    weighted_traj: gpd.GeoDataFrame, slick: shapely.geometry.MultiPolygon
 ):
     """
     Compute the temporal score between a weighted AIS trajectory and an oil slick
@@ -85,7 +85,7 @@ def compute_temporal_score(
 
 
 def compute_overlap_score(
-    buffered_traj: shapely.geometry.Polygon, slick: shapely.geometry.Polygon
+    buffered_traj: shapely.geometry.Polygon, slick: shapely.geometry.MultiPolygon
 ):
     """
     Compute the amount of overlap between a buffered AIS trajectory and an oil slick
