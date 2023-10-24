@@ -195,12 +195,15 @@ class DatabaseClient:
         """add a new slick_to_source"""
         return await insert(self.session, db.SlickToSource, **kwargs)
 
-    async def get_slicks_without_sources_from_scene_id(self, scene_id, active=True):
+    async def get_slicks_without_sources_from_scene_id(
+        self, scene_id, min_conf=0.5, active=True
+    ):
         """
         Asynchronously queries the database to fetch slicks without associated sources for a given scene ID.
 
         Args:
             scene_id (str): The ID of the scene for which slicks are needed.
+            min_conf (float): Minimum machine confidence for slicks to return. Default is 0.5.
             active (bool): Flag to filter slicks based on their active status. Default is True.
 
         Returns:
@@ -222,6 +225,7 @@ class DatabaseClient:
                     db.SlickToSource.slick == None,  # noqa
                     db.Sentinel1Grd.scene_id == scene_id,
                     db.Slick.active == active,
+                    db.Slick.machine_confidence > min_conf,
                 )
             )
         )

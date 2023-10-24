@@ -97,6 +97,7 @@ def compute_overlap_score(
         float: overlap score between buffered_traj and slick
     """
     overlap_score = slick.intersection(buffered_traj).area / slick.area
+    # XXX this strongly benefits smaller slicks
     return overlap_score
 
 
