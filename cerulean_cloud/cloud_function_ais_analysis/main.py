@@ -130,15 +130,15 @@ def automatic_ais_analysis(ais_constructor, slick):
     slick_gdf = gpd.GeoDataFrame(
         {"geometry": [wkb.loads(str(slick.geometry))]}, crs=ais_constructor.crs_degrees
     ).to_crs(ais_constructor.crs_meters)
-    _, slick_curves = slick_to_curves(
-        slick_gdf
-    )  # XXX This splits the gdf into single parts! BAD
+    _, slick_curves = slick_to_curves(slick_gdf)
     associations = associate_ais_to_slick(
         ais_constructor.ais_trajectories,
         ais_constructor.ais_buffered,
         ais_constructor.ais_weighted,
         slick_gdf,
-        slick_curves.iloc[0],
+        slick_curves.iloc[0],  # Only uses the longest curve
     )
-    results = associations.sort_values("total_score", ascending=False)
+    results = associations.sort_values("total_score", ascending=False).reset_index(
+        drop=True
+    )
     return results
