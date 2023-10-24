@@ -10,8 +10,8 @@ NUM_TIMESTEPS = TOTAL_TIME * 10
 
 # buffering parameters for AIS trajectories
 AIS_BUFFER = 5000  # buffer around GRD envelope to capture AIS
-SPREAD_RATE = 2000  # meters/hour perpendicular to vessel track
-BUF_START = 500
+SPREAD_RATE = 1000  # meters/hour perpendicular to vessel track
+BUF_START = 100
 BUF_END = BUF_START + SPREAD_RATE * TOTAL_TIME
 BUF_VEC = np.linspace(BUF_START, BUF_END, NUM_TIMESTEPS)
 

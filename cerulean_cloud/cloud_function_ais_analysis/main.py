@@ -3,6 +3,7 @@
 
 import asyncio
 import os
+from json import loads
 
 import geopandas as gpd
 from shapely import wkb
@@ -107,7 +108,7 @@ async def handle_aaa_request(request):
                                         slick=slick.id,
                                         coincidence_score=traj["total_score"],
                                         rank=idx + 1,
-                                        geojson_fc=single_track.to_json(),
+                                        geojson_fc=loads(single_track.to_json()),
                                         geometry=LineString(
                                             single_track["geometry"]
                                         ).wkt,
