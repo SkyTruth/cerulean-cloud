@@ -3,7 +3,7 @@ Code for handling queue requests for Automatic AIS Analysis
 """
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
@@ -56,7 +56,7 @@ def add_to_aaa_queue(scene_id):
     # Each entry is another retry
     ais_delays = [0, 3, 7]  # TODO Magic number >>> Where should this live?
     for delay in ais_delays:
-        d = datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(days=delay)
+        d = datetime.now(tz=timezone.utc) + timedelta(days=delay)
 
         # Create Timestamp protobuf.
         timestamp = timestamp_pb2.Timestamp()
