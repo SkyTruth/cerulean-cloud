@@ -28,11 +28,11 @@ def add_to_aaa_queue(scene_id):
     # Create a client.
     client = tasks_v2.CloudTasksClient()
 
-    project = os.getenv("GCP_PROJECT")
+    project = os.getenv("PROJECT_ID")
     location = os.getenv("GCP_REGION")
-    queue = os.getenv("QUEUE")
+    queue = os.getenv("AAA_QUEUE")
     url = os.getenv("FUNCTION_URL")
-    dry_run = bool(os.getenv("IS_DRY_RUN"))
+    dry_run = bool(os.getenv("AIS_IS_DRY_RUN"))
 
     # Construct the fully qualified queue name.
     parent = client.queue_path(project, location, queue)
