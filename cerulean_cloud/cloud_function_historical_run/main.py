@@ -166,7 +166,7 @@ def handler_queue(filtered_scenes, trigger_id):
 
     project = os.getenv("GCP_PROJECT")
     queue = os.getenv("QUEUE")
-    location = os.getenv("GCP_LOCATION")
+    location = os.getenv("GCP_REGION")
     url = os.getenv("ORCHESTRATOR_URL")
     dry_run = bool(os.getenv("IS_DRY_RUN"))
 

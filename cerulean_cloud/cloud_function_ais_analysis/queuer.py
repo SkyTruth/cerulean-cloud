@@ -29,7 +29,7 @@ def add_to_aaa_queue(scene_id):
     client = tasks_v2.CloudTasksClient()
 
     project = os.getenv("GCP_PROJECT")
-    location = os.getenv("GCP_LOCATION")
+    location = os.getenv("GCP_REGION")
     queue = os.getenv("QUEUE")
     url = os.getenv("FUNCTION_URL")
     dry_run = bool(os.getenv("IS_DRY_RUN"))

@@ -39,7 +39,7 @@ function_name = construct_name("cloud-function-ais")
 config_values = {
     "DB_URL": database.sql_instance_url_with_asyncpg,
     "GCP_PROJECT": pulumi.Config("gcp").require("project"),
-    "GCP_LOCATION": pulumi.Config("gcp").require("region"),
+    "GCP_REGION": pulumi.Config("gcp").require("region"),
     "QUEUE": queue.name,
     "FUNCTION_NAME": function_name,
     "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
