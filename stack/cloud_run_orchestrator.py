@@ -31,7 +31,7 @@ cloud_function_service_account = gcp.serviceaccount.Account(
 cloud_function_service_account_iam = gcp.projects.IAMMember(
     construct_name("cloud-run-orchestrator"),
     project=pulumi.Config("gcp").require("project"),
-    role="projects/cerulean-338116/roles/cloudtasks.enqueuer",
+    role="roles/cloudtasks.enqueuer",
     member=cloud_function_service_account.email.apply(
         lambda email: f"serviceAccount:{email}"
     ),
