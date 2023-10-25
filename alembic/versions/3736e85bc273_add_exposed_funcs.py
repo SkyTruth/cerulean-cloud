@@ -63,7 +63,6 @@ def upgrade() -> None:
             OUT fill_factor double precision,
             OUT s1_scene_id character varying,
             OUT s1_geometry geography,
-            OUT cls_id integer,
             OUT cls_short_name text,
             OUT cls_long_name text,
             OUT aoi_type_1_ids bigint[],
@@ -76,7 +75,31 @@ def upgrade() -> None:
             IMMUTABLE PARALLEL SAFE
             ROWS 1000
         AS $BODY$
-            select distinct sp.*
+            select distinct
+                sp.id,
+                sp.linearity,
+                sp.slick_timestamp,
+                sp.geometry,
+                sp.active,
+                sp.orchestrator_run,
+                sp.create_time,
+                sp.inference_idx,
+                sp.cls,
+                sp.hitl_cls,
+                sp.machine_confidence,
+                sp.length,
+                sp.area,
+                sp.perimeter,
+                sp.centroid,
+                sp.polsby_popper,
+                sp.fill_factor,
+                sp.s1_scene_id,
+                sp.s1_geometry,
+                sp.cls_short_name,
+                sp.cls_long_name,
+                sp.aoi_type_1_ids,
+                sp.aoi_type_2_ids,
+                sp.aoi_type_3_ids
             FROM public.slick_plus sp
             LEFT JOIN slick_to_source sts ON sts.slick = sp.id AND source_id != 'NULL'
             LEFT JOIN slick_to_aoi sta ON sta.slick = sp.id AND aoi_id != 'NULL'
@@ -110,7 +133,6 @@ def upgrade() -> None:
             OUT fill_factor double precision,
             OUT s1_scene_id character varying,
             OUT s1_geometry geography,
-            OUT cls_id integer,
             OUT cls_short_name text,
             OUT cls_long_name text,
             OUT aoi_type_1_ids bigint[],
@@ -123,7 +145,31 @@ def upgrade() -> None:
             IMMUTABLE PARALLEL SAFE
             ROWS 1000
         AS $BODY$
-            select distinct sp.*
+            select distinct
+                sp.id,
+                sp.linearity,
+                sp.slick_timestamp,
+                sp.geometry,
+                sp.active,
+                sp.orchestrator_run,
+                sp.create_time,
+                sp.inference_idx,
+                sp.cls,
+                sp.hitl_cls,
+                sp.machine_confidence,
+                sp.length,
+                sp.area,
+                sp.perimeter,
+                sp.centroid,
+                sp.polsby_popper,
+                sp.fill_factor,
+                sp.s1_scene_id,
+                sp.s1_geometry,
+                sp.cls_short_name,
+                sp.cls_long_name,
+                sp.aoi_type_1_ids,
+                sp.aoi_type_2_ids,
+                sp.aoi_type_3_ids
             FROM public.slick_plus sp
             JOIN slick_to_source sts ON sts.slick = sp.id
             WHERE sts.source = ANY(string_to_array(source_id, ',')::int[])
@@ -155,7 +201,6 @@ def upgrade() -> None:
             OUT fill_factor double precision,
             OUT s1_scene_id character varying,
             OUT s1_geometry geography,
-            OUT cls_id integer,
             OUT cls_short_name text,
             OUT cls_long_name text,
             OUT aoi_type_1_ids bigint[],
@@ -168,7 +213,31 @@ def upgrade() -> None:
             IMMUTABLE PARALLEL SAFE
             ROWS 1000
         AS $BODY$
-            select distinct sp.*
+            select distinct
+                sp.id,
+                sp.linearity,
+                sp.slick_timestamp,
+                sp.geometry,
+                sp.active,
+                sp.orchestrator_run,
+                sp.create_time,
+                sp.inference_idx,
+                sp.cls,
+                sp.hitl_cls,
+                sp.machine_confidence,
+                sp.length,
+                sp.area,
+                sp.perimeter,
+                sp.centroid,
+                sp.polsby_popper,
+                sp.fill_factor,
+                sp.s1_scene_id,
+                sp.s1_geometry,
+                sp.cls_short_name,
+                sp.cls_long_name,
+                sp.aoi_type_1_ids,
+                sp.aoi_type_2_ids,
+                sp.aoi_type_3_ids
             FROM public.slick_plus sp
             JOIN slick_to_aoi sta ON sta.slick = sp.id
             WHERE sta.aoi = ANY(string_to_array(aoi_id, ',')::int[]);
@@ -213,7 +282,12 @@ def downgrade() -> None:
     )
     op.execute(
         """
-        DROP FUNCTION public.get_slicks_by_aoi(text, integer);
+        DROP FUNCTION public.get_slicks_by_aoi(text);
+        """
+    )
+    op.execute(
+        """
+        DROP FUNCTION public.get_slicks_by_aoi_or_source(text, text, integer);
         """
     )
     get_history_slick = PGFunction(
