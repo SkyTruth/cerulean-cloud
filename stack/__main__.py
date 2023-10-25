@@ -3,9 +3,10 @@
 import cloud_function_ais_analysis
 import cloud_function_historical_run
 import cloud_function_scene_relevancy
-import cloud_run_offset_tile
-import cloud_run_orchestrator
-import cloud_run_tipg
+
+# import cloud_run_offset_tile
+# import cloud_run_orchestrator
+# import cloud_run_tipg
 import database
 import pulumi
 import sns_subscription
