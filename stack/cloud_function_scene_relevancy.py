@@ -40,7 +40,7 @@ function_name = construct_name("cloud-function-sr")
 config_values = {
     "DB_URL": database.sql_instance_url,
     "GCP_PROJECT": pulumi.Config("gcp").require("project"),
-    "GCP_LOCATION": pulumi.Config("gcp").require("region"),
+    "GCP_REGION": pulumi.Config("gcp").require("region"),
     "QUEUE": queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
     "FUNCTION_NAME": function_name,

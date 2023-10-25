@@ -96,6 +96,10 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("gcp").require("project"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="GCP_REGION",
+                            value=pulumi.Config("gcp").require("region"),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="API_KEY",
                             value=pulumi.Config("cerulean-cloud").require("apikey"),
                         ),
