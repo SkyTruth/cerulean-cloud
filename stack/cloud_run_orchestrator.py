@@ -3,13 +3,13 @@ Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
 import os
 
+import cloud_function_ais_analysis
 import cloud_run_images
 import cloud_run_offset_tile
 import git
 import pulumi
 import pulumi_gcp as gcp
 import titiler_sentinel
-from cloud_run_offset_tile import noauth_iam_policy_data
 from database import instance, sql_instance_url_with_asyncpg
 from utils import construct_name
 
@@ -103,6 +103,18 @@ default = gcp.cloudrun.Service(
                             name="API_KEY",
                             value=pulumi.Config("cerulean-cloud").require("apikey"),
                         ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="AAA_QUEUE",
+                            value=cloud_function_ais_analysis.queue.name,
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="AIS_IS_DRY_RUN",
+                            value=pulumi.Config("cerulean-cloud").require("dryrun_ais"),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="FUNCTION_URL",
+                            value=cloud_function_ais_analysis.fxn.https_trigger_url,
+                        ),
                     ],
                     resources=dict(limits=dict(memory="6Gi", cpu="2000m")),
                 ),
@@ -139,5 +151,5 @@ noauth_iam_policy = gcp.cloudrun.IamPolicy(
     location=default.location,
     project=default.project,
     service=default.name,
-    policy_data=noauth_iam_policy_data.policy_data,
+    policy_data=cloud_run_offset_tile.noauth_iam_policy_data.policy_data,
 )
