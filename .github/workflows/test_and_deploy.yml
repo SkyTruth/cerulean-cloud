@@ -165,10 +165,9 @@ jobs:
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
       
       - uses: pulumi/actions@v3
-        id: pulumi
+        id: pulumi-refresh
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
-          MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
           command: refresh
           stack-name: test
