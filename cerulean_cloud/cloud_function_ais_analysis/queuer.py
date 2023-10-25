@@ -44,12 +44,12 @@ def add_to_aaa_queue(scene_id):
         "http_request": {  # Specify the type of request.
             "http_method": tasks_v2.HttpMethod.POST,
             "url": url,  # The url path that the task will be sent to.
-        },
-        "headers": {
-            "Content-type": "application/json",
-            "Authorization": f"Bearer {os.getenv('API_KEY')}",
-        },
-        "body": json.dumps(payload).encode(),
+            "headers": {
+                "Content-type": "application/json",
+                "Authorization": f"Bearer {os.getenv('API_KEY')}",
+            },
+            "body": json.dumps(payload).encode(),
+        }
     }
 
     # Number of days that the Automatic AIS Analysis should be run after
