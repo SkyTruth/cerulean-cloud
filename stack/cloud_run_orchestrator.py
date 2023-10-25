@@ -14,10 +14,28 @@ from database import instance, sql_instance_url_with_asyncpg
 from utils import construct_name
 
 config = pulumi.Config()
+stack = pulumi.get_stack()
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
 git_tag = next((tag.name for tag in repo.tags if tag.commit == repo.head.commit), None)
+
+
+# Assign access to cloud SQL
+cloud_function_service_account = gcp.serviceaccount.Account(
+    construct_name("cloud-run-orchestrator"),
+    account_id=f"{stack}-cloud-run-orchestrator",
+    display_name="Service Account for cloud run.",
+)
+
+cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-orchestrator"),
+    project=pulumi.Config("gcp").require("project"),
+    role="projects/cerulean-338116/roles/cloudtasks.enqueuer",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
 
 service_name = construct_name("cloud-run-orchestrator")
 default = gcp.cloudrun.Service(
@@ -26,6 +44,7 @@ default = gcp.cloudrun.Service(
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
+            service_account_name=cloud_function_service_account.email,
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
                     image=cloud_run_images.cloud_run_orchestrator_image.name,
