@@ -38,7 +38,7 @@ def add_to_aaa_queue(scene_id):
     parent = client.queue_path(project, location, queue)
 
     # Construct the request body.
-    payload = {"sceneid": scene_id, "dry_run": dry_run}
+    payload = {"scene_id": scene_id, "dry_run": dry_run}
 
     task = {
         "http_request": {  # Specify the type of request.
