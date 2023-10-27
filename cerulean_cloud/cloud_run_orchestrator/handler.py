@@ -221,9 +221,10 @@ def flatten_feature_list(
     """flatten a feature list coming from inference"""
     flat_list: List[geojson.Feature] = []
     for r in stack_list:
-        for i in r.stack:
-            for f in i.features:
-                flat_list.append(f)
+        if r.get("stack"):
+            for i in r.stack:
+                for f in i.features:
+                    flat_list.append(f)
     return flat_list
 
 
@@ -350,7 +351,7 @@ async def _orchestrate(
                     )
                     for base_tile in base_tiles
                 ],
-                return_exceptions=False,
+                return_exceptions=True,
             )
 
             logging.info("Inference on offset tiles!")
@@ -364,7 +365,7 @@ async def _orchestrate(
                     )
                     for offset_tile_bounds in offset_tiles_bounds
                 ],
-                return_exceptions=False,
+                return_exceptions=True,
             )
 
             if base_tiles_inference[0].stack[0].dict().get("classes"):
