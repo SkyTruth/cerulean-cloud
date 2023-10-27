@@ -1,7 +1,6 @@
 """Clients for other cloud run functions"""
 import asyncio
 import json
-import logging
 import os
 import zipfile
 from base64 import b64encode
@@ -74,65 +73,38 @@ class CloudRunInferenceClient:
         self, tile: morecantile.Tile, semaphore: asyncio.Semaphore, rescale=(0, 255)
     ) -> InferenceResultStack:
         """fetch inference for base tiles"""
-        logging.basicConfig(level=logging.INFO)
         async with semaphore:
-            logging.info("Fetching base tile.")
             img_array = await self.titiler_client.get_base_tile(
                 sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
             )
 
-            logging.info("Reshaping image array.")
             img_array = reshape_as_raster(img_array)
 
-            logging.info("Getting tile bounds.")
             bounds = list(TMS.bounds(tile))
 
-            logging.info("Reading auxiliary datasets.")
             with self.aux_datasets.open() as src:
                 window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
                 height, width = img_array.shape[1:]
                 aux_ds = src.read(window=window, out_shape=(height, width))
 
-            logging.info("Concatenating image arrays.")
             img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
 
-            logging.info("Encoding image to base64.")
             encoded = img_array_to_b64_image(img_array)
 
-            logging.info("Preparing payload for prediction.")
             inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
-
-            logging.info("Preparing payload for prediction.")
-
-            # Log the length of inf_stack
-            logging.info(f"Length of inf_stack: {len(inf_stack)}")
-
-            # Log a sample from inf_stack
-            logging.info(
-                f"Sample from inf_stack: {inf_stack[:1]}"
-            )  # adjust the slice as needed
-
-            # Log inf_parms
-            logging.info(f"inf_parms: {self.inference_parms}")
-
-            # Create and log the entire payload
             payload = PredictPayload(
                 inf_stack=inf_stack, inf_parms=self.inference_parms
             )
-            logging.info(f"Complete PredictPayload: {payload.dict()}")
-
-            logging.info(f"Sending request to {self.url + '/predict'}.")
             res = await self.client.post(
                 self.url + "/predict", json=payload.dict(), timeout=None
             )
-
-            logging.info("Processing response.")
-            print(f"DEBUG len(inf_stack): {len(inf_stack)}")
-            print(f"DEBUG inf_stack[:1]: {inf_stack[:1]}")
-            print(f"DEBUG self.url + '/predict': {self.url + '/predict'}")
-            print(f"DEBUG payload.dict(): {payload.dict()}")
-            print(f"DEBUG res: {res}")
-        return InferenceResultStack(**res.json())
+        if res.status_code == 200:
+            return InferenceResultStack(**res.json())
+        else:
+            print(f"XXX Received unexpected status code: {res.status_code}")
+            print(f"XXX HTTP content: {res.content}")
+            print(f"XXX Issue was found in: {self.sceneid}")
+            return InferenceResultStack([])
 
     async def get_offset_tile_inference(
         self, bounds: List[float], semaphore: asyncio.Semaphore, rescale=(0, 255)
@@ -161,7 +133,13 @@ class CloudRunInferenceClient:
             res = await self.client.post(
                 self.url + "/predict", json=payload.dict(), timeout=None
             )
-        return InferenceResultStack(**res.json())
+        if res.status_code == 200:
+            return InferenceResultStack(**res.json())
+        else:
+            print(f"XXX Received unexpected status code: {res.status_code}")
+            print(f"XXX HTTP content: {res.content}")
+            print(f"XXX Issue was found in: {self.sceneid}")
+            return InferenceResultStack([])
 
 
 def get_scene_date_month(scene_id: str) -> str:
