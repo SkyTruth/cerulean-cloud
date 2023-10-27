@@ -428,15 +428,13 @@ async def _orchestrate(
                         features=flatten_feature_list(offset_tiles_inference)
                     )
                 except AttributeError as e:
-                    logging.debug(f"YYY error details: {e}")
-                    logging.debug(f"YYY base_tiles_inference: {base_tiles_inference}")
-                    logging.debug(
-                        f"YYY offset_tiles_inference: {offset_tiles_inference}"
-                    )
-                    logging.debug(
+                    print(f"YYY error details: {e}")
+                    print(f"YYY base_tiles_inference: {base_tiles_inference}")
+                    print(f"YYY offset_tiles_inference: {offset_tiles_inference}")
+                    print(
                         f"YYY [r for r in base_tiles_inference]: {[r for r in base_tiles_inference]}"
                     )
-                    logging.debug(
+                    print(
                         f"YYY [r for r in offset_tiles_inference]: {[r for r in offset_tiles_inference]}"
                     )
                     raise e
