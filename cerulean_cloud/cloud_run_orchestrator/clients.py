@@ -74,6 +74,7 @@ class CloudRunInferenceClient:
         self, tile: morecantile.Tile, semaphore: asyncio.Semaphore, rescale=(0, 255)
     ) -> InferenceResultStack:
         """fetch inference for base tiles"""
+        logging.basicConfig(level=logging.INFO)
         async with semaphore:
             logging.info("Fetching base tile.")
             img_array = await self.titiler_client.get_base_tile(
@@ -126,6 +127,11 @@ class CloudRunInferenceClient:
             )
 
             logging.info("Processing response.")
+            print(f"DEBUG len(inf_stack): {len(inf_stack)}")
+            print(f"DEBUG inf_stack[:1]: {inf_stack[:1]}")
+            print(f"DEBUG self.url + '/predict': {self.url + '/predict'}")
+            print(f"DEBUG payload.dict(): {payload.dict()}")
+            print(f"DEBUG res: {res}")
         return InferenceResultStack(**res.json())
 
     async def get_offset_tile_inference(
