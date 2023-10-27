@@ -64,6 +64,7 @@ async def handle_aaa_request(request):
                 if len(slicks_without_sources) > 0:
                     ais_constructor = AISConstructor(s1)
                     ais_constructor.retrieve_ais()
+                    # ais_constructor.add_infra()
                     if (
                         ais_constructor.ais_gdf is not None
                         and not ais_constructor.ais_gdf.empty
@@ -96,6 +97,8 @@ async def handle_aaa_request(request):
                                         st_name=traj["st_name"]
                                     )
                                     if source is None:
+                                        # if type 1: [column list]
+                                        # if type 2: [different column list]
                                         source = await db_client.insert_source(
                                             st_name=traj["st_name"],
                                             source_type=1,  # XXX This will need to be dynamic for SSS

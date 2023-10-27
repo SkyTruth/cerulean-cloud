@@ -26,7 +26,7 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("cerulean-cloud").require("apikey"),
                         ),
                     ],
-                    resources=dict(limits=dict(memory="6Gi", cpu="2000m")),
+                    resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
                 ),
             ],
             container_concurrency=3,
