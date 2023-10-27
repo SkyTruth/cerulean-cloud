@@ -350,7 +350,7 @@ async def _orchestrate(
                     )
                     for base_tile in base_tiles
                 ],
-                return_exceptions=True,
+                return_exceptions=False,
             )
 
             logging.info("Inference on offset tiles!")
@@ -364,7 +364,7 @@ async def _orchestrate(
                     )
                     for offset_tile_bounds in offset_tiles_bounds
                 ],
-                return_exceptions=True,
+                return_exceptions=False,
             )
 
             if base_tiles_inference[0].stack[0].dict().get("classes"):
@@ -431,12 +431,10 @@ async def _orchestrate(
                     print(f"YYY error details: {e}")
                     print(f"YYY base_tiles_inference: {base_tiles_inference}")
                     print(f"YYY offset_tiles_inference: {offset_tiles_inference}")
-                    print(
-                        f"YYY [r for r in base_tiles_inference]: {[r for r in base_tiles_inference]}"
-                    )
-                    print(
-                        f"YYY [r for r in offset_tiles_inference]: {[r for r in offset_tiles_inference]}"
-                    )
+                    for r in base_tiles_inference:
+                        print(f"YYY [r for r in base_tiles_inference]: {r}")
+                    for r in offset_tiles_inference:
+                        print(f"YYY [r for r in offset_tiles_inference]: {r}")
                     raise e
 
             # XXXBUG ValueError: Cannot determine common CRS for concatenation inputs, got ['WGS 84 / UTM zone 28N', 'WGS 84 / UTM zone 29N']. Use `to_crs()` to transform geometries to the same CRS before merging."
@@ -453,6 +451,13 @@ async def _orchestrate(
             )
 
             for feat in merged_inferences.get("features"):
+                logging.info(
+                    f"XXX CHRISTIAN feat.get('properties') {feat.get('properties')}"
+                )
+                logging.info(f"XXX CHRISTIAN feat.get('id') {feat.get('id')}")
+                logging.info(
+                    f"XXX CHRISTIAN feat.get('geometry') {feat.get('geometry')}"
+                )
                 async with db_client.session.begin():
                     # mini_gdf = gpd.GeoDataframe(feat)
                     # if mini_gdf.intersects(land):
