@@ -230,8 +230,6 @@ def flatten_feature_list(
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
-    logging.basicConfig(level=logging.INFO)
-
     # Orchestrate inference
     start_time = datetime.now()
     logging.info(f"Orchestrating for sceneid {payload.sceneid}")
@@ -246,11 +244,11 @@ async def _orchestrate(
     logging.info(f"scale: {scale}")
 
     if model.zoom_level != zoom:
-        logging.info(
+        logging.warning(
             f"WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
         )
     if model.tile_width_px != scale * 256:
-        logging.info(
+        logging.warning(
             f"WARNING: Model was trained on image tile of resolution {model.tile_width_px} but is being run on {scale*256}"
         )
 
@@ -430,22 +428,23 @@ async def _orchestrate(
                         features=flatten_feature_list(offset_tiles_inference)
                     )
                 except AttributeError as e:
-                    logging.info(f"YYY error details: {e}")
-                    logging.info(f"YYY base_tiles_inference: {base_tiles_inference}")
-                    logging.info(
+                    logging.debug(f"YYY error details: {e}")
+                    logging.debug(f"YYY base_tiles_inference: {base_tiles_inference}")
+                    logging.debug(
                         f"YYY offset_tiles_inference: {offset_tiles_inference}"
                     )
-                    logging.info(
+                    logging.debug(
                         f"YYY [r for r in base_tiles_inference]: {[r for r in base_tiles_inference]}"
                     )
-                    logging.info(
+                    logging.debug(
                         f"YYY [r for r in offset_tiles_inference]: {[r for r in offset_tiles_inference]}"
                     )
+                    raise e
 
             # XXXBUG ValueError: Cannot determine common CRS for concatenation inputs, got ['WGS 84 / UTM zone 28N', 'WGS 84 / UTM zone 29N']. Use `to_crs()` to transform geometries to the same CRS before merging."
             # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
-            logging.info(f"XXXDEBUG out_fc: {out_fc}")
-            logging.info(f"XXXDEBUG out_fc_offset: {out_fc_offset}")
+            logging.debug(f"out_fc: {out_fc}")
+            logging.debug(f"out_fc_offset: {out_fc_offset}")
             merged_inferences = merge_inferences(
                 out_fc,
                 out_fc_offset,
@@ -456,17 +455,6 @@ async def _orchestrate(
             )
 
             for feat in merged_inferences.get("features"):
-                try:
-                    logging.info(f"XXX CHRISTIAN type(feat): {type(feat)}")
-                    logging.info(
-                        f"XXX CHRISTIAN type(feat['geometry']): {type(feat['geometry'])}"
-                    )
-                    logging.info(f"XXX CHRISTIAN feat['geometry']: {feat['geometry']}")
-                    logging.info(
-                        f"XXX CHRISTIAN geojson.dumps(feat['geometry']): {geojson.dumps(feat['geometry'])}"
-                    )
-                except:  # noqa
-                    pass
                 async with db_client.session.begin():
                     # mini_gdf = gpd.GeoDataframe(feat)
                     # if mini_gdf.intersects(land):
@@ -499,7 +487,7 @@ async def _orchestrate(
                 noffsettiles=noffsettiles,
             )
         else:
-            logging.info("DRY RUN!!")
+            logging.warning("WARNING: Operating as a DRY RUN!!")
             orchestrator_result = OrchestratorResult(
                 classification_base=geojson.FeatureCollection(features=[]),
                 classification_offset=geojson.FeatureCollection(features=[]),
