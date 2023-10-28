@@ -221,10 +221,9 @@ def flatten_feature_list(
     """flatten a feature list coming from inference"""
     flat_list: List[geojson.Feature] = []
     for r in stack_list:
-        if r.get("stack"):
-            for i in r.stack:
-                for f in i.features:
-                    flat_list.append(f)
+        for i in r.stack:
+            for f in i.features:
+                flat_list.append(f)
     return flat_list
 
 
