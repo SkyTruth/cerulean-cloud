@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 import geojson
+import geopandas as gpd
 import morecantile
 import numpy as np
 import rasterio
@@ -26,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
 from rasterio.io import MemoryFile
 from rasterio.merge import merge
+from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_aaa_queue
@@ -47,6 +49,10 @@ from cerulean_cloud.titiler_client import TitilerClient
 app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
+
+landmask_gdf = gpd.read_file(
+    "gadmLandMask_simplified/gadmLandMask_simplified.shp"
+).to_crs("EPSG:3857")
 
 
 def make_cloud_log_url(
@@ -451,17 +457,17 @@ async def _orchestrate(
             )
 
             for feat in merged_inferences.get("features"):
-                logging.info(
-                    f"XXX CHRISTIAN feat.get('properties') {feat.get('properties')}"
-                )
-                logging.info(f"XXX CHRISTIAN feat.get('id') {feat.get('id')}")
-                logging.info(
-                    f"XXX CHRISTIAN feat.get('geometry') {feat.get('geometry')}"
-                )
                 async with db_client.session.begin():
-                    # mini_gdf = gpd.GeoDataframe(feat)
-                    # if mini_gdf.intersects(land):
-                    #     feat.set("properties").set("inf_idx") = "model.background" (most often 0)
+                    LAND_MASK_BUFFER_M = 1000
+                    slick_gdf = (
+                        gpd.GeoDataFrame(
+                            geometry=[shape(feat["geometry"])], crs="EPSG:4326"
+                        )
+                        .to_crs("EPSG:3857")
+                        .buffer(LAND_MASK_BUFFER_M)
+                    )
+                    if landmask_gdf.intersects(slick_gdf):
+                        feat["properties"]["inf_idx"] = 0
                     slick = await db_client.add_slick(
                         orchestrator_run,
                         sentinel1_grd.start_time,
