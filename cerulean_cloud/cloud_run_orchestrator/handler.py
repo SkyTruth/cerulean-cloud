@@ -484,7 +484,10 @@ async def _orchestrate(
                             "EPSG:3857"
                         ).buffer(LAND_MASK_BUFFER_M)
                         intersecting_land = gpd.sjoin(
-                            landmask_gdf, buffered_gdf, how="inner", op="intersects"
+                            landmask_gdf,
+                            buffered_gdf,
+                            how="inner",
+                            predicate="intersects",
                         )
                         if not intersecting_land.empty:
                             feat["properties"]["inf_idx"] = 0
