@@ -63,9 +63,12 @@ def get_landmask_gdf():
     """
     global landmask_gdf
     if landmask_gdf is None:
-        landmask_gdf = gpd.read_file(
-            "gadmLandMask_simplified/gadmLandMask_simplified.shp"
-        ).to_crs("EPSG:3857")
+        mask_path = os.path.join(
+            os.path.dirname(__file__),
+            "gadmLandMask_simplified",
+            "gadmLandMask_simplified.shp",
+        )
+        landmask_gdf = gpd.read_file(mask_path).to_crs("EPSG:3857")
     return landmask_gdf
 
 
