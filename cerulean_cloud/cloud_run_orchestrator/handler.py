@@ -477,14 +477,16 @@ async def _orchestrate(
                 async with db_client.session.begin():
                     LAND_MASK_BUFFER_M = 1000
                     for feat in merged_inferences.get("features"):
-                        slick_gdf = (
-                            gpd.GeoDataFrame(
-                                geometry=[shape(feat["geometry"])], crs="EPSG:4326"
-                            )
-                            .to_crs("EPSG:3857")
-                            .buffer(LAND_MASK_BUFFER_M)
+                        buffered_gdf = gpd.GeoDataFrame(
+                            geometry=[shape(feat["geometry"])], crs="EPSG:4326"
                         )
-                        if get_landmask_gdf().intersects(slick_gdf).any():
+                        buffered_gdf["geometry"] = buffered_gdf.to_crs(
+                            "EPSG:3857"
+                        ).buffer(LAND_MASK_BUFFER_M)
+                        intersecting_land = gpd.sjoin(
+                            landmask_gdf, buffered_gdf, how="inner", op="intersects"
+                        )
+                        if not intersecting_land.empty:
                             feat["properties"]["inf_idx"] = 0
                         slick = await db_client.add_slick(
                             orchestrator_run,
