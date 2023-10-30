@@ -139,7 +139,7 @@ class CloudRunInferenceClient:
             print(f"XXX Received unexpected status code: {res.status_code}")
             print(f"XXX HTTP content: {res.content}")
             print(f"XXX Issue was found in: {self.sceneid}")
-            return InferenceResultStack([])
+            return InferenceResultStack(stack=[])
 
 
 def get_scene_date_month(scene_id: str) -> str:
