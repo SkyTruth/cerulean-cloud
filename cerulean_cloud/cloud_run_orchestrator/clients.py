@@ -104,7 +104,7 @@ class CloudRunInferenceClient:
             print(f"XXX Received unexpected status code: {res.status_code}")
             print(f"XXX HTTP content: {res.content}")
             print(f"XXX Issue was found in: {self.sceneid}")
-            return InferenceResultStack([])
+            return InferenceResultStack(stack=[])
 
     async def get_offset_tile_inference(
         self, bounds: List[float], semaphore: asyncio.Semaphore, rescale=(0, 255)
