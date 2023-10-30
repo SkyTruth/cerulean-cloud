@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 import geojson
+import geopandas as gpd
 import morecantile
 import numpy as np
 import rasterio
@@ -26,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
 from rasterio.io import MemoryFile
 from rasterio.merge import merge
+from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_aaa_queue
@@ -47,6 +49,23 @@ from cerulean_cloud.titiler_client import TitilerClient
 app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
+
+landmask_gdf = None
+
+
+def get_landmask_gdf():
+    """
+    Retrieves the GeoDataFrame representing the land mask.
+    This function uses lazy initialization to load the land mask data from a .shp file
+    only upon the first call. Subsequent calls return the stored GeoDataFrame.
+    Returns:
+        GeoDataFrame: The GeoDataFrame object representing the land mask, with CRS set to "EPSG:3857".
+    """
+    global landmask_gdf
+    if landmask_gdf is None:
+        mask_path = "/app/cerulean_cloud/cloud_run_orchestrator/gadmLandMask_simplified/gadmLandMask_simplified.shp"
+        landmask_gdf = gpd.read_file(mask_path).to_crs("EPSG:3857")
+    return landmask_gdf
 
 
 def make_cloud_log_url(
@@ -450,28 +469,33 @@ async def _orchestrate(
                 opening_meters=0,
             )
 
-            for feat in merged_inferences.get("features"):
-                logging.info(
-                    f"XXX CHRISTIAN feat.get('properties') {feat.get('properties')}"
-                )
-                logging.info(f"XXX CHRISTIAN feat.get('id') {feat.get('id')}")
-                logging.info(
-                    f"XXX CHRISTIAN feat.get('geometry') {feat.get('geometry')}"
-                )
-                async with db_client.session.begin():
-                    # mini_gdf = gpd.GeoDataframe(feat)
-                    # if mini_gdf.intersects(land):
-                    #     feat.set("properties").set("inf_idx") = "model.background" (most often 0)
-                    slick = await db_client.add_slick(
-                        orchestrator_run,
-                        sentinel1_grd.start_time,
-                        feat.get("geometry"),
-                        feat.get("properties").get("inf_idx"),
-                        feat.get("properties").get("machine_confidence"),
-                    )
-                logging.info(f"Added slick: {slick}")
-
             if merged_inferences.get("features"):
+                async with db_client.session.begin():
+                    LAND_MASK_BUFFER_M = 1000
+                    for feat in merged_inferences.get("features"):
+                        buffered_gdf = gpd.GeoDataFrame(
+                            geometry=[shape(feat["geometry"])], crs="EPSG:4326"
+                        )
+                        buffered_gdf["geometry"] = buffered_gdf.to_crs(
+                            "EPSG:3857"
+                        ).buffer(LAND_MASK_BUFFER_M)
+                        intersecting_land = gpd.sjoin(
+                            get_landmask_gdf(),
+                            buffered_gdf,
+                            how="inner",
+                            predicate="intersects",
+                        )
+                        if not intersecting_land.empty:
+                            feat["properties"]["inf_idx"] = 0
+                        slick = await db_client.add_slick(
+                            orchestrator_run,
+                            sentinel1_grd.start_time,
+                            feat.get("geometry"),
+                            feat.get("properties").get("inf_idx"),
+                            feat.get("properties").get("machine_confidence"),
+                        )
+                    logging.info(f"Added slick: {slick}")
+
                 add_to_aaa_queue(sentinel1_grd.scene_id)
 
             end_time = datetime.now()
