@@ -486,7 +486,7 @@ async def _orchestrate(
                             "EPSG:3857"
                         ).buffer(LAND_MASK_BUFFER_M)
                         intersecting_land = gpd.sjoin(
-                            landmask_gdf,
+                            get_landmask_gdf(),
                             buffered_gdf,
                             how="inner",
                             predicate="intersects",
