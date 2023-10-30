@@ -9,7 +9,6 @@ needs env vars:
 - INFERENCE_URL
 """
 import asyncio
-import logging
 import os
 import urllib.parse as urlparse
 from base64 import b64decode  # , b64encode
@@ -251,23 +250,23 @@ async def _orchestrate(
 ):
     # Orchestrate inference
     start_time = datetime.now()
-    logging.info(f"Orchestrating for sceneid {payload.sceneid}")
-    logging.info(f"Start time: {start_time}")
+    print(f"Orchestrating for sceneid {payload.sceneid}")
+    print(f"Start time: {start_time}")
 
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
             model = await db_client.get_model(os.getenv("MODEL"))
     zoom = payload.zoom or model.zoom_level
     scale = payload.scale or model.scale
-    logging.info(f"zoom: {zoom}")
-    logging.info(f"scale: {scale}")
+    print(f"zoom: {zoom}")
+    print(f"scale: {scale}")
 
     if model.zoom_level != zoom:
-        logging.warning(
+        print(
             f"WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
         )
     if model.tile_width_px != scale * 256:
-        logging.warning(
+        print(
             f"WARNING: Model was trained on image tile of resolution {model.tile_width_px} but is being run on {scale*256}"
         )
 
@@ -277,22 +276,22 @@ async def _orchestrate(
     scene_bounds = await titiler_client.get_bounds(payload.sceneid)
     scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
     scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
-    logging.info(f"scene_bounds: {scene_bounds}")
-    logging.info(f"scene_stats: {scene_stats}")
-    logging.info(f"scene_info: {scene_info}")
+    print(f"scene_bounds: {scene_bounds}")
+    print(f"scene_stats: {scene_stats}")
+    print(f"scene_info: {scene_info}")
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
     base_tiles_bounds = [tiler.bounds(t) for t in base_tiles]
     base_group_bounds = group_bounds_from_list_of_bounds(base_tiles_bounds)
-    logging.info(f"base_group_bounds: {base_group_bounds}")
+    print(f"base_group_bounds: {base_group_bounds}")
 
     offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
     offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
-    logging.info(f"Offset image shape is {offset_group_shape}")
-    logging.info(f"offset_group_bounds: {offset_group_bounds}")
+    print(f"Offset image shape is {offset_group_shape}")
+    print(f"offset_group_bounds: {offset_group_bounds}")
 
-    logging.info(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
+    print(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
 
     # Filter out land tiles
     # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
@@ -302,8 +301,8 @@ async def _orchestrate(
 
     ntiles = len(base_tiles)
     noffsettiles = len(offset_tiles_bounds)
-    logging.info(f"Preparing {ntiles} base tiles (no land).")
-    logging.info(f"Preparing {noffsettiles} offset tiles (no land).")
+    print(f"Preparing {ntiles} base tiles (no land).")
+    print(f"Preparing {noffsettiles} offset tiles (no land).")
 
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
@@ -346,7 +345,7 @@ async def _orchestrate(
         }
 
         if not payload.dry_run:
-            logging.info("Instantiating inference client.")
+            print("Instantiating inference client.")
             cloud_run_inference = CloudRunInferenceClient(
                 url=os.getenv("INFERENCE_URL"),
                 titiler_client=titiler_client,
@@ -358,7 +357,7 @@ async def _orchestrate(
                 inference_parms=inference_parms,
             )
 
-            logging.info("Inference on base tiles!")
+            print("Inference on base tiles!")
             base_tile_semaphore = asyncio.Semaphore(value=20)
             base_tiles_inference = await asyncio.gather(
                 *[
@@ -372,7 +371,7 @@ async def _orchestrate(
                 return_exceptions=True,
             )
 
-            logging.info("Inference on offset tiles!")
+            print("Inference on offset tiles!")
             offset_tile_semaphore = asyncio.Semaphore(value=20)
             offset_tiles_inference = await asyncio.gather(
                 *[
@@ -387,7 +386,7 @@ async def _orchestrate(
             )
 
             if base_tiles_inference[0].stack[0].dict().get("classes"):
-                logging.info("Loading all tiles into memory for merge!")
+                print("Loading all tiles into memory for merge!")
                 ds_base_tiles = []
                 for base_tile_inference in base_tiles_inference:
                     ds_base_tiles.append(
@@ -406,7 +405,7 @@ async def _orchestrate(
                         ]
                     )
 
-                logging.info("Merging base tiles!")
+                print("Merging base tiles!")
                 base_tile_inference_file = MemoryFile()
                 ar, transform = merge(ds_base_tiles)
                 with base_tile_inference_file.open(
@@ -422,7 +421,7 @@ async def _orchestrate(
 
                 out_fc = get_fc_from_raster(base_tile_inference_file)
 
-                logging.info("Merging offset tiles!")
+                print("Merging offset tiles!")
                 offset_tile_inference_file = MemoryFile()
                 ar, transform = merge(ds_offset_tiles)
                 with offset_tile_inference_file.open(
@@ -458,8 +457,8 @@ async def _orchestrate(
 
             # XXXBUG ValueError: Cannot determine common CRS for concatenation inputs, got ['WGS 84 / UTM zone 28N', 'WGS 84 / UTM zone 29N']. Use `to_crs()` to transform geometries to the same CRS before merging."
             # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
-            logging.debug(f"out_fc: {out_fc}")
-            logging.debug(f"out_fc_offset: {out_fc_offset}")
+            print(f"out_fc: {out_fc}")
+            print(f"out_fc_offset: {out_fc_offset}")
             merged_inferences = merge_inferences(
                 out_fc,
                 out_fc_offset,
@@ -494,13 +493,13 @@ async def _orchestrate(
                             feat.get("properties").get("inf_idx"),
                             feat.get("properties").get("machine_confidence"),
                         )
-                    logging.info(f"Added slick: {slick}")
+                    print(f"Added slick: {slick}")
 
                 add_to_aaa_queue(sentinel1_grd.scene_id)
 
             end_time = datetime.now()
-            logging.info(f"End time: {end_time}")
-            logging.info("Returning results!")
+            print(f"End time: {end_time}")
+            print("Returning results!")
 
             async with db_client.session.begin():
                 orchestrator_run.success = True
@@ -514,7 +513,7 @@ async def _orchestrate(
                 noffsettiles=noffsettiles,
             )
         else:
-            logging.warning("WARNING: Operating as a DRY RUN!!")
+            print("WARNING: Operating as a DRY RUN!!")
             orchestrator_result = OrchestratorResult(
                 classification_base=geojson.FeatureCollection(features=[]),
                 classification_offset=geojson.FeatureCollection(features=[]),

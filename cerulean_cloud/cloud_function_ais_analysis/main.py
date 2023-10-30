@@ -2,7 +2,6 @@
 """
 
 import asyncio
-import logging
 import os
 from json import loads
 
@@ -55,7 +54,7 @@ async def handle_aaa_request(request):
     request_json = request.get_json()
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
-        logging.info(f"Running AAA on scene_id: {scene_id}")
+        print(f"Running AAA on scene_id: {scene_id}")
         db_engine = get_engine(db_url=os.getenv("DB_URL"))
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
@@ -63,24 +62,24 @@ async def handle_aaa_request(request):
                 slicks_without_sources = (
                     await db_client.get_slicks_without_sources_from_scene_id(scene_id)
                 )
-                logging.info(f"# Slicks found: {len(slicks_without_sources)}")
+                print(f"# Slicks found: {len(slicks_without_sources)}")
                 if len(slicks_without_sources) > 0:
                     ais_constructor = AISConstructor(s1)
                     ais_constructor.retrieve_ais()
                     # ais_constructor.add_infra()
-                    logging.info("AIS retrieved")
+                    print("AIS retrieved")
                     if (
                         ais_constructor.ais_gdf is not None
                         and not ais_constructor.ais_gdf.empty
                     ):
-                        logging.info("AIS is not empty")
+                        print("AIS is not empty")
                         ais_constructor.build_trajectories()
                         ais_constructor.buffer_trajectories()
                         for slick in slicks_without_sources:
                             ais_associations = automatic_ais_analysis(
                                 ais_constructor, slick
                             )
-                            logging.info(
+                            print(
                                 f"{len(ais_associations)} found for Slick ID: {slick.id}"
                             )
                             if len(ais_associations) > 0:
