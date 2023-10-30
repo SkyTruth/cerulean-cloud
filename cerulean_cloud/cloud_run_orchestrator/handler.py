@@ -50,9 +50,23 @@ app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
-landmask_gdf = gpd.read_file(
-    "gadmLandMask_simplified/gadmLandMask_simplified.shp"
-).to_crs("EPSG:3857")
+landmask_gdf = None
+
+
+def get_landmask_gdf():
+    """
+    Retrieves the GeoDataFrame representing the land mask.
+    This function uses lazy initialization to load the land mask data from a .shp file
+    only upon the first call. Subsequent calls return the stored GeoDataFrame.
+    Returns:
+        GeoDataFrame: The GeoDataFrame object representing the land mask, with CRS set to "EPSG:3857".
+    """
+    global landmask_gdf
+    if landmask_gdf is None:
+        landmask_gdf = gpd.read_file(
+            "gadmLandMask_simplified/gadmLandMask_simplified.shp"
+        ).to_crs("EPSG:3857")
+    return landmask_gdf
 
 
 def make_cloud_log_url(
@@ -466,7 +480,7 @@ async def _orchestrate(
                         .to_crs("EPSG:3857")
                         .buffer(LAND_MASK_BUFFER_M)
                     )
-                    if landmask_gdf.intersects(slick_gdf):
+                    if get_landmask_gdf().intersects(slick_gdf):
                         feat["properties"]["inf_idx"] = 0
                     slick = await db_client.add_slick(
                         orchestrator_run,
