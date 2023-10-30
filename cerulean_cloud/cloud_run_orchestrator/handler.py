@@ -251,7 +251,7 @@ async def perform_inference(tiles, inference_func, semaphore_value, description)
     Perform inference on a set of tiles asynchronously.
 
     Parameters:
-    - tiles (list): List of tiles to perform inference on.
+    - tiles or bounds (list): List of tiles to perform inference on. (depends on inference_func)
     - inference_func (function): Asynchronous function to call for inference.
     - semaphore_value (int): Maximum number of concurrent tasks.
     - description (str): Description of the inference task for logging.
@@ -267,7 +267,7 @@ async def perform_inference(tiles, inference_func, semaphore_value, description)
     semaphore = asyncio.Semaphore(value=semaphore_value)
     inferences = await asyncio.gather(
         *[
-            inference_func(tile=tile, rescale=(0, 255), semaphore=semaphore)
+            inference_func(tile, rescale=(0, 255), semaphore=semaphore)
             for tile in tiles
         ],
         return_exceptions=True,
@@ -460,20 +460,23 @@ async def _orchestrate(
 
                 out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
             elif model.type == "UNET":
-                # XXX UNTESTED PATHWAY
-                out_fc = geojson.FeatureCollection(
-                    features=flatten_feature_list(base_tiles_inference)
-                )
-                out_fc_offset = geojson.FeatureCollection(
-                    features=flatten_feature_list(offset_tiles_inference)
-                )
+                # out_fc = geojson.FeatureCollection(
+                #     features=flatten_feature_list(base_tiles_inference)
+                # )
+                # out_fc_offset = geojson.FeatureCollection(
+                #     features=flatten_feature_list(offset_tiles_inference)
+                # )
+                raise NotImplementedError("UNET pathway isn't well defined")
             else:
-                raise Exception("Unrecognized model type")
+                raise NotImplementedError(
+                    "Model_type must be one of ['MASKRCNN', 'UNET']"
+                )
 
             # XXXBUG ValueError: Cannot determine common CRS for concatenation inputs, got ['WGS 84 / UTM zone 28N', 'WGS 84 / UTM zone 29N']. Use `to_crs()` to transform geometries to the same CRS before merging."
             # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
             print(f"out_fc: {out_fc}")
             print(f"out_fc_offset: {out_fc_offset}")
+
             merged_inferences = merge_inferences(
                 out_fc,
                 out_fc_offset,
@@ -486,6 +489,7 @@ async def _orchestrate(
             if merged_inferences.get("features"):
                 async with db_client.session.begin():
                     LAND_MASK_BUFFER_M = 1000
+                    print(f"Removing all slicks within {LAND_MASK_BUFFER_M}m of land")
                     for feat in merged_inferences.get("features"):
                         buffered_gdf = gpd.GeoDataFrame(
                             geometry=[shape(feat["geometry"])], crs="EPSG:4326"
@@ -501,6 +505,7 @@ async def _orchestrate(
                         )
                         if not intersecting_land.empty:
                             feat["properties"]["inf_idx"] = 0
+
                         slick = await db_client.add_slick(
                             orchestrator_run,
                             sentinel1_grd.start_time,
@@ -508,8 +513,9 @@ async def _orchestrate(
                             feat.get("properties").get("inf_idx"),
                             feat.get("properties").get("machine_confidence"),
                         )
-                    print(f"Added slick: {slick}")
+                        print(f"Added slick: {slick}")
 
+                print("Queueing up Automatic AIS Analysis")
                 add_to_aaa_queue(sentinel1_grd.scene_id)
 
             end_time = datetime.now()
