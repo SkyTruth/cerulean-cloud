@@ -473,28 +473,28 @@ async def _orchestrate(
                 opening_meters=0,
             )
 
-            for feat in merged_inferences.get("features"):
+            if merged_inferences.get("features"):
                 async with db_client.session.begin():
                     LAND_MASK_BUFFER_M = 1000
-                    slick_gdf = (
-                        gpd.GeoDataFrame(
-                            geometry=[shape(feat["geometry"])], crs="EPSG:4326"
+                    for feat in merged_inferences.get("features"):
+                        slick_gdf = (
+                            gpd.GeoDataFrame(
+                                geometry=[shape(feat["geometry"])], crs="EPSG:4326"
+                            )
+                            .to_crs("EPSG:3857")
+                            .buffer(LAND_MASK_BUFFER_M)
                         )
-                        .to_crs("EPSG:3857")
-                        .buffer(LAND_MASK_BUFFER_M)
-                    )
-                    if get_landmask_gdf().intersects(slick_gdf):
-                        feat["properties"]["inf_idx"] = 0
-                    slick = await db_client.add_slick(
-                        orchestrator_run,
-                        sentinel1_grd.start_time,
-                        feat.get("geometry"),
-                        feat.get("properties").get("inf_idx"),
-                        feat.get("properties").get("machine_confidence"),
-                    )
-                logging.info(f"Added slick: {slick}")
+                        if get_landmask_gdf().intersects(slick_gdf).any():
+                            feat["properties"]["inf_idx"] = 0
+                        slick = await db_client.add_slick(
+                            orchestrator_run,
+                            sentinel1_grd.start_time,
+                            feat.get("geometry"),
+                            feat.get("properties").get("inf_idx"),
+                            feat.get("properties").get("machine_confidence"),
+                        )
+                    logging.info(f"Added slick: {slick}")
 
-            if merged_inferences.get("features"):
                 add_to_aaa_queue(sentinel1_grd.scene_id)
 
             end_time = datetime.now()
