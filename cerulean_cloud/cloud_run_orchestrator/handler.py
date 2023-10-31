@@ -408,18 +408,6 @@ async def _orchestrate(
                 20,
                 "offset tiles",
             )
-            print("base_tiles_inference", base_tiles_inference)
-            print("base_tiles_inference[0]", base_tiles_inference[0])
-            print("base_tiles_inference[0].stack", base_tiles_inference[0].stack)
-            print("base_tiles_inference[0].stack[0]", base_tiles_inference[0].stack[0])
-            print(
-                "base_tiles_inference[0].stack[0].dict()",
-                base_tiles_inference[0].stack[0].dict(),
-            )
-            print(
-                "base_tiles_inference[0].stack[0].dict().get(classes)",
-                base_tiles_inference[0].stack[0].dict().get("classes"),
-            )
 
             if model.type == "MASKRCNN":
                 out_fc = geojson.FeatureCollection(
