@@ -93,7 +93,6 @@ jobs:
           stack-name: test
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          pulumi-version: "3.91.0"
 
       - uses: pulumi/actions@v3
         env:
@@ -102,9 +101,9 @@ jobs:
         with:
           command: preview
           stack-name: test
+
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          pulumi-version: "3.91.0"
 
   deploy-test:
     name: Deploy [TEST]
@@ -156,7 +155,6 @@ jobs:
           work-dir: images/
           command: up
           stack-name: test
-          pulumi-version: "3.91.0"
 
       # Copy shared database_client.py files
       - name: Copy Shared File
@@ -173,7 +171,6 @@ jobs:
         with:
           command: refresh
           stack-name: test
-          pulumi-version: "3.91.0"
       
       - uses: pulumi/actions@v3
         id: pulumi
@@ -183,7 +180,6 @@ jobs:
         with:
           command: up
           stack-name: test
-          pulumi-version: "3.91.0"
 
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
@@ -230,7 +226,6 @@ jobs:
           work-dir: images/
           command: up
           stack-name: staging
-          pulumi-version: "3.91.0"
 
       # Copy shared database_client.py files
       - name: Copy Shared File
@@ -247,14 +242,12 @@ jobs:
         with:
           command: refresh
           stack-name: staging
-          pulumi-version: "3.91.0"
 
       - uses: pulumi/actions@v3
         id: pulumi
         with:
           command: up
           stack-name: staging
-          pulumi-version: "3.91.0"
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
@@ -305,7 +298,6 @@ jobs:
           work-dir: images/
           command: up
           stack-name: production
-          pulumi-version: "3.91.0"
 
       # Copy shared database_client.py files
       - name: Copy Shared File
@@ -322,14 +314,12 @@ jobs:
         with:
           command: refresh
           stack-name: production
-          pulumi-version: "3.91.0"
 
       - uses: pulumi/actions@v3
         id: pulumi
         with:
           command: up
           stack-name: production
-          pulumi-version: "3.91.0"
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
