@@ -59,7 +59,7 @@ def merge_inferences(
             concat_gdf["geometry"] = concat_gdf.buffer(proximity_meters)
 
         # Join the features that intersect with each other
-        joined = gpd.sjoin(concat_gdf, concat_gdf, op="intersects").reset_index()
+        joined = gpd.sjoin(concat_gdf, concat_gdf, predicate="intersects").reset_index()
 
         # Create a graph where each node represents a feature and edges represent overlaps/intersections
         G = nx.from_pandas_edgelist(joined, "index", "index_right")
