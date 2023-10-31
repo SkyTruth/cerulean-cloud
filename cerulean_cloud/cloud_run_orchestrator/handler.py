@@ -26,8 +26,6 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
 from rasterio.io import MemoryFile
-
-# from rasterio.merge import merge
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
@@ -475,9 +473,8 @@ async def _orchestrate(
 
             # XXXBUG ValueError: Cannot determine common CRS for concatenation inputs, got ['WGS 84 / UTM zone 28N', 'WGS 84 / UTM zone 29N']. Use `to_crs()` to transform geometries to the same CRS before merging."
             # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
-            print(f"out_fc: {out_fc}")
-            print(f"out_fc_offset: {out_fc_offset}")
-
+            print("XXXDEBUG out_fc", out_fc)
+            print("XXXDEBUG out_fc_offset", out_fc_offset)
             merged_inferences = merge_inferences(
                 out_fc,
                 out_fc_offset,
