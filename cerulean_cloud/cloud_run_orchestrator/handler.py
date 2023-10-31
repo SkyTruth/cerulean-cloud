@@ -407,8 +407,20 @@ async def _orchestrate(
                 20,
                 "offset tiles",
             )
+            print("base_tiles_inference", base_tiles_inference)
+            print("base_tiles_inference[0]", base_tiles_inference[0])
+            print("base_tiles_inference[0].stack", base_tiles_inference[0].stack)
+            print("base_tiles_inference[0].stack[0]", base_tiles_inference[0].stack[0])
+            print(
+                "base_tiles_inference[0].stack[0].dict()",
+                base_tiles_inference[0].stack[0].dict(),
+            )
+            print(
+                "base_tiles_inference[0].stack[0].dict().get(classes)",
+                base_tiles_inference[0].stack[0].dict().get("classes"),
+            )
 
-            if model.type == "MASKRCNN":
+            if model.type == "UNET":
                 print("Loading all tiles into memory for merge!")
                 ds_base_tiles = []
                 for base_tile_inference in base_tiles_inference:
@@ -459,7 +471,7 @@ async def _orchestrate(
                     dst.write(ar)
 
                 out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
-            elif model.type == "UNET":
+            elif model.type == "MASKRCNN":
                 # out_fc = geojson.FeatureCollection(
                 #     features=flatten_feature_list(base_tiles_inference)
                 # )
