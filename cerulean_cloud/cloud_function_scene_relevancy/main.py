@@ -107,7 +107,7 @@ def handle_notification(request_json, ocean_poly):
     """handle notification"""
     filtered_scenes = []
     for r in request_json.get("Records"):
-        sns = request_json["Records"][0]["Sns"]
+        sns = r["Sns"]
         msg = json.loads(sns["Message"])
         scene_poly = sh.polygon.Polygon(msg["footprint"]["coordinates"][0][0])
 
