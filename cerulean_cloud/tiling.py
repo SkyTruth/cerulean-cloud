@@ -55,9 +55,9 @@ def adjacent_tile(tile: morecantile.Tile, dx: int, dy: int) -> morecantile.Tile:
     other = morecantile.Tile(x=x + dx, y=y + dy, z=z)
     return other
 
-
 def offset_bounds_from_base_tiles(
     tiles: List[morecantile.Tile],
+    offset_amount: float = 0.5,
 ) -> List[Tuple[float, float, float, float]]:
     """from a set of base tiles, generate offset tiles"""
     out_offset_tile_bounds = []
@@ -74,8 +74,8 @@ def offset_bounds_from_base_tiles(
             # +2 because tileymax needs to be included (+1) and the new grid has one extra row/column (+1)
             tile = morecantile.Tile(new_x, new_y, zoom)
             adj_tile = adjacent_tile(tile, -1, -1)  # Negative dY is upwards!!!
-            minx, maxy = pixel_to_location(adj_tile, 0.5, 0.5)
-            maxx, miny = pixel_to_location(tile, 0.5, 0.5)
+            minx, maxy = pixel_to_location(adj_tile, offset_amount, offset_amount)
+            maxx, miny = pixel_to_location(tile, offset_amount, offset_amount)
             out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
 
     return out_offset_tile_bounds
