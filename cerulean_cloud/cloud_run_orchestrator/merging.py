@@ -3,6 +3,7 @@ import geojson
 import geopandas as gpd
 import networkx as nx
 import pandas as pd
+from typing import List
 
 
 def reproject_to_utm(gdf_wgs84):
