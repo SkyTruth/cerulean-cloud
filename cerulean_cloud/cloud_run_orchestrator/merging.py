@@ -60,8 +60,9 @@ def merge_inferences(
     #     # If one of the FeatureCollections is empty, return an empty FeatureCollection
     #     return geojson.FeatureCollection(features=[])
 
+    # gdfs_for_processing = [gpd.GeoDataFrame.from_features(fc["features"], crs=4326) for fc in feature_collections if fc["features"] else gpd.GeoDataFrame([],crs=4326)]
     gdfs_for_processing = [gpd.GeoDataFrame.from_features(fc["features"], crs=4326) if fc["features"] else gpd.GeoDataFrame([], crs=4326) for fc in feature_collections]
-    gdfs_for_processing = [gdf.to_crs(gdfs_for_processing[0].reproject_to_utm(gdfs_for_processing[0])) for gdf in gdfs_for_processing]
+    gdfs_for_processing = [gdf.to_crs(reproject_to_utm(gdfs_for_processing[0])) for gdf in gdfs_for_processing]
 
     # Concat the GeoDataFrames
     concat_gdf = pd.concat(gdfs_for_processing, ignore_index=True)
