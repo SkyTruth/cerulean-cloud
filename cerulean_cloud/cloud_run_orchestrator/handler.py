@@ -524,6 +524,9 @@ async def _orchestrate(
                 closing_meters=0,
                 opening_meters=0,
             )
+            fc_count = len(merged_inferences.feature_collections)
+            print(f"XXXC >> Sanity Check, there area {fc_count} Feature Collections being fed to merge_inferences.")
+            print(f"XXXC >> Checking the isolated_conf_multiplier: {merged_inferences.isolated_conf_multiplier}")
             print("XXXC >> IF WE GET HERE THE MERGE INFERENCES WORKED")
 
             if merged_inferences.get("features"):
