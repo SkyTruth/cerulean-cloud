@@ -427,15 +427,15 @@ def test_flatten_result():
 
 def test_func_merge_inferences():
     with open("test/test_cerulean_cloud/fixtures/base.geojson") as src:
-        base_tile_fc = dict(geojson.load(src))
+        out_fc = dict(geojson.load(src))
 
     with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
-        offset_tile_fc = dict(geojson.load(src))
+        out_fc_offset = dict(geojson.load(src))
 
     merged = merge_inferences(
-        base_tile_fc=base_tile_fc,
-        offset_tile_fc=offset_tile_fc,
-        isolated_conf_multiplier=0.1,
+        # base_tile_fc=base_tile_fc,
+        # offset_tile_fc=offset_tile_fc,
+        feature_collections = [out_fc, out_fc_offset],
         proximity_meters=500,
         closing_meters=100,
         opening_meters=100,
