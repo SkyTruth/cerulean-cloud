@@ -460,13 +460,11 @@ def test_func_merge_inferences_empty():
 
     merged = merge_inferences(
         feature_collections=geojson.FeatureCollection(features=[]),
-        feature_collections=[offset_tile_fc],
     )
     assert merged["type"] == "FeatureCollection"
     assert len(merged["features"]) == 0
 
     merged = merge_inferences(
-        feature_collections=[offset_tile_fc],
         feature_collections=geojson.FeatureCollection(features=[]),
     )
     assert merged["type"] == "FeatureCollection"
