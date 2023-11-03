@@ -458,21 +458,21 @@ def test_func_merge_inferences_empty():
     with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
         offset_tile_fc = dict(geojson.load(src))
 
+
     merged = merge_inferences(
-        feature_collections=geojson.FeatureCollection(features=[]),
+        feature_collections = [geojson.FeatureCollection(features=[]),offset_tile_fc]
     )
     assert merged["type"] == "FeatureCollection"
     assert len(merged["features"]) == 0
 
     merged = merge_inferences(
-        feature_collections=geojson.FeatureCollection(features=[]),
+        feature_collections=[offset_tile_fc,geojson.FeatureCollection(features=[])]
     )
     assert merged["type"] == "FeatureCollection"
     assert len(merged["features"]) == 0
 
     merged = merge_inferences(
-        feature_collections=geojson.FeatureCollection(features=[]),
-        # feature_collections=geojson.FeatureCollection(features=[]),
+        feature_collections=[geojson.FeatureCollection(features=[]),geojson.FeatureCollection(features=[])]
     )
     assert merged["type"] == "FeatureCollection"
     assert len(merged["features"]) == 0
