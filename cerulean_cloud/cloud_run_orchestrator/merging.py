@@ -11,7 +11,7 @@ def reproject_to_utm(gdf_wgs84):
     return gdf_wgs84.to_crs(utm_crs)
 
 def merge_inferences(
-    feature_collections: list[geojson.FeatureCollection],  # XXXC >> USING THIS AS A TEST replacement for base_tile_fc and offset_tile_fc
+    feature_collections: List[geojson.FeatureCollection],  # XXXC >> USING THIS AS A TEST replacement for base_tile_fc and offset_tile_fc
     isolated_conf_multiplier: float = None,  # THIS IS FURTHER DEFINED ON LINES 39-40 as 1 / len(feature_collections)
     proximity_meters: int = 500,
     closing_meters: int = 0,
