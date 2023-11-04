@@ -383,14 +383,12 @@ async def _orchestrate(
             base_tiles_inference = await perform_inference(
                 base_tiles,
                 cloud_run_inference.get_base_tile_inference,
-                100,
                 "base tiles",
             )
 
             offset_tiles_inference = await perform_inference(
                 offset_tiles_bounds,
                 cloud_run_inference.get_offset_tile_inference,
-                100,
                 "offset tiles",
             )
 
