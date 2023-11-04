@@ -55,6 +55,7 @@ def adjacent_tile(tile: morecantile.Tile, dx: int, dy: int) -> morecantile.Tile:
     other = morecantile.Tile(x=x + dx, y=y + dy, z=z)
     return other
 
+
 def offset_bounds_from_base_tiles(
     tiles: List[morecantile.Tile],
     offset_amount: float = 0.5,
