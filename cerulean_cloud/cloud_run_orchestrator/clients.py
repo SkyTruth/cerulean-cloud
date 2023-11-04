@@ -1,5 +1,4 @@
 """Clients for other cloud run functions"""
-import asyncio
 import json
 import os
 import zipfile
@@ -70,76 +69,70 @@ class CloudRunInferenceClient:
         self.inference_parms = inference_parms
 
     async def get_base_tile_inference(
-        self, tile: morecantile.Tile, semaphore: asyncio.Semaphore, rescale=(0, 255)
+        self, tile: morecantile.Tile, rescale=(0, 255)
     ) -> InferenceResultStack:
         """fetch inference for base tiles"""
-        async with semaphore:
-            img_array = await self.titiler_client.get_base_tile(
-                sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
-            )
+        img_array = await self.titiler_client.get_base_tile(
+            sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
+        )
 
-            img_array = reshape_as_raster(img_array)
+        img_array = reshape_as_raster(img_array)
 
-            bounds = list(TMS.bounds(tile))
+        bounds = list(TMS.bounds(tile))
 
-            with self.aux_datasets.open() as src:
-                window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
-                height, width = img_array.shape[1:]
-                aux_ds = src.read(window=window, out_shape=(height, width))
+        with self.aux_datasets.open() as src:
+            window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
+            height, width = img_array.shape[1:]
+            aux_ds = src.read(window=window, out_shape=(height, width))
 
-            img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
+        img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
 
-            encoded = img_array_to_b64_image(img_array)
+        encoded = img_array_to_b64_image(img_array)
 
-            inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
-            payload = PredictPayload(
-                inf_stack=inf_stack, inf_parms=self.inference_parms
-            )
-            res = await self.client.post(
-                self.url + "/predict", json=payload.dict(), timeout=None
-            )
+        inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
+        payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
+        res = await self.client.post(
+            self.url + "/predict", json=payload.dict(), timeout=None
+        )
         if res.status_code == 200:
             return InferenceResultStack(**res.json())
         else:
-            print(f"XXX Received unexpected status code: {res.status_code}")
-            print(f"XXX HTTP content: {res.content}")
             print(f"XXX Issue was found in: {self.sceneid}")
-            return InferenceResultStack(stack=[])
+            raise Exception(
+                f"XXX Received unexpected status code: {res.status_code} {res.content}"
+            )
 
     async def get_offset_tile_inference(
-        self, bounds: List[float], semaphore: asyncio.Semaphore, rescale=(0, 255)
+        self, bounds: List[float], rescale=(0, 255)
     ) -> InferenceResultStack:
         """fetch inference for offset tiles"""
-        async with semaphore:
-            hw = self.scale * 256
-            img_array = await self.titiler_client.get_offset_tile(
-                self.sceneid, *bounds, width=hw, height=hw, rescale=rescale
-            )
-            img_array = reshape_as_raster(img_array)
-            with self.aux_datasets.open() as src:
-                window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
-                height, width = img_array.shape[1:]
-                aux_ds = src.read(window=window, out_shape=(height, width))
+        hw = self.scale * 256
+        img_array = await self.titiler_client.get_offset_tile(
+            self.sceneid, *bounds, width=hw, height=hw, rescale=rescale
+        )
+        img_array = reshape_as_raster(img_array)
+        with self.aux_datasets.open() as src:
+            window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
+            height, width = img_array.shape[1:]
+            aux_ds = src.read(window=window, out_shape=(height, width))
 
-            img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
+        img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
 
-            encoded = img_array_to_b64_image(img_array)
+        encoded = img_array_to_b64_image(img_array)
 
-            inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
+        inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
 
-            payload = PredictPayload(
-                inf_stack=inf_stack, inf_parms=self.inference_parms
-            )
-            res = await self.client.post(
-                self.url + "/predict", json=payload.dict(), timeout=None
-            )
+        payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
+        res = await self.client.post(
+            self.url + "/predict", json=payload.dict(), timeout=None
+        )
         if res.status_code == 200:
             return InferenceResultStack(**res.json())
         else:
-            print(f"XXX Received unexpected status code: {res.status_code}")
-            print(f"XXX HTTP content: {res.content}")
             print(f"XXX Issue was found in: {self.sceneid}")
-            return InferenceResultStack(stack=[])
+            raise Exception(
+                f"XXX Received unexpected status code: {res.status_code} {res.content}"
+            )
 
 
 def get_scene_date_month(scene_id: str) -> str:
