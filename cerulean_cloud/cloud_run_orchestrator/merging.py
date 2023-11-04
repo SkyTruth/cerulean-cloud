@@ -105,6 +105,14 @@ def merge_inferences(
         # Reproject the GeoDataFrame back to WGS 84 CRS
         result = dissolved_gdf.to_crs(crs=4326)
 
+        # Clean up potentially memory heavy assets
+        del dissolved_gdf
+        del concat_gdf
+        del final_gdf
+        del joined
+        del base_gdf
+        del offset_gdf
+
         return result.__geo_interface__
     else:
         # If one of the FeatureCollections is empty, return an empty FeatureCollection

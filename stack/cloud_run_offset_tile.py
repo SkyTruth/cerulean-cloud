@@ -33,6 +33,9 @@ default = gcp.cloudrun.Service(
         ),
         metadata=dict(
             name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
+            annotations={
+                "autoscaling.knative.dev/maxScale": "2000",
+            },
         ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(
