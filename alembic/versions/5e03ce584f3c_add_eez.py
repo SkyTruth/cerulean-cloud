@@ -44,7 +44,6 @@ def upgrade() -> None:
     session = orm.Session(bind=bind)
 
     eez = get_eez_from_url()  # geojson.load(open("EEZ_and_HighSeas_20230410.json"))
-    eez = {"features": []}  # noqa
     for feat in eez.get("features"):
         sovereign_keys = [
             k for k in list(feat["properties"].keys()) if k.startswith("SOVEREIGN")
