@@ -340,7 +340,7 @@ async def _orchestrate(
     print(f"Offset 2 offset_group_bounds: {offset_2_group_bounds}")
 
     print(
-        f"Original tiles are {len(base_tiles)}, {len(offset_group_bounds)}, {len(offset_2_group_bounds)}"
+        f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}, {len(offset_2_tiles_bounds)}"
     )
 
     # Filter out land tiles
@@ -425,7 +425,7 @@ async def _orchestrate(
 
             offset_2_tiles_inference = await perform_inference(
                 offset_2_tiles_bounds,
-                cloud_run_inference.get_offset_tile_inference,  # THIS FUNCTION NEEDS TO BE EDITTED
+                cloud_run_inference.get_offset_tile_inference,
                 20,
                 "offset2 tiles",
             )
@@ -551,7 +551,7 @@ async def _orchestrate(
             async with db_client.session.begin():
                 orchestrator_run.success = True
                 orchestrator_run.inference_end_time = end_time
-            # XXXC >> reduce num variables to a list of featureCollection, ala the merging approach
+
             orchestrator_result = OrchestratorResult(
                 classification_base=out_fc,
                 classification_offset=out_fc_offset,
