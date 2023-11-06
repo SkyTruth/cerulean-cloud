@@ -37,8 +37,7 @@ def merge_inferences(
     """
     # We reproject to UTM for processing. This assumes that all offset images will either be in the same UTM zone as
     # the input image chip, or that the difference that arise from an offset crossing into a second UTM zone will
-    # have little or no impact on comparison to the origina image.
-
+    # have little or no impact on comparison to the original image.
     gdfs_for_processing = [
         reproject_to_utm(
             gpd.GeoDataFrame.from_features(fc["features"], crs=4326).assign(fc_index=i)
