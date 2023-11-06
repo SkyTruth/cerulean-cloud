@@ -28,7 +28,6 @@ def merge_inferences(
 
     Parameters:
     - feature_collections: A list of FeatureCollecitons to be merged, a primary and any secondary FeatureCollections
-    - isolated_conf_multiplier: A multiplier for the confidence of isolated features (default is 1 / len(feature_collections)).
     - proximity_meters: The distance to check for neighboring features and expand the geometries (default is 500m).
     - closing_meters: The distance to apply the morphological 'closing' operation (default is 0m).
     - opening_meters: The distance to apply the morphological 'opening' operation (default is 0m).
@@ -36,6 +35,10 @@ def merge_inferences(
     Returns:
     A merged geojson FeatureCollection.
     """
+    # We reproject to UTM for processing. This assumes that all offset images will either be in the same UTM zone as
+    # the input image chip, or that the difference that arise from an offset crossing into a second UTM zone will
+    # have little or no impact on comparison to the origina image.
+
     gdfs_for_processing = [
         reproject_to_utm(
             gpd.GeoDataFrame.from_features(fc["features"], crs=4326).assign(fc_index=i)
