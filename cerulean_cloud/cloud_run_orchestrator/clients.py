@@ -73,7 +73,10 @@ class CloudRunInferenceClient:
     ) -> InferenceResultStack:
         """fetch inference for base tiles"""
         img_array = await self.titiler_client.get_base_tile(
-            sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
+            sceneid=self.sceneid,
+            tile=tile,
+            scale=self.scale,
+            rescale=rescale,
         )
 
         img_array = reshape_as_raster(img_array)
@@ -108,7 +111,12 @@ class CloudRunInferenceClient:
         """fetch inference for offset tiles"""
         hw = self.scale * 256
         img_array = await self.titiler_client.get_offset_tile(
-            self.sceneid, *bounds, width=hw, height=hw, rescale=rescale
+            self.sceneid,
+            *bounds,
+            width=hw,
+            height=hw,
+            scale=self.scale,
+            rescale=rescale,
         )
         img_array = reshape_as_raster(img_array)
         with self.aux_datasets.open() as src:
