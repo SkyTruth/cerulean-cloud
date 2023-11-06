@@ -321,8 +321,7 @@ async def _orchestrate(
     base_group_bounds = group_bounds_from_list_of_bounds(base_tiles_bounds)
     print(f"base_group_bounds: {base_group_bounds}")
 
-    # XXXC - THIS IS THE START OF THE OFFSETTING. tiling.py was updated to allow for offset_amount to be declared by offset_bounds_from_base_tiles(),
-    # see tiling.py line 61.
+    # tiling.py was updated to allow for offset_amount to be declared by offset_bounds_from_base_tiles(), see tiling.py line 61.
     offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles, offset_amount=0.33)
     offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
     offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
@@ -343,18 +342,14 @@ async def _orchestrate(
     print(
         f"Original tiles are {len(base_tiles)}, {len(offset_group_bounds)}, {len(offset_2_group_bounds)}"
     )
-    # XXXC - THIS IS THE END OF THE OFFSETTING.
 
     # Filter out land tiles
     # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
     # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
     base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
 
-    # XXXC - OFFSET TIlE BOUNDS OVER WATER
     offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
-    print(f"offset_tiles_bounds: {offset_tiles_bounds}")
     offset_2_tiles_bounds = [b for b in offset_2_tiles_bounds if is_tile_over_water(b)]
-    print(f"offset_2_tiles_bounds: {offset_2_tiles_bounds}")
 
     ntiles = len(base_tiles)
     noffsettiles = len(offset_tiles_bounds)
@@ -421,29 +416,25 @@ async def _orchestrate(
                 "base tiles",
             )
 
-            # XXXC - START OFFSET 2
             offset_tiles_inference = await perform_inference(
                 offset_tiles_bounds,
                 cloud_run_inference.get_offset_tile_inference,
                 20,
                 "offset tiles",
             )
-            # XXXC - END OFFSET 2
 
-            # XXXC - START OFFSET 3
             offset_2_tiles_inference = await perform_inference(
                 offset_2_tiles_bounds,
                 cloud_run_inference.get_offset_tile_inference,  # THIS FUNCTION NEEDS TO BE EDITTED
                 20,
                 "offset2 tiles",
             )
-            # XXXC - END OFFSET 3
 
             if model.type == "MASKRCNN":
                 out_fc = geojson.FeatureCollection(
                     features=flatten_feature_list(base_tiles_inference)
                 )
-                # XXXC - OFFSET 3  >> THIS NEEDS TO BE EDITTED
+
                 out_fc_offset = geojson.FeatureCollection(
                     features=flatten_feature_list(offset_tiles_inference)
                 )
@@ -514,15 +505,8 @@ async def _orchestrate(
             print("XXXDEBUG out_fc_offset", out_fc_offset)
             print("XXXCDEBUG out_fc_offset2", out_fc_offset_2)
 
-            # XXXC - OFFSET 3 >> change code to allow number of offsets, pass in list of featureCollections (2 or 3)
-            print("XXXC >> TRYING TO MERGE INFERENCES")
-            merged_inferences = merge_inferences(  # changes to 15-16, give list of FCs 2-3 items
+            merged_inferences = merge_inferences(
                 feature_collections=[out_fc, out_fc_offset, out_fc_offset_2],
-                # out_fc,
-                # out_fc_offset,
-                # out_fc_offset_2,  # Added this as a test before giving merge a list
-                # Not declaring isolated_conf_multiplier because the default value is updated in merging.py
-                # isolated_conf_multiplier=0.3,  # Changed to ~.33 (1/len(# of FCs)), could be calculated in merging.py and document this. Originally 0.5
                 proximity_meters=500,
                 closing_meters=0,
                 opening_meters=0,
@@ -563,9 +547,6 @@ async def _orchestrate(
             end_time = datetime.now()
             print(f"End time: {end_time}")
             print("Returning results!")
-            print(
-                "XXXC >> IF WE GET HERE THE MERGE INFERENCES WORKED EVEN MORE, GOT TO LINE 565"
-            )
 
             async with db_client.session.begin():
                 orchestrator_run.success = True
@@ -587,5 +568,4 @@ async def _orchestrate(
                 ntiles=ntiles,
                 noffsettiles=noffsettiles,
             )
-    print("XXXC >> IF WE GET HERE EVERYTHING WORKED")
     return orchestrator_result
