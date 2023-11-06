@@ -14,9 +14,7 @@ def reproject_to_utm(gdf_wgs84):
 
 
 def merge_inferences(
-    feature_collections: List[
-        geojson.FeatureCollection
-    ],  # XXXC >> USING THIS AS A TEST replacement for base_tile_fc and offset_tile_fc
+    feature_collections: List[geojson.FeatureCollection],
     proximity_meters: int = 500,
     closing_meters: int = 0,
     opening_meters: int = 0,
@@ -58,7 +56,7 @@ def merge_inferences(
     if proximity_meters is not None:
         concat_gdf["geometry"] = concat_gdf.buffer(proximity_meters)
 
-    # Join the features that intersect with each other >> XXXC THIS MAY NEED REWORK, keep an eye on it :)
+    # Join the features that intersect with each other
     joined = gpd.sjoin(concat_gdf, concat_gdf, predicate="intersects").reset_index()
 
     # Create a graph where each node represents a feature and edges represent overlaps/intersections
