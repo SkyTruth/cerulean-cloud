@@ -36,7 +36,6 @@ def upgrade() -> None:
     session = orm.Session(bind=bind)
 
     iho = get_iho_from_url()
-    iho = {"features": []}  # noqa
     for feat in iho.get("features"):
         with session.begin():
             aoi_iho = database_schema.AoiIho(
