@@ -19,7 +19,7 @@ queue = cloudtasks.Queue(
     construct_name("queue-cloud-tasks-ais-analysis"),
     location=pulumi.Config("gcp").require("region"),
     rate_limits=cloudtasks.QueueRateLimitsArgs(
-        max_concurrent_dispatches=1,
+        max_concurrent_dispatches=200,
         max_dispatches_per_second=1,
     ),
     retry_config=cloudtasks.QueueRetryConfigArgs(

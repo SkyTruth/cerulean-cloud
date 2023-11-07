@@ -2,7 +2,6 @@
 Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
 from base64 import b64decode, b64encode
-from functools import lru_cache
 from typing import Dict, List, Tuple, Union
 
 import geojson
@@ -33,17 +32,17 @@ app = FastAPI(title="Cloud Run for offset tiles", dependencies=[Depends(api_key_
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 add_timing_middleware(app, prefix="app")
 
-
-def load_tracing_model(savepath):
-    """load tracing model. a tracing model must be applied to the same batch dimensions the model was trained on."""
-    tracing_model = torch.jit.load(savepath, map_location="cpu")
-    return tracing_model
+MODEL = None
 
 
-@lru_cache()
-def get_model():
-    """load model"""
-    return load_tracing_model("cerulean_cloud/cloud_run_offset_tiles/model/model.pt")
+def load_model():
+    """Load the model into the global variable."""
+    global MODEL
+    if MODEL is None:
+        # You should specify the correct path to your model file
+        model_path = "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
+        MODEL = torch.jit.load(model_path, map_location="cpu")
+    return MODEL
 
 
 def logits_to_classes(out_batch_logits):
@@ -164,11 +163,10 @@ def _predict(
     tags=["Run inference"],
     response_model=InferenceResultStack,
 )
-def predict(
-    request: Request, payload: PredictPayload, model=Depends(get_model)
-) -> Dict:
-    """predict"""
+def predict(request: Request, payload: PredictPayload) -> Dict:
+    """Run prediction using the loaded model."""
     record_timing(request, note="Started")
+    model = load_model()
     results = _predict(payload.inf_stack, model, payload.inf_parms)
     record_timing(request, note="Finished inference")
 

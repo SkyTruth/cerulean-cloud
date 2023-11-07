@@ -144,6 +144,7 @@ class TitilerClient:
         height: int = 256,
         band: str = "vv",
         img_format: str = "png",
+        scale: int = 1,
         rescale: Tuple[int, int] = (0, 255),
     ) -> np.ndarray:
         """get offset tile as numpy array (with bounds)
@@ -169,6 +170,7 @@ class TitilerClient:
         )
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
+        url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
         resp = await self.client.get(url, timeout=self.timeout)
 
