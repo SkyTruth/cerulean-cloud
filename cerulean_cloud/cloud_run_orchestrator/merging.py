@@ -51,6 +51,8 @@ def merge_inferences(
         return geojson.FeatureCollection(features=[])
 
     # Concat the GeoDataFrames
+    target_crs = gdfs_for_processing[0].crs
+    gdfs_for_processing = [gdf.to_crs(target_crs) for gdf in gdfs_for_processing]
     concat_gdf = pd.concat(gdfs_for_processing, ignore_index=True)
     final_gdf = concat_gdf.copy()
 
@@ -106,5 +108,11 @@ def merge_inferences(
 
     # Reproject the GeoDataFrame back to WGS 84 CRS
     result = dissolved_gdf.to_crs(crs=4326)
+
+    # Clean up potentially memory heavy assets
+    del dissolved_gdf
+    del concat_gdf
+    del final_gdf
+    del joined
 
     return result.__geo_interface__

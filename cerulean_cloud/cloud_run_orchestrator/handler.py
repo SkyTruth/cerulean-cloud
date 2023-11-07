@@ -10,7 +10,6 @@ needs env vars:
 """
 import asyncio
 import os
-import traceback
 import urllib.parse as urlparse
 from base64 import b64decode  # , b64encode
 from datetime import datetime, timedelta
@@ -245,14 +244,13 @@ def flatten_feature_list(
     return flat_list
 
 
-async def perform_inference(tiles, inference_func, semaphore_value, description):
+async def perform_inference(tiles, inference_func, description):
     """
     Perform inference on a set of tiles asynchronously.
 
     Parameters:
     - tiles or bounds (list): List of tiles to perform inference on. (depends on inference_func)
     - inference_func (function): Asynchronous function to call for inference.
-    - semaphore_value (int): Maximum number of concurrent tasks.
     - description (str): Description of the inference task for logging.
 
     Returns:
@@ -263,22 +261,11 @@ async def perform_inference(tiles, inference_func, semaphore_value, description)
     - Prints traceback of exceptions to the console.
     """
     print(f"Inference on {description}!")
-    semaphore = asyncio.Semaphore(value=semaphore_value)
     inferences = await asyncio.gather(
-        *[
-            inference_func(tile, rescale=(0, 255), semaphore=semaphore)
-            for tile in tiles
-        ],
-        return_exceptions=True,
+        *[inference_func(tile, rescale=(0, 255)) for tile in tiles],
+        return_exceptions=False,  # This raises exceptions
     )
-    clean_inferences = []
-    for res in inferences:
-        if isinstance(res, Exception):
-            print(f"WARNING: Exception occurred during {description} inference: {res}")
-            traceback.print_tb(res.__traceback__)
-        else:
-            clean_inferences.append(res)
-    return clean_inferences
+    return inferences
 
 
 async def _orchestrate(
@@ -412,36 +399,35 @@ async def _orchestrate(
             base_tiles_inference = await perform_inference(
                 base_tiles,
                 cloud_run_inference.get_base_tile_inference,
-                20,
                 "base tiles",
             )
 
             offset_tiles_inference = await perform_inference(
                 offset_tiles_bounds,
                 cloud_run_inference.get_offset_tile_inference,
-                20,
                 "offset tiles",
             )
 
             offset_2_tiles_inference = await perform_inference(
                 offset_2_tiles_bounds,
                 cloud_run_inference.get_offset_tile_inference,
-                20,
                 "offset2 tiles",
             )
+            del base_tiles
+            del offset_tiles_bounds
 
             if model.type == "MASKRCNN":
                 out_fc = geojson.FeatureCollection(
                     features=flatten_feature_list(base_tiles_inference)
                 )
-
                 out_fc_offset = geojson.FeatureCollection(
                     features=flatten_feature_list(offset_tiles_inference)
                 )
-
                 out_fc_offset_2 = geojson.FeatureCollection(
                     features=flatten_feature_list(offset_2_tiles_inference)
                 )
+                del base_tiles_inference
+                del offset_tiles_inference
             elif model.type == "UNET":
                 # print("Loading all tiles into memory for merge!")
                 # ds_base_tiles = []
@@ -523,11 +509,9 @@ async def _orchestrate(
                         buffered_gdf["geometry"] = buffered_gdf.to_crs(
                             "EPSG:3857"
                         ).buffer(LAND_MASK_BUFFER_M)
+                        landmask = get_landmask_gdf()
                         intersecting_land = gpd.sjoin(
-                            get_landmask_gdf(),
-                            buffered_gdf,
-                            how="inner",
-                            predicate="intersects",
+                            landmask, buffered_gdf, how="inner", predicate="intersects"
                         )
                         if not intersecting_land.empty:
                             feat["properties"]["inf_idx"] = 0
@@ -559,6 +543,10 @@ async def _orchestrate(
                 ntiles=ntiles,
                 noffsettiles=noffsettiles,
             )
+
+            # Clean up potentially memory heavy assets
+            del out_fc
+            del out_fc_offset
         else:
             print("WARNING: Operating as a DRY RUN!!")
             orchestrator_result = OrchestratorResult(
