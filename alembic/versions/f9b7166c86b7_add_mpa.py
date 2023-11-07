@@ -36,7 +36,6 @@ def upgrade() -> None:
     session = orm.Session(bind=bind)
 
     mpa = get_mpa_from_url()
-    mpa = {"features": []}  # noqa
     for feat in mpa.get("features"):
         with session.begin():
             aoi_mpa = database_schema.AoiMpa(
