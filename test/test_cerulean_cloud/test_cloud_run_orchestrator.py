@@ -433,9 +433,7 @@ def test_func_merge_inferences():
         offset_tile_fc = dict(geojson.load(src))
 
     merged = merge_inferences(
-        base_tile_fc=base_tile_fc,
-        offset_tile_fc=offset_tile_fc,
-        isolated_conf_multiplier=0.1,
+        [base_tile_fc, offset_tile_fc],
         proximity_meters=500,
         closing_meters=100,
         opening_meters=100,
@@ -458,23 +456,19 @@ def test_func_merge_inferences_empty():
     with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
         offset_tile_fc = dict(geojson.load(src))
 
-    merged = merge_inferences(
-        base_tile_fc=geojson.FeatureCollection(features=[]),
-        offset_tile_fc=offset_tile_fc,
-    )
+    merged = merge_inferences([geojson.FeatureCollection(features=[]), offset_tile_fc])
     assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 0
+    assert len(merged["features"]) == 5
+
+    merged = merge_inferences([offset_tile_fc, geojson.FeatureCollection(features=[])])
+    assert merged["type"] == "FeatureCollection"
+    assert len(merged["features"]) == 5
 
     merged = merge_inferences(
-        base_tile_fc=offset_tile_fc,
-        offset_tile_fc=geojson.FeatureCollection(features=[]),
-    )
-    assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 0
-
-    merged = merge_inferences(
-        base_tile_fc=geojson.FeatureCollection(features=[]),
-        offset_tile_fc=geojson.FeatureCollection(features=[]),
+        [
+            geojson.FeatureCollection(features=[]),
+            geojson.FeatureCollection(features=[]),
+        ],
     )
     assert merged["type"] == "FeatureCollection"
     assert len(merged["features"]) == 0
