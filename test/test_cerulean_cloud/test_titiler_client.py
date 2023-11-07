@@ -116,7 +116,7 @@ async def test_offset_tile(titiler_client, tiles_s1_scene, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=titiler_client.url
-        + f"crop/{minx},{miny},{maxx},{maxy}/256x256.png?sceneid={sceneid}&bands=vv&rescale=0,255",
+        + f"crop/{minx},{miny},{maxx},{maxy}/256x256.png?sceneid={sceneid}&bands=vv&scale=1&rescale=0,255",
         content=img_bytes,
     )
 
