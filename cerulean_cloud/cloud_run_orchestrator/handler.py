@@ -308,19 +308,35 @@ async def _orchestrate(
     base_group_bounds = group_bounds_from_list_of_bounds(base_tiles_bounds)
     print(f"base_group_bounds: {base_group_bounds}")
 
-    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
+    # tiling.py was updated to allow for offset_amount to be declared by offset_bounds_from_base_tiles(), see tiling.py line 61.
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles, offset_amount=0.33)
     offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
     offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
-    print(f"Offset image shape is {offset_group_shape}")
-    print(f"offset_group_bounds: {offset_group_bounds}")
+    print(f"Offset 1 offset_tiles_bounds {offset_tiles_bounds}")
+    print(f"Offset 1 image shape is {offset_group_shape}")
+    print(f"Offset 1 offset_group_bounds: {offset_group_bounds}")
 
-    print(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
+    print("START OF OFFSET #2")
+    offset_2_tiles_bounds = offset_bounds_from_base_tiles(
+        base_tiles, offset_amount=0.66
+    )
+    offset_2_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
+    offset_2_group_bounds = group_bounds_from_list_of_bounds(offset_2_tiles_bounds)
+    print(f"Offset 2 offset_tiles_bounds {offset_2_tiles_bounds}")
+    print(f"Offset 2 image shape is {offset_2_group_shape}")
+    print(f"Offset 2 offset_group_bounds: {offset_2_group_bounds}")
+
+    print(
+        f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}, {len(offset_2_tiles_bounds)}"
+    )
 
     # Filter out land tiles
     # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
     # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
     base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
+
     offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
+    offset_2_tiles_bounds = [b for b in offset_2_tiles_bounds if is_tile_over_water(b)]
 
     ntiles = len(base_tiles)
     noffsettiles = len(offset_tiles_bounds)
@@ -392,7 +408,11 @@ async def _orchestrate(
                 "offset tiles",
             )
 
-            # Clean up potentially memory heavy assets
+            offset_2_tiles_inference = await perform_inference(
+                offset_2_tiles_bounds,
+                cloud_run_inference.get_offset_tile_inference,
+                "offset2 tiles",
+            )
             del base_tiles
             del offset_tiles_bounds
 
@@ -403,8 +423,9 @@ async def _orchestrate(
                 out_fc_offset = geojson.FeatureCollection(
                     features=flatten_feature_list(offset_tiles_inference)
                 )
-
-                # Clean up potentially memory heavy assets
+                out_fc_offset_2 = geojson.FeatureCollection(
+                    features=flatten_feature_list(offset_2_tiles_inference)
+                )
                 del base_tiles_inference
                 del offset_tiles_inference
             elif model.type == "UNET":
@@ -468,10 +489,10 @@ async def _orchestrate(
             # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
             print("XXXDEBUG out_fc", out_fc)
             print("XXXDEBUG out_fc_offset", out_fc_offset)
+            print("XXXCDEBUG out_fc_offset2", out_fc_offset_2)
+
             merged_inferences = merge_inferences(
-                out_fc,
-                out_fc_offset,
-                isolated_conf_multiplier=0.5,
+                feature_collections=[out_fc, out_fc_offset, out_fc_offset_2],
                 proximity_meters=500,
                 closing_meters=0,
                 opening_meters=0,
@@ -535,5 +556,4 @@ async def _orchestrate(
                 ntiles=ntiles,
                 noffsettiles=noffsettiles,
             )
-
     return orchestrator_result
