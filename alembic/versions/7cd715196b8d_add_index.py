@@ -70,8 +70,8 @@ def downgrade() -> None:
     op.drop_index("idx_orchestrator_run_git_hash", "orchestrator_run")
     op.drop_index("idx_orchestrator_run_sentinel1_grd", "orchestrator_run")
 
-    op.drop_index("idx_slick_to_aoi_aoi", "source")
-    op.drop_index("idx_slick_to_aoi_slick", "source")
+    op.drop_index("idx_slick_to_aoi_aoi", "slick_to_aoi")
+    op.drop_index("idx_slick_to_aoi_slick", "slick_to_aoi")
 
     op.drop_index("idx_source_name", "source")
 
