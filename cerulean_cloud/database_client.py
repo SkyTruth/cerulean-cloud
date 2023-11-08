@@ -5,7 +5,7 @@ from typing import Optional
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, box, shape
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
@@ -247,3 +247,42 @@ class DatabaseClient:
             - It looks for a scene in the `db.Sentinel1Grd` table.
         """
         return await get(self.session, db.Sentinel1Grd, False, scene_id=scene_id)
+
+    async def deactivate_stale_slicks_from_scene_id(self, scene_id):
+        """
+        Asynchronously queries the database to fetch slicks without associated sources for a given scene ID.
+
+        Args:
+            scene_id (str): The ID of the scene for which slicks are needed.
+
+        Returns:
+            (integer): count of slicks updated
+
+        Notes:
+            - The function uses SQLAlchemy for database queries.
+            - It joins multiple tables: `db.Slick`, `db.OrchestratorRun`, and `db.Sentinel1Grd`.
+        """
+        # Create an update query object
+        update_query = (
+            update(db.Slick)
+            .where(
+                db.Slick.id.in_(
+                    select(db.Slick.id)
+                    .join(db.OrchestratorRun)
+                    .join(db.Sentinel1Grd)
+                    .where(
+                        and_(
+                            db.Sentinel1Grd.scene_id == scene_id,
+                            db.Slick.active is True,
+                        )
+                    )
+                )
+            )
+            .values(active=False)
+        )
+
+        # Execute the update query and get the result
+        result = await self.session.execute(update_query)
+
+        # Return the number of rows updated
+        return result.rowcount
