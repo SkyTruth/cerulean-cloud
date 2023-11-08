@@ -357,9 +357,17 @@ async def _orchestrate(
                         rescale=(0, 255),
                     ),
                 )
+                stale_slick_count = (
+                    await db_client.deactivate_stale_slicks_from_scene_id(
+                        payload.sceneid
+                    )
+                )
+                print(
+                    f"Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
+                )
                 orchestrator_run = await db_client.add_orchestrator(
                     start_time,
-                    start_time,  # XXX This should be updated at end of orchestrator run
+                    start_time,
                     ntiles,
                     noffsettiles,
                     os.getenv("GIT_HASH"),
@@ -384,157 +392,168 @@ async def _orchestrate(
         }
 
         if not payload.dry_run:
-            print("Instantiating inference client.")
-            cloud_run_inference = CloudRunInferenceClient(
-                url=os.getenv("INFERENCE_URL"),
-                titiler_client=titiler_client,
-                sceneid=payload.sceneid,
-                offset_bounds=offset_group_bounds,
-                offset_image_shape=offset_group_shape,
-                layers=layers,
-                scale=scale,
-                inference_parms=inference_parms,
-            )
-
-            base_tiles_inference = await perform_inference(
-                base_tiles,
-                cloud_run_inference.get_base_tile_inference,
-                "base tiles",
-            )
-
-            offset_tiles_inference = await perform_inference(
-                offset_tiles_bounds,
-                cloud_run_inference.get_offset_tile_inference,
-                "offset tiles",
-            )
-
-            offset_2_tiles_inference = await perform_inference(
-                offset_2_tiles_bounds,
-                cloud_run_inference.get_offset_tile_inference,
-                "offset2 tiles",
-            )
-            del base_tiles
-            del offset_tiles_bounds
-
-            if model.type == "MASKRCNN":
-                out_fc = geojson.FeatureCollection(
-                    features=flatten_feature_list(base_tiles_inference)
-                )
-                out_fc_offset = geojson.FeatureCollection(
-                    features=flatten_feature_list(offset_tiles_inference)
-                )
-                out_fc_offset_2 = geojson.FeatureCollection(
-                    features=flatten_feature_list(offset_2_tiles_inference)
-                )
-                del base_tiles_inference
-                del offset_tiles_inference
-            elif model.type == "UNET":
-                # print("Loading all tiles into memory for merge!")
-                # ds_base_tiles = []
-                # for base_tile_inference in base_tiles_inference:
-                #     ds_base_tiles.append(
-                #         *[
-                #             create_dataset_from_inference_result(b)
-                #             for b in base_tile_inference.stack
-                #         ]
-                #     )
-
-                # ds_offset_tiles = []
-                # for offset_tile_inference in offset_tiles_inference:
-                #     ds_offset_tiles.append(
-                #         *[
-                #             create_dataset_from_inference_result(b)
-                #             for b in offset_tile_inference.stack
-                #         ]
-                #     )
-
-                # print("Merging base tiles!")
-                # base_tile_inference_file = MemoryFile()
-                # ar, transform = merge(ds_base_tiles)
-                # with base_tile_inference_file.open(
-                #     driver="GTiff",
-                #     height=ar.shape[1],
-                #     width=ar.shape[2],
-                #     count=ar.shape[0],
-                #     dtype=ar.dtype,
-                #     transform=transform,
-                #     crs="EPSG:4326",
-                # ) as dst:
-                #     dst.write(ar)
-
-                # out_fc = get_fc_from_raster(base_tile_inference_file)
-
-                # print("Merging offset tiles!")
-                # offset_tile_inference_file = MemoryFile()
-                # ar, transform = merge(ds_offset_tiles)
-                # with offset_tile_inference_file.open(
-                #     driver="GTiff",
-                #     height=ar.shape[1],
-                #     width=ar.shape[2],
-                #     count=ar.shape[0],
-                #     dtype=ar.dtype,
-                #     transform=transform,
-                #     crs="EPSG:4326",
-                # ) as dst:
-                #     dst.write(ar)
-
-                # out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
-                raise NotImplementedError("UNET pathway isn't well defined")
-            else:
-                raise NotImplementedError(
-                    "Model_type must be one of ['MASKRCNN', 'UNET']"
+            success = True
+            try:
+                print("Instantiating inference client.")
+                cloud_run_inference = CloudRunInferenceClient(
+                    url=os.getenv("INFERENCE_URL"),
+                    titiler_client=titiler_client,
+                    sceneid=payload.sceneid,
+                    offset_bounds=offset_group_bounds,
+                    offset_image_shape=offset_group_shape,
+                    layers=layers,
+                    scale=scale,
+                    inference_parms=inference_parms,
                 )
 
-            # XXXBUG ValueError: Cannot determine common CRS for concatenation inputs, got ['WGS 84 / UTM zone 28N', 'WGS 84 / UTM zone 29N']. Use `to_crs()` to transform geometries to the same CRS before merging."
-            # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
-            print("XXXDEBUG out_fc", out_fc)
-            print("XXXDEBUG out_fc_offset", out_fc_offset)
-            print("XXXCDEBUG out_fc_offset2", out_fc_offset_2)
+                base_tiles_inference = await perform_inference(
+                    base_tiles,
+                    cloud_run_inference.get_base_tile_inference,
+                    "base tiles",
+                )
 
-            merged_inferences = merge_inferences(
-                feature_collections=[out_fc, out_fc_offset, out_fc_offset_2],
-                proximity_meters=500,
-                closing_meters=0,
-                opening_meters=0,
-            )
+                offset_tiles_inference = await perform_inference(
+                    offset_tiles_bounds,
+                    cloud_run_inference.get_offset_tile_inference,
+                    "offset tiles",
+                )
 
-            if merged_inferences.get("features"):
-                async with db_client.session.begin():
-                    LAND_MASK_BUFFER_M = 1000
-                    print(f"Removing all slicks within {LAND_MASK_BUFFER_M}m of land")
-                    for feat in merged_inferences.get("features"):
-                        buffered_gdf = gpd.GeoDataFrame(
-                            geometry=[shape(feat["geometry"])], crs="EPSG:4326"
+                offset_2_tiles_inference = await perform_inference(
+                    offset_2_tiles_bounds,
+                    cloud_run_inference.get_offset_tile_inference,
+                    "offset2 tiles",
+                )
+                del base_tiles
+                del offset_tiles_bounds
+
+                if model.type == "MASKRCNN":
+                    out_fc = geojson.FeatureCollection(
+                        features=flatten_feature_list(base_tiles_inference)
+                    )
+                    out_fc_offset = geojson.FeatureCollection(
+                        features=flatten_feature_list(offset_tiles_inference)
+                    )
+                    out_fc_offset_2 = geojson.FeatureCollection(
+                        features=flatten_feature_list(offset_2_tiles_inference)
+                    )
+                    del base_tiles_inference
+                    del offset_tiles_inference
+                elif model.type == "UNET":
+                    # print("Loading all tiles into memory for merge!")
+                    # ds_base_tiles = []
+                    # for base_tile_inference in base_tiles_inference:
+                    #     ds_base_tiles.append(
+                    #         *[
+                    #             create_dataset_from_inference_result(b)
+                    #             for b in base_tile_inference.stack
+                    #         ]
+                    #     )
+
+                    # ds_offset_tiles = []
+                    # for offset_tile_inference in offset_tiles_inference:
+                    #     ds_offset_tiles.append(
+                    #         *[
+                    #             create_dataset_from_inference_result(b)
+                    #             for b in offset_tile_inference.stack
+                    #         ]
+                    #     )
+
+                    # print("Merging base tiles!")
+                    # base_tile_inference_file = MemoryFile()
+                    # ar, transform = merge(ds_base_tiles)
+                    # with base_tile_inference_file.open(
+                    #     driver="GTiff",
+                    #     height=ar.shape[1],
+                    #     width=ar.shape[2],
+                    #     count=ar.shape[0],
+                    #     dtype=ar.dtype,
+                    #     transform=transform,
+                    #     crs="EPSG:4326",
+                    # ) as dst:
+                    #     dst.write(ar)
+
+                    # out_fc = get_fc_from_raster(base_tile_inference_file)
+
+                    # print("Merging offset tiles!")
+                    # offset_tile_inference_file = MemoryFile()
+                    # ar, transform = merge(ds_offset_tiles)
+                    # with offset_tile_inference_file.open(
+                    #     driver="GTiff",
+                    #     height=ar.shape[1],
+                    #     width=ar.shape[2],
+                    #     count=ar.shape[0],
+                    #     dtype=ar.dtype,
+                    #     transform=transform,
+                    #     crs="EPSG:4326",
+                    # ) as dst:
+                    #     dst.write(ar)
+
+                    # out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
+                    raise NotImplementedError("UNET pathway isn't well defined")
+                else:
+                    raise NotImplementedError(
+                        "Model_type must be one of ['MASKRCNN', 'UNET']"
+                    )
+
+                # XXXBUG ValueError: Cannot determine common CRS for concatenation inputs, got ['WGS 84 / UTM zone 28N', 'WGS 84 / UTM zone 29N']. Use `to_crs()` to transform geometries to the same CRS before merging."
+                # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
+                print("XXXDEBUG out_fc", out_fc)
+                print("XXXDEBUG out_fc_offset", out_fc_offset)
+                print("XXXCDEBUG out_fc_offset2", out_fc_offset_2)
+
+                merged_inferences = merge_inferences(
+                    feature_collections=[out_fc, out_fc_offset, out_fc_offset_2],
+                    proximity_meters=500,
+                    closing_meters=0,
+                    opening_meters=0,
+                )
+
+                if merged_inferences.get("features"):
+                    async with db_client.session.begin():
+                        LAND_MASK_BUFFER_M = 1000
+                        print(
+                            f"Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
                         )
-                        buffered_gdf["geometry"] = buffered_gdf.to_crs(
-                            "EPSG:3857"
-                        ).buffer(LAND_MASK_BUFFER_M)
-                        landmask = get_landmask_gdf()
-                        intersecting_land = gpd.sjoin(
-                            landmask, buffered_gdf, how="inner", predicate="intersects"
-                        )
-                        if not intersecting_land.empty:
-                            feat["properties"]["inf_idx"] = 0
+                        for feat in merged_inferences.get("features"):
+                            buffered_gdf = gpd.GeoDataFrame(
+                                geometry=[shape(feat["geometry"])], crs="EPSG:4326"
+                            )
+                            buffered_gdf["geometry"] = buffered_gdf.to_crs(
+                                "EPSG:3857"
+                            ).buffer(LAND_MASK_BUFFER_M)
+                            landmask = get_landmask_gdf()
+                            intersecting_land = gpd.sjoin(
+                                landmask,
+                                buffered_gdf,
+                                how="inner",
+                                predicate="intersects",
+                            )
+                            if not intersecting_land.empty:
+                                feat["properties"]["inf_idx"] = 0
 
-                        slick = await db_client.add_slick(
-                            orchestrator_run,
-                            sentinel1_grd.start_time,
-                            feat.get("geometry"),
-                            feat.get("properties").get("inf_idx"),
-                            feat.get("properties").get("machine_confidence"),
-                        )
-                        print(f"Added slick: {slick}")
+                            slick = await db_client.add_slick(
+                                orchestrator_run,
+                                sentinel1_grd.start_time,
+                                feat.get("geometry"),
+                                feat.get("properties").get("inf_idx"),
+                                feat.get("properties").get("machine_confidence"),
+                            )
+                            print(f"Added slick: {slick}")
 
-                print("Queueing up Automatic AIS Analysis")
-                add_to_aaa_queue(sentinel1_grd.scene_id)
+                    print("Queueing up Automatic AIS Analysis")
+                    add_to_aaa_queue(sentinel1_grd.scene_id)
 
-            end_time = datetime.now()
-            print(f"End time: {end_time}")
-            print("Returning results!")
-
+            except Exception as e:
+                success = False
+                exc = e
             async with db_client.session.begin():
-                orchestrator_run.success = True
+                end_time = datetime.now()
+                orchestrator_run.success = success
                 orchestrator_run.inference_end_time = end_time
+                print(f"End time: {end_time}")
+                print("Returning results!")
+            if success is False:
+                raise exc
 
             orchestrator_result = OrchestratorResult(
                 classification_base=out_fc,
