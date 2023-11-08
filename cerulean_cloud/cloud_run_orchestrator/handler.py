@@ -555,24 +555,10 @@ async def _orchestrate(
             if success is False:
                 raise exc
 
-            orchestrator_result = OrchestratorResult(
-                classification_base=out_fc,
-                classification_offset=out_fc_offset,
-                classification_merged=merged_inferences,
-                ntiles=ntiles,
-                noffsettiles=noffsettiles,
-            )
-
             # Clean up potentially memory heavy assets
             del out_fc
             del out_fc_offset
+            del out_fc_offset_2
         else:
             print("WARNING: Operating as a DRY RUN!!")
-            orchestrator_result = OrchestratorResult(
-                classification_base=geojson.FeatureCollection(features=[]),
-                classification_offset=geojson.FeatureCollection(features=[]),
-                classification_merged=geojson.FeatureCollection(features=[]),
-                ntiles=ntiles,
-                noffsettiles=noffsettiles,
-            )
-    return orchestrator_result
+    return "Success"
