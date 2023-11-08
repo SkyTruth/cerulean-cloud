@@ -29,6 +29,7 @@ default = gcp.cloudrun.Service(
                     resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
                 ),
             ],
+            timeout_seconds=300,
             container_concurrency=3,
         ),
         metadata=dict(
