@@ -273,7 +273,7 @@ class DatabaseClient:
                     .where(
                         and_(
                             db.Sentinel1Grd.scene_id == scene_id,
-                            db.Slick.active is True,
+                            db.Slick.active == True,  # noqa
                         )
                     )
                 )
