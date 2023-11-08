@@ -543,15 +543,15 @@ async def _orchestrate(
                     print("Queueing up Automatic AIS Analysis")
                     add_to_aaa_queue(sentinel1_grd.scene_id)
 
-                end_time = datetime.now()
-                print(f"End time: {end_time}")
-                print("Returning results!")
             except Exception as e:
                 success = False
                 exc = e
             async with db_client.session.begin():
+                end_time = datetime.now()
                 orchestrator_run.success = success
                 orchestrator_run.inference_end_time = end_time
+                print(f"End time: {end_time}")
+                print("Returning results!")
             if success is False:
                 raise exc
 
