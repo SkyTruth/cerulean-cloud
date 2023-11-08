@@ -367,7 +367,7 @@ async def _orchestrate(
                 )
                 orchestrator_run = await db_client.add_orchestrator(
                     start_time,
-                    start_time,  # XXX This should be updated at end of orchestrator run
+                    start_time,
                     ntiles,
                     noffsettiles,
                     os.getenv("GIT_HASH"),
