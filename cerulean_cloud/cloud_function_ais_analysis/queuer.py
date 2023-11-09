@@ -67,7 +67,7 @@ def add_to_aaa_queue(scene_id):
 
         # Use the client to build and send the task.
         response = client.create_task(
-            request={"parent": parent, "task": task}, timeout=1800
+            request={"parent": parent, "task": task}, timeout=1740
         )
 
         print("Created task {}".format(response.name))
