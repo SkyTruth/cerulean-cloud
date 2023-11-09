@@ -1,7 +1,7 @@
 """schema for orchestration enpoint"""
 from typing import Optional
 
-import geojson
+# import geojson
 from pydantic import BaseModel
 
 
@@ -22,8 +22,9 @@ class OrchestratorResult(BaseModel):
     orchestrator result from the model
     """
 
-    classification_base: geojson.FeatureCollection
-    classification_offset: geojson.FeatureCollection
-    classification_merged: geojson.FeatureCollection
-    ntiles: int
-    noffsettiles: int
+    # classification_base: geojson.FeatureCollection
+    # classification_offset: geojson.FeatureCollection
+    # classification_merged: geojson.FeatureCollection
+    # ntiles: int
+    # noffsettiles: int
+    status: str
