@@ -66,7 +66,9 @@ def add_to_aaa_queue(scene_id):
         task["schedule_time"] = timestamp
 
         # Use the client to build and send the task.
-        response = client.create_task(request={"parent": parent, "task": task})
+        response = client.create_task(
+            request={"parent": parent, "task": task}, timeout=1800
+        )
 
         print("Created task {}".format(response.name))
     return response
