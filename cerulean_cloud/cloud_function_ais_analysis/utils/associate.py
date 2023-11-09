@@ -94,6 +94,10 @@ def associate_ais_to_slick(
                 temporal_score, overlap_score, frechet_dist
             )
 
+            print(
+                f"st_name {t.id}: total_score ({total_score}) = 1*overlap_score ({overlap_score}) + 2*temporal_score ({temporal_score}) + 2000/frechet_dist ({frechet_dist})"
+            )
+
             entry = {
                 "st_name": t.id,
                 "traj_geometry": shapely.geometry.LineString(

@@ -115,5 +115,5 @@ def compute_total_score(
     Returns:
         float: total weighted score between a weighted AIS trajectory and an oil slick
     """
-    total_score = 0.8 * temporal_score + 1.4 * overlap_score + 5000.0 / frechet_dist
+    total_score = overlap_score + 2 * temporal_score + 2000.0 / frechet_dist
     return total_score
