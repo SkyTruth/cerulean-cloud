@@ -487,12 +487,6 @@ async def _orchestrate(
                         "Model_type must be one of ['MASKRCNN', 'UNET']"
                     )
 
-                # XXXBUG ValueError: Cannot determine common CRS for concatenation inputs, got ['WGS 84 / UTM zone 28N', 'WGS 84 / UTM zone 29N']. Use `to_crs()` to transform geometries to the same CRS before merging."
-                # Example: S1A_IW_GRDH_1SDV_20230727T185101_20230727T185126_049613_05F744_1E56
-                print(f"{start_time}: XXXDEBUG out_fc: {out_fc}")
-                print(f"{start_time}: XXXDEBUG out_fc_offset: {out_fc_offset}")
-                print(f"{start_time}: XXXDEBUG out_fc_offset_2: {out_fc_offset_2}")
-
                 merged_inferences = merge_inferences(
                     feature_collections=[out_fc, out_fc_offset, out_fc_offset_2],
                     proximity_meters=500,
