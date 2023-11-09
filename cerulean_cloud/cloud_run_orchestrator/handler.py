@@ -548,4 +548,4 @@ async def _orchestrate(
             del out_fc_offset_2
         else:
             print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
-    return "Success"
+    return OrchestratorResult(status="Success")
