@@ -401,19 +401,19 @@ async def _orchestrate(
                 base_tiles_inference = await perform_inference(
                     base_tiles,
                     cloud_run_inference.get_base_tile_inference,
-                    "base tiles",
+                    f"base tiles: {start_time}",
                 )
 
                 offset_tiles_inference = await perform_inference(
                     offset_tiles_bounds,
                     cloud_run_inference.get_offset_tile_inference,
-                    "offset tiles",
+                    f"offset tiles: {start_time}",
                 )
 
                 offset_2_tiles_inference = await perform_inference(
                     offset_2_tiles_bounds,
                     cloud_run_inference.get_offset_tile_inference,
-                    "offset2 tiles",
+                    f"offset2 tiles: {start_time}",
                 )
                 del base_tiles
                 del offset_tiles_bounds
@@ -489,9 +489,9 @@ async def _orchestrate(
 
                 merged_inferences = merge_inferences(
                     feature_collections=[out_fc, out_fc_offset, out_fc_offset_2],
-                    proximity_meters=500,
-                    closing_meters=0,
-                    opening_meters=0,
+                    proximity_meters=None,
+                    closing_meters=None,
+                    opening_meters=None,
                 )
 
                 if merged_inferences.get("features"):
