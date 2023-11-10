@@ -95,7 +95,7 @@ def associate_ais_to_slick(
             )
 
             print(
-                f"st_name {t.id}: total_score ({total_score}) = 1*overlap_score ({overlap_score}) + 2*temporal_score ({temporal_score}) + 2000/frechet_dist ({frechet_dist})"
+                f"st_name {t.id}: total_score ({total_score}) = overlap_score ({overlap_score}) * temporal_score ({temporal_score}) + 2000/frechet_dist ({frechet_dist})"
             )
 
             entry = {

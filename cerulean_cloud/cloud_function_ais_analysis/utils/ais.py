@@ -86,7 +86,7 @@ class AISConstructor:
         self.start_time = self.s1.start_time - timedelta(hours=self.hours_before)
         self.end_time = self.s1.start_time + timedelta(hours=self.hours_after)
         self.time_vec = pd.date_range(
-            start=self.start_time, end=self.end_time, periods=self.num_timesteps
+            start=self.start_time, end=self.s1.start_time, periods=self.num_timesteps
         )
         self.crs_degrees = "EPSG:4326"
         self.s1_env = gpd.GeoDataFrame(
@@ -214,7 +214,7 @@ class AISConstructor:
             for cidx, c in enumerate(convex_hulls):
                 entry = dict()
                 entry["geometry"] = c
-                entry["weight"] = 1.0 / (cidx + 1)  # weight is the inverse of the index
+                entry["weight"] = self.weight_vec[cidx]
                 weighted.append(entry)
             weighted = gpd.GeoDataFrame(weighted, crs=self.crs_meters)
             ais_weighted.append(weighted)

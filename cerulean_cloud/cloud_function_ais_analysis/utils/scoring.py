@@ -79,6 +79,7 @@ def compute_temporal_score(
     temporal_score = 0.0
     if ~matches.empty:
         # take the sum of the weights of the matched convex hulls
+        # Sums to 1 if all hulls intersect the slick
         temporal_score = matches["weight"].sum()
 
     return temporal_score
@@ -115,5 +116,5 @@ def compute_total_score(
     Returns:
         float: total weighted score between a weighted AIS trajectory and an oil slick
     """
-    total_score = overlap_score + 2 * temporal_score + 2000.0 / frechet_dist
+    total_score = overlap_score * temporal_score + 2000.0 / frechet_dist
     return total_score
