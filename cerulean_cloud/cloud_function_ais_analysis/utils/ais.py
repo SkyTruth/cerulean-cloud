@@ -155,31 +155,32 @@ class AISConstructor:
         """
         ais_trajectories = list()
         for st_name, group in self.ais_gdf.groupby("ssvid"):
-            if (
-                len(group) > 1
-            ):  # ignore single points # XXX Should NOT ignore single points!
-                # build trajectory
-                traj = mpd.Trajectory(df=group, traj_id=st_name, t="timestamp")
+            # Duplicate the row if there's only one point
+            if len(group) == 1:
+                group = pd.concat([group] * 2).reset_index(drop=True)
 
-                # interpolate/extrapolate to times in time_vec
-                times = list()
-                positions = list()
-                for t in self.time_vec:
-                    pos = traj.interpolate_position_at(t)
-                    times.append(t)
-                    positions.append(pos)
+            # build trajectory
+            traj = mpd.Trajectory(df=group, traj_id=st_name, t="timestamp")
 
-                # store as trajectory
-                interpolated_traj = mpd.Trajectory(
-                    df=gpd.GeoDataFrame(
-                        {"timestamp": times, "geometry": positions},
-                        crs=self.crs_meters,
-                    ),
-                    traj_id=st_name,
-                    t="timestamp",
-                )
+            # interpolate/extrapolate to times in time_vec
+            times = list()
+            positions = list()
+            for t in self.time_vec:
+                pos = traj.interpolate_position_at(t)
+                times.append(t)
+                positions.append(pos)
 
-                ais_trajectories.append(interpolated_traj)
+            # store as trajectory
+            interpolated_traj = mpd.Trajectory(
+                df=gpd.GeoDataFrame(
+                    {"timestamp": times, "geometry": positions},
+                    crs=self.crs_meters,
+                ),
+                traj_id=st_name,
+                t="timestamp",
+            )
+
+            ais_trajectories.append(interpolated_traj)
 
         self.ais_trajectories = mpd.TrajectoryCollection(ais_trajectories)
 
