@@ -202,34 +202,41 @@ def slick_to_curves(
         y_fit_sort_x = [c[1] for c in coords_unique_x]
         y_fit_sort_y = [c[1] for c in coords_unique_y]
 
-        # fit a B-spline to the centerline
-        tck_sort_x, fp_sort_x, _, _ = scipy.interpolate.splrep(
-            x_fit_sort_x, y_fit_sort_x, k=3, s=smoothing_factor, full_output=True
-        )
-        tck_sort_y, fp_sort_y, _, _ = scipy.interpolate.splrep(
-            y_fit_sort_y, x_fit_sort_y, k=3, s=smoothing_factor, full_output=True
-        )
+        # Check if there are enough points for spline fitting
+        min_points_required = 4  # for cubic spline, k=3, need at least 4 points
+        if len(coords_unique_x) >= min_points_required:
+            # fit a B-spline to the centerline
+            tck_sort_x, fp_sort_x, _, _ = scipy.interpolate.splrep(
+                x_fit_sort_x, y_fit_sort_x, k=3, s=smoothing_factor, full_output=True
+            )
+            tck_sort_y, fp_sort_y, _, _ = scipy.interpolate.splrep(
+                y_fit_sort_y, x_fit_sort_y, k=3, s=smoothing_factor, full_output=True
+            )
 
-        # choose the spline that has the lowest fit error
-        if fp_sort_x <= fp_sort_y:
-            tck = tck_sort_x
-            x_fit = x_fit_sort_x
-            y_fit = y_fit_sort_x
+            # choose the spline that has the lowest fit error
+            if fp_sort_x <= fp_sort_y:
+                tck = tck_sort_x
+                x_fit = x_fit_sort_x
+                y_fit = y_fit_sort_x
 
-            num_points = max(round((x_fit[-1] - x_fit[0]) / 100), 5)
-            x_new = np.linspace(x_fit[0], x_fit[-1], 10)
-            y_new = scipy.interpolate.BSpline(*tck)(x_new)
+                num_points = max(round((x_fit[-1] - x_fit[0]) / 100), 5)
+                x_new = np.linspace(x_fit[0], x_fit[-1], 10)
+                y_new = scipy.interpolate.BSpline(*tck)(x_new)
+            else:
+                tck = tck_sort_y
+                x_fit = x_fit_sort_y
+                y_fit = y_fit_sort_y
+
+                num_points = max(round((y_fit[-1] - y_fit[0]) / 100), 5)
+                y_new = np.linspace(y_fit[0], y_fit[-1], num_points)
+                x_new = scipy.interpolate.BSpline(*tck)(y_new)
+
+            # store as LineString
+            curve = shapely.geometry.LineString(zip(x_new, y_new))
         else:
-            tck = tck_sort_y
-            x_fit = x_fit_sort_y
-            y_fit = y_fit_sort_y
-
-            num_points = max(round((y_fit[-1] - y_fit[0]) / 100), 5)
-            y_new = np.linspace(y_fit[0], y_fit[-1], num_points)
-            x_new = scipy.interpolate.BSpline(*tck)(y_new)
-
-        # store as LineString
-        curve = shapely.geometry.LineString(zip(x_new, y_new))
+            curve = shapely.geometry.LineString(
+                [coords_unique_x[0], coords_unique_x[-1]]
+            )
         slick_curves.append(curve)
 
     slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=slick_gdf.crs)
