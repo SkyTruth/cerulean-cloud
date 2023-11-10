@@ -139,7 +139,8 @@ def automatic_ais_analysis(ais_constructor, slick):
         GroupBy object: The AIS-slick associations sorted and grouped by slick index.
     """
     slick_gdf = gpd.GeoDataFrame(
-        {"geometry": [wkb.loads(str(slick.geometry))]}, crs=ais_constructor.crs_degrees
+        {"geometry": [wkb.loads(str(slick.geometry)).buffer(0)]},
+        crs=ais_constructor.crs_degrees,
     ).to_crs(ais_constructor.crs_meters)
     _, slick_curves = slick_to_curves(slick_gdf)
     associations = associate_ais_to_slick(

@@ -232,5 +232,8 @@ def slick_to_curves(
         curve = shapely.geometry.LineString(zip(x_new, y_new))
         slick_curves.append(curve)
 
-    slick_curves = gpd.GeoDataFrame(geometry=slick_curves, crs=slick_gdf.crs)
-    return slick_clean, slick_curves
+    slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=slick_gdf.crs)
+    slick_curves_gdf["length"] = slick_curves_gdf.geometry.length
+    slick_curves_gdf = slick_curves_gdf.sort_values("length", ascending=False)
+
+    return slick_clean, slick_curves_gdf
