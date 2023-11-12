@@ -141,8 +141,11 @@ class AISConstructor:
         df["geometry"] = df.apply(
             lambda row: shapely.geometry.Point(row["lon"], row["lat"]), axis=1
         )
-        self.ais_gdf = gpd.GeoDataFrame(df, crs=self.crs_degrees).to_crs(
-            self.crs_meters
+        self.ais_gdf = (
+            gpd.GeoDataFrame(df, crs=self.crs_degrees)
+            .to_crs(self.crs_meters)
+            .sort_values(by=["ssvid", "timestamp"])
+            .reset_index(drop=True)
         )
 
     def build_trajectories(self):

@@ -6,10 +6,15 @@ import os
 from json import loads
 
 import geopandas as gpd
+import pandas as pd
 from shapely import wkb
 from shapely.geometry import LineString
 from utils.ais import AISConstructor
-from utils.associate import associate_ais_to_slick, slick_to_curves
+from utils.associate import (
+    associate_ais_to_slick,
+    associate_infra_to_slick,
+    slick_to_curves,
+)
 
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 
@@ -77,7 +82,9 @@ async def handle_aaa_request(request):
                         ais_constructor.buffer_trajectories()
                         for slick in slicks_without_sources:
                             ais_associations = automatic_ais_analysis(
-                                ais_constructor, slick
+                                ais_constructor,
+                                slick,
+                                "20231103_all_infrastructure_v20231103.csv",
                             )
                             print(
                                 f"{len(ais_associations)} found for Slick ID: {slick.id}"
@@ -127,7 +134,7 @@ async def handle_aaa_request(request):
     return "Success!"
 
 
-def automatic_ais_analysis(ais_constructor, slick):
+def automatic_ais_analysis(ais_constructor, slick, infra_path=None):
     """
     Perform automatic analysis to associate AIS trajectories with slicks.
 
@@ -143,14 +150,21 @@ def automatic_ais_analysis(ais_constructor, slick):
         crs=ais_constructor.crs_degrees,
     ).to_crs(ais_constructor.crs_meters)
     _, slick_curves = slick_to_curves(slick_gdf)
-    associations = associate_ais_to_slick(
+    ais_associations = associate_ais_to_slick(
         ais_constructor.ais_trajectories,
         ais_constructor.ais_buffered,
         ais_constructor.ais_weighted,
         slick_gdf,
         slick_curves.iloc[0],  # Only uses the longest curve
     )
-    results = associations.sort_values("total_score", ascending=False).reset_index(
+    if infra_path:
+        infra_associations = associate_infra_to_slick(infra_path, slick_gdf)
+
+        ais_associations = pd.concat(
+            [ais_associations, infra_associations], ignore_index=True
+        )
+
+    results = ais_associations.sort_values("total_score", ascending=False).reset_index(
         drop=True
     )
     return results

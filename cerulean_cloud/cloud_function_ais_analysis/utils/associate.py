@@ -13,12 +13,106 @@ import scipy.spatial.distance
 import shapely.geometry
 import shapely.ops
 
+from .constants import SPREAD_RATE
 from .scoring import (
     compute_frechet_distance,
     compute_overlap_score,
     compute_temporal_score,
     compute_total_score,
 )
+
+
+def calculate_moment_of_inertia(geometry, point):
+    """Given an multi/polygon and a point, calculate moment of inertia"""
+    if isinstance(geometry, shapely.geometry.Polygon):
+        return geometry.area * point.distance(geometry.centroid) ** 2
+    elif isinstance(geometry, shapely.geometry.MultiPolygon):
+        return sum(
+            [poly.area * point.distance(poly.centroid) ** 2 for poly in geometry.geoms]
+        )
+    else:
+        raise ValueError("Input must be a Polygon or MultiPolygon")
+
+
+def calculate_maximum_moi(geometry):
+    """Given an multi/polygon estimate an upper limit to reasonable moment of interia values"""
+    # Calculate the moment of inertia for each corner of the minimum rotated bounding box and update the maximum
+    return max(
+        [
+            calculate_moment_of_inertia(geometry, shapely.geometry.Point(corner))
+            for corner in geometry.minimum_rotated_rectangle.exterior.coords
+        ]
+    )
+
+
+def associate_infra_to_slick(infra_file: str, slick: gpd.GeoDataFrame):
+    """Associate a given slick to the global Infrastructure database"""
+    # Define the columns for the associations GeoDataFrame
+    columns = [
+        "st_name",
+        "traj_geometry",
+        "slick_geometry",
+        "slick_size",
+        "temporal_score",
+        "overlap_score",
+        "frechet_dist",
+        "total_score",
+    ]
+
+    # Create an empty GeoDataFrame to store associations with specified columns and coordinate reference system (CRS)
+    associations = gpd.GeoDataFrame(
+        columns=columns,
+        geometry="traj_geometry",
+        crs=slick.crs,
+    )
+
+    # Load infrastructure data from a file and create a GeoDataFrame
+    infra_gdf = gpd.GeoDataFrame.from_file(infra_file)
+
+    # Convert infrastructure data to Point geometries using longitude and latitude columns
+    infra_gdf["geometry"] = infra_gdf.apply(
+        lambda row: shapely.geometry.Point(
+            row["clust_centr_lon"], row["clust_centr_lat"]
+        ),
+        axis=1,
+    )
+
+    # Set CRS for infrastructure data to WGS 84 and transform it to match the CRS of the 'slick' GeoDataFrame
+    infra_gdf = infra_gdf.set_crs("4326").to_crs(slick.crs)
+
+    # Create a buffered version of the 'slick' GeoDataFrame
+    buffered = slick.copy()
+    buffered["geometry"] = slick.buffer(SPREAD_RATE)  # Buffer the slick geometries
+
+    # Calculate the maximum moment of inertia for the buffered slick geometry
+    max_moi = calculate_maximum_moi(slick["geometry"].iloc[0])
+
+    # Perform a spatial join to find infrastructure points that intersect with the buffered slick geometries
+    nearby_infra = gpd.sjoin(infra_gdf, buffered, how="inner", predicate="intersects")
+
+    # Calculate a moment of inertia score for the nearby infrastructure, normalized against the maximum moment of inertia
+    nearby_infra["moi_score"] = (
+        calculate_moment_of_inertia(slick["geometry"].iloc[0], nearby_infra["geometry"])
+        / max_moi
+        * 3  # Adjust the score [0,1] to a range in line with other scores[0,~4]
+    )
+
+    # Iterate over the nearby infrastructure to populate the associations GeoDataFrame
+    for _, row in nearby_infra.iterrows():
+        entry = {
+            "st_name": row["detect_id"],
+            "traj_geometry": row["geometry"],
+            "slick_geometry": slick["geometry"].iloc[0],
+            "slick_size": slick.area.iloc[0],
+            "temporal_score": 0,
+            "overlap_score": 0,
+            "frechet_dist": 0,
+            "total_score": row["moi_score"],
+        }
+        associations.loc[len(associations)] = entry
+
+    # Return the populated associations GeoDataFrame
+    return associations
 
 
 def associate_ais_to_slick(
