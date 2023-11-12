@@ -115,7 +115,7 @@ async def handle_aaa_request(request):
                                         # if type 2: [different column list]
                                         source = await db_client.insert_source(
                                             st_name=traj["st_name"],
-                                            source_type=1,  # XXX This will need to be dynamic for SSS
+                                            source_type=traj["source_type"],
                                             # XXX This is where we would pass in the kwargs for this source SSS
                                         )
                                     await db_client.session.flush()

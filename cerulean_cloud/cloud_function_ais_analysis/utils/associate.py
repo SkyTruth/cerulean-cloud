@@ -57,6 +57,7 @@ def associate_infra_to_slick(infra_file: str, slick: gpd.GeoDataFrame):
         "overlap_score",
         "frechet_dist",
         "total_score",
+        "source_type",
     ]
 
     # Create an empty GeoDataFrame to store associations with specified columns and coordinate reference system (CRS)
@@ -108,6 +109,7 @@ def associate_infra_to_slick(infra_file: str, slick: gpd.GeoDataFrame):
             "overlap_score": 0,
             "frechet_dist": 0,
             "total_score": row["moi_score"],
+            "source_type": 2,
         }
         associations.loc[len(associations)] = entry
 
@@ -161,6 +163,7 @@ def associate_ais_to_slick(
         "overlap_score",
         "frechet_dist",
         "total_score",
+        "source_type",
     ]
     associations = gpd.GeoDataFrame(
         columns=columns,
@@ -203,6 +206,7 @@ def associate_ais_to_slick(
                 "overlap_score": overlap_score,
                 "frechet_dist": frechet_dist,
                 "total_score": total_score,
+                "source_type": 1,
             }
             associations.loc[len(associations)] = entry
 
