@@ -526,8 +526,14 @@ async def _orchestrate(
                             )
                             print(f"{start_time}: Added slick: {slick}")
 
-                    print(f"{start_time}: Queueing up Automatic AIS Analysis")
-                    add_to_aaa_queue(sentinel1_grd.scene_id)
+                    AAA_CONFIDENCE_THRESHOLD = 0.5
+                    if any(
+                        feat.get("properties").get("machine_confidence")
+                        > AAA_CONFIDENCE_THRESHOLD
+                        for feat in merged_inferences.get("features")
+                    ):
+                        print(f"{start_time}: Queueing up Automatic AIS Analysis")
+                        add_to_aaa_queue(sentinel1_grd.scene_id)
 
             except Exception as e:
                 success = False
