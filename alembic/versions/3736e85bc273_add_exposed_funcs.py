@@ -1,7 +1,7 @@
 """Add exposed funcs
 
 Revision ID: 3736e85bc273
-Revises: 9622ae2a4a04
+Revises: f9b7166c86b7
 Create Date: 2023-07-18 01:07:58.731501
 
 """
@@ -12,7 +12,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "3736e85bc273"
-down_revision = "9622ae2a4a04"
+down_revision = "f9b7166c86b7"
 branch_labels = None
 depends_on = None
 
