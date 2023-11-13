@@ -93,7 +93,7 @@ class AISConstructor:
             {"geometry": [to_shape(self.s1.geometry)]}, crs=self.crs_degrees
         )
         self.crs_meters = self.s1_env.estimate_utm_crs()
-        self.ais_env = (
+        self.envelope = (
             self.s1_env.to_crs(self.crs_meters)
             .buffer(self.ais_buffer)
             .to_crs(self.crs_degrees)
@@ -134,7 +134,7 @@ class AISConstructor:
             WHERE
                 seg._PARTITIONTIME between '{datetime.strftime(self.start_time, D_FORMAT)}' AND '{datetime.strftime(self.end_time, D_FORMAT)}'
                 AND seg.timestamp between '{datetime.strftime(self.start_time, T_FORMAT)}' AND '{datetime.strftime(self.end_time, T_FORMAT)}'
-                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.ais_env[0]}'))
+                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.envelope[0]}'))
             """
         df = pandas_gbq.read_gbq(
             self.sql, project_id="world-fishing-827", credentials=credentials
@@ -198,6 +198,23 @@ class AISConstructor:
                 traj_id=st_name,
                 t="timestamp",
             )
+            interpolated_traj.ext_name = group.iloc[0]["shipname"]
+            interpolated_traj.ext_shiptype = group.iloc[0]["best_shiptype"]
+            interpolated_traj.flag = group.iloc[0]["flag"]
+            interpolated_traj.geojson_fc = {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"timestamp": time.isoformat()},
+                        "geometry": {
+                            "type": "Point",
+                            "coordinates": [position.x, position.y],
+                        },
+                    }
+                    for time, position in zip(times, positions)
+                ],
+            }
 
             ais_trajectories.append(interpolated_traj)
 

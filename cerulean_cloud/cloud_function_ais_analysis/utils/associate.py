@@ -50,22 +50,14 @@ def associate_infra_to_slick(infra_gdf: gpd.GeoDataFrame, slick: gpd.GeoDataFram
     # Define the columns for the associations GeoDataFrame
     columns = [
         "st_name",
-        "traj_geometry",
-        "slick_geometry",
-        "slick_size",
-        "temporal_score",
-        "overlap_score",
-        "frechet_dist",
-        "total_score",
+        "geometry",
+        "coincidence_score",
         "source_type",
+        "ext_name",
     ]
 
     # Create an empty GeoDataFrame to store associations with specified columns and coordinate reference system (CRS)
-    associations = gpd.GeoDataFrame(
-        columns=columns,
-        geometry="traj_geometry",
-        crs=slick.crs,
-    )
+    associations = gpd.GeoDataFrame(columns=columns, crs=slick.crs)
 
     # Load infrastructure data from a file and create a GeoDataFrame
     # Create a buffered version of the 'slick' GeoDataFrame
@@ -88,15 +80,11 @@ def associate_infra_to_slick(infra_gdf: gpd.GeoDataFrame, slick: gpd.GeoDataFram
     # Iterate over the nearby infrastructure to populate the associations GeoDataFrame
     for _, row in nearby_infra.iterrows():
         entry = {
-            "st_name": row["detect_id"],
-            "traj_geometry": row["geometry"],
-            "slick_geometry": slick["geometry"].iloc[0],
-            "slick_size": slick.area.iloc[0],
-            "temporal_score": 0,
-            "overlap_score": 0,
-            "frechet_dist": 0,
-            "total_score": row["moi_score"],
-            "source_type": 2,
+            "st_name": row["st_name"],
+            "geometry": row["geometry"],
+            "coincidence_score": row["moi_score"],
+            "source_type": 2,  # As defined in SourceType table
+            "ext_id": row["detect_id"],
         }
         associations.loc[len(associations)] = entry
 
@@ -143,20 +131,15 @@ def associate_ais_to_slick(
 
     columns = [
         "st_name",
-        "traj_geometry",
-        "slick_geometry",
-        "slick_size",
-        "temporal_score",
-        "overlap_score",
-        "frechet_dist",
-        "total_score",
+        "geometry",
+        "coincidence_score",
         "source_type",
+        "ext_name",
+        "ext_shiptype",
+        "flag",
+        "geojson_fc",
     ]
-    associations = gpd.GeoDataFrame(
-        columns=columns,
-        geometry="traj_geometry",
-        crs=slick.crs,
-    )
+    associations = gpd.GeoDataFrame(columns=columns, crs=slick.crs)
     # Skip the loop if weighted_filt is empty
     if weighted_filt:
         # create trajectory collection from filtered trajectories
@@ -174,26 +157,25 @@ def associate_ais_to_slick(
             frechet_dist = compute_frechet_distance(t, curve.geometry)
 
             # compute total score from these three metrics
-            total_score = compute_total_score(
+            coincidence_score = compute_total_score(
                 temporal_score, overlap_score, frechet_dist
             )
 
             print(
-                f"st_name {t.id}: total_score ({total_score}) = overlap_score ({overlap_score}) * temporal_score ({temporal_score}) + 2000/frechet_dist ({frechet_dist})"
+                f"st_name {t.id}: coincidence_score ({coincidence_score}) = overlap_score ({overlap_score}) * temporal_score ({temporal_score}) + 2000/frechet_dist ({frechet_dist})"
             )
 
             entry = {
                 "st_name": t.id,
-                "traj_geometry": shapely.geometry.LineString(
+                "geometry": shapely.geometry.LineString(
                     [p.coords[0] for p in t.df["geometry"]]
                 ),
-                "slick_geometry": slick.geometry.iloc[0],
-                "slick_size": slick.area.iloc[0],
-                "temporal_score": temporal_score,
-                "overlap_score": overlap_score,
-                "frechet_dist": frechet_dist,
-                "total_score": total_score,
-                "source_type": 1,
+                "coincidence_score": coincidence_score,
+                "source_type": 1,  # As defined in SourceType table
+                "ext_name": t.ext_name,
+                "ext_shiptype": t.ext_shiptype,
+                "flag": t.flag,
+                "geojson_fc": t.geojson_fc,
             }
             associations.loc[len(associations)] = entry
 
