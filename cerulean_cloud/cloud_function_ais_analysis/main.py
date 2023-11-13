@@ -3,12 +3,10 @@
 
 import asyncio
 import os
-from json import loads
 
 import geopandas as gpd
 import pandas as pd
 from shapely import wkb
-from shapely.geometry import LineString
 from utils.ais import AISConstructor
 from utils.associate import (
     associate_ais_to_slick,
@@ -72,22 +70,16 @@ async def handle_aaa_request(request):
                 )
                 print(f"# Slicks found: {len(slicks_without_sources)}")
                 if len(slicks_without_sources) > 0:
-                    ais_constructor = AISConstructor(s1)
-                    ais_constructor.retrieve_ais()
+                    aisc = AISConstructor(s1)
+                    aisc.retrieve_ais()
                     print("AIS retrieved")
-                    if (
-                        ais_constructor.ais_gdf is not None
-                        and not ais_constructor.ais_gdf.empty
-                    ):
-                        ais_constructor.build_trajectories()
-                        ais_constructor.buffer_trajectories()
-                        ais_constructor.load_infra(
-                            "20231103_all_infrastructure_v20231103.csv"
-                        )  # We only run this AFTER we've confirmed there are AIS points, otherwise would prevent AIS tracks from being processed later
+                    if not aisc.ais_gdf.empty:
+                        aisc.build_trajectories()
+                        aisc.buffer_trajectories()
+                        # We only load infra AFTER we've confirmed there are AIS points, otherwise get_slicks_without_sources_from_scene_id would prevent AIS tracks from being processed later
+                        aisc.load_infra("20231103_all_infrastructure_v20231103.csv")
                         for slick in slicks_without_sources:
-                            source_associations = automatic_source_analysis(
-                                ais_constructor, slick
-                            )
+                            source_associations = automatic_source_analysis(aisc, slick)
                             print(
                                 f"{len(source_associations)} found for Slick ID: {slick.id}"
                             )
@@ -98,81 +90,67 @@ async def handle_aaa_request(request):
                                 for idx, traj in source_associations.iloc[
                                     :RECORD_NUM_SOURCES
                                 ].iterrows():
-                                    single_track = (
-                                        ais_constructor.ais_gdf[
-                                            ais_constructor.ais_gdf["ssvid"]
-                                            == traj["st_name"]
-                                        ]
-                                        .to_crs(ais_constructor.crs_degrees)
-                                        .sort_values(by="timestamp")
-                                        .assign(
-                                            timestamp=lambda x: x["timestamp"].astype(
-                                                str
-                                            )
-                                        )
+                                    track = gpd.GeoDataFrame(
+                                        geometry=[traj["geometry"]], crs=aisc.crs_meters
                                     )
+                                    track = track.to_crs(aisc.crs_degrees).iloc[0]
+
                                     source = await db_client.get_source(
                                         st_name=traj["st_name"]
                                     )
                                     if source is None:
-                                        # if type 1: [column list]
-                                        # if type 2: [different column list]
                                         source = await db_client.insert_source(
-                                            st_name=traj["st_name"],
-                                            source_type=traj["source_type"],
-                                            # XXX This is where we would pass in the kwargs for this source SSS
+                                            **{
+                                                k: v
+                                                for k, v in traj.items()
+                                                if not pd.isna(v)
+                                            }
                                         )
                                     await db_client.session.flush()
 
                                     await db_client.insert_slick_to_source(
                                         source=source.id,
                                         slick=slick.id,
-                                        coincidence_score=traj["total_score"],
+                                        coincidence_score=traj["coincidence_score"],
                                         rank=idx + 1,
-                                        geojson_fc=loads(single_track.to_json()),
-                                        geometry=LineString(
-                                            single_track["geometry"]
-                                        ).wkt,
+                                        geojson_fc=traj["geojson_fc"],
+                                        geometry=str(track["geometry"]),
                                     )
 
     return "Success!"
 
 
-def automatic_source_analysis(ais_constructor, slick):
+def automatic_source_analysis(aisc, slick):
     """
     Perform automatic analysis to associate AIS trajectories with slicks.
 
     Parameters:
-        ais_constructor (AISTrajectoryAnalysis): An instance of the AISTrajectoryAnalysis class.
+        ais (ais_constructor): An instance of the ais_constructor class.
         slick (GeoDataFrame): A GeoDataFrame containing the slick geometries.
 
     Returns:
         GroupBy object: The AIS-slick associations sorted and grouped by slick index.
     """
     slick_gdf = gpd.GeoDataFrame(
-        {"geometry": [wkb.loads(str(slick.geometry)).buffer(0)]},
-        crs=ais_constructor.crs_degrees,
-    ).to_crs(ais_constructor.crs_meters)
+        {"geometry": [wkb.loads(str(slick.geometry)).buffer(0)]}, crs=aisc.crs_degrees
+    ).to_crs(aisc.crs_meters)
     _, slick_curves = slick_to_curves(slick_gdf)
 
     ais_associations = associate_ais_to_slick(
-        ais_constructor.ais_trajectories,
-        ais_constructor.ais_buffered,
-        ais_constructor.ais_weighted,
+        aisc.ais_trajectories,
+        aisc.ais_buffered,
+        aisc.ais_weighted,
         slick_gdf,
         slick_curves.iloc[0],  # Only uses the longest curve
     )
 
-    infra_associations = associate_infra_to_slick(
-        ais_constructor.infra_gdf,
-        slick_gdf,
-    )
+    infra_associations = associate_infra_to_slick(aisc.infra_gdf, slick_gdf)
 
     all_associations = pd.concat(
         [ais_associations, infra_associations], ignore_index=True
     )
 
-    results = all_associations.sort_values("total_score", ascending=False).reset_index(
-        drop=True
-    )
+    results = all_associations.sort_values(
+        "coincidence_score", ascending=False
+    ).reset_index(drop=True)
     return results
