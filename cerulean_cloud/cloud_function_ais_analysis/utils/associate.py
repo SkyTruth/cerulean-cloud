@@ -45,7 +45,7 @@ def calculate_maximum_moi(geometry):
     )
 
 
-def associate_infra_to_slick(infra_file: str, slick: gpd.GeoDataFrame):
+def associate_infra_to_slick(infra_gdf: gpd.GeoDataFrame, slick: gpd.GeoDataFrame):
     """Associate a given slick to the global Infrastructure database"""
     # Define the columns for the associations GeoDataFrame
     columns = [
@@ -68,19 +68,6 @@ def associate_infra_to_slick(infra_file: str, slick: gpd.GeoDataFrame):
     )
 
     # Load infrastructure data from a file and create a GeoDataFrame
-    infra_gdf = gpd.GeoDataFrame.from_file(infra_file)
-
-    # Convert infrastructure data to Point geometries using longitude and latitude columns
-    infra_gdf["geometry"] = infra_gdf.apply(
-        lambda row: shapely.geometry.Point(
-            row["clust_centr_lon"], row["clust_centr_lat"]
-        ),
-        axis=1,
-    )
-
-    # Set CRS for infrastructure data to WGS 84 and transform it to match the CRS of the 'slick' GeoDataFrame
-    infra_gdf = infra_gdf.set_crs("4326").to_crs(slick.crs)
-
     # Create a buffered version of the 'slick' GeoDataFrame
     buffered = slick.copy()
     buffered["geometry"] = slick.buffer(SPREAD_RATE)  # Buffer the slick geometries

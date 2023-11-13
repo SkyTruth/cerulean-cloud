@@ -64,36 +64,40 @@ async def handle_aaa_request(request):
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
                 s1 = await db_client.get_scene_from_id(scene_id)
+                AAA_CONFIDENCE_THRESHOLD = 0.5
                 slicks_without_sources = (
-                    await db_client.get_slicks_without_sources_from_scene_id(scene_id)
+                    await db_client.get_slicks_without_sources_from_scene_id(
+                        scene_id, AAA_CONFIDENCE_THRESHOLD
+                    )
                 )
                 print(f"# Slicks found: {len(slicks_without_sources)}")
                 if len(slicks_without_sources) > 0:
                     ais_constructor = AISConstructor(s1)
                     ais_constructor.retrieve_ais()
-                    # ais_constructor.add_infra()
                     print("AIS retrieved")
                     if (
                         ais_constructor.ais_gdf is not None
                         and not ais_constructor.ais_gdf.empty
                     ):
-                        print("AIS is not empty")
                         ais_constructor.build_trajectories()
                         ais_constructor.buffer_trajectories()
+                        ais_constructor.load_infra(
+                            "20231103_all_infrastructure_v20231103.csv"
+                        )  # We only run this AFTER we've confirmed there are AIS points, otherwise would prevent AIS tracks from being processed later
                         for slick in slicks_without_sources:
-                            ais_associations = automatic_ais_analysis(
-                                ais_constructor,
-                                slick,
-                                "20231103_all_infrastructure_v20231103.csv",
+                            source_associations = automatic_source_analysis(
+                                ais_constructor, slick
                             )
                             print(
-                                f"{len(ais_associations)} found for Slick ID: {slick.id}"
+                                f"{len(source_associations)} found for Slick ID: {slick.id}"
                             )
-                            if len(ais_associations) > 0:
+                            if len(source_associations) > 0:
                                 # XXX What to do if len(ais_associations)==0 and no sources are associated?
                                 # Then it will trigger another round of this process later! (unnecessary computation)
-                                for idx, traj in ais_associations.iloc[:5].iterrows():
-                                    # XXX Magic number 5 = number of sources to record for each slick
+                                RECORD_NUM_SOURCES = 5  # XXX Magic number 5 = number of sources to record for each slick
+                                for idx, traj in source_associations.iloc[
+                                    :RECORD_NUM_SOURCES
+                                ].iterrows():
                                     single_track = (
                                         ais_constructor.ais_gdf[
                                             ais_constructor.ais_gdf["ssvid"]
@@ -134,7 +138,7 @@ async def handle_aaa_request(request):
     return "Success!"
 
 
-def automatic_ais_analysis(ais_constructor, slick, infra_path=None):
+def automatic_source_analysis(ais_constructor, slick):
     """
     Perform automatic analysis to associate AIS trajectories with slicks.
 
@@ -150,6 +154,7 @@ def automatic_ais_analysis(ais_constructor, slick, infra_path=None):
         crs=ais_constructor.crs_degrees,
     ).to_crs(ais_constructor.crs_meters)
     _, slick_curves = slick_to_curves(slick_gdf)
+
     ais_associations = associate_ais_to_slick(
         ais_constructor.ais_trajectories,
         ais_constructor.ais_buffered,
@@ -157,14 +162,17 @@ def automatic_ais_analysis(ais_constructor, slick, infra_path=None):
         slick_gdf,
         slick_curves.iloc[0],  # Only uses the longest curve
     )
-    if infra_path:
-        infra_associations = associate_infra_to_slick(infra_path, slick_gdf)
 
-        ais_associations = pd.concat(
-            [ais_associations, infra_associations], ignore_index=True
-        )
+    infra_associations = associate_infra_to_slick(
+        ais_constructor.infra_gdf,
+        slick_gdf,
+    )
 
-    results = ais_associations.sort_values("total_score", ascending=False).reset_index(
+    all_associations = pd.concat(
+        [ais_associations, infra_associations], ignore_index=True
+    )
+
+    results = all_associations.sort_values("total_score", ascending=False).reset_index(
         drop=True
     )
     return results

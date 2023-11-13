@@ -105,6 +105,7 @@ class AISConstructor:
         self.ais_trajectories = None
         self.ais_buffered = None
         self.ais_weighted = None
+        self.infra_gdf = None
 
     def retrieve_ais(self):
         """
@@ -147,6 +148,21 @@ class AISConstructor:
             .sort_values(by=["ssvid", "timestamp"])
             .reset_index(drop=True)
         )
+
+    def load_infra(self, filepath):
+        """Load global infrastructure CSV"""
+        infra_gdf = gpd.GeoDataFrame.from_file(filepath)
+
+        # Convert infrastructure data to Point geometries using longitude and latitude columns
+        infra_gdf["geometry"] = infra_gdf.apply(
+            lambda row: shapely.geometry.Point(
+                row["clust_centr_lon"], row["clust_centr_lat"]
+            ),
+            axis=1,
+        )
+
+        # Set CRS for infrastructure data to WGS 84 and transform it to match the CRS of the 'slick' GeoDataFrame
+        self.infra_gdf = infra_gdf.set_crs("4326").to_crs(self.crs_meters)
 
     def build_trajectories(self):
         """
