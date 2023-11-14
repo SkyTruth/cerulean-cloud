@@ -192,6 +192,7 @@ class DatabaseClient:
             for k, v in traj.items()
             if k in insert_cols[traj["type"]] + common_cols
         }
+        insert_dict["geometry"] = from_shape(insert_dict["geometry"])
 
         source_type_obj = await get(self.session, db.SourceType, id=traj["type"])
 
