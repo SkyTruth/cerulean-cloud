@@ -88,15 +88,12 @@ class AISConstructor:
         self.time_vec = pd.date_range(
             start=self.start_time, end=self.s1.start_time, periods=self.num_timesteps
         )
-        self.crs_degrees = "EPSG:4326"
         self.s1_env = gpd.GeoDataFrame(
-            {"geometry": [to_shape(self.s1.geometry)]}, crs=self.crs_degrees
+            {"geometry": [to_shape(self.s1.geometry)]}, crs="4326"
         )
         self.crs_meters = self.s1_env.estimate_utm_crs()
         self.envelope = (
-            self.s1_env.to_crs(self.crs_meters)
-            .buffer(self.ais_buffer)
-            .to_crs(self.crs_degrees)
+            self.s1_env.to_crs(self.crs_meters).buffer(self.ais_buffer).to_crs("4326")
         )
 
         # Placeholder values
@@ -143,8 +140,7 @@ class AISConstructor:
             lambda row: shapely.geometry.Point(row["lon"], row["lat"]), axis=1
         )
         self.ais_gdf = (
-            gpd.GeoDataFrame(df, crs=self.crs_degrees)
-            .to_crs(self.crs_meters)
+            gpd.GeoDataFrame(df, crs="4326")
             .sort_values(by=["ssvid", "timestamp"])
             .reset_index(drop=True)
         )
@@ -162,7 +158,7 @@ class AISConstructor:
         )
 
         # Set CRS for infrastructure data to WGS 84 and transform it to match the CRS of the 'slick' GeoDataFrame
-        self.infra_gdf = infra_gdf.set_crs("4326").to_crs(self.crs_meters)
+        self.infra_gdf = infra_gdf.set_crs("4326")
 
     def build_trajectories(self):
         """
@@ -188,32 +184,23 @@ class AISConstructor:
                 pos = traj.interpolate_position_at(t)
                 times.append(t)
                 positions.append(pos)
+            gdf = gpd.GeoDataFrame(
+                {"timestamp": times, "geometry": positions}, crs="4326"
+            )
 
             # store as trajectory
             interpolated_traj = mpd.Trajectory(
-                df=gpd.GeoDataFrame(
-                    {"timestamp": times, "geometry": positions},
-                    crs=self.crs_meters,
-                ),
+                gdf,
                 traj_id=st_name,
                 t="timestamp",
             )
+            gdf["timestamp"] = gdf["timestamp"].apply(lambda x: x.isoformat())
             interpolated_traj.ext_name = group.iloc[0]["shipname"]
             interpolated_traj.ext_shiptype = group.iloc[0]["best_shiptype"]
             interpolated_traj.flag = group.iloc[0]["flag"]
             interpolated_traj.geojson_fc = {
                 "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "properties": {"timestamp": time.isoformat()},
-                        "geometry": {
-                            "type": "Point",
-                            "coordinates": [position.x, position.y],
-                        },
-                    }
-                    for time, position in zip(times, positions)
-                ],
+                "features": json.loads(gdf.to_json())["features"],
             }
 
             ais_trajectories.append(interpolated_traj)
@@ -232,36 +219,39 @@ class AISConstructor:
         ais_weighted = list()
         for traj in self.ais_trajectories:
             # grab points
-            points = traj.to_point_gdf()
-            points = points.sort_values(by="timestamp", ascending=False)
+            points = (
+                traj.to_point_gdf()
+                .sort_values(by="timestamp", ascending=False)
+                .to_crs(self.crs_meters)
+                .reset_index()
+            )
 
             # create buffered circles at points
-            ps = list()
-            for idx, buffer in enumerate(self.buf_vec):
-                ps.append(points.iloc[idx].geometry.buffer(buffer))
+            ps = (
+                points.apply(
+                    lambda row: row.geometry.buffer(self.buf_vec[row.name]), axis=1
+                )
+                .set_crs(self.crs_meters)
+                .to_crs("4326")
+            )
 
-            # create convex hulls from circles
-            n = range(len(ps) - 1)
+            # create convex hulls from sequential circles
             convex_hulls = [
-                shapely.geometry.MultiPolygon([ps[i], ps[i + 1]]).convex_hull for i in n
+                shapely.geometry.MultiPolygon([a, b]).convex_hull
+                for a, b in zip(ps[:-1], ps[1:])
             ]
 
             # weight convex hulls
-            weighted = list()
-            for cidx, c in enumerate(convex_hulls):
-                entry = dict()
-                entry["geometry"] = c
-                entry["weight"] = self.weight_vec[cidx]
-                weighted.append(entry)
-            weighted = gpd.GeoDataFrame(weighted, crs=self.crs_meters)
+            weighted = gpd.GeoDataFrame(
+                {"geometry": convex_hulls, "weight": self.weight_vec[:-1]},
+                crs="4326",
+            )
             ais_weighted.append(weighted)
 
-            # create polygon from hulls
-            poly = shapely.ops.unary_union(convex_hulls)
-            ais_buf.append(poly)
+            # create connected polygon from hulls
+            ais_buf.append(
+                {"geometry": shapely.ops.unary_union(convex_hulls), "st_name": traj.id}
+            )
 
-        self.ais_buffered = gpd.GeoDataFrame(
-            {"geometry": ais_buf, "st_name": [t.id for t in self.ais_trajectories]},
-            crs=self.crs_meters,
-        )
+        self.ais_buffered = gpd.GeoDataFrame(ais_buf, crs="4326")
         self.ais_weighted = ais_weighted

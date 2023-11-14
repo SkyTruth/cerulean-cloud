@@ -22,30 +22,41 @@ from .scoring import (
 )
 
 
-def calculate_moment_of_inertia(geometry, point):
+def calculate_moment_of_inertia(geometry, point, crs_meters):
     """Given an multi/polygon and a point, calculate moment of inertia"""
-    if isinstance(geometry, shapely.geometry.Polygon):
-        return geometry.area * point.distance(geometry.centroid) ** 2
-    elif isinstance(geometry, shapely.geometry.MultiPolygon):
+    geometry_m, point_m = gpd.GeoSeries([geometry, point], crs="4326").to_crs(
+        crs_meters
+    )
+
+    if isinstance(geometry_m, shapely.geometry.Polygon):
+        return geometry_m.area * point_m.distance(geometry_m.centroid) ** 2
+    elif isinstance(geometry_m, shapely.geometry.MultiPolygon):
         return sum(
-            [poly.area * point.distance(poly.centroid) ** 2 for poly in geometry.geoms]
+            [
+                poly.area * point_m.distance(poly.centroid) ** 2
+                for poly in geometry_m.geoms
+            ]
         )
     else:
         raise ValueError("Input must be a Polygon or MultiPolygon")
 
 
-def calculate_maximum_moi(geometry):
+def calculate_maximum_moi(geometry, crs_meters):
     """Given an multi/polygon estimate an upper limit to reasonable moment of interia values"""
     # Calculate the moment of inertia for each corner of the minimum rotated bounding box and update the maximum
     return max(
         [
-            calculate_moment_of_inertia(geometry, shapely.geometry.Point(corner))
+            calculate_moment_of_inertia(
+                geometry, shapely.geometry.Point(corner), crs_meters
+            )
             for corner in geometry.minimum_rotated_rectangle.exterior.coords
         ]
     )
 
 
-def associate_infra_to_slick(infra_gdf: gpd.GeoDataFrame, slick: gpd.GeoDataFrame):
+def associate_infra_to_slick(
+    infra_gdf: gpd.GeoDataFrame, slick_gdf: gpd.GeoDataFrame, crs_meters
+):
     """Associate a given slick to the global Infrastructure database"""
     # Define the columns for the associations GeoDataFrame
     columns = [
@@ -57,36 +68,41 @@ def associate_infra_to_slick(infra_gdf: gpd.GeoDataFrame, slick: gpd.GeoDataFram
     ]
 
     # Create an empty GeoDataFrame to store associations with specified columns and coordinate reference system (CRS)
-    associations = gpd.GeoDataFrame(columns=columns, crs=slick.crs)
+    associations = gpd.GeoDataFrame(columns=columns, crs="4326")
 
     # Load infrastructure data from a file and create a GeoDataFrame
     # Create a buffered version of the 'slick' GeoDataFrame
-    buffered = slick.copy()
-    buffered["geometry"] = slick.buffer(SPREAD_RATE)  # Buffer the slick geometries
+    slick = slick_gdf.iloc[0]["geometry"]
+    buffered = slick_gdf.copy()
+    buffered["geometry"] = (
+        slick_gdf.to_crs(crs_meters).buffer(SPREAD_RATE).to_crs("4326")
+    )  # Buffer the slick geometries
 
     # Calculate the maximum moment of inertia for the buffered slick geometry
-    max_moi = calculate_maximum_moi(slick["geometry"].iloc[0])
+    max_moi = calculate_maximum_moi(slick, crs_meters)
 
     # Perform a spatial join to find infrastructure points that intersect with the buffered slick geometries
     nearby_infra = gpd.sjoin(infra_gdf, buffered, how="inner", predicate="intersects")
+    if not nearby_infra.empty:
+        # Calculate a moment of inertia score for the nearby infrastructure, normalized against the maximum moment of inertia
+        nearby_infra["moi_score"] = (
+            nearby_infra["geometry"].apply(
+                lambda point: calculate_moment_of_inertia(slick, point, crs_meters)
+            )
+            / max_moi
+            * 3  # Adjust the score [0,1] to a range in line with other scores [0,~4]
+        )
 
-    # Calculate a moment of inertia score for the nearby infrastructure, normalized against the maximum moment of inertia
-    nearby_infra["moi_score"] = (
-        calculate_moment_of_inertia(slick["geometry"].iloc[0], nearby_infra["geometry"])
-        / max_moi
-        * 3  # Adjust the score [0,1] to a range in line with other scores[0,~4]
-    )
-
-    # Iterate over the nearby infrastructure to populate the associations GeoDataFrame
-    for _, row in nearby_infra.iterrows():
-        entry = {
-            "st_name": row["st_name"],
-            "geometry": row["geometry"],
-            "coincidence_score": row["moi_score"],
-            "source_type": 2,  # As defined in SourceType table
-            "ext_id": row["detect_id"],
-        }
-        associations.loc[len(associations)] = entry
+        # Iterate over the nearby infrastructure to populate the associations GeoDataFrame
+        for _, row in nearby_infra.iterrows():
+            entry = {
+                "st_name": row["st_name"],
+                "geometry": row["geometry"],
+                "coincidence_score": row["moi_score"],
+                "source_type": 2,  # As defined in SourceType table
+                "ext_id": row["detect_id"],
+            }
+            associations.loc[len(associations)] = entry
 
     # Return the populated associations GeoDataFrame
     return associations
@@ -96,8 +112,9 @@ def associate_ais_to_slick(
     ais: mpd.TrajectoryCollection,
     buffered: gpd.GeoDataFrame,
     weighted: List[gpd.GeoDataFrame],
-    slick: gpd.GeoDataFrame,
-    curve: gpd.GeoSeries,
+    slick_gdf: gpd.GeoDataFrame,
+    curves: gpd.GeoDataFrame,
+    crs_meters: str,
 ):
     """
     Measure association by computing multiple metrics between AIS trajectories and slicks
@@ -120,14 +137,14 @@ def associate_ais_to_slick(
         b = buffered.iloc[idx]
 
         # spatially join the weighted trajectory to the slick
-        b_gdf = gpd.GeoDataFrame(index=[0], geometry=[b.geometry], crs=buffered.crs)
-        matches = gpd.sjoin(b_gdf, slick, how="inner", predicate="intersects")
+        b_gdf = gpd.GeoDataFrame(index=[0], geometry=[b.geometry], crs="4326")
+        matches = gpd.sjoin(b_gdf, slick_gdf, how="inner", predicate="intersects")
         if matches.empty:
             continue
         else:
             ais_filt.append(t)
             weighted_filt.append(w)
-            buffered_filt.append(b.geometry)
+            buffered_filt.append(b_gdf)
 
     columns = [
         "st_name",
@@ -139,7 +156,7 @@ def associate_ais_to_slick(
         "flag",
         "geojson_fc",
     ]
-    associations = gpd.GeoDataFrame(columns=columns, crs=slick.crs)
+    associations = gpd.GeoDataFrame(columns=columns, crs="4326")
     # Skip the loop if weighted_filt is empty
     if weighted_filt:
         # create trajectory collection from filtered trajectories
@@ -148,13 +165,13 @@ def associate_ais_to_slick(
         # iterate over filtered trajectories
         for t, w, b in zip(ais_filt, weighted_filt, buffered_filt):
             # compute temporal score
-            temporal_score = compute_temporal_score(w, slick.geometry.iloc[0])
+            temporal_score = compute_temporal_score(w, slick_gdf)
 
             # compute overlap score
-            overlap_score = compute_overlap_score(b, slick.geometry.iloc[0])
+            overlap_score = compute_overlap_score(b, slick_gdf, crs_meters)
 
             # compute frechet distance between trajectory and slick curve
-            frechet_dist = compute_frechet_distance(t, curve.geometry)
+            frechet_dist = compute_frechet_distance(t, curves, crs_meters)
 
             # compute total score from these three metrics
             coincidence_score = compute_total_score(
@@ -184,6 +201,7 @@ def associate_ais_to_slick(
 
 def slick_to_curves(
     slick_gdf: gpd.GeoDataFrame,
+    crs_meters: str,
     buf_size: int = 2000,
     interp_dist: int = 200,
     smoothing_factor: float = 1e9,
@@ -203,7 +221,9 @@ def slick_to_curves(
     # clean up the slick detections by dilation followed by erosion
     # this process can merge some polygons but not others, depending on proximity
     slick_clean = slick_gdf.copy()
-    slick_clean["geometry"] = slick_clean.buffer(buf_size).buffer(-buf_size)
+    slick_clean["geometry"] = (
+        slick_clean.to_crs(crs_meters).buffer(buf_size).buffer(-buf_size)
+    )
 
     # split slicks into individual polygons
     slick_clean = slick_clean.explode(ignore_index=True, index_parts=False)
@@ -306,8 +326,10 @@ def slick_to_curves(
             )
         slick_curves.append(curve)
 
-    slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=slick_gdf.crs)
+    slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=crs_meters)
     slick_curves_gdf["length"] = slick_curves_gdf.geometry.length
-    slick_curves_gdf = slick_curves_gdf.sort_values("length", ascending=False)
+    slick_curves_gdf = slick_curves_gdf.sort_values("length", ascending=False).to_crs(
+        "4326"
+    )
 
     return slick_clean, slick_curves_gdf
