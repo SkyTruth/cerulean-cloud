@@ -9,19 +9,29 @@ import shapely.ops
 from shapely import frechet_distance
 
 
-def compute_frechet_distance(traj: mpd.Trajectory, curve: shapely.geometry.LineString):
+def compute_frechet_distance(
+    traj: mpd.Trajectory, curves: gpd.GeoDataFrame, crs_meters: str
+):
     """
     Compute the frechet distance between an AIS trajectory and an oil slick curve
 
     Args:
         traj (mpd.Trajectory): AIS trajectory
-        curve (shapely.geometry.LineString): oil slick curve
+        curves (gpd.GeoDataFrame): oil slick curves
 
     Returns:
         float: frechet distance between traj and curve
     """
+    # Only use the longest curve
+    curve = curves.to_crs(crs_meters).iloc[0]["geometry"]
+
     # get the trajectory coordinates as points in descending time order from collect
-    traj_gdf = traj.to_point_gdf().sort_values(by="timestamp", ascending=False)
+    traj_gdf = (
+        traj.to_point_gdf()
+        .sort_values(by="timestamp", ascending=False)
+        .set_crs("4326")
+        .to_crs(crs_meters)
+    )
 
     # take the points and put them in a linestring
     traj_line = shapely.geometry.LineString(traj_gdf.geometry)
@@ -61,7 +71,7 @@ def compute_frechet_distance(traj: mpd.Trajectory, curve: shapely.geometry.LineS
 
 
 def compute_temporal_score(
-    weighted_traj: gpd.GeoDataFrame, slick: shapely.geometry.MultiPolygon
+    weighted_traj: gpd.GeoDataFrame, slick_gdf: gpd.GeoDataFrame
 ):
     """
     Compute the temporal score between a weighted AIS trajectory and an oil slick
@@ -73,11 +83,10 @@ def compute_temporal_score(
         float: temporal score between weighted_traj and slick
     """
     # spatially join the weighted convex hulls to the slick geometry
-    s_gdf = gpd.GeoDataFrame(index=[0], geometry=[slick], crs=weighted_traj.crs)
-    matches = gpd.sjoin(weighted_traj, s_gdf, how="inner", predicate="intersects")
+    matches = gpd.sjoin(weighted_traj, slick_gdf, how="inner", predicate="intersects")
 
     temporal_score = 0.0
-    if ~matches.empty:
+    if not matches.empty:
         # take the sum of the weights of the matched convex hulls
         # Sums to 1 if all hulls intersect the slick
         temporal_score = matches["weight"].sum()
@@ -86,17 +95,21 @@ def compute_temporal_score(
 
 
 def compute_overlap_score(
-    buffered_traj: shapely.geometry.Polygon, slick: shapely.geometry.MultiPolygon
+    buffered_traj: gpd.GeoDataFrame,
+    slick_gdf: gpd.GeoDataFrame,
+    crs_meters: str,
 ):
     """
     Compute the amount of overlap between a buffered AIS trajectory and an oil slick
 
     Args:
         buffered_traj (shapely.geometry.Polygon): buffered AIS trajectory created by a convex hull operation
-        slick (shapely.geometry.Polygon): oil slick polygon
+        slick_gdf (gpd.GeoDataFrame): oil slick polygon
     Returns:
         float: overlap score between buffered_traj and slick
     """
+    buffered_traj = buffered_traj.to_crs(crs_meters).iloc[0]["geometry"]
+    slick = slick_gdf.to_crs(crs_meters).iloc[0]["geometry"]
     overlap_score = slick.intersection(buffered_traj).area / slick.area
     # XXX this strongly benefits smaller slicks
     return overlap_score

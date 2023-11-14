@@ -90,11 +90,6 @@ async def handle_aaa_request(request):
                                 for idx, traj in source_associations.iloc[
                                     :RECORD_NUM_SOURCES
                                 ].iterrows():
-                                    track = gpd.GeoDataFrame(
-                                        geometry=[traj["geometry"]], crs=aisc.crs_meters
-                                    )
-                                    track = track.to_crs(aisc.crs_degrees).iloc[0]
-
                                     source = await db_client.get_source(
                                         st_name=traj["st_name"]
                                     )
@@ -104,6 +99,10 @@ async def handle_aaa_request(request):
                                                 k: v
                                                 for k, v in traj.items()
                                                 if not pd.isna(v)
+                                                and not (
+                                                    k == "geometry"
+                                                    and traj["source_type"] == 1
+                                                )
                                             }
                                         )
                                     await db_client.session.flush()
@@ -114,7 +113,7 @@ async def handle_aaa_request(request):
                                         coincidence_score=traj["coincidence_score"],
                                         rank=idx + 1,
                                         geojson_fc=traj["geojson_fc"],
-                                        geometry=str(track["geometry"]),
+                                        geometry=str(traj["geometry"]),
                                     )
 
     return "Success!"
@@ -132,19 +131,22 @@ def automatic_source_analysis(aisc, slick):
         GroupBy object: The AIS-slick associations sorted and grouped by slick index.
     """
     slick_gdf = gpd.GeoDataFrame(
-        {"geometry": [wkb.loads(str(slick.geometry)).buffer(0)]}, crs=aisc.crs_degrees
-    ).to_crs(aisc.crs_meters)
-    _, slick_curves = slick_to_curves(slick_gdf)
+        {"geometry": [wkb.loads(str(slick.geometry)).buffer(0)]}, crs="4326"
+    )
+    _, slick_curves = slick_to_curves(slick_gdf, aisc.crs_meters)
 
     ais_associations = associate_ais_to_slick(
         aisc.ais_trajectories,
         aisc.ais_buffered,
         aisc.ais_weighted,
         slick_gdf,
-        slick_curves.iloc[0],  # Only uses the longest curve
+        slick_curves,
+        aisc.crs_meters,
     )
 
-    infra_associations = associate_infra_to_slick(aisc.infra_gdf, slick_gdf)
+    infra_associations = associate_infra_to_slick(
+        aisc.infra_gdf, slick_gdf, aisc.crs_meters
+    )
 
     all_associations = pd.concat(
         [ais_associations, infra_associations], ignore_index=True

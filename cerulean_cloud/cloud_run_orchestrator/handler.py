@@ -62,7 +62,7 @@ def get_landmask_gdf():
     global landmask_gdf
     if landmask_gdf is None:
         mask_path = "/app/cerulean_cloud/cloud_run_orchestrator/gadmLandMask_simplified/gadmLandMask_simplified.shp"
-        landmask_gdf = gpd.read_file(mask_path).to_crs("EPSG:3857")
+        landmask_gdf = gpd.read_file(mask_path).set_crs("4326")
     return landmask_gdf
 
 
@@ -502,14 +502,18 @@ async def _orchestrate(
                         )
                         for feat in merged_inferences.get("features"):
                             buffered_gdf = gpd.GeoDataFrame(
-                                geometry=[shape(feat["geometry"])], crs="EPSG:4326"
+                                geometry=[shape(feat["geometry"])], crs="4326"
                             )
-                            buffered_gdf["geometry"] = buffered_gdf.to_crs(
-                                "EPSG:3857"
-                            ).buffer(LAND_MASK_BUFFER_M)
-                            landmask = get_landmask_gdf()
+                            crs_meters = buffered_gdf.estimate_utm_crs(
+                                datum_name="WGS 84"
+                            )
+                            buffered_gdf["geometry"] = (
+                                buffered_gdf.to_crs(crs_meters)
+                                .buffer(LAND_MASK_BUFFER_M)
+                                .to_crs("4326")
+                            )
                             intersecting_land = gpd.sjoin(
-                                landmask,
+                                get_landmask_gdf(),
                                 buffered_gdf,
                                 how="inner",
                                 predicate="intersects",

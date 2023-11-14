@@ -40,7 +40,9 @@ def merge_inferences(
     # have little or no impact on comparison to the original image.
     gdfs_for_processing = [
         reproject_to_utm(
-            gpd.GeoDataFrame.from_features(fc["features"], crs=4326).assign(fc_index=i)
+            gpd.GeoDataFrame.from_features(fc["features"], crs="4326").assign(
+                fc_index=i
+            )
         )
         for i, fc in enumerate(feature_collections)
         if fc["features"]
@@ -107,7 +109,7 @@ def merge_inferences(
         )
 
     # Reproject the GeoDataFrame back to WGS 84 CRS
-    result = dissolved_gdf.to_crs(crs=4326)
+    result = dissolved_gdf.to_crs(crs="4326")
 
     # Clean up potentially memory heavy assets
     del dissolved_gdf
