@@ -4,7 +4,7 @@ from typing import Optional
 
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
-from shapely.geometry import MultiPolygon, Polygon, box, shape
+from shapely.geometry import MultiPolygon, Polygon, base, box, shape
 from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -176,6 +176,10 @@ class DatabaseClient:
 
     async def insert_source_from_traj(self, traj):
         """add a new source"""
+        for k, v in traj.items():
+            if isinstance(v, base.BaseGeometry):
+                traj[k] = from_shape(v)
+
         # Create a mapping from table names (stored in SourceType) to ORM classes
         tablename_to_class = {
             subclass.__tablename__: subclass for subclass in db.Source.__subclasses__()
@@ -192,7 +196,6 @@ class DatabaseClient:
             for k, v in traj.items()
             if k in insert_cols[traj["type"]] + common_cols
         }
-        insert_dict["geometry"] = from_shape(insert_dict["geometry"])
 
         source_type_obj = await get(self.session, db.SourceType, id=traj["type"])
 
