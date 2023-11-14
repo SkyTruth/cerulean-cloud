@@ -2,6 +2,7 @@
 Utilities and helper functions for the oil slick Leaflet map
 """
 
+import json
 from typing import List
 
 import centerline.geometry
@@ -22,33 +23,24 @@ from .scoring import (
 )
 
 
-def calculate_moment_of_inertia(geometry, point, crs_meters):
+def calculate_moment_of_inertia(geometry, point):
     """Given an multi/polygon and a point, calculate moment of inertia"""
-    geometry_m, point_m = gpd.GeoSeries([geometry, point], crs="4326").to_crs(
-        crs_meters
-    )
-
-    if isinstance(geometry_m, shapely.geometry.Polygon):
-        return geometry_m.area * point_m.distance(geometry_m.centroid) ** 2
-    elif isinstance(geometry_m, shapely.geometry.MultiPolygon):
+    if isinstance(geometry, shapely.geometry.Polygon):
+        return geometry.area * point.distance(geometry.centroid) ** 2
+    elif isinstance(geometry, shapely.geometry.MultiPolygon):
         return sum(
-            [
-                poly.area * point_m.distance(poly.centroid) ** 2
-                for poly in geometry_m.geoms
-            ]
+            [poly.area * point.distance(poly.centroid) ** 2 for poly in geometry.geoms]
         )
     else:
         raise ValueError("Input must be a Polygon or MultiPolygon")
 
 
-def calculate_maximum_moi(geometry, crs_meters):
+def calculate_maximum_moi(geometry):
     """Given an multi/polygon estimate an upper limit to reasonable moment of interia values"""
     # Calculate the moment of inertia for each corner of the minimum rotated bounding box and update the maximum
     return max(
         [
-            calculate_moment_of_inertia(
-                geometry, shapely.geometry.Point(corner), crs_meters
-            )
+            calculate_moment_of_inertia(geometry, shapely.geometry.Point(corner))
             for corner in geometry.minimum_rotated_rectangle.exterior.coords
         ]
     )
@@ -63,31 +55,34 @@ def associate_infra_to_slick(
         "st_name",
         "geometry",
         "coincidence_score",
-        "source_type",
+        "type",
         "ext_name",
+        "geojson_fc",
     ]
 
-    # Create an empty GeoDataFrame to store associations with specified columns and coordinate reference system (CRS)
-    associations = gpd.GeoDataFrame(columns=columns, crs="4326")
+    # Create an empty list to store associations
+    entries = []
 
     # Load infrastructure data from a file and create a GeoDataFrame
     # Create a buffered version of the 'slick' GeoDataFrame
-    slick = slick_gdf.iloc[0]["geometry"]
     buffered = slick_gdf.copy()
     buffered["geometry"] = (
         slick_gdf.to_crs(crs_meters).buffer(SPREAD_RATE).to_crs("4326")
     )  # Buffer the slick geometries
 
     # Calculate the maximum moment of inertia for the buffered slick geometry
-    max_moi = calculate_maximum_moi(slick, crs_meters)
+    max_moi = calculate_maximum_moi(slick_gdf.to_crs(crs_meters).iloc[0]["geometry"])
 
     # Perform a spatial join to find infrastructure points that intersect with the buffered slick geometries
     nearby_infra = gpd.sjoin(infra_gdf, buffered, how="inner", predicate="intersects")
+
     if not nearby_infra.empty:
         # Calculate a moment of inertia score for the nearby infrastructure, normalized against the maximum moment of inertia
         nearby_infra["moi_score"] = (
-            nearby_infra["geometry"].apply(
-                lambda point: calculate_moment_of_inertia(slick, point, crs_meters)
+            nearby_infra.to_crs(crs_meters)["geometry"].apply(
+                lambda point: calculate_moment_of_inertia(
+                    slick_gdf.to_crs(crs_meters).iloc[0]["geometry"], point
+                )
             )
             / max_moi
             * 3  # Adjust the score [0,1] to a range in line with other scores [0,~4]
@@ -95,16 +90,29 @@ def associate_infra_to_slick(
 
         # Iterate over the nearby infrastructure to populate the associations GeoDataFrame
         for _, row in nearby_infra.iterrows():
+            gdf = gpd.GeoDataFrame(
+                {
+                    "timestamp": ["20231103T00:00:00"],
+                    "geometry": [row["geometry"]],
+                },  # XXX FRAGILE needs to be unified with vessel, or at least made programmatic with file date
+                crs="4326",
+            )
             entry = {
                 "st_name": row["st_name"],
                 "geometry": row["geometry"],
                 "coincidence_score": row["moi_score"],
-                "source_type": 2,  # As defined in SourceType table
+                "type": 2,  # As defined in SourceType table
                 "ext_id": row["detect_id"],
+                "geojson_fc": {
+                    "type": "FeatureCollection",
+                    "features": json.loads(gdf.to_json())["features"],
+                },
             }
-            associations.loc[len(associations)] = entry
+            entries.append(entry)
 
     # Return the populated associations GeoDataFrame
+    associations = gpd.GeoDataFrame(entries, columns=columns, crs="4326")
+
     return associations
 
 
@@ -150,13 +158,14 @@ def associate_ais_to_slick(
         "st_name",
         "geometry",
         "coincidence_score",
-        "source_type",
+        "type",
         "ext_name",
         "ext_shiptype",
         "flag",
         "geojson_fc",
     ]
-    associations = gpd.GeoDataFrame(columns=columns, crs="4326")
+
+    entries = []
     # Skip the loop if weighted_filt is empty
     if weighted_filt:
         # create trajectory collection from filtered trajectories
@@ -188,13 +197,14 @@ def associate_ais_to_slick(
                     [p.coords[0] for p in t.df["geometry"]]
                 ),
                 "coincidence_score": coincidence_score,
-                "source_type": 1,  # As defined in SourceType table
+                "type": 1,  # As defined in SourceType table
                 "ext_name": t.ext_name,
                 "ext_shiptype": t.ext_shiptype,
                 "flag": t.flag,
                 "geojson_fc": t.geojson_fc,
             }
-            associations.loc[len(associations)] = entry
+            entries.append(entry)
+    associations = gpd.GeoDataFrame(entries, columns=columns, crs="4326")
 
     return associations
 
