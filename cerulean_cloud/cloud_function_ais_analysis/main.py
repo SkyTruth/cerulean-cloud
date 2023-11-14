@@ -107,7 +107,7 @@ async def handle_aaa_request(request):
                                         coincidence_score=traj["coincidence_score"],
                                         rank=idx + 1,
                                         geojson_fc=traj["geojson_fc"],
-                                        geometry=str(traj["geometry"]),
+                                        geometry=traj["geometry"].wkt,
                                     )
 
     return "Success!"
