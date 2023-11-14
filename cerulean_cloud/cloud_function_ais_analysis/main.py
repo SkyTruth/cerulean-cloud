@@ -94,16 +94,10 @@ async def handle_aaa_request(request):
                                         st_name=traj["st_name"]
                                     )
                                     if source is None:
-                                        source = await db_client.insert_source(
-                                            **{
-                                                k: v
-                                                for k, v in traj.items()
-                                                if not pd.isna(v)
-                                                and not (
-                                                    k == "geometry"
-                                                    and traj["source_type"] == 1
-                                                )
-                                            }
+                                        source = (
+                                            await db_client.insert_source_from_traj(
+                                                traj
+                                            )
                                         )
                                     await db_client.session.flush()
 

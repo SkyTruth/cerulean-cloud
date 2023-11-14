@@ -174,20 +174,24 @@ class DatabaseClient:
             self.session, db.Source, error_if_absent=False, st_name=st_name
         )
 
-    async def insert_source(self, st_name, source_type, **kwargs):
+    async def insert_source_from_traj(self, traj):
         """add a new source"""
+        # Create a mapping from table names (stored in SourceType) to ORM classes
         tablename_to_class = {
             subclass.__tablename__: subclass for subclass in db.Source.__subclasses__()
-        }  # Create a mapping from table names (stored in SourceType) to ORM classes
+        }
 
-        source_type_obj = await get(self.session, db.SourceType, id=source_type)
+        # Define insertion columns, based on schema source type
+        insert_cols = {
+            1: [c.name for c in db.SourceVessel.__table__.columns],  # Vessels
+            2: [c.name for c in db.SourceInfra.__table__.columns],  # Infrastructure
+        }
+        insert_dict = {k: v for k, v in traj.items() if k in insert_cols[traj["type"]]}
+
+        source_type_obj = await get(self.session, db.SourceType, id=traj["type"])
 
         source = await insert(
-            self.session,
-            tablename_to_class[source_type_obj.table_name],
-            st_name=st_name,
-            type=source_type,
-            **kwargs,
+            self.session, tablename_to_class[source_type_obj.table_name], **insert_dict
         )
         return source
 
