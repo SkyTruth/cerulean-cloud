@@ -182,11 +182,16 @@ class DatabaseClient:
         }
 
         # Define insertion columns, based on schema source type
+        common_cols = [c.name for c in db.Source.__table__.columns]
         insert_cols = {
             1: [c.name for c in db.SourceVessel.__table__.columns],  # Vessels
             2: [c.name for c in db.SourceInfra.__table__.columns],  # Infrastructure
         }
-        insert_dict = {k: v for k, v in traj.items() if k in insert_cols[traj["type"]]}
+        insert_dict = {
+            k: v
+            for k, v in traj.items()
+            if k in insert_cols[traj["type"]] + common_cols
+        }
 
         source_type_obj = await get(self.session, db.SourceType, id=traj["type"])
 

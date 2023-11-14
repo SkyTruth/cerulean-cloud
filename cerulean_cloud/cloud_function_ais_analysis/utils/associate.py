@@ -56,7 +56,7 @@ def associate_infra_to_slick(
         "geometry",
         "coincidence_score",
         "type",
-        "ext_name",
+        "ext_id",
         "geojson_fc",
     ]
 
