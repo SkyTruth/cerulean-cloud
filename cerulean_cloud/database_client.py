@@ -178,7 +178,7 @@ class DatabaseClient:
         """add a new source"""
         for k, v in traj.items():
             if isinstance(v, base.BaseGeometry):
-                traj[k] = from_shape(v)
+                traj[k] = str(v)
 
         # Create a mapping from table names (stored in SourceType) to ORM classes
         tablename_to_class = {
