@@ -2,6 +2,7 @@
 import os
 from typing import Optional
 
+import pandas as pd
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
@@ -194,7 +195,7 @@ class DatabaseClient:
         insert_dict = {
             k: v
             for k, v in traj.items()
-            if k in insert_cols[traj["type"]] + common_cols
+            if not pd.isna(v) and k in (common_cols + insert_cols[traj["type"]])
         }
 
         source_type_obj = await get(self.session, db.SourceType, id=traj["type"])
