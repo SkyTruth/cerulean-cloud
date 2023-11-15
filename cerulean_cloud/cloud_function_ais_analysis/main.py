@@ -6,7 +6,7 @@ import os
 
 import geopandas as gpd
 import pandas as pd
-from shapely import wkb
+from shapely import geometry, wkb
 from utils.ais import AISConstructor
 from utils.associate import (
     associate_ais_to_slick,
@@ -110,8 +110,16 @@ async def handle_aaa_request(request):
                                         traj["geometry"],
                                     )
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : traj["geometry"].wkt',
-                                        traj["geometry"].wkt,
+                                        f'{scene_id} : {slick.id} : {source.id} : type(geometry.shape(traj["geometry"]))',
+                                        type(geometry.shape(traj["geometry"])),
+                                    )
+                                    print(
+                                        f'{scene_id} : {slick.id} : {source.id} : geometry.shape(traj["geometry"])',
+                                        geometry.shape(traj["geometry"]),
+                                    )
+                                    print(
+                                        f'{scene_id} : {slick.id} : {source.id} : geometry.shape(traj["geometry"]).wkt',
+                                        geometry.shape(traj["geometry"]).wkt,
                                     )
 
                                     await db_client.insert_slick_to_source(
@@ -120,7 +128,7 @@ async def handle_aaa_request(request):
                                         coincidence_score=traj["coincidence_score"],
                                         rank=idx + 1,
                                         geojson_fc=traj["geojson_fc"],
-                                        geometry=traj["geometry"].wkt,
+                                        geometry=geometry.shape(traj["geometry"]).wkt,
                                     )
 
     return "Success!"
