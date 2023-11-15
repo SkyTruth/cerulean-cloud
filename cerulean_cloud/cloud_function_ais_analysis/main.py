@@ -106,6 +106,10 @@ async def handle_aaa_request(request):
                                         type(traj["geometry"]),
                                     )
                                     print(
+                                        f'{scene_id} : {slick.id} : {source.id} : traj["geometry"]',
+                                        traj["geometry"],
+                                    )
+                                    print(
                                         f'{scene_id} : {slick.id} : {source.id} : traj["geometry"].wkt',
                                         traj["geometry"].wkt,
                                     )
