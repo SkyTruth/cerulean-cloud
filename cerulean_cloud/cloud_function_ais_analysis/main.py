@@ -102,16 +102,10 @@ async def handle_aaa_request(request):
                                     await db_client.session.flush()
 
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : type(traj["geometry"])',
-                                        type(traj["geometry"]),
+                                        f'{type(traj["geometry"])} : type(traj["geometry"]) {scene_id} : {slick.id} : {source.id}'
                                     )
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : traj["geometry"]',
-                                        traj["geometry"],
-                                    )
-                                    print(
-                                        f'{scene_id} : {slick.id} : {source.id} : traj["geometry"].wkt',
-                                        traj["geometry"].wkt,
+                                        f'{traj["geometry"]} : traj["geometry"] {scene_id} : {slick.id} : {source.id}'
                                     )
 
                                     await db_client.insert_slick_to_source(
@@ -120,7 +114,7 @@ async def handle_aaa_request(request):
                                         coincidence_score=traj["coincidence_score"],
                                         rank=idx + 1,
                                         geojson_fc=traj["geojson_fc"],
-                                        geometry=traj["geometry"].wkt,
+                                        geometry=traj["geometry"],
                                     )
 
     return "Success!"
