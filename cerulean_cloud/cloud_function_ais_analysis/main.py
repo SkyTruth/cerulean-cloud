@@ -101,6 +101,15 @@ async def handle_aaa_request(request):
                                         )
                                     await db_client.session.flush()
 
+                                    print(
+                                        f'{scene_id} : {slick.id} : {source.id} : type(traj["geometry"])',
+                                        type(traj["geometry"]),
+                                    )
+                                    print(
+                                        f'{scene_id} : {slick.id} : {source.id} : traj["geometry"].wkt',
+                                        traj["geometry"].wkt,
+                                    )
+
                                     await db_client.insert_slick_to_source(
                                         source=source.id,
                                         slick=slick.id,
