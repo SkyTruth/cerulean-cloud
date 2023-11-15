@@ -334,7 +334,7 @@ def upgrade() -> None:
         sa.Column("rank", sa.BigInteger),
         sa.Column("hitl_confirmed", sa.Boolean),
         sa.Column("geojson_fc", sa.JSON, nullable=False),
-        sa.Column("geometry", Geography("LINESTRING"), nullable=False),
+        sa.Column("geometry", Geography("GEOMETRY"), nullable=False),
         sa.Column(
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
