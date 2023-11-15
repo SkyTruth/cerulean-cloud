@@ -101,12 +101,11 @@ async def handle_aaa_request(request):
                                         )
                                     await db_client.session.flush()
 
-                                    print(
-                                        f'{type(traj["geometry"])} : type(traj["geometry"]) {scene_id} : {slick.id} : {source.id}'
-                                    )
-                                    print(
-                                        f'{traj["geometry"]} : traj["geometry"] {scene_id} : {slick.id} : {source.id}'
-                                    )
+                                    traj["geometry"] = (
+                                        traj["geometry"]
+                                        if isinstance(traj["geometry"], str)
+                                        else traj["geometry"].wkt
+                                    )  # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
 
                                     await db_client.insert_slick_to_source(
                                         source=source.id,
