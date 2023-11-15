@@ -63,15 +63,15 @@ def associate_infra_to_slick(
     # Create an empty list to store associations
     entries = []
 
+    # Calculate the maximum moment of inertia for the slick geometry
+    max_moi = calculate_maximum_moi(slick_gdf.to_crs(crs_meters).iloc[0]["geometry"])
+
     # Load infrastructure data from a file and create a GeoDataFrame
     # Create a buffered version of the 'slick' GeoDataFrame
     buffered = slick_gdf.copy()
     buffered["geometry"] = (
         slick_gdf.to_crs(crs_meters).buffer(SPREAD_RATE).to_crs("4326")
     )  # Buffer the slick geometries
-
-    # Calculate the maximum moment of inertia for the buffered slick geometry
-    max_moi = calculate_maximum_moi(slick_gdf.to_crs(crs_meters).iloc[0]["geometry"])
 
     # Perform a spatial join to find infrastructure points that intersect with the buffered slick geometries
     nearby_infra = gpd.sjoin(infra_gdf, buffered, how="inner", predicate="intersects")
@@ -94,7 +94,7 @@ def associate_infra_to_slick(
                 {
                     "timestamp": ["20231103T00:00:00"],
                     "geometry": [row["geometry"]],
-                },  # XXX FRAGILE needs to be unified with vessel, or at least made programmatic with file date
+                },  # XXX FRAGILE timestamp needs to be made programmatically generated with file date
                 crs="4326",
             )
             entry = {

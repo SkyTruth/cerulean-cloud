@@ -102,25 +102,16 @@ async def handle_aaa_request(request):
                                     await db_client.session.flush()
 
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : before type(traj["geometry"])',
+                                        f'{scene_id} : {slick.id} : {source.id} : type(traj["geometry"])',
                                         type(traj["geometry"]),
                                     )
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : before traj["geometry"]',
+                                        f'{scene_id} : {slick.id} : {source.id} : traj["geometry"]',
                                         traj["geometry"],
                                     )
-                                    traj["geometry"] = (
-                                        traj["geometry"]
-                                        if isinstance(traj["geometry"], str)
-                                        else traj["geometry"].wkt
-                                    )
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : after type(traj["geometry"])',
-                                        type(traj["geometry"]),
-                                    )
-                                    print(
-                                        f'{scene_id} : {slick.id} : {source.id} : after traj["geometry"]',
-                                        traj["geometry"],
+                                        f'{scene_id} : {slick.id} : {source.id} : traj["geometry"].wkt',
+                                        traj["geometry"].wkt,
                                     )
 
                                     await db_client.insert_slick_to_source(
@@ -129,7 +120,7 @@ async def handle_aaa_request(request):
                                         coincidence_score=traj["coincidence_score"],
                                         rank=idx + 1,
                                         geojson_fc=traj["geojson_fc"],
-                                        geometry=traj["geometry"],
+                                        geometry=traj["geometry"].wkt,
                                     )
 
     return "Success!"

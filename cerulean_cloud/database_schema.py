@@ -468,7 +468,7 @@ class SlickToSource(Base):  # noqa
     hitl_confirmed = Column(Boolean)
     geojson_fc = Column(JSON, nullable=False)
     geometry = Column(
-        Geography("LINESTRING", 4326, from_text="ST_GeogFromText", name="geography"),
+        Geography("GEOMETRY", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))
