@@ -6,7 +6,7 @@ import os
 
 import geopandas as gpd
 import pandas as pd
-from shapely import geometry, wkb
+from shapely import wkb
 from utils.ais import AISConstructor
 from utils.associate import (
     associate_ais_to_slick,
@@ -102,24 +102,25 @@ async def handle_aaa_request(request):
                                     await db_client.session.flush()
 
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : type(traj["geometry"])',
+                                        f'{scene_id} : {slick.id} : {source.id} : before type(traj["geometry"])',
                                         type(traj["geometry"]),
                                     )
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : traj["geometry"]',
+                                        f'{scene_id} : {slick.id} : {source.id} : before traj["geometry"]',
                                         traj["geometry"],
                                     )
-                                    print(
-                                        f'{scene_id} : {slick.id} : {source.id} : type(geometry.shape(traj["geometry"]))',
-                                        type(geometry.shape(traj["geometry"])),
+                                    traj["geometry"] = (
+                                        traj["geometry"]
+                                        if isinstance(traj["geometry"], str)
+                                        else traj["geometry"].wkt
                                     )
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : geometry.shape(traj["geometry"])',
-                                        geometry.shape(traj["geometry"]),
+                                        f'{scene_id} : {slick.id} : {source.id} : after type(traj["geometry"])',
+                                        type(traj["geometry"]),
                                     )
                                     print(
-                                        f'{scene_id} : {slick.id} : {source.id} : geometry.shape(traj["geometry"]).wkt',
-                                        geometry.shape(traj["geometry"]).wkt,
+                                        f'{scene_id} : {slick.id} : {source.id} : after traj["geometry"]',
+                                        traj["geometry"],
                                     )
 
                                     await db_client.insert_slick_to_source(
@@ -128,7 +129,7 @@ async def handle_aaa_request(request):
                                         coincidence_score=traj["coincidence_score"],
                                         rank=idx + 1,
                                         geojson_fc=traj["geojson_fc"],
-                                        geometry=geometry.shape(traj["geometry"]).wkt,
+                                        geometry=traj["geometry"],
                                     )
 
     return "Success!"
