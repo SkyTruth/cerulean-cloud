@@ -52,7 +52,8 @@ def upgrade() -> None:
             array_agg(source.id) FILTER (WHERE source.type = 2) AS source_type_2_ids
            FROM slick_to_source
              JOIN source ON slick_to_source.source = source.id
-          GROUP BY slick_to_source.slick) source_agg ON source_agg.slick = slick.id;
+          GROUP BY slick_to_source.slick) source_agg ON source_agg.slick = slick.id
+    WHERE slick.active = true;
     """,
     )
     op.create_entity(slick_plus)
