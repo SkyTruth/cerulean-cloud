@@ -177,7 +177,7 @@ class AISConstructor:
             # build trajectory
             traj = mpd.Trajectory(df=group, traj_id=st_name, t="timestamp")
 
-            # interpolate/extrapolate to times in time_vec
+            # interpolate to times in time_vec
             times = list()
             positions = list()
             for t in self.time_vec:
@@ -198,9 +198,21 @@ class AISConstructor:
             interpolated_traj.ext_name = group.iloc[0]["shipname"]
             interpolated_traj.ext_shiptype = group.iloc[0]["best_shiptype"]
             interpolated_traj.flag = group.iloc[0]["flag"]
+
+            # calculate ideal display feature collection, which includes all the original datapoints, plus the time the image was taken (interpolation), minus everything after that point
+            s1_time = pd.Timestamp(times[-1]).tz_localize("UTC")
+            display_gdf = group[group["timestamp"] <= s1_time].copy()
+            display_gdf["timestamp"] = display_gdf["timestamp"].apply(
+                lambda x: x.isoformat()
+            )
+            if group["timestamp"].iloc[-1] > s1_time:
+                display_gdf = pd.concat(
+                    [display_gdf, gdf.iloc[[-1]]], ignore_index=True
+                )
+
             interpolated_traj.geojson_fc = {
                 "type": "FeatureCollection",
-                "features": json.loads(gdf.to_json())["features"],
+                "features": json.loads(display_gdf.to_json())["features"],
             }
 
             ais_trajectories.append(interpolated_traj)
