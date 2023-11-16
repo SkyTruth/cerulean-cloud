@@ -1,4 +1,4 @@
-pydantic-settings~=2.5
+pydantic-settings
 tipg~=0.5.0
 uvicorn
 mangum
