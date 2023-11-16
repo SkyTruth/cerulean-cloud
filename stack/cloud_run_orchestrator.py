@@ -24,7 +24,7 @@ git_tag = next((tag.name for tag in repo.tags if tag.commit == repo.head.commit)
 # Assign access to cloud SQL
 cloud_function_service_account = gcp.serviceaccount.Account(
     construct_name("cloud-run-orchestrator"),
-    account_id=f"{stack}-cloud-run-orchestrator",
+    account_id=f"{stack}-cloud-run-orch",
     display_name="Service Account for cloud run.",
 )
 
