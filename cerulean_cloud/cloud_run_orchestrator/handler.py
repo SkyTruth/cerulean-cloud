@@ -245,7 +245,7 @@ def flatten_feature_list(
 
 
 # XXX_CT reworking perform_inference to accept scale as an argument
-async def perform_inference(tiles, inference_func, description):
+async def perform_inference(tiles, inference_func, description, scale):
     """
     Perform inference on a set of tiles asynchronously.
 
