@@ -495,32 +495,33 @@ async def _orchestrate(
                 )
 
                 if merged_inferences.get("features"):
-                    async with db_client.session.begin():
-                        LAND_MASK_BUFFER_M = 1000
-                        print(
-                            f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
+                    LAND_MASK_BUFFER_M = 1000
+                    print(
+                        f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
+                    )
+                    for feat in merged_inferences.get("features"):
+                        buffered_gdf = gpd.GeoDataFrame(
+                            geometry=[shape(feat["geometry"])], crs="4326"
                         )
+                        crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
+                        buffered_gdf["geometry"] = (
+                            buffered_gdf.to_crs(crs_meters)
+                            .buffer(LAND_MASK_BUFFER_M)
+                            .to_crs("4326")
+                        )
+                        intersecting_land = gpd.sjoin(
+                            get_landmask_gdf(),
+                            buffered_gdf,
+                            how="inner",
+                            predicate="intersects",
+                        )
+                        if not intersecting_land.empty:
+                            feat["properties"]["inf_idx"] = 0
+                    # Removed all preprocessing of features from within the
+                    # database session to avoid holidng locks on the
+                    # table while performing un-related calculations.
+                    async with db_client.session.begin():
                         for feat in merged_inferences.get("features"):
-                            buffered_gdf = gpd.GeoDataFrame(
-                                geometry=[shape(feat["geometry"])], crs="4326"
-                            )
-                            crs_meters = buffered_gdf.estimate_utm_crs(
-                                datum_name="WGS 84"
-                            )
-                            buffered_gdf["geometry"] = (
-                                buffered_gdf.to_crs(crs_meters)
-                                .buffer(LAND_MASK_BUFFER_M)
-                                .to_crs("4326")
-                            )
-                            intersecting_land = gpd.sjoin(
-                                get_landmask_gdf(),
-                                buffered_gdf,
-                                how="inner",
-                                predicate="intersects",
-                            )
-                            if not intersecting_land.empty:
-                                feat["properties"]["inf_idx"] = 0
-
                             slick = await db_client.add_slick(
                                 orchestrator_run,
                                 sentinel1_grd.start_time,

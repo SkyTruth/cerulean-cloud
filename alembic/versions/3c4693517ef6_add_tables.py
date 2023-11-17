@@ -6,7 +6,7 @@ Create Date: 2022-06-30 11:45:00.359562
 
 """
 import sqlalchemy as sa
-from geoalchemy2 import Geography
+from geoalchemy2 import Geography, Geometry
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import ARRAY
 
@@ -277,10 +277,35 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "aoi_chunks",
+        sa.Column(
+            "id",
+            sa.BigInteger,
+            sa.ForeignKey(
+                "aoi.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"
+            ),
+        ),
+        sa.Column("geometry", Geometry("POLYGON", srid=4326), nullable=False),
+    )
+
+    op.create_table(
         "slick_to_aoi",
-        sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
-        sa.Column("aoi", sa.BigInteger, sa.ForeignKey("aoi.id"), nullable=False),
+        sa.Column(
+            "slick",
+            sa.BigInteger,
+            sa.ForeignKey(
+                "slick.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"
+            ),
+            primary_key=True,
+        ),
+        sa.Column(
+            "aoi",
+            sa.BigInteger,
+            sa.ForeignKey(
+                "aoi.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"
+            ),
+            primary_key=True,
+        ),
     )
 
     op.create_table(

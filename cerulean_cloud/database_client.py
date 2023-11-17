@@ -20,7 +20,17 @@ class InstanceNotFoundError(Exception):
 
 def get_engine(db_url: str = os.getenv("DB_URL")):
     """get database engine"""
-    return create_async_engine(db_url, echo=False)
+    # Connect args ref: https://docs.sqlalchemy.org/en/20/core/engines.html#use-the-connect-args-dictionary-parameter
+    # Note: statement timeout is assumed to be in MILIseconds if no unit is
+    # specified (as is the case here)
+    # Ref: https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-STATEMENT-TIMEOUT
+    # Note: specifying a 1 minute timeout per statement, since each orchestrator
+    # run may attempt to execute many statements
+    return create_async_engine(
+        db_url,
+        echo=False,
+        connect_args={"options": f"-c statement_timeout={1000 * 60}"},
+    )
 
 
 async def get(sess, kls, error_if_absent=True, **kwargs):
@@ -153,7 +163,8 @@ class DatabaseClient:
         machine_confidence,
     ):
         """add a slick"""
-        s = shape(slick_shape)
+        # use buffer(0) to attempt to fix any invalid geometries
+        s = shape(slick_shape).buffer(0)
         if not isinstance(s, MultiPolygon):
             s = MultiPolygon([s])
 

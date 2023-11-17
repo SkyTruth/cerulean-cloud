@@ -41,7 +41,7 @@ def upgrade() -> None:
             aoi_iho = database_schema.AoiIho(
                 type=2,
                 name=feat["properties"]["NAME"],
-                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
+                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"])).buffer(0)),
                 mrgid=feat["properties"]["MRGID"],
             )
             session.add(aoi_iho)
