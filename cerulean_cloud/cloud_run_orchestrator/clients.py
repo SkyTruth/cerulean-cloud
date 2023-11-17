@@ -68,14 +68,16 @@ class CloudRunInferenceClient:
         self.scale = scale  # 1=256, 2=512, 3=...
         self.inference_parms = inference_parms
 
+    # XXX_CT reworking inference to accept scale as an argument
     async def get_base_tile_inference(
-        self, tile: morecantile.Tile, rescale=(0, 255)
+        self, tile: morecantile.Tile, rescale=(0, 255), scale=None
     ) -> InferenceResultStack:
         """fetch inference for base tiles"""
+        scale = scale or self.scale
         img_array = await self.titiler_client.get_base_tile(
             sceneid=self.sceneid,
             tile=tile,
-            scale=self.scale,
+            scale=scale,
             rescale=rescale,
         )
 
@@ -105,17 +107,19 @@ class CloudRunInferenceClient:
                 f"XXX Received unexpected status code: {res.status_code} {res.content}"
             )
 
+    # XXX_CT reworking inference to accept scale as an argument
     async def get_offset_tile_inference(
-        self, bounds: List[float], rescale=(0, 255)
+        self, bounds: List[float], rescale=(0, 255), scale=None
     ) -> InferenceResultStack:
         """fetch inference for offset tiles"""
-        hw = self.scale * 256
+        scale = scale or self.scale
+        hw = scale * 256
         img_array = await self.titiler_client.get_offset_tile(
             self.sceneid,
             *bounds,
             width=hw,
             height=hw,
-            scale=self.scale,
+            scale=scale,
             rescale=rescale,
         )
         img_array = reshape_as_raster(img_array)
