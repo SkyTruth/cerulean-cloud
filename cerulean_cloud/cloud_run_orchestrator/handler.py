@@ -244,7 +244,6 @@ def flatten_feature_list(
     return flat_list
 
 
-# XXX_CT reworking perform_inference to accept scale as an argument
 async def perform_inference(tiles, inference_func, description, scale):
     """
     Perform inference on a set of tiles asynchronously.
@@ -304,7 +303,6 @@ async def _orchestrate(
     print(f"{start_time}: scene_stats: {scene_stats}")
     print(f"{start_time}: scene_info: {scene_info}")
 
-    # XXX_CT prepping low-res tiles
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
     lowres_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
     # base_tiles_bounds = [tiler.bounds(t) for t in base_tiles]
@@ -328,7 +326,6 @@ async def _orchestrate(
     # Filter out land tiles
     # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
     # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
-    # XXX_CT prepping low-res tiles
     base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
     lowres_tiles = [t for t in lowres_tiles if is_tile_over_water(tiler.bounds(t))]
 
@@ -403,7 +400,6 @@ async def _orchestrate(
                     inference_parms=inference_parms,
                 )
 
-                # XXX_CT perform_inference to accept scale as an argument
                 base_tiles_inference = await perform_inference(
                     base_tiles,
                     cloud_run_inference.get_base_tile_inference,
@@ -425,21 +421,18 @@ async def _orchestrate(
                     scale,
                 )
 
-                # XXX_CT perform_inference on lowres_tiles, accept scale as an arg
                 lowres_tiles_inference = await perform_inference(
                     lowres_tiles,
                     cloud_run_inference.get_base_tile_inference,
                     f"base tiles: {start_time}",
-                    scale,
+                    scale=min(1, scale - 1),
                 )
 
                 del base_tiles
                 del offset_tiles_bounds
-                # XXX_CT  >> Deleting lowres_tiles, question for JR, do offset_2_tiles_bounds also need to be deleted??
                 del offset_2_tiles_bounds
                 del lowres_tiles
 
-                # XXX_CT adding lowres, also deleting at the end. Same question for JR but about deleting offset_2_tiles_inference
                 if model.type == "MASKRCNN":
                     out_fc = geojson.FeatureCollection(
                         features=flatten_feature_list(base_tiles_inference)

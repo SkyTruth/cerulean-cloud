@@ -68,7 +68,6 @@ class CloudRunInferenceClient:
         self.scale = scale  # 1=256, 2=512, 3=...
         self.inference_parms = inference_parms
 
-    # XXX_CT reworking inference to accept scale as an argument
     async def get_base_tile_inference(
         self, tile: morecantile.Tile, rescale=(0, 255), scale=None
     ) -> InferenceResultStack:
@@ -107,13 +106,14 @@ class CloudRunInferenceClient:
                 f"XXX Received unexpected status code: {res.status_code} {res.content}"
             )
 
-    # XXX_CT reworking inference to accept scale as an argument
     async def get_offset_tile_inference(
         self, bounds: List[float], rescale=(0, 255), scale=None
     ) -> InferenceResultStack:
         """fetch inference for offset tiles"""
         scale = scale or self.scale
-        hw = scale * 256
+        hw = (
+            self.scale * 256
+        )  # XXX_CT: HW should always be self.scale * 256, because this is what the model was trained on
         img_array = await self.titiler_client.get_offset_tile(
             self.sceneid,
             *bounds,
