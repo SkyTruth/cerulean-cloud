@@ -15,6 +15,9 @@ from sqlalchemy import orm
 import cerulean_cloud.database_schema as database_schema
 from alembic import op
 
+# from .utils import clean_and_validate
+
+
 # revision identifiers, used by Alembic.
 revision = "f9b7166c86b7"
 down_revision = "c0bd1215a3ca"
@@ -41,7 +44,7 @@ def upgrade() -> None:
             aoi_mpa = database_schema.AoiMpa(
                 type=3,
                 name=feat["properties"]["NAME"],
-                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
+                geometry=to_wkt(from_geojson(json.dumps((feat["geometry"]))).buffer(0)),
                 wdpaid=feat["properties"]["WDPAID"],
                 desig=feat["properties"]["DESIG"],
                 desig_type=feat["properties"]["DESIG_TYPE"],
