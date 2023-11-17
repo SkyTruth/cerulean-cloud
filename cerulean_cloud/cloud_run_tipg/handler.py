@@ -133,11 +133,11 @@ class PostgresSettings(pydantic_settings.BaseSettings):
         postgres_dbname: database name.
     """
 
-    postgres_user: Optional[str]
-    postgres_pass: Optional[str]
-    postgres_host: Optional[str]
-    postgres_port: Optional[str]
-    postgres_dbname: Optional[str]
+    postgres_user: Optional[str] = None
+    postgres_pass: Optional[str] = None
+    postgres_host: Optional[str] = None
+    postgres_port: Optional[str] = None
+    postgres_dbname: Optional[str] = None
 
     database_url: Optional[str] = None
 
