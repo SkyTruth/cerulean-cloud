@@ -18,7 +18,7 @@ instance = gcp.sql.DatabaseInstance(
             # Should be 1/4 of total system memory (15Gb)
             dict(name="shared_buffers", value="468MB"),
             # Should be slightly higher than expected number of simultaneous connections
-            dict(name="max_connections", value="500"),
+            dict(name="max_connections", value=500),
             # Use for sorting and joining operations. work_mem * max_connections
             # should be less than shared buffers. However, this is the case if
             # we expect `max_connection` to relate to the number of users querying
@@ -35,7 +35,7 @@ instance = gcp.sql.DatabaseInstance(
             # Only used by temp tables
             dict(name="temp_buffers", value="512MB"),
             # Max number of concurrent i/o processes
-            dict(name="effective_io_concurrency", value="100"),
+            # dict(name="effective_io_concurrency", value="100"),
             dict(name="min_wal_size", value="1GB"),
             dict(name="max_wal_size", value="4GB"),
         ],
