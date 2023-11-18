@@ -26,13 +26,17 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("cerulean-cloud").require("apikey"),
                         ),
                     ],
-                    resources=dict(limits=dict(memory="4Gi", cpu="8000m")),
+                    resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
                 ),
             ],
+            timeout_seconds=300,
             container_concurrency=3,
         ),
         metadata=dict(
             name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
+            annotations={
+                "autoscaling.knative.dev/maxScale": "2000",
+            },
         ),
     ),
     metadata=gcp.cloudrun.ServiceMetadataArgs(

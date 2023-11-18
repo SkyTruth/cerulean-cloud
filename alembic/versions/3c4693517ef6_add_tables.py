@@ -44,16 +44,23 @@ def upgrade() -> None:
         sa.Column("layers", ARRAY(sa.Text), nullable=False),
         sa.Column("cls_map", sa.JSON, nullable=False),
         sa.Column("name", sa.Text),
-        sa.Column("zoom_level", sa.Integer),
-        sa.Column("rrctile_size", sa.Integer),
-        sa.Column("resolution", sa.Integer),
+        sa.Column("tile_width_m", sa.Integer, nullable=False),
+        sa.Column("tile_width_px", sa.Integer, nullable=False),
+        sa.Column(
+            "zoom_level",
+            sa.Integer,
+            sa.Computed("ROUND(LOG(2, 40075000.0 / tile_width_m)) - 1")
+            # 40075000 = Earth Circumference in meters
+            # '- 1' comes from using WorldCRS84Quad which has the zoom level "off-by-one" compared to WebMercatorQuad
+        ),
+        sa.Column("scale", sa.Integer, sa.Computed("ROUND(tile_width_px / 256.0)")),
         sa.Column("epochs", sa.Integer),
-        sa.Column("thresholds", sa.JSON),
+        sa.Column("thresholds", sa.JSON, nullable=False),
         sa.Column("backbone_size", sa.Integer),
         sa.Column("pixel_f1", sa.Float),
         sa.Column("instance_f1", sa.Float),
         sa.Column(
-            "updated_time", sa.DateTime, nullable=False, server_default=sa.func.now()
+            "update_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
     )
 
@@ -137,6 +144,8 @@ def upgrade() -> None:
             sa.ForeignKey("cls.id"),
         ),
         sa.Column("machine_confidence", sa.Float),
+        sa.Column("precursor_slicks", ARRAY(sa.BigInteger)),
+        sa.Column("notes", sa.Text),
         sa.Column(
             "length",
             sa.Float,
@@ -144,12 +153,12 @@ def upgrade() -> None:
                 """
                 GREATEST(
                     ST_Distance(
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 1),
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)
+                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 1)::geography,
+                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography
                     ),
                     ST_Distance(
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2),
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 3)
+                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography,
+                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 3)::geography
                     )
                 )
                 """
@@ -321,11 +330,11 @@ def upgrade() -> None:
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
         sa.Column("source", sa.BigInteger, sa.ForeignKey("source.id"), nullable=False),
-        sa.Column("machine_confidence", sa.Float),
+        sa.Column("coincidence_score", sa.Float),
         sa.Column("rank", sa.BigInteger),
         sa.Column("hitl_confirmed", sa.Boolean),
         sa.Column("geojson_fc", sa.JSON, nullable=False),
-        sa.Column("geometry", Geography("LINESTRING"), nullable=False),
+        sa.Column("geometry", Geography("GEOMETRY"), nullable=False),
         sa.Column(
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),

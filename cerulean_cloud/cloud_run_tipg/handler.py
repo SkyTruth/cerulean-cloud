@@ -9,13 +9,18 @@ Make sure to set in your environment:
 - DATABASE_URL
 
 """
+import json
 import logging
+import os
 from typing import Any, List, Optional
 
+import asyncpg
 import jinja2
-import pydantic
+import pydantic_settings
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from mangum import Mangum
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.templating import Jinja2Templates
@@ -32,7 +37,89 @@ settings = APISettings()
 db_settings = DatabaseSettings()
 
 
-class PostgresSettings(pydantic.BaseSettings):
+def extract_table_from_request(request: Request) -> Optional[str]:
+    """
+    Extract the collection ID (table name) from the URL path of an incoming HTTP request.
+
+    Args:
+        request (Request): The incoming FastAPI request object.
+
+    Returns:
+        Optional[str]: The collection ID if present in the URL path; otherwise, None.
+
+    Example:
+        Given a request object with URL 'http://localhost:8000/collections/my_table/items',
+        this function will return 'my_table'.
+    """
+    path_parts = request.url.path.split("/")
+
+    # Check if the request is related to collections
+    if "collections" in path_parts:
+        idx = path_parts.index("collections")
+
+        # The 'collectionId' should be the segment immediately following 'collections'
+        if len(path_parts) > idx + 1:
+            return path_parts[idx + 1]
+
+    # Return None if 'collectionId' is not found
+    return None
+
+
+def get_env_list(env_var: str, default: List[str] = None) -> List[str]:
+    """
+    Turn a list of strings in the .env into a list of strings in the code
+    """
+    raw_value = os.environ.get(env_var)
+    if raw_value is None:
+        return default if default is not None else []
+    try:
+        return json.loads(raw_value)
+    except json.JSONDecodeError:
+        return raw_value.split(",")
+
+
+class AccessControlMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware to handle access control based on the collection ID and an API key.
+
+    This middleware calls `extract_table_from_request` to determine the collection ID
+    from the request. It then checks if this collection is in the list of excluded collections.
+    If so, it verifies the API key in the request headers. If the API key is invalid,
+    it raises an HTTP 403 exception.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        """
+        The dispatch method to handle the request and execute the middleware logic.
+
+        Args:
+            request (Request): The incoming FastAPI request object.
+            call_next: The next middleware or endpoint in the processing pipeline.
+
+        Raises:
+            HTTPException: If the collection is restricted and an invalid API key is provided.
+
+        Returns:
+            Response: The outgoing FastAPI response object.
+        """
+        table = extract_table_from_request(request)
+        excluded_collections = get_env_list("RESTRICTED_COLLECTIONS")
+        if table in excluded_collections:
+            # Use something like "from auth import api_key_auth" instead?
+            api_key = request.headers.get("X-API-Key")
+            if api_key != os.environ.get("SECRET_API_KEY"):
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "message": f"Access to {table} is restricted.",
+                        "request_key": api_key,
+                    },
+                )
+        response = await call_next(request)
+        return response
+
+
+class PostgresSettings(pydantic_settings.BaseSettings):
     """Postgres-specific API settings.
 
     Note: We can't use PostgresSettings from TiPG because of the weird GCP DB url
@@ -46,11 +133,11 @@ class PostgresSettings(pydantic.BaseSettings):
         postgres_dbname: database name.
     """
 
-    postgres_user: Optional[str]
-    postgres_pass: Optional[str]
-    postgres_host: Optional[str]
-    postgres_port: Optional[str]
-    postgres_dbname: Optional[str]
+    postgres_user: Optional[str] = None
+    postgres_pass: Optional[str] = None
+    postgres_host: Optional[str] = None
+    postgres_port: Optional[str] = None
+    postgres_dbname: Optional[str] = None
 
     database_url: Optional[str] = None
 
@@ -101,6 +188,9 @@ if settings.cors_origins:
         allow_headers=["*"],
     )
 
+# Custom API key checking for restricted access
+app.add_middleware(AccessControlMiddleware)
+
 app.add_middleware(CacheControlMiddleware, cachecontrol=settings.cachecontrol)
 app.add_middleware(CompressionMiddleware)
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
@@ -109,20 +199,27 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 @app.on_event("startup")
 async def startup_event() -> None:
     """Connect to database on startup."""
-    await connect_to_db(app, settings=postgres_settings)
-    assert getattr(app.state, "pool", None)
+    try:
+        await connect_to_db(app, settings=postgres_settings)
+        assert getattr(app.state, "pool", None)
 
-    await register_collection_catalog(
-        app,
-        schemas=db_settings.schemas,
-        exclude_table_schemas=db_settings.exclude_table_schemas,
-        tables=db_settings.tables,
-        exclude_tables=db_settings.exclude_tables,
-        exclude_function_schemas=db_settings.exclude_function_schemas,
-        functions=db_settings.functions,
-        exclude_functions=db_settings.exclude_functions,
-        spatial=False,  # False means allow non-spatial tables
-    )
+        await register_collection_catalog(
+            app,
+            schemas=db_settings.schemas,
+            exclude_table_schemas=db_settings.exclude_table_schemas,
+            tables=db_settings.tables,
+            exclude_tables=db_settings.exclude_tables,
+            exclude_function_schemas=db_settings.exclude_function_schemas,
+            functions=db_settings.functions,
+            exclude_functions=db_settings.exclude_functions,
+            spatial=False,  # False means allow non-spatial tables
+        )
+    except asyncpg.exceptions.UndefinedObjectError:
+        # This is the case where TiPG is attempting to start up BEFORE
+        # the alembic code has had the opportunity to launch the database
+        # You will need to poll the /register endpoint of the tipg URL in order to correctly load the tables
+        # i.e. curl https://some-tipg-url.app/register
+        app.state.collection_catalog = {}
 
 
 @app.on_event("shutdown")

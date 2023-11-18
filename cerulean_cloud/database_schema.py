@@ -126,15 +126,24 @@ class Model(Base):  # noqa
     layers = Column(ARRAY(Text()), nullable=False)
     cls_map = Column(JSON, nullable=False)
     name = Column(Text)
-    zoom_level = Column(Integer)
-    rrctile_size = Column(Integer)
-    resolution = Column(Integer)
+    tile_width_m = Column(Integer, nullable=False)
+    tile_width_px = Column(Integer, nullable=False)
+    zoom_level = Column(
+        Integer,
+        Computed(
+            "(round(log((2)::numeric, (40075000.0 / (tile_width_m)::numeric))) - (1)::numeric)",
+            persisted=True,
+        ),
+    )
+    scale = Column(
+        Integer, Computed("round(((tile_width_px)::numeric / 256.0))", persisted=True)
+    )
     epochs = Column(Integer)
-    thresholds = Column(JSON)
+    thresholds = Column(JSON, nullable=False)
     backbone_size = Column(Integer)
     pixel_f1 = Column(Float(53))
     instance_f1 = Column(Float(53))
-    updated_time = Column(DateTime, nullable=False, server_default=text("now()"))
+    update_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
 
 class Sentinel1Grd(Base):  # noqa
@@ -388,14 +397,19 @@ class Slick(Base):  # noqa
         Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
+    active = Column(Boolean, nullable=False)
+    orchestrator_run = Column(ForeignKey("orchestrator_run.id"), nullable=False)
+    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
     inference_idx = Column(Integer, nullable=False)
     cls = Column(Integer)
     hitl_cls = Column(ForeignKey("cls.id"))
     machine_confidence = Column(Float(53))
+    precursor_slicks = Column(ARRAY(BigInteger()))
+    notes = Column(Text)
     length = Column(
         Float(53),
         Computed(
-            "GREATEST(st_distance(st_pointn(st_orientedenvelope((geometry)::geometry), 1), st_pointn(st_orientedenvelope((geometry)::geometry), 2)), st_distance(st_pointn(st_orientedenvelope((geometry)::geometry), 2), st_pointn(st_orientedenvelope((geometry)::geometry), 3)))",
+            "GREATEST(st_distance((st_pointn(st_exteriorring(st_orientedenvelope((geometry)::geometry)), 1))::geography, (st_pointn(st_exteriorring(st_orientedenvelope((geometry)::geometry)), 2))::geography), st_distance((st_pointn(st_exteriorring(st_orientedenvelope((geometry)::geometry)), 2))::geography, (st_pointn(st_exteriorring(st_orientedenvelope((geometry)::geometry)), 3))::geography))",
             persisted=True,
         ),
     )
@@ -419,9 +433,6 @@ class Slick(Base):  # noqa
             persisted=True,
         ),
     )
-    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
-    active = Column(Boolean, nullable=False)
-    orchestrator_run = Column(ForeignKey("orchestrator_run.id"), nullable=False)
 
     cls = relationship("Cls")
     orchestrator_run1 = relationship("OrchestratorRun")
@@ -452,12 +463,12 @@ class SlickToSource(Base):  # noqa
     )
     slick = Column(ForeignKey("slick.id"), nullable=False)
     source = Column(ForeignKey("source.id"), nullable=False)
-    machine_confidence = Column(Float(53))
+    coincidence_score = Column(Float(53))
     rank = Column(BigInteger)
     hitl_confirmed = Column(Boolean)
     geojson_fc = Column(JSON, nullable=False)
     geometry = Column(
-        Geography("LINESTRING", 4326, from_text="ST_GeogFromText", name="geography"),
+        Geography("GEOMETRY", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))

@@ -3,21 +3,49 @@ Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
 import os
 
+import cloud_function_ais_analysis
 import cloud_run_images
 import cloud_run_offset_tile
 import git
 import pulumi
 import pulumi_gcp as gcp
 import titiler_sentinel
-from cloud_run_offset_tile import noauth_iam_policy_data
 from database import instance, sql_instance_url_with_asyncpg
 from utils import construct_name
 
 config = pulumi.Config()
+stack = pulumi.get_stack()
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
 git_tag = next((tag.name for tag in repo.tags if tag.commit == repo.head.commit), None)
+
+
+# Assign access to cloud SQL
+cloud_function_service_account = gcp.serviceaccount.Account(
+    construct_name("cloud-run-orchestrator"),
+    account_id=f"{stack}-cloud-run-orch",
+    display_name="Service Account for cloud run.",
+)
+
+cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-orchestrator-cloudTasksEnqueuer"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/cloudtasks.enqueuer",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
+
+cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-orchestrator-cloudSqlClient"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/cloudsql.client",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
+
 
 service_name = construct_name("cloud-run-orchestrator")
 default = gcp.cloudrun.Service(
@@ -26,6 +54,7 @@ default = gcp.cloudrun.Service(
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
+            service_account_name=cloud_function_service_account.email,
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
                     image=cloud_run_images.cloud_run_orchestrator_image.name,
@@ -67,19 +96,37 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("gcp").require("project"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="GCP_REGION",
+                            value=pulumi.Config("gcp").require("region"),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="API_KEY",
                             value=pulumi.Config("cerulean-cloud").require("apikey"),
                         ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="AAA_QUEUE",
+                            value=cloud_function_ais_analysis.queue.name,
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="AIS_IS_DRY_RUN",
+                            value=pulumi.Config("cerulean-cloud").require("dryrun_ais"),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="FUNCTION_URL",
+                            value=cloud_function_ais_analysis.fxn.https_trigger_url,
+                        ),
                     ],
-                    resources=dict(limits=dict(memory="4Gi", cpu="4000m")),
+                    resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
                 ),
             ],
             timeout_seconds=3540,
+            container_concurrency=15,
         ),
         metadata=dict(
             name=service_name + "-" + cloud_run_images.cloud_run_orchestrator_sha,
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
+                "autoscaling.knative.dev/maxScale": "5",
             },
         ),
     ),
@@ -106,5 +153,5 @@ noauth_iam_policy = gcp.cloudrun.IamPolicy(
     location=default.location,
     project=default.project,
     service=default.name,
-    policy_data=noauth_iam_policy_data.policy_data,
+    policy_data=cloud_run_offset_tile.noauth_iam_policy_data.policy_data,
 )

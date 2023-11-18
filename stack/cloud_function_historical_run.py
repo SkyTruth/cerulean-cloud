@@ -15,7 +15,7 @@ function_name = construct_name("cloud-function-historical-run")
 config_values = {
     "DB_URL": database.sql_instance_url,
     "GCP_PROJECT": pulumi.Config("gcp").require("project"),
-    "GCP_LOCATION": pulumi.Config("gcp").require("region"),
+    "GCP_REGION": pulumi.Config("gcp").require("region"),
     "QUEUE": cloud_function_scene_relevancy.queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
     "FUNCTION_NAME": function_name,
