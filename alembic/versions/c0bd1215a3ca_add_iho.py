@@ -7,8 +7,8 @@ Create Date: 2023-07-15 00:26:04.493750
 """
 import json
 
-# import geojson
-# import httpx
+import geojson
+import httpx
 from shapely import from_geojson, to_wkt
 from sqlalchemy import orm
 
@@ -26,8 +26,7 @@ def get_iho_from_url(
     iho_url="https://storage.googleapis.com/ceruleanml/aux_datasets/World_Seas_IHO_v3.deleteholes.simplify.repair3.caspian.geojson",
 ):
     """Fetch previously saved file from gcp to avoid interacting with (slow) api"""
-    # res = geojson.FeatureCollection(**httpx.get(iho_url).json())
-    res = {"features": []}
+    res = geojson.FeatureCollection(**httpx.get(iho_url).json())
     return res
 
 
