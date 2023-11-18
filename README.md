@@ -35,9 +35,9 @@ In order to decrease response time for Cloud Run (especially in the production s
 __Metrics__
 
 Google Cloud provides nice dashboards for tracking the stability, response time and resource consumption of the cloud resources. The links below point to the PRODUCTION deployment, but for every stack's components you'll find similar dashboards:
-- [Cloud Run orchestrator metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cloud-run-orchestrator/metrics?project=cerulean-338116)
+- [Cloud Run orchestrator metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cloud-run-orch/metrics?project=cerulean-338116)
 - [Cloud Run offset tile metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cloud-run-offset-tiles/metrics?project=cerulean-338116)
-- [Cloud Tasks queue metrics](https://console.cloud.google.com/cloudtasks/queue/europe-west1/cerulean-cloud-production-queue-cloud-run-orchestrator-d8ed51e/metrics?project=cerulean-338116)
+- [Cloud Tasks queue metrics](https://console.cloud.google.com/cloudtasks/queue/europe-west1/cerulean-cloud-production-queue-cloud-run-orch-d8ed51e/metrics?project=cerulean-338116)
 - [Cloud Run tipg metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cloud-run-tipg/metrics?project=cerulean-338116)
 - [Cloud Function scene relevancy metrics](https://console.cloud.google.com/functions/details/europe-west1/cerulean-cloud-production-cloud-function-scene-relevancy?env=gen1&project=cerulean-338116)
 - [Cloud Function historical run metrics](https://console.cloud.google.com/functions/details/europe-west1/cerulean-cloud-production-cloud-function-historical-run?env=gen1&project=cerulean-338116)
@@ -184,6 +184,8 @@ If there is a lock on the stack, you can delete that lock in gs://cerulean-cloud
 
 ## Database
 
+![Database Schema as of 2023-08-01](<Database Schema 2023-08-01.png>)
+
 ### Connecting
 
 In order to connect to the deployed database, you can use the [Cloud SQL proxy for authentication](https://cloud.google.com/sql/docs/mysql/connect-admin-proxy). First install the proxy in your local machine (instructions [here](https://cloud.google.com/sql/docs/mysql/connect-admin-proxy#install)).
@@ -252,12 +254,23 @@ You could then save this value as an environment variable for later use.
 As an example, to place a request to the cloud run orchestrator, using `httpx` you'd do the following:
 ```python
 import httpx
-URL = "https://cerulean-cloud-test-cloud-run-orchestrator-5qkjkyomta-ew.a.run.app"
+URL = "https://cerulean-cloud-test-cloud-run-orch-5qkjkyomta-ew.a.run.app"
 API_KEY= "SOME_API_KEY"
-orchestrator_result = httpx.post(URL+"/orchestrate",
-                                json={"sceneid": "S1A_IW_GRDH_1SDV_20230523T224049_20230523T224114_048667_05DA7A_91D1"},
-                                timeout=None,
-                                headers={"Authorization": f"Bearer {API_KEY}"})
+SCENES = [
+    "S1A_IW_GRDH_1SDV_20230523T224049_20230523T224114_048667_05DA7A_91D1", # INDONESIA
+    "S1A_IW_GRDH_1SDV_20230320T062953_20230320T063018_047724_05BB92_AC28", # UK
+    "S1A_IW_GRDH_1SDV_20210523T005625_20210523T005651_038008_047C68_FE94", # INDIA
+    "S1A_IW_GRDH_1SDV_20230711T160632_20230711T160657_049378_05F013_448A", # EGYPT
+    "S1A_IW_GRDH_1SDV_20230330T015937_20230330T020003_047867_05C077_A6AC", # OMAN
+    "S1A_IW_GRDH_1SDV_20230302T001557_20230302T001622_047458_05B29B_DF03", # MEXICO
+    "S1A_IW_GRDH_1SDV_20230618T232014_20230618T232039_049047_05E5E0_718C", # USA
+]
+for sceneid in SCENES:
+	orchestrator_result = httpx.post(URL+"/orchestrate",
+									json={"sceneid": f"{sceneid}"},
+									timeout=None,
+									headers={"Authorization": f"Bearer {API_KEY}"})
+	print(orchestrator_result)
 ```
 
 Historical run example:

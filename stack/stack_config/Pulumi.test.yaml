@@ -3,10 +3,12 @@ config:
   aws:region: eu-central-1
   cerulean-cloud:dryrun_historical: "True" # Make empty "" to turn on historical runs
   cerulean-cloud:dryrun_relevancy: "True" # Make empty "" to turn on recurring runs
+  cerulean-cloud:dryrun_ais: "" # Make empty "" to turn on AIS analysis
+  ais:credentials: world-fishing-827-service-account-json
   cerulean-cloud:apikey:
     secure: v1:l5zmQowhnE9RJZC7:tyonyHOMqQ34wlv3eBD1LPUrqnJ0jMtWAzJdkJE5rp75r/qSG9CGWVeLM176tGOZz6G4sA==
   db:db-instance: db-f1-micro
-  db:deletion-protection: "False"
+  db:deletion-protection: "True"
   db:db-password:
     secure: v1:8dQyKnlQOrLqBXX6:lTmKOPMN2CYD/Oozi3IpPsUNgaFjDaCtVclsYgX4Tg0/6g==
   gcp:project: cerulean-338116

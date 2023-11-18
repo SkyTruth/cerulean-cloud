@@ -2,7 +2,6 @@
 Ref: https://github.com/python-engineer/ml-deployment/tree/main/google-cloud-run
 """
 from base64 import b64decode, b64encode
-from functools import lru_cache
 from typing import Dict, List, Tuple, Union
 
 import geojson
@@ -20,9 +19,10 @@ from starlette.requests import Request
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
-    InferenceInputStack,
+    InferenceInput,
     InferenceResult,
     InferenceResultStack,
+    PredictPayload,
 )
 
 # mypy: ignore-errors
@@ -32,17 +32,17 @@ app = FastAPI(title="Cloud Run for offset tiles", dependencies=[Depends(api_key_
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 add_timing_middleware(app, prefix="app")
 
-
-def load_tracing_model(savepath):
-    """load tracing model. a tracing model must be applied to the same batch dimensions the model was trained on."""
-    tracing_model = torch.jit.load(savepath, map_location="cpu")
-    return tracing_model
+MODEL = None
 
 
-@lru_cache()
-def get_model():
-    """load model"""
-    return load_tracing_model("cerulean_cloud/cloud_run_offset_tiles/model/model.pt")
+def load_model():
+    """Load the model into the global variable."""
+    global MODEL
+    if MODEL is None:
+        # You should specify the correct path to your model file
+        model_path = "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
+        MODEL = torch.jit.load(model_path, map_location="cpu")
+    return MODEL
 
 
 def logits_to_classes(out_batch_logits):
@@ -107,7 +107,7 @@ def ping() -> Dict:
 
 
 def _predict(
-    payload: InferenceInputStack, model, inference_parms: Dict
+    inf_stack: List[InferenceInput], model, inf_parms: Dict
 ) -> List[
     Union[
         Tuple[np.ndarray, np.ndarray, List[float]],
@@ -115,15 +115,13 @@ def _predict(
     ]
 ]:
     print("Initiating cloud_run_offset_tiles/_predict()")
-    print(f"Model type is {inference_parms['model_type']}")
-    print(f"Stack has {len(payload.stack)} images")
+    print(f"Model type is {inf_parms['model_type']}")
+    print(f"Stack has {len(inf_stack)} images")
 
-    stack_tensors = [
-        b64_image_to_tensor(record.image) / 255 for record in payload.stack
-    ]
-    bounds = [record.bounds for record in payload.stack]
+    stack_tensors = [b64_image_to_tensor(record.image) / 255 for record in inf_stack]
+    bounds = [record.bounds for record in inf_stack]
 
-    if inference_parms["model_type"] == "MASKRCNN":
+    if inf_parms["model_type"] == "MASKRCNN":
         print(f"Images have shape {stack_tensors[0].shape}")
 
         raw_preds = model(stack_tensors)[1]
@@ -131,18 +129,18 @@ def _predict(
 
         reduced_preds = reduce_preds(
             raw_preds,
-            **inference_parms["thresholds"],
+            **inf_parms["thresholds"],
             bounds=bounds,
         )
         # returns List[Tuple[List[geojson.Feature], List[float]]]
         return [(inf["polys"], bounds[i]) for i, inf in enumerate(reduced_preds)]
 
-    elif inference_parms["model_type"] == "UNET":
+    elif inf_parms["model_type"] == "UNET":
         # out_batch_logits = model(tensor)
         # print("Finished inference, applying softmax")
 
         # res: Tuple[np.ndarray, np.ndarray, List[float]] = []
-        # for i, inference_input in enumerate(payload.stack):
+        # for i, inference_input in enumerate(inf_stack):
         #     conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
         #     classes = apply_conf_threshold(conf, _classes, confidence_threshold)
         #     print(f"Output classes array is {classes.shape}")
@@ -165,31 +163,11 @@ def _predict(
     tags=["Run inference"],
     response_model=InferenceResultStack,
 )
-def predict(request: Request, payload: Dict, model=Depends(get_model)) -> Dict:
-    """predict"""
-    # inference_parms = {
-    #     "model_type": "MASKRCNN",
-    #     "img_shape": [3, 224, 224],  # rrctile of runlist[-1][0]
-    #     "classes_to_remove": [
-    #         "ambiguous",
-    #     ],
-    #     "classes_to_remap": {
-    #         "old_vessel": "recent_vessel",
-    #         "coincident_vessel": "recent_vessel",
-    #     },
-    #     "classes_to_keep": [
-    #         "background",
-    #         "infra_slick",
-    #         "natural_seep",
-    #         "recent_vessel",
-    #     ],
-    #     "pixel_nms_thresh": 0.4,  # prediction vs itself, pixels
-    #     "bbox_score_thresh": 0.2,  # prediction vs score, bbox
-    #     "poly_score_thresh": 0.2,  # prediction vs score, polygon
-    #     "pixel_score_thresh": 0.2,  # prediction vs score, pixels
-    # }
+def predict(request: Request, payload: PredictPayload) -> Dict:
+    """Run prediction using the loaded model."""
     record_timing(request, note="Started")
-    results = _predict(payload["inference_input"], model, payload["inference_parms"])
+    model = load_model()
+    results = _predict(payload.inf_stack, model, payload.inf_parms)
     record_timing(request, note="Finished inference")
 
     inference_result_stack = []
@@ -413,13 +391,28 @@ def polygonize_pixel_segmentations(pred_dict, poly_score_thresh, bounds):
         else None
     )
     pred_dict["polys"] = [
-        vectorize_mask_instance(c, transform) for c in high_conf_classes
+        vectorize_mask_instance(c, pred_dict["scores"][i].detach().item(), transform)
+        for i, c in enumerate(high_conf_classes)
     ]
     keep_masks = [i for i, poly in enumerate(pred_dict["polys"]) if poly]
     return pred_dict, keep_masks
 
 
-def vectorize_mask_instance(high_conf_mask: torch.Tensor, transform):
+def extract_geometry(dataset):
+    """Extracts the geometries from a raster dataset."""
+
+    shps = shapes(
+        dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
+    )
+    geoms, inf_idxs = zip(
+        *[s for s in shps if s[1] != 0]  # XXX HACK assumes inf_idx=0 is background
+    )
+    return MultiPolygon([shape(g) for g in geoms]), inf_idxs[0] if inf_idxs else 0
+
+
+def vectorize_mask_instance(
+    high_conf_mask: torch.Tensor, machine_confidence, transform
+):
     """
     From a high confidence mask, generate a GeoJSON feature collection.
 
@@ -434,13 +427,12 @@ def vectorize_mask_instance(high_conf_mask: torch.Tensor, transform):
     memfile = create_memfile(high_conf_mask, transform)
 
     with memfile.open() as dataset:
-        geoms = extract_geometries(dataset)
-        multipoly = MultiPolygon(geoms)
+        multipoly, inf_idx = extract_geometry(dataset)
 
     return (
         geojson.Feature(
             geometry=multipoly,
-            properties=dict(),
+            properties=dict(machine_confidence=machine_confidence, inf_idx=inf_idx),
         )
         if multipoly
         else None
@@ -465,13 +457,3 @@ def create_memfile(high_conf_mask, transform):
         dataset.write(high_conf_mask, 1)
 
     return memfile
-
-
-def extract_geometries(dataset):
-    """Extracts the geometries from a raster dataset."""
-
-    shps = shapes(
-        dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
-    )
-    geoms = [shape(geom) for geom, value in shps if value != 0]
-    return geoms

@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 import geojson
+import geopandas as gpd
 import morecantile
 import numpy as np
 import rasterio
@@ -24,9 +25,10 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
 from rasterio.io import MemoryFile
-from rasterio.merge import merge
+from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
+from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_aaa_queue
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResult,
     InferenceResultStack,
@@ -39,12 +41,29 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
 )
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
-from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
+from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
 app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
+
+landmask_gdf = None
+
+
+def get_landmask_gdf():
+    """
+    Retrieves the GeoDataFrame representing the land mask.
+    This function uses lazy initialization to load the land mask data from a .shp file
+    only upon the first call. Subsequent calls return the stored GeoDataFrame.
+    Returns:
+        GeoDataFrame: The GeoDataFrame object representing the land mask, with CRS set to "EPSG:3857".
+    """
+    global landmask_gdf
+    if landmask_gdf is None:
+        mask_path = "/app/cerulean_cloud/cloud_run_orchestrator/gadmLandMask_simplified/gadmLandMask_simplified.shp"
+        landmask_gdf = gpd.read_file(mask_path).set_crs("4326")
+    return landmask_gdf
 
 
 def make_cloud_log_url(
@@ -86,7 +105,7 @@ def b64_image_to_array(image: str) -> np.ndarray:
     return np_img
 
 
-def from_tiles_get_offset_shape(
+def offset_group_shape_from_base_tiles(
     tiles: List[morecantile.Tile], scale=2
 ) -> Tuple[int, int]:
     """from a list of tiles, get the expected shape of the image (of offset tiles, +1)"""
@@ -101,7 +120,7 @@ def from_tiles_get_offset_shape(
     return height, width
 
 
-def from_bounds_get_offset_bounds(bounds: List[List[float]]) -> List[float]:
+def group_bounds_from_list_of_bounds(bounds: List[List[float]]) -> List[float]:
     """from a list of bounds, get the merged bounds (min max)"""
     bounds_np = np.array([(b[0], b[1], b[2], b[3]) for b in bounds])
     minx, miny, maxx, maxy = (
@@ -128,11 +147,9 @@ def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
         )
     out_fc = geojson.FeatureCollection(
         features=[
-            geojson.Feature(
-                geometry=geom, properties=dict(classification=classification)
-            )
-            for geom, classification in shapes
-            if int(classification) != 0
+            geojson.Feature(geometry=geom, properties=dict(inf_idx=inf_idx))
+            for geom, inf_idx in shapes
+            if int(inf_idx) != 0  # XXX HACK This assumes background index is 0
         ]
     )
     return out_fc
@@ -227,54 +244,118 @@ def flatten_feature_list(
     return flat_list
 
 
+async def perform_inference(tiles, inference_func, description):
+    """
+    Perform inference on a set of tiles asynchronously.
+
+    Parameters:
+    - tiles or bounds (list): List of tiles to perform inference on. (depends on inference_func)
+    - inference_func (function): Asynchronous function to call for inference.
+    - description (str): Description of the inference task for logging.
+
+    Returns:
+    - list: List of inference results. Exceptions, if any, are filtered out.
+
+    Side Effects:
+    - Prints log messages and warnings to the console.
+    - Prints traceback of exceptions to the console.
+    """
+    print(f"Inference on {description}!")
+    inferences = await asyncio.gather(
+        *[inference_func(tile, rescale=(0, 255)) for tile in tiles],
+        return_exceptions=False,  # This raises exceptions
+    )
+    return inferences
+
+
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
     # Orchestrate inference
     start_time = datetime.now()
     print(f"Start time: {start_time}")
-    zoom = payload.zoom
-    print("XXXDEBUG payload.zoom", payload.zoom)
-    scale = payload.scale
-    print("XXXDEBUG payload.scale", payload.scale)
-    print(f"Orchestrating for sceneid {payload.sceneid}...")
-    bounds = await titiler_client.get_bounds(payload.sceneid)
-    stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
-    info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
-    print(info)
-    base_tiles = list(tiler.tiles(*bounds, [zoom], truncate=False))
-    offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=scale)
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
-    offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
-    print(f"Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}")
+    print(f"{start_time}: Orchestrating for sceneid {payload.sceneid}")
+
+    async with DatabaseClient(db_engine) as db_client:
+        async with db_client.session.begin():
+            model = await db_client.get_model(os.getenv("MODEL"))
+    zoom = payload.zoom or model.zoom_level
+    scale = payload.scale or model.scale
+    print(f"{start_time}: zoom: {zoom}")
+    print(f"{start_time}: scale: {scale}")
+
+    if model.zoom_level != zoom:
+        print(
+            f"{start_time}: WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
+        )
+    if model.tile_width_px != scale * 256:
+        print(
+            f"{start_time}: WARNING: Model was trained on image tile of resolution {model.tile_width_px} but is being run on {scale*256}"
+        )
+
+    # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
+    # When scene traverses the anti-meridian, scene_bounds are nonsensical
+    # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
+    scene_bounds = await titiler_client.get_bounds(payload.sceneid)
+    scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+    scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+    print(f"{start_time}: scene_bounds: {scene_bounds}")
+    print(f"{start_time}: scene_stats: {scene_stats}")
+    print(f"{start_time}: scene_info: {scene_info}")
+
+    base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
+    # base_tiles_bounds = [tiler.bounds(t) for t in base_tiles]
+    # base_group_bounds = group_bounds_from_list_of_bounds(base_tiles_bounds)
+
+    # tiling.py was updated to allow for offset_amount to be declared by offset_bounds_from_base_tiles(), see tiling.py line 61.
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles, offset_amount=0.33)
+    offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
+    offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
+
+    offset_2_tiles_bounds = offset_bounds_from_base_tiles(
+        base_tiles, offset_amount=0.66
+    )
+    # offset_2_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale) # XXXC figure out where these should be used
+    # offset_2_group_bounds = group_bounds_from_list_of_bounds(offset_2_tiles_bounds) # XXXC figure out where these should be used
+
+    print(
+        f"{start_time}: Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}, {len(offset_2_tiles_bounds)}"
+    )
 
     # Filter out land tiles
+    # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
+    # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
     base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
+
     offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
+    offset_2_tiles_bounds = [b for b in offset_2_tiles_bounds if is_tile_over_water(b)]
 
     ntiles = len(base_tiles)
     noffsettiles = len(offset_tiles_bounds)
-
-    print(f"Preparing {ntiles} base tiles (no land).")
-    print(f"Preparing {noffsettiles} offset tiles (no land).")
-
-    print(f"Scene bounds are {bounds}, stats are {stats}.")
-    print(f"Offset image size is {offset_image_shape} with {offset_bounds} bounds.")
+    print(f"{start_time}: Preparing {ntiles} base tiles (no land).")
+    print(f"{start_time}: Preparing {noffsettiles} offset tiles (no land).")
 
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
         try:
             async with db_client.session.begin():
                 trigger = await db_client.get_trigger(trigger=payload.trigger)
-                model = await db_client.get_model(os.getenv("MODEL"))
-                print("XXXDEBUG model.zoom_level", model.zoom_level)
                 layers = [await db_client.get_layer(layer) for layer in model.layers]
                 sentinel1_grd = await db_client.get_sentinel1_grd(
                     payload.sceneid,
-                    info,
+                    scene_info,
                     titiler_client.get_base_tile_url(
-                        payload.sceneid, rescale=(stats["min"], stats["max"])
+                        payload.sceneid,
+                        rescale=(0, 255),
                     ),
+                )
+                stale_slick_count = (
+                    await db_client.deactivate_stale_slicks_from_scene_id(
+                        payload.sceneid
+                    )
+                )
+                print(
+                    f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
                 )
                 orchestrator_run = await db_client.add_orchestrator(
                     start_time,
@@ -288,7 +369,7 @@ async def _orchestrate(
                     ),
                     zoom,
                     scale,
-                    bounds,
+                    scene_bounds,
                     trigger,
                     model,
                     sentinel1_grd,
@@ -297,164 +378,184 @@ async def _orchestrate(
             await db_client.session.close()
             raise
 
-        if model.zoom_level != zoom:
-            print(
-                f"WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
-            )
-            # XXX Should use the model to drive the zoom level instead
-        if model.rrctile_size != scale * 256:
-            print(
-                f"WARNING: Model was trained on image tiles of size {model.rrctile_size} but is being run on {scale*256}"
-            )
-            # XXX Should use the model to drive the tile size instead
-        if model.resolution != scale * 256:
-            print(
-                f"WARNING: Model was trained on image tile of resolution {model.resolution} but is being run on {scale*256}"
-            )
-            # XXX Should use the model to drive the tile resolution instead
-
         inference_parms = {
             "model_type": model.type,
             "thresholds": model.thresholds,
         }
 
         if not payload.dry_run:
-            print("Instantiating inference client.")
-            cloud_run_inference = CloudRunInferenceClient(
-                url=os.getenv("INFERENCE_URL"),
-                titiler_client=titiler_client,
-                sceneid=payload.sceneid,
-                offset_bounds=offset_bounds,
-                offset_image_shape=offset_image_shape,
-                layers=layers,
-                scale=scale,
-                inference_parms=inference_parms,
-            )
-
-            print("Inference on base tiles!")
-            base_tile_semaphore = asyncio.Semaphore(value=20)
-            base_tiles_inference = await asyncio.gather(
-                *[
-                    cloud_run_inference.get_base_tile_inference(
-                        tile=base_tile,
-                        rescale=(stats["min"], stats["max"]),
-                        semaphore=base_tile_semaphore,
-                    )
-                    for base_tile in base_tiles
-                ],
-                return_exceptions=True,
-            )
-
-            print("Inference on offset tiles!")
-            offset_tile_semaphore = asyncio.Semaphore(value=20)
-            offset_tiles_inference = await asyncio.gather(
-                *[
-                    cloud_run_inference.get_offset_tile_inference(
-                        bounds=offset_tile_bounds,
-                        rescale=(stats["min"], stats["max"]),
-                        semaphore=offset_tile_semaphore,
-                    )
-                    for offset_tile_bounds in offset_tiles_bounds
-                ],
-                return_exceptions=True,
-            )
-
-            if base_tiles_inference[0].stack[0].dict().get("classes"):
-                print("Loading all tiles into memory for merge!")
-                ds_base_tiles = []
-                for base_tile_inference in base_tiles_inference:
-                    ds_base_tiles.append(
-                        *[
-                            create_dataset_from_inference_result(b)
-                            for b in base_tile_inference.stack
-                        ]
-                    )
-
-                ds_offset_tiles = []
-                for offset_tile_inference in offset_tiles_inference:
-                    ds_offset_tiles.append(
-                        *[
-                            create_dataset_from_inference_result(b)
-                            for b in offset_tile_inference.stack
-                        ]
-                    )
-
-                print("Merging base tiles!")
-                base_tile_inference_file = MemoryFile()
-                ar, transform = merge(ds_base_tiles)
-                with base_tile_inference_file.open(
-                    driver="GTiff",
-                    height=ar.shape[1],
-                    width=ar.shape[2],
-                    count=ar.shape[0],
-                    dtype=ar.dtype,
-                    transform=transform,
-                    crs="EPSG:4326",
-                ) as dst:
-                    dst.write(ar)
-
-                out_fc = get_fc_from_raster(base_tile_inference_file)
-
-                print("Merging offset tiles!")
-                offset_tile_inference_file = MemoryFile()
-                ar, transform = merge(ds_offset_tiles)
-                with offset_tile_inference_file.open(
-                    driver="GTiff",
-                    height=ar.shape[1],
-                    width=ar.shape[2],
-                    count=ar.shape[0],
-                    dtype=ar.dtype,
-                    transform=transform,
-                    crs="EPSG:4326",
-                ) as dst:
-                    dst.write(ar)
-
-                out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
-
-            else:
-                out_fc = geojson.FeatureCollection(
-                    features=flatten_feature_list(base_tiles_inference)
-                )
-                out_fc_offset = geojson.FeatureCollection(
-                    features=flatten_feature_list(offset_tiles_inference)
+            success = True
+            try:
+                print(f"{start_time}: Instantiating inference client.")
+                cloud_run_inference = CloudRunInferenceClient(
+                    url=os.getenv("INFERENCE_URL"),
+                    titiler_client=titiler_client,
+                    sceneid=payload.sceneid,
+                    offset_bounds=offset_group_bounds,
+                    offset_image_shape=offset_group_shape,
+                    layers=layers,
+                    scale=scale,
+                    inference_parms=inference_parms,
                 )
 
-            merged_inferences = merge_inferences(out_fc, out_fc_offset)
+                base_tiles_inference = await perform_inference(
+                    base_tiles,
+                    cloud_run_inference.get_base_tile_inference,
+                    f"base tiles: {start_time}",
+                )
 
-            for feat in merged_inferences.get("features"):
-                async with db_client.session.begin():
-                    slick = await db_client.add_slick(
-                        orchestrator_run,
-                        sentinel1_grd.start_time,
-                        feat.get("geometry"),
-                        feat.get("properties").get("classification"),
-                        feat.get("properties").get("confidence"),
+                offset_tiles_inference = await perform_inference(
+                    offset_tiles_bounds,
+                    cloud_run_inference.get_offset_tile_inference,
+                    f"offset tiles: {start_time}",
+                )
+
+                offset_2_tiles_inference = await perform_inference(
+                    offset_2_tiles_bounds,
+                    cloud_run_inference.get_offset_tile_inference,
+                    f"offset2 tiles: {start_time}",
+                )
+                del base_tiles
+                del offset_tiles_bounds
+
+                if model.type == "MASKRCNN":
+                    out_fc = geojson.FeatureCollection(
+                        features=flatten_feature_list(base_tiles_inference)
                     )
-                print(f"Added slick {slick}")
+                    out_fc_offset = geojson.FeatureCollection(
+                        features=flatten_feature_list(offset_tiles_inference)
+                    )
+                    out_fc_offset_2 = geojson.FeatureCollection(
+                        features=flatten_feature_list(offset_2_tiles_inference)
+                    )
+                    del base_tiles_inference
+                    del offset_tiles_inference
+                elif model.type == "UNET":
+                    # print("Loading all tiles into memory for merge!")
+                    # ds_base_tiles = []
+                    # for base_tile_inference in base_tiles_inference:
+                    #     ds_base_tiles.append(
+                    #         *[
+                    #             create_dataset_from_inference_result(b)
+                    #             for b in base_tile_inference.stack
+                    #         ]
+                    #     )
 
-            end_time = datetime.now()
-            print(f"End time: {end_time}")
-            print("Returning results!")
+                    # ds_offset_tiles = []
+                    # for offset_tile_inference in offset_tiles_inference:
+                    #     ds_offset_tiles.append(
+                    #         *[
+                    #             create_dataset_from_inference_result(b)
+                    #             for b in offset_tile_inference.stack
+                    #         ]
+                    #     )
 
+                    # print("Merging base tiles!")
+                    # base_tile_inference_file = MemoryFile()
+                    # ar, transform = merge(ds_base_tiles)
+                    # with base_tile_inference_file.open(
+                    #     driver="GTiff",
+                    #     height=ar.shape[1],
+                    #     width=ar.shape[2],
+                    #     count=ar.shape[0],
+                    #     dtype=ar.dtype,
+                    #     transform=transform,
+                    #     crs="EPSG:4326",
+                    # ) as dst:
+                    #     dst.write(ar)
+
+                    # out_fc = get_fc_from_raster(base_tile_inference_file)
+
+                    # print("Merging offset tiles!")
+                    # offset_tile_inference_file = MemoryFile()
+                    # ar, transform = merge(ds_offset_tiles)
+                    # with offset_tile_inference_file.open(
+                    #     driver="GTiff",
+                    #     height=ar.shape[1],
+                    #     width=ar.shape[2],
+                    #     count=ar.shape[0],
+                    #     dtype=ar.dtype,
+                    #     transform=transform,
+                    #     crs="EPSG:4326",
+                    # ) as dst:
+                    #     dst.write(ar)
+
+                    # out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
+                    raise NotImplementedError("UNET pathway isn't well defined")
+                else:
+                    raise NotImplementedError(
+                        "Model_type must be one of ['MASKRCNN', 'UNET']"
+                    )
+
+                merged_inferences = merge_inferences(
+                    feature_collections=[out_fc, out_fc_offset, out_fc_offset_2],
+                    proximity_meters=None,
+                    closing_meters=None,
+                    opening_meters=None,
+                )
+
+                if merged_inferences.get("features"):
+                    async with db_client.session.begin():
+                        LAND_MASK_BUFFER_M = 1000
+                        print(
+                            f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
+                        )
+                        for feat in merged_inferences.get("features"):
+                            buffered_gdf = gpd.GeoDataFrame(
+                                geometry=[shape(feat["geometry"])], crs="4326"
+                            )
+                            crs_meters = buffered_gdf.estimate_utm_crs(
+                                datum_name="WGS 84"
+                            )
+                            buffered_gdf["geometry"] = (
+                                buffered_gdf.to_crs(crs_meters)
+                                .buffer(LAND_MASK_BUFFER_M)
+                                .to_crs("4326")
+                            )
+                            intersecting_land = gpd.sjoin(
+                                get_landmask_gdf(),
+                                buffered_gdf,
+                                how="inner",
+                                predicate="intersects",
+                            )
+                            if not intersecting_land.empty:
+                                feat["properties"]["inf_idx"] = 0
+
+                            slick = await db_client.add_slick(
+                                orchestrator_run,
+                                sentinel1_grd.start_time,
+                                feat.get("geometry"),
+                                feat.get("properties").get("inf_idx"),
+                                feat.get("properties").get("machine_confidence"),
+                            )
+                            print(f"{start_time}: Added slick: {slick}")
+
+                    AAA_CONFIDENCE_THRESHOLD = 0.5
+                    if any(
+                        feat.get("properties").get("machine_confidence")
+                        > AAA_CONFIDENCE_THRESHOLD
+                        for feat in merged_inferences.get("features")
+                    ):
+                        print(f"{start_time}: Queueing up Automatic AIS Analysis")
+                        add_to_aaa_queue(sentinel1_grd.scene_id)
+
+            except Exception as e:
+                success = False
+                exc = e
+                print(f"{start_time}: {e}")
             async with db_client.session.begin():
-                orchestrator_run.success = True
+                end_time = datetime.now()
+                orchestrator_run.success = success
                 orchestrator_run.inference_end_time = end_time
+                print(f"{start_time}: End time: {end_time}")
+                print(f"{start_time}: Orchestration succes: {success}")
+            if success is False:
+                raise exc
 
-            orchestrator_result = OrchestratorResult(
-                classification_base=out_fc,
-                classification_offset=out_fc_offset,
-                classification_merged=merged_inferences,
-                ntiles=ntiles,
-                noffsettiles=noffsettiles,
-            )
+            # Clean up potentially memory heavy assets
+            del out_fc
+            del out_fc_offset
+            del out_fc_offset_2
         else:
-            print("DRY RUN!!")
-            orchestrator_result = OrchestratorResult(
-                classification_base=geojson.FeatureCollection(features=[]),
-                classification_offset=geojson.FeatureCollection(features=[]),
-                classification_merged=geojson.FeatureCollection(features=[]),
-                ntiles=ntiles,
-                noffsettiles=noffsettiles,
-            )
-
-    return orchestrator_result
+            print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
+    return OrchestratorResult(status="Success")

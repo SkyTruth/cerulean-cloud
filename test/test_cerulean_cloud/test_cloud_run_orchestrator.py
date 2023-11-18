@@ -6,11 +6,8 @@ from datetime import datetime
 from unittest.mock import patch
 
 import geojson
-import geopandas as gpd
 import git
 import httpx
-import libpysal
-import pandas as pd
 import pytest
 import rasterio
 from rasterio.io import MemoryFile
@@ -27,19 +24,15 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
     b64_image_to_array,
     flatten_feature_list,
-    from_bounds_get_offset_bounds,
-    from_tiles_get_offset_shape,
+    group_bounds_from_list_of_bounds,
     is_tile_over_water,
     make_cloud_log_url,
+    offset_group_shape_from_base_tiles,
 )
-from cerulean_cloud.cloud_run_orchestrator.merging import (
-    concat_grids_adjust_conf,
-    merge_inferences,
-    reproject_to_utm,
-)
+from cerulean_cloud.cloud_run_orchestrator.merging import merge_inferences
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
-from cerulean_cloud.tiling import TMS, from_base_tiles_create_offset_tiles
+from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
 S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
@@ -223,15 +216,15 @@ async def test_orchestrator(
 def test_from_tiles_get_offset_shape():
     bounds = [32.989094, 43.338009, 36.540836, 45.235191]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_image_shape = from_tiles_get_offset_shape(base_tiles, scale=2)
+    offset_image_shape = offset_group_shape_from_base_tiles(base_tiles, scale=2)
     assert offset_image_shape == (3584, 6144)
 
 
 def test_from_bounds_get_offset_bounds():
     bounds = [32.989094, 43.338009, 36.540836, 45.235191]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
-    offset_bounds = from_bounds_get_offset_bounds(offset_tiles_bounds)
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
+    offset_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
     assert offset_bounds == pytest.approx(
         [
             32.5195312499997442,
@@ -246,7 +239,7 @@ def test_is_tile_over_water():
     # land and water
     bounds = [32.989094, 43.338009, 36.540836, 45.235191]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     assert len(base_tiles) == 66
     assert len(offset_tiles_bounds) == 84
 
@@ -259,7 +252,7 @@ def test_is_tile_over_water():
     # Fully over water
     bounds = [-13.461797, 37.952782, -10.128826, 39.863739]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     assert len(base_tiles) == 77
     assert len(offset_tiles_bounds) == 96
 
@@ -277,7 +270,7 @@ def test_is_tile_over_water():
         -0.18418333168440187,
     ]
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
-    offset_tiles_bounds = from_base_tiles_create_offset_tiles(base_tiles)
+    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles)
     assert len(base_tiles) == 56
     assert len(offset_tiles_bounds) == 72
 
@@ -356,11 +349,11 @@ async def test_orchestrator_live():
 def test_make_cloud_log_url():
     start_time = datetime.strptime("2022-07-06 13:39:30.56396", "%Y-%m-%d %H:%M:%S.%f")
     res = make_cloud_log_url(
-        "cerulean-cloud-test-cloud-run-orchestrator", start_time, "cerulean-338116"
+        "cerulean-cloud-test-cloud-run-orch", start_time, "cerulean-338116"
     )
     assert res == (
         "https://console.cloud.google.com/logs/query;query="
-        "resource.type%20%3D%20%22cloud_run_revision%22%20resource.labels.service_name%20%3D%20%22cerulean-cloud-test-cloud-run-orchestrator%22;"
+        "resource.type%20%3D%20%22cloud_run_revision%22%20resource.labels.service_name%20%3D%20%22cerulean-cloud-test-cloud-run-orch%22;"
         "timeRange=2022-07-06T13:39:30.563960Z%2F2022-07-06T13:41:30.563960Z;"
         "cursorTimestamp=2022-07-06T13:39:30.563960Z?"
         "project=cerulean-338116"
@@ -432,46 +425,6 @@ def test_flatten_result():
     assert isinstance(flat_list[0], geojson.Feature)
 
 
-def test_merge_inferences():
-    pd.options.mode.chained_assignment = None
-
-    offset_p = "test/test_cerulean_cloud/fixtures/offset.geojson"
-    base_p = "test/test_cerulean_cloud/fixtures/base.geojson"
-    offset_max_acceptable_distance = 70 * 8
-    buffer_distance = 2 * 70
-
-    grid_base = gpd.read_file(base_p)
-    grid_offset = gpd.read_file(offset_p)
-
-    grid_base = reproject_to_utm(grid_base)
-    grid_offset = reproject_to_utm(grid_offset)
-
-    all_grid_gdf = concat_grids_adjust_conf(
-        grid_base, grid_offset, offset_max_acceptable_distance
-    )
-
-    # create spatial weights matrix
-    W = libpysal.weights.Queen.from_dataframe(all_grid_gdf)
-
-    # get component labels
-    components = W.component_labels
-
-    all_grid_dissolved_class_dominance_median_conf = all_grid_gdf.dissolve(
-        by=components, aggfunc={"confidence": "median", "classification": "max"}
-    )
-
-    all_grid_dissolved_class_dominance_median_conf[
-        "geometry"
-    ] = all_grid_dissolved_class_dominance_median_conf.buffer(buffer_distance).buffer(
-        -buffer_distance
-    )
-
-    assert (
-        all_grid_dissolved_class_dominance_median_conf.__geo_interface__["type"]
-        == "FeatureCollection"
-    )
-
-
 def test_func_merge_inferences():
     with open("test/test_cerulean_cloud/fixtures/base.geojson") as src:
         base_tile_fc = dict(geojson.load(src))
@@ -479,40 +432,43 @@ def test_func_merge_inferences():
     with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
         offset_tile_fc = dict(geojson.load(src))
 
-    merged = merge_inferences(base_tile_fc=base_tile_fc, offset_tile_fc=offset_tile_fc)
+    merged = merge_inferences(
+        [base_tile_fc, offset_tile_fc],
+        proximity_meters=500,
+        closing_meters=100,
+        opening_meters=100,
+    )
+    with open("test/test_cerulean_cloud/fixtures/merge.geojson", "w") as outfile:
+        json.dump(merged, outfile)
     assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 15
+    assert len(merged["features"]) == 14
 
     for f in merged["features"]:
         print(f)
         assert f["geometry"]
         assert f["geometry"]["type"] in ["Polygon", "MultiPolygon"]
         assert f["properties"]
-        assert f["properties"]["confidence"]
-        assert f["properties"]["classification"]
+        assert f["properties"]["machine_confidence"]
+        assert f["properties"]["inf_idx"]
 
 
 def test_func_merge_inferences_empty():
     with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
         offset_tile_fc = dict(geojson.load(src))
 
-    merged = merge_inferences(
-        base_tile_fc=geojson.FeatureCollection(features=[]),
-        offset_tile_fc=offset_tile_fc,
-    )
+    merged = merge_inferences([geojson.FeatureCollection(features=[]), offset_tile_fc])
     assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 0
+    assert len(merged["features"]) == 5
+
+    merged = merge_inferences([offset_tile_fc, geojson.FeatureCollection(features=[])])
+    assert merged["type"] == "FeatureCollection"
+    assert len(merged["features"]) == 5
 
     merged = merge_inferences(
-        base_tile_fc=offset_tile_fc,
-        offset_tile_fc=geojson.FeatureCollection(features=[]),
-    )
-    assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 0
-
-    merged = merge_inferences(
-        base_tile_fc=geojson.FeatureCollection(features=[]),
-        offset_tile_fc=geojson.FeatureCollection(features=[]),
+        [
+            geojson.FeatureCollection(features=[]),
+            geojson.FeatureCollection(features=[]),
+        ],
     )
     assert merged["type"] == "FeatureCollection"
     assert len(merged["features"]) == 0
