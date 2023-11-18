@@ -12,7 +12,33 @@ instance = gcp.sql.DatabaseInstance(
     settings=gcp.sql.DatabaseInstanceSettingsArgs(
         tier=pulumi.Config("db").require("db-instance"),
         backup_configuration=dict(enabled=True),
-        database_flags=[dict(name="max_connections", value=500)],
+        # Postgres tuning values ref: https://github.com/developmentseed/how/tree/main/dev/postgresql
+        database_flags=[
+            dict(name="pg_stat_statments.track", value="ALL"),
+            # Should be 1/4 of total system memory (15Gb)
+            dict(name="shared_buffers", value="468MB"),
+            # Should be slightly higher than expected number of simultaneous connections
+            dict(name="max_connections", value="500"),
+            # Use for sorting and joining operations. work_mem * max_connections
+            # should be less than shared buffers. However, this is the case if
+            # we expect `max_connection` to relate to the number of users querying
+            # the database. Since we know this is not likely the case we will leave
+            # this value at the suggest 50MB
+            dict(name="work_mem", value="50MB"),
+            # Can be significantly higher than work_mem (and necessary
+            # in our case due to the costly operations performed on insert)
+            dict(name="maintenance_work_mem", value="512MB"),
+            # Has to do with underlying hardwade (value 1.1 is for SSDs,
+            # which almost all cloud Postgres instances run, 4 would be
+            # for Postgres running on spinning Hard Disk Drive )
+            dict(name="random_page_cost", value="1.1"),
+            # Only used by temp tables
+            dict(name="temp_buffers", value="512MB"),
+            # Max number of concurrent i/o processes
+            dict(name="effective_io_concurrency", value="100"),
+            dict(name="min_wal_size", value="1GB"),
+            dict(name="max_wal_size", value="4GB"),
+        ],
     ),
     deletion_protection=pulumi.Config("db").require("deletion-protection"),
 )

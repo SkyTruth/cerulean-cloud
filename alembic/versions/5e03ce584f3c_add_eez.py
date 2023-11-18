@@ -57,7 +57,7 @@ def upgrade() -> None:
             aoi_eez = database_schema.AoiEez(
                 type=1,
                 name=feat["properties"]["GEONAME"],
-                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
+                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"])).buffer(0)),
                 mrgid=feat["properties"]["MRGID"],
                 sovereigns=sovereigns,
             )
