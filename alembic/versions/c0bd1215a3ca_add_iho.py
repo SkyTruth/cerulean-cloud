@@ -32,6 +32,7 @@ def get_iho_from_url(
 
 def upgrade() -> None:
     """Add iho"""
+    return
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 

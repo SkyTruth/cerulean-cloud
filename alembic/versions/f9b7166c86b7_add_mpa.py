@@ -32,6 +32,7 @@ def get_mpa_from_url(
 
 def upgrade() -> None:
     """Add mpa"""
+    return
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 

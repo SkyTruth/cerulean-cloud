@@ -40,6 +40,7 @@ def get_eez_from_url(
 
 def upgrade() -> None:
     """Add eez"""
+    return
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 
