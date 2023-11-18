@@ -18,6 +18,7 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """Create AOI chunks table to hold AOIs chunked to polygons of 255 vertices or less"""
     bind = op.get_bind()
     session = orm.Session(bind=bind)
     with session.begin():
@@ -41,6 +42,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """downgrade"""
     bind = op.get_bind()
     session = orm.Session(bind=bind)
     with session.begin():
