@@ -424,8 +424,8 @@ async def _orchestrate(
                 lowres_tiles_inference = await perform_inference(
                     lowres_tiles,
                     cloud_run_inference.get_base_tile_inference,
-                    f"base tiles: {start_time}",
-                    scale=min(1, scale - 1),
+                    f"lowres tiles: {start_time}",
+                    scale=max(1, scale - 1),
                 )
 
                 del base_tiles
