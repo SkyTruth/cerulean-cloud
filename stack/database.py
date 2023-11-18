@@ -14,7 +14,7 @@ instance = gcp.sql.DatabaseInstance(
         backup_configuration=dict(enabled=True),
         # Postgres tuning values ref: https://github.com/developmentseed/how/tree/main/dev/postgresql
         database_flags=[
-            dict(name="pg_stat_statments.track", value="ALL"),
+            dict(name="pg_stat_statements.track", value="ALL"),
             # Should be 1/4 of total system memory (15Gb)
             dict(name="shared_buffers", value="468MB"),
             # Should be slightly higher than expected number of simultaneous connections
