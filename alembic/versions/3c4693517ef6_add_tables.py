@@ -146,39 +146,39 @@ def upgrade() -> None:
         sa.Column("machine_confidence", sa.Float),
         sa.Column("precursor_slicks", ARRAY(sa.BigInteger)),
         sa.Column("notes", sa.Text),
-        sa.Column(
-            "length",
-            sa.Float,
-            sa.Computed(
-                """
-                GREATEST(
-                    ST_Distance(
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 1)::geography,
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography
-                    ),
-                    ST_Distance(
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography,
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 3)::geography
-                    )
-                )
-                """
-            ),
-        ),
-        sa.Column("area", sa.Float, sa.Computed("ST_Area(geometry)")),
-        sa.Column("perimeter", sa.Float, sa.Computed("ST_Perimeter(geometry)")),
-        sa.Column("centroid", Geography("POINT"), sa.Computed("ST_Centroid(geometry)")),
-        sa.Column(
-            "polsby_popper",
-            sa.Float,
-            sa.Computed("4 * pi() * ST_Area(geometry) / ST_Perimeter(geometry)^2"),
-        ),
-        sa.Column(
-            "fill_factor",
-            sa.Float,
-            sa.Computed(
-                "ST_Area(geometry) / ST_Area(ST_OrientedEnvelope(geometry::geometry)::geography)"
-            ),
-        ),
+        # sa.Column(
+        #     "length",
+        #     sa.Float,
+        #     sa.Computed(
+        #         """
+        #         GREATEST(
+        #             ST_Distance(
+        #                 ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 1)::geography,
+        #                 ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography
+        #             ),
+        #             ST_Distance(
+        #                 ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography,
+        #                 ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 3)::geography
+        #             )
+        #         )
+        #         """
+        #     ),
+        # ),
+        # sa.Column("area", sa.Float, sa.Computed("ST_Area(geometry)")),
+        # sa.Column("perimeter", sa.Float, sa.Computed("ST_Perimeter(geometry)")),
+        # sa.Column("centroid", Geography("POINT"), sa.Computed("ST_Centroid(geometry)")),
+        # sa.Column(
+        #     "polsby_popper",
+        #     sa.Float,
+        #     sa.Computed("4 * pi() * ST_Area(geometry) / ST_Perimeter(geometry)^2"),
+        # ),
+        # sa.Column(
+        #     "fill_factor",
+        #     sa.Float,
+        #     sa.Computed(
+        #         "ST_Area(geometry) / ST_Area(ST_OrientedEnvelope(geometry::geometry)::geography)"
+        #     ),
+        # ),
     )
 
     op.create_table(
