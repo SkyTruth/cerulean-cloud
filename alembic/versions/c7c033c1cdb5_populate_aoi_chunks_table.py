@@ -48,16 +48,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-<<<<<<< HEAD
-    """downgrade"""
-=======
     """
     Downgrade the database schema.
 
     This function clears the 'aoi_chunks' table by truncating it, effectively
     undoing the changes made by the upgrade function.
     """
->>>>>>> 5d078708752b74e3cb743f77ce85b658acb327b5
     bind = op.get_bind()
     session = orm.Session(bind=bind)
     with session.begin():
