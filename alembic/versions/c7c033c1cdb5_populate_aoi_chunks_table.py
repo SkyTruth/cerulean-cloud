@@ -18,6 +18,13 @@ depends_on = None
 
 
 def upgrade() -> None:
+    """
+    Upgrade the database schema.
+
+    This function subdivides the geometries in the 'aoi' table into smaller chunks
+    if they have more than 255 points, and inserts these chunks into the 'aoi_chunks' table.
+    This is done to manage large geometries more efficiently.
+    """
     bind = op.get_bind()
     session = orm.Session(bind=bind)
     with session.begin():
@@ -41,6 +48,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """
+    Downgrade the database schema.
+
+    This function clears the 'aoi_chunks' table by truncating it, effectively
+    undoing the changes made by the upgrade function.
+    """
     bind = op.get_bind()
     session = orm.Session(bind=bind)
     with session.begin():
