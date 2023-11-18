@@ -129,7 +129,6 @@ def handle_search(request_json, ocean_poly):
     overall_geom = MultiPolygon([shape(f.get("geometry")) for f in fc.features])
 
     default_search_criteria = {
-        "items_per_page": 25,
         "productType": "S1_SAR_GRD",
         "polarizationMode": "VV VH",
         "start": request_json["start"],
@@ -138,7 +137,9 @@ def handle_search(request_json, ocean_poly):
     }
 
     all_results = []
-    for i, page_results in enumerate(dag.search_iter_page(**default_search_criteria)):
+    for i, page_results in enumerate(
+        dag.search_iter_page(**default_search_criteria, items_per_page=25)
+    ):
         print(f"Got a hand on {len(page_results)} products on page {i+1}")
         all_results.extend(page_results)
 

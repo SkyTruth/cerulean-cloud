@@ -273,11 +273,6 @@ for sceneid in SCENES:
 	print(orchestrator_result)
 ```
 
-Historical run example:
-```sh
-python scripts/historical_run.py --stage jona eodag --date-start 2023-01-01 --date-end 2023-01-02 --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson
-```
-
 The services deployed by cerulean-cloud that DO NOT require this API key are:
 - tipg Cloud Run
 - Historical run Cloud Function
