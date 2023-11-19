@@ -394,7 +394,12 @@ jobs:
         with:
           command: up
           stack-name: jona
-  
+
+      - name: Debug Information
+        run: |
+          echo "Pulumi Output: ${{ steps.pulumi.outputs.database_instance_name }}"
+          echo "Substituted Value: ${{ steps.pulumi.outputs.database_instance_name }}"
+    
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
           instance: ${{ steps.pulumi.outputs.database_instance_name }}
