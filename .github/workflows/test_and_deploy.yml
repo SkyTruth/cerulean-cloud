@@ -388,6 +388,7 @@ jobs:
           stack-name: jona
   
       - uses: pulumi/actions@v3
+        id: pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: "jona"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
