@@ -15,7 +15,7 @@ instance = gcp.sql.DatabaseInstance(
         # Postgres tuning values ref: https://github.com/developmentseed/how/tree/main/dev/postgresql
         database_flags=[
             # flag definitions and allowable values here: https://cloud.google.com/sql/docs/postgres/flags
-            dict(name="pg_stat_statements.track", value="ALL"),
+            dict(name="pg_stat_statements.track", value="all"),
             # Should be 1/4 of total system memory (15Gb)
             # shared_buffers: Converted from 468 MB to 59904 units of 8KB
             dict(name="shared_buffers", value="59904"),
