@@ -16,7 +16,7 @@ from typing import Any, List, Optional
 
 import asyncpg
 import jinja2
-import pydantic
+import pydantic_settings
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from mangum import Mangum
@@ -119,7 +119,7 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class PostgresSettings(pydantic.BaseSettings):
+class PostgresSettings(pydantic_settings.BaseSettings):
     """Postgres-specific API settings.
 
     Note: We can't use PostgresSettings from TiPG because of the weird GCP DB url
@@ -133,11 +133,11 @@ class PostgresSettings(pydantic.BaseSettings):
         postgres_dbname: database name.
     """
 
-    postgres_user: Optional[str]
-    postgres_pass: Optional[str]
-    postgres_host: Optional[str]
-    postgres_port: Optional[str]
-    postgres_dbname: Optional[str]
+    postgres_user: Optional[str] = None
+    postgres_pass: Optional[str] = None
+    postgres_host: Optional[str] = None
+    postgres_port: Optional[str] = None
+    postgres_dbname: Optional[str] = None
 
     database_url: Optional[str] = None
 
