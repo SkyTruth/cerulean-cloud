@@ -14,30 +14,39 @@ instance = gcp.sql.DatabaseInstance(
         backup_configuration=dict(enabled=True),
         # Postgres tuning values ref: https://github.com/developmentseed/how/tree/main/dev/postgresql
         database_flags=[
-            dict(name="pg_stat_statments.track", value="ALL"),
+            # flag definitions and allowable values here: https://cloud.google.com/sql/docs/postgres/flags
+            dict(name="pg_stat_statements.track", value="all"),
             # Should be 1/4 of total system memory (15Gb)
-            dict(name="shared_buffers", value="468MB"),
+            # shared_buffers: Converted from 468 MB to 59904 units of 8KB
+            dict(name="shared_buffers", value="59904"),
             # Should be slightly higher than expected number of simultaneous connections
+            # max_connections: Original value 500, compliant with Google Cloud
             dict(name="max_connections", value="500"),
             # Use for sorting and joining operations. work_mem * max_connections
             # should be less than shared buffers. However, this is the case if
             # we expect `max_connection` to relate to the number of users querying
             # the database. Since we know this is not likely the case we will leave
             # this value at the suggest 50MB
-            dict(name="work_mem", value="50MB"),
+            # work_mem: Converted from 50 MB to 51200 KB
+            dict(name="work_mem", value="51200"),
             # Can be significantly higher than work_mem (and necessary
             # in our case due to the costly operations performed on insert)
-            dict(name="maintenance_work_mem", value="512MB"),
+            # maintenance_work_mem: Converted from 512 MB to 524288 KB
+            dict(name="maintenance_work_mem", value="524288"),
             # Has to do with underlying hardwade (value 1.1 is for SSDs,
             # which almost all cloud Postgres instances run, 4 would be
             # for Postgres running on spinning Hard Disk Drive )
+            # random_page_cost: Original value 1.1, a float, compliant with Google Cloud
             dict(name="random_page_cost", value="1.1"),
             # Only used by temp tables
-            dict(name="temp_buffers", value="512MB"),
+            # temp_buffers: Converted from 512 MB to 65536 units of 8KB
+            dict(name="temp_buffers", value="65536"),
             # Max number of concurrent i/o processes
-            dict(name="effective_io_concurrency", value="100"),
-            dict(name="min_wal_size", value="1GB"),
-            dict(name="max_wal_size", value="4GB"),
+            # dict(name="effective_io_concurrency", value="100"),
+            # min_wal_size: Converted from 1 GB to 1024 MB
+            dict(name="min_wal_size", value="1024"),
+            # max_wal_size: Converted from 4 GB to 4096 MB
+            dict(name="max_wal_size", value="4096"),
         ],
     ),
     deletion_protection=pulumi.Config("db").require("deletion-protection"),

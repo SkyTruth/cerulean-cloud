@@ -5,11 +5,11 @@ Revises: cb7ceecc3f87
 Create Date: 2023-07-15 00:26:04.493750
 
 """
-import json
 
 import geojson
 import httpx
-from shapely import from_geojson, to_wkt
+from geoalchemy2.shape import from_shape
+from shapely.geometry import MultiPolygon, shape
 from sqlalchemy import orm
 
 import cerulean_cloud.database_schema as database_schema
@@ -36,12 +36,17 @@ def upgrade() -> None:
     session = orm.Session(bind=bind)
 
     iho = get_iho_from_url()
+
     for feat in iho.get("features"):
+        geometry = shape(feat["geometry"]).buffer(0)
+        if not isinstance(geometry, MultiPolygon):
+            geometry = MultiPolygon([geometry])
+
         with session.begin():
             aoi_iho = database_schema.AoiIho(
                 type=2,
                 name=feat["properties"]["NAME"],
-                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"])).buffer(0)),
+                geometry=from_shape(geometry),
                 mrgid=feat["properties"]["MRGID"],
             )
             session.add(aoi_iho)
