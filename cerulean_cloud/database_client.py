@@ -29,7 +29,7 @@ def get_engine(db_url: str = os.getenv("DB_URL")):
     return create_async_engine(
         db_url,
         echo=False,
-        connect_args={"satement_timeout": 1000 * 60},
+        connect_args={"statement_timeout": 1000 * 60},
     )
 
 
