@@ -1,4 +1,5 @@
 """Clients for other cloud run functions"""
+import asyncio
 import json
 import zipfile
 from base64 import b64encode
@@ -6,7 +7,6 @@ from datetime import datetime
 from io import BytesIO
 from typing import List, Tuple
 
-import asyncio
 import httpx
 import morecantile
 import numpy as np
@@ -140,6 +140,7 @@ class CloudRunInferenceClient:
         inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
 
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
+
         async with semaphore:
             res = await http_client.post(
                 self.url + "/predict", json=payload.dict(), timeout=None
