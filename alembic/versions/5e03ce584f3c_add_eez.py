@@ -5,11 +5,11 @@ Revises: c941681a050d
 Create Date: 2022-07-08 11:24:31.802462
 
 """
-import json
 
 import geojson
 import httpx
-from shapely import from_geojson, to_wkt
+from geoalchemy2.shape import from_shape
+from shapely.geometry import MultiPolygon, shape
 from sqlalchemy import orm
 
 import cerulean_cloud.database_schema as database_schema
@@ -53,11 +53,16 @@ def upgrade() -> None:
             for k in sovereign_keys
             if feat["properties"][k] is not None
         ]
+
+        geometry = shape(feat["geometry"]).buffer(0)
+        if not isinstance(geometry, MultiPolygon):
+            geometry = MultiPolygon([geometry])
+
         with session.begin():
             aoi_eez = database_schema.AoiEez(
                 type=1,
                 name=feat["properties"]["GEONAME"],
-                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
+                geometry=from_shape(geometry),
                 mrgid=feat["properties"]["MRGID"],
                 sovereigns=sovereigns,
             )
