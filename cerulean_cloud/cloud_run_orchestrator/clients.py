@@ -6,6 +6,7 @@ from datetime import datetime
 from io import BytesIO
 from typing import List, Tuple
 
+import asyncio
 import httpx
 import morecantile
 import numpy as np
@@ -71,6 +72,7 @@ class CloudRunInferenceClient:
         self,
         tile: morecantile.Tile,
         http_client: httpx.AsyncClient,
+        semaphore: asyncio.Semaphore,
         rescale=(0, 255),
     ) -> InferenceResultStack:
         """fetch inference for base tiles"""
@@ -96,9 +98,10 @@ class CloudRunInferenceClient:
 
         inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
-        res = await http_client.post(
-            self.url + "/predict", json=payload.dict(), timeout=None
-        )
+        async with semaphore:
+            res = await http_client.post(
+                self.url + "/predict", json=payload.dict(), timeout=None
+            )
         if res.status_code == 200:
             return InferenceResultStack(**res.json())
         else:
@@ -108,7 +111,11 @@ class CloudRunInferenceClient:
             )
 
     async def get_offset_tile_inference(
-        self, bounds: List[float], http_client: httpx.AsyncClient, rescale=(0, 255)
+        self,
+        bounds: List[float],
+        http_client: httpx.AsyncClient,
+        semaphore: asyncio.Semaphore,
+        rescale=(0, 255),
     ) -> InferenceResultStack:
         """fetch inference for offset tiles"""
         hw = self.scale * 256
@@ -133,9 +140,10 @@ class CloudRunInferenceClient:
         inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
 
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
-        res = await http_client.post(
-            self.url + "/predict", json=payload.dict(), timeout=None
-        )
+        async with semaphore:
+            res = await http_client.post(
+                self.url + "/predict", json=payload.dict(), timeout=None
+            )
         if res.status_code == 200:
             return InferenceResultStack(**res.json())
         else:
