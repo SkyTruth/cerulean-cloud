@@ -6,7 +6,7 @@ Create Date: 2022-06-30 11:45:00.359562
 
 """
 import sqlalchemy as sa
-from geoalchemy2 import Geography
+from geoalchemy2 import Geography, Geometry
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import ARRAY
 
@@ -146,39 +146,12 @@ def upgrade() -> None:
         sa.Column("machine_confidence", sa.Float),
         sa.Column("precursor_slicks", ARRAY(sa.BigInteger)),
         sa.Column("notes", sa.Text),
-        sa.Column(
-            "length",
-            sa.Float,
-            sa.Computed(
-                """
-                GREATEST(
-                    ST_Distance(
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 1)::geography,
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography
-                    ),
-                    ST_Distance(
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 2)::geography,
-                        ST_PointN(ST_ExteriorRing(ST_OrientedEnvelope(geometry::geometry)), 3)::geography
-                    )
-                )
-                """
-            ),
-        ),
-        sa.Column("area", sa.Float, sa.Computed("ST_Area(geometry)")),
-        sa.Column("perimeter", sa.Float, sa.Computed("ST_Perimeter(geometry)")),
-        sa.Column("centroid", Geography("POINT"), sa.Computed("ST_Centroid(geometry)")),
-        sa.Column(
-            "polsby_popper",
-            sa.Float,
-            sa.Computed("4 * pi() * ST_Area(geometry) / ST_Perimeter(geometry)^2"),
-        ),
-        sa.Column(
-            "fill_factor",
-            sa.Float,
-            sa.Computed(
-                "ST_Area(geometry) / ST_Area(ST_OrientedEnvelope(geometry::geometry)::geography)"
-            ),
-        ),
+        sa.Column("length", sa.Float),
+        sa.Column("area", sa.Float),
+        sa.Column("perimeter", sa.Float),
+        sa.Column("centroid", Geography("POINT")),
+        sa.Column("polsby_popper", sa.Float),
+        sa.Column("fill_factor", sa.Float),
     )
 
     op.create_table(
@@ -277,10 +250,35 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "aoi_chunks",
+        sa.Column(
+            "id",
+            sa.BigInteger,
+            sa.ForeignKey(
+                "aoi.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"
+            ),
+        ),
+        sa.Column("geometry", Geometry("POLYGON", srid=4326), nullable=False),
+    )
+
+    op.create_table(
         "slick_to_aoi",
-        sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
-        sa.Column("aoi", sa.BigInteger, sa.ForeignKey("aoi.id"), nullable=False),
+        sa.Column(
+            "slick",
+            sa.BigInteger,
+            sa.ForeignKey(
+                "slick.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"
+            ),
+            primary_key=True,
+        ),
+        sa.Column(
+            "aoi",
+            sa.BigInteger,
+            sa.ForeignKey(
+                "aoi.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"
+            ),
+            primary_key=True,
+        ),
     )
 
     op.create_table(
