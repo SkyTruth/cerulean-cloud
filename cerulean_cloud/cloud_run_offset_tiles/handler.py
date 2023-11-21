@@ -122,7 +122,9 @@ def _predict(
     bounds = [record.bounds for record in inf_stack]
 
     if inf_parms["model_type"] == "MASKRCNN":
-        print(f"Images have shape {stack_tensors[0].shape}")
+        print(
+            f"Images have shape {stack_tensors[0].shape}, dtype {stack_tensors[0].dtype}"
+        )
 
         raw_preds = model(stack_tensors)[1]
 
