@@ -171,4 +171,4 @@ scratch/*
 .envrc
 
 *.pt 
-*.pth
+*.pthstate.json
