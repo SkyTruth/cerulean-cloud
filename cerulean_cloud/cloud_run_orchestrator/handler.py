@@ -270,17 +270,17 @@ async def perform_inference(tiles, inference_func, description):
         timeout=None,
         # pool_limits=httpx.Limits(max_connections=50),
     ) as async_http_client:
-        inferences = [
-            inference_func(tile, async_http_client, semaphore, rescale=(0, 255))
-            for tile in tiles
-        ]
-        # inferences = await asyncio.gather(
-        #     *[
-        #         inference_func(tile, async_http_client, semaphore, rescale=(0, 255))
-        #         for tile in tiles
-        #     ],
-        #     return_exceptions=False,  # This raises exceptions
-        # )
+        # inferences = [
+        #     inference_func(tile, async_http_client, semaphore, rescale=(0, 255))
+        #     for tile in tiles
+        # ]
+        inferences = await asyncio.gather(
+            *[
+                inference_func(tile, async_http_client, semaphore, rescale=(0, 255))
+                for tile in tiles
+            ],
+            return_exceptions=False,  # This raises exceptions
+        )
     return inferences
 
 

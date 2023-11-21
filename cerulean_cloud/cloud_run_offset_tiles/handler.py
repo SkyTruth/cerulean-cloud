@@ -125,6 +125,7 @@ def _predict(
         print(f"Images have shape {stack_tensors[0].shape}")
 
         raw_preds = model(stack_tensors)[1]
+
         print("Finished inference, applying post-process, thresholding")
 
         reduced_preds = reduce_preds(

@@ -3,7 +3,7 @@ starlette-cramjam==0.1.0
 uvicorn
 rasterio==1.3.0
 setuptools==59.5.0 
-torch==1.13.0
+torch==1.13.1
 torchvision==0.14.0
 numpy
 fastapi-utils
