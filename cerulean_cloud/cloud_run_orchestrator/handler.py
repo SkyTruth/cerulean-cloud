@@ -263,11 +263,12 @@ async def perform_inference(tiles, inference_func, description):
     """
     print(f"Inference on {description}!")
 
+    # Add semaphore to limit number of conncurrent requests
     semaphore = asyncio.Semaphore(value=25)
     async with httpx.AsyncClient(
         headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
         timeout=None,
-        pool_limits=httpx.Limits(max_connections=50),
+        # pool_limits=httpx.Limits(max_connections=50),
     ) as async_http_client:
         inferences = await asyncio.gather(
             *[
