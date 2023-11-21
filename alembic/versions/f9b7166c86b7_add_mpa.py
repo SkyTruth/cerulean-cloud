@@ -5,11 +5,11 @@ Revises: c0bd1215a3ca
 Create Date: 2023-07-15 01:52:45.298587
 
 """
-import json
 
 import geojson
 import httpx
-from shapely import from_geojson, to_wkt
+from geoalchemy2.shape import from_shape
+from shapely.geometry import MultiPolygon, shape
 from sqlalchemy import orm
 
 import cerulean_cloud.database_schema as database_schema
@@ -37,11 +37,15 @@ def upgrade() -> None:
 
     mpa = get_mpa_from_url()
     for feat in mpa.get("features"):
+        geometry = shape(feat["geometry"]).buffer(0)
+        if not isinstance(geometry, MultiPolygon):
+            geometry = MultiPolygon([geometry])
+
         with session.begin():
             aoi_mpa = database_schema.AoiMpa(
                 type=3,
                 name=feat["properties"]["NAME"],
-                geometry=to_wkt(from_geojson(json.dumps(feat["geometry"]))),
+                geometry=from_shape(geometry),
                 wdpaid=feat["properties"]["WDPAID"],
                 desig=feat["properties"]["DESIG"],
                 desig_type=feat["properties"]["DESIG_TYPE"],
