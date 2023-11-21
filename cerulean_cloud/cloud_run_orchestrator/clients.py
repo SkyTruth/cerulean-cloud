@@ -1,5 +1,6 @@
 """Clients for other cloud run functions"""
 import json
+import os
 import zipfile
 from base64 import b64encode
 from datetime import datetime
@@ -61,9 +62,9 @@ class CloudRunInferenceClient:
         self.aux_datasets = handle_aux_datasets(
             layers, self.sceneid, offset_bounds, offset_image_shape
         )
-        # self.client = httpx.AsyncClient(
-        #     headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
-        # )
+        self.client = httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+        )
         self.scale = scale  # 1=256, 2=512, 3=...
         self.inference_parms = inference_parms
 
@@ -96,7 +97,7 @@ class CloudRunInferenceClient:
 
         inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
-        res = await http_client.post(
+        res = await self.client.post(
             self.url + "/predict", json=payload.dict(), timeout=None
         )
         if res.status_code == 200:
@@ -108,7 +109,7 @@ class CloudRunInferenceClient:
             )
 
     async def get_offset_tile_inference(
-        self, bounds: List[float], http_client: httpx.AsyncClient, rescale=(0, 255)
+        self, bounds: List[float], rescale=(0, 255)
     ) -> InferenceResultStack:
         """fetch inference for offset tiles"""
         hw = self.scale * 256
@@ -133,7 +134,7 @@ class CloudRunInferenceClient:
         inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
 
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
-        res = await http_client.post(
+        res = await self.client.post(
             self.url + "/predict", json=payload.dict(), timeout=None
         )
         if res.status_code == 200:

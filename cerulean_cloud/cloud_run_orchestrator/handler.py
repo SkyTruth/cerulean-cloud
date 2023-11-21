@@ -17,7 +17,6 @@ from typing import Dict, List, Tuple
 
 import geojson
 import geopandas as gpd
-import httpx
 import morecantile
 import numpy as np
 import rasterio
@@ -262,17 +261,10 @@ async def perform_inference(tiles, inference_func, description):
     - Prints traceback of exceptions to the console.
     """
     print(f"Inference on {description}!")
-
-    async with httpx.AsyncClient(
-        headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
-    ) as async_http_client:
-        inferences = await asyncio.gather(
-            *[
-                inference_func(tile, async_http_client, rescale=(0, 255))
-                for tile in tiles
-            ],
-            return_exceptions=False,  # This raises exceptions
-        )
+    inferences = await asyncio.gather(
+        *[inference_func(tile, rescale=(0, 255)) for tile in tiles],
+        return_exceptions=False,  # This raises exceptions
+    )
     return inferences
 
 

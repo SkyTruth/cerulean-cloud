@@ -3,7 +3,6 @@ fastapi
 starlette-cramjam==0.1.0
 uvicorn
 setuptools==59.5.0 
-anyio>=3.3.4
 httpx
 asyncio
 morecantile==3.4
