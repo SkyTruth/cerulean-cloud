@@ -9,6 +9,7 @@ needs env vars:
 - INFERENCE_URL
 """
 import asyncio
+import atexit
 import os
 import urllib.parse as urlparse
 from base64 import b64decode  # , b64encode
@@ -45,9 +46,23 @@ from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
+# create a global client
+inference_client = httpx.AsyncClient(
+    headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
+    limits=httpx.Limits(max_connections=10),
+    timeout=None,
+)
+
 app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
+
+
+# Close the inference client on shutdown
+@app.on_event("shutdown")
+async def shutdown_event():
+    await inference_client.aclose()
+
 
 landmask_gdf = None
 
@@ -263,18 +278,15 @@ async def perform_inference(tiles, inference_func, description):
     """
     print(f"Inference on {description}!")
 
-    async with httpx.AsyncClient(
-        headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
-        limits=httpx.Limits(max_connections=1),
-        timeout=None,
-    ) as async_http_client:
-        inferences = await asyncio.gather(
-            *[
-                inference_func(tile, async_http_client, rescale=(0, 255))
-                for tile in tiles
-            ],
-            return_exceptions=False,  # This raises exceptions
-        )
+    # async with httpx.AsyncClient(
+    #     headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
+    #     limits=httpx.Limits(max_connections=1),
+    #     timeout=None,
+    # ) as async_http_client:
+    inferences = await asyncio.gather(
+        *[inference_func(tile, inference_client, rescale=(0, 255)) for tile in tiles],
+        return_exceptions=False,  # This raises exceptions
+    )
     return inferences
 
 
