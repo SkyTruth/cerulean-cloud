@@ -8,6 +8,7 @@ config:
   cerulean-cloud:dryrun_ais: "" # Make empty "" to turn on AIS analysis
   ais:credentials: world-fishing-827-service-account-json
   db:db-instance: db-custom-4-15360
+  db:db-mem: 599040
   db:deletion-protection: "True"
   db:db-password:
     secure: v1:PKkW6hR207H6+aLE:QRMTEAQMB5VFmJt4Sbvzx7i4hkqlO4HomLltlRFYrQ==

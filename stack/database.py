@@ -17,8 +17,8 @@ instance = gcp.sql.DatabaseInstance(
             # flag definitions and allowable values here: https://cloud.google.com/sql/docs/postgres/flags
             dict(name="pg_stat_statements.track", value="all"),
             # Should be 1/4 of total system memory (15Gb)
-            # shared_buffers: Converted from 468 MB to 59904 units of 8KB
-            dict(name="shared_buffers", value="59904"),
+            # shared_buffers: Converted from 4680 MB to 599040 units of 8KB
+            dict(name="shared_buffers", value=pulumi.Config("db").require("db-mem")),
             # Should be slightly higher than expected number of simultaneous connections
             # max_connections: Original value 500, compliant with Google Cloud
             dict(name="max_connections", value="500"),
