@@ -1,9 +1,8 @@
 """Clients for other cloud run functions"""
 # import asyncio
 import json
-
-# import os
-# import time
+import os
+import time
 import zipfile
 from base64 import b64encode
 from datetime import datetime
@@ -71,10 +70,42 @@ class CloudRunInferenceClient:
         self.scale = scale  # 1=256, 2=512, 3=...
         self.inference_parms = inference_parms
 
+    async def post_with_retry(self, payload):
+        retry_count = 0
+        success_flag = False
+        while not success_flag and retry_count <= 3:
+            try:
+                async with httpx.AsyncClient(
+                    headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+                ) as http_client:
+                    res = await http_client.post(
+                        self.url + "/predict", json=payload.dict(), timeout=None
+                    )
+
+                if res.status_code != 200:
+                    print(f"XXX Issue was found in: {self.sceneid}")
+                    raise Exception(
+                        f"XXX Received unexpected status code: {res.status_code} {res.content}"
+                    )
+                else:
+                    return InferenceResultStack(**res.json())
+
+            except Exception as e:
+                print(
+                    f"XXX Exception when sending POST request to inference service: {e}. (SceneId: {self.sceneid})"
+                )
+                retry_count += 1
+                sleep_time = 2**retry_count
+                print(f"XXX Retrying in {sleep_time} seconds")
+                time.sleep(sleep_time)
+
+        raise Exception(
+            f"XXX Unable to retrieve response after {retry_count} responses. Abandoning..."
+        )
+
     async def get_base_tile_inference(
         self,
         tile: morecantile.Tile,
-        http_client: httpx.Client,
         rescale=(0, 255),
     ) -> InferenceResultStack:
         """fetch inference for base tiles"""
@@ -101,20 +132,11 @@ class CloudRunInferenceClient:
         inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
 
-        res = http_client.post(self.url + "/predict", json=payload.dict(), timeout=None)
-
-        if res.status_code == 200:
-            return InferenceResultStack(**res.json())
-        else:
-            print(f"XXX Issue was found in: {self.sceneid}")
-            raise Exception(
-                f"XXX Received unexpected status code: {res.status_code} {res.content}"
-            )
+        return await self.post_with_retry(payload)
 
     async def get_offset_tile_inference(
         self,
         bounds: List[float],
-        http_client: httpx.Client,
         rescale=(0, 255),
     ) -> InferenceResultStack:
         """fetch inference for offset tiles"""
@@ -141,130 +163,7 @@ class CloudRunInferenceClient:
 
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
 
-        res = http_client.post(self.url + "/predict", json=payload.dict(), timeout=None)
-
-        if res.status_code == 200:
-            return InferenceResultStack(**res.json())
-        else:
-            print(f"XXX Issue was found in: {self.sceneid}")
-            raise Exception(
-                f"XXX Received unexpected status code: {res.status_code} {res.content}"
-            )
-
-    # async def get_base_tile_inference(
-    #     self,
-    #     tile: morecantile.Tile,
-    #     http_client: httpx.AsyncClient,
-    #     semaphore: asyncio.Semaphore,
-    #     rescale=(0, 255),
-    # ) -> InferenceResultStack:
-    #     """fetch inference for base tiles"""
-    #     img_array = await self.titiler_client.get_base_tile(
-    #         sceneid=self.sceneid,
-    #         tile=tile,
-    #         scale=self.scale,
-    #         rescale=rescale,
-    #     )
-
-    #     img_array = reshape_as_raster(img_array)
-
-    #     bounds = list(TMS.bounds(tile))
-
-    #     with self.aux_datasets.open() as src:
-    #         window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
-    #         height, width = img_array.shape[1:]
-    #         aux_ds = src.read(window=window, out_shape=(height, width))
-
-    #     img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
-
-    #     encoded = img_array_to_b64_image(img_array)
-
-    #     inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
-    #     payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
-
-    #     async with semaphore:
-    #         retry_count = 0
-    #         success_flag = False
-    #         while not success_flag and retry_count <= 3:
-    #             try:
-    #                 res = await http_client.post(
-    #                     self.url + "/predict", json=payload.dict(), timeout=None
-    #                 )
-    #                 success_flag = True
-    #             except Exception as e:
-    #                 print(
-    #                     f"XXX Exception when sending POST request to inference service: {e}. (SceneId: {self.sceneid}, base tile: {tile})"
-    #                 )
-    #                 retry_count += 1
-    #                 sleep_time = 2**retry_count
-    #                 print(f"XXX Retrying in {sleep_time} seconds")
-    #                 time.sleep(sleep_time)
-    #                 print("XXX Retrying")
-
-    #     if res.status_code == 200:
-    #         return InferenceResultStack(**res.json())
-    #     else:
-    #         print(f"XXX Issue was found in: {self.sceneid}")
-    #         raise Exception(
-    #             f"XXX Received unexpected status code: {res.status_code} {res.content}"
-    #         )
-
-    # async def get_offset_tile_inference(
-    #     self,
-    #     bounds: List[float],
-    #     http_client: httpx.AsyncClient,
-    #     semaphore: asyncio.Semaphore,
-    #     rescale=(0, 255),
-    # ) -> InferenceResultStack:
-    #     """fetch inference for offset tiles"""
-    #     hw = self.scale * 256
-    #     img_array = await self.titiler_client.get_offset_tile(
-    #         self.sceneid,
-    #         *bounds,
-    #         width=hw,
-    #         height=hw,
-    #         scale=self.scale,
-    #         rescale=rescale,
-    #     )
-    #     img_array = reshape_as_raster(img_array)
-    #     with self.aux_datasets.open() as src:
-    #         window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
-    #         height, width = img_array.shape[1:]
-    #         aux_ds = src.read(window=window, out_shape=(height, width))
-
-    #     img_array = np.concatenate([img_array[0:1, :, :], aux_ds], axis=0)
-
-    #     encoded = img_array_to_b64_image(img_array)
-
-    #     inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
-
-    #     payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
-
-    #     async with semaphore:
-    #         retry_count = 0
-    #         success_flag = False
-    #         while not success_flag and retry_count <= 3:
-    #             try:
-    #                 res = await http_client.post(
-    #                     self.url + "/predict", json=payload.dict(), timeout=None
-    #                 )
-    #                 success_flag = True
-    #             except Exception as e:
-    #                 print(
-    #                     f"XXX Exception when sending POST request to inference service: {e}. (SceneId: {self.sceneid}, offset tile: bounds {bounds})"
-    #                 )
-    #                 sleep_time = 2**retry_count
-    #                 print(f"XXX Retrying in {sleep_time} seconds")
-    #                 retry_count += 1
-    #                 time.sleep(sleep_time)
-
-    #     if res.status_code == 200:
-    #         return InferenceResultStack(**res.json())
-    #     else:
-    #         print(f"XXX Issue was found in: {self.sceneid}")
-    #         raise Exception(
-    #             f"XXX Received unexpected status code: {res.status_code} {res.content}"
-    #         )
+        return await self.post_with_retry(payload)
 
 
 def get_scene_date_month(scene_id: str) -> str:
