@@ -1,5 +1,7 @@
 """Clients for other cloud run functions"""
+import asyncio
 import json
+import random
 import zipfile
 from base64 import b64encode
 from datetime import datetime
@@ -53,6 +55,7 @@ class CloudRunInferenceClient:
         layers: List,
         scale: int,
         inference_parms,
+        jitter: float = 0.0,
     ):
         """init"""
         self.url = url
@@ -66,6 +69,7 @@ class CloudRunInferenceClient:
         # )
         self.scale = scale  # 1=256, 2=512, 3=...
         self.inference_parms = inference_parms
+        self.jitter = jitter
 
     async def get_base_tile_inference(
         self,
@@ -133,6 +137,10 @@ class CloudRunInferenceClient:
         inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
 
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
+
+        if self.jitter > 0:
+            # avoid overloading the service
+            await asyncio.sleep(random.uniform(0, self.jitter))
         res = await http_client.post(
             self.url + "/predict", json=payload.dict(), timeout=None
         )

@@ -404,6 +404,7 @@ async def _orchestrate(
                     layers=layers,
                     scale=scale,
                     inference_parms=inference_parms,
+                    jitter=10.0,
                 )
 
                 base_tiles_inference = await perform_inference(
