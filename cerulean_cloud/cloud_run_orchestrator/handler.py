@@ -266,8 +266,8 @@ async def perform_inference(tiles, inference_func, description):
     with concurrent.futures.ThreadPoolExecutor(max_workers=50) as exec, httpx.Client(
         headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
     ) as client:
-        inferences = exec.map(
-            lambda tile: inference_func(tile, client, rescale=(0, 255)), tiles
+        inferences = list(
+            exec.map(lambda tile: inference_func(tile, client, rescale=(0, 255)), tiles)
         )
     return inferences
     # semaphore = asyncio.Semaphore(25)
