@@ -1,6 +1,7 @@
 """Clients for other cloud run functions"""
 import asyncio
 import json
+import logging
 import random
 import zipfile
 from base64 import b64encode
@@ -24,7 +25,6 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 )
 from cerulean_cloud.tiling import TMS
 
-import logging
 
 logger = logging.getLogger(__name__)
 
