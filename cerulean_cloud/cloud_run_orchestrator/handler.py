@@ -17,7 +17,8 @@ from typing import Dict, List, Tuple
 
 import geojson
 import geopandas as gpd
-import httpx
+
+# import httpx
 import morecantile
 import numpy as np
 import rasterio
