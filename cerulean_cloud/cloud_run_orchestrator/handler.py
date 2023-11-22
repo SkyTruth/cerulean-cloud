@@ -49,7 +49,9 @@ from cerulean_cloud.titiler_client import TitilerClient
 # create a global client
 inference_client = httpx.AsyncClient(
     headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
-    limits=httpx.Limits(max_connections=10),
+    limits=httpx.Limits(
+        max_connections=int(os.getenv("MAX_INFERENCE_CONNECTIONS", default=10))
+    ),
     timeout=None,
 )
 
