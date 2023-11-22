@@ -265,7 +265,8 @@ async def perform_inference(tiles, inference_func, description):
 
     async with httpx.AsyncClient(
         headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
-        limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+        limits=httpx.Limits(max_connections=1),
+        timeout=None,
     ) as async_http_client:
         inferences = await asyncio.gather(
             *[

@@ -1,7 +1,6 @@
 """Clients for other cloud run functions"""
 import asyncio
 import json
-import logging
 import random
 import zipfile
 from base64 import b64encode
@@ -24,8 +23,6 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     PredictPayload,
 )
 from cerulean_cloud.tiling import TMS
-
-logger = logging.getLogger(__name__)
 
 
 def img_array_to_b64_image(img_array: np.ndarray) -> str:
@@ -106,7 +103,7 @@ class CloudRunInferenceClient:
         if self.jitter > 0:
             # avoid overloading the service
             jit = random.uniform(0, self.jitter)
-            logger.info(f"Jittering by {jit} seconds")
+            print(f"Jittering by {jit} seconds")
             await asyncio.sleep(jit)
         res = await http_client.post(
             self.url + "/predict", json=payload.dict(), timeout=None
@@ -149,7 +146,7 @@ class CloudRunInferenceClient:
         if self.jitter > 0:
             # avoid overloading the service
             jit = random.uniform(0, self.jitter)
-            logger.info(f"Jittering by {jit} seconds")
+            print(f"Jittering by {jit} seconds")
             await asyncio.sleep(jit)
         res = await http_client.post(
             self.url + "/predict", json=payload.dict(), timeout=None
