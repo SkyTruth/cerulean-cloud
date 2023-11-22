@@ -71,6 +71,11 @@ class CloudRunInferenceClient:
         self.inference_parms = inference_parms
 
     async def post_with_retry(self, payload):
+        """
+        Wraps an httpx.AsyncClient POST request with very basic
+        retry logic to handle broken pipe errors due to network
+        instability
+        """
         retry_count = 0
         success_flag = False
         while not success_flag and retry_count <= 3:
