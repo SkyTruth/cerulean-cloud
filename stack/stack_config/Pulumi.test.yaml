@@ -8,6 +8,7 @@ config:
   cerulean-cloud:apikey:
     secure: v1:l5zmQowhnE9RJZC7:tyonyHOMqQ34wlv3eBD1LPUrqnJ0jMtWAzJdkJE5rp75r/qSG9CGWVeLM176tGOZz6G4sA==
   db:db-instance: db-f1-micro
+  db:db-mem: 59904
   db:deletion-protection: "True"
   db:db-password:
     secure: v1:8dQyKnlQOrLqBXX6:lTmKOPMN2CYD/Oozi3IpPsUNgaFjDaCtVclsYgX4Tg0/6g==
