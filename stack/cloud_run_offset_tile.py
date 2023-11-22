@@ -26,11 +26,11 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("cerulean-cloud").require("apikey"),
                         ),
                     ],
-                    resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
+                    resources=dict(limits=dict(memory="4Gi", cpu="1000m")),
                 ),
             ],
             timeout_seconds=300,
-            container_concurrency=3,
+            container_concurrency=1,
         ),
         metadata=dict(
             name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
