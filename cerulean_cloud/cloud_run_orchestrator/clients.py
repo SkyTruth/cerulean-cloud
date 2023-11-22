@@ -1,6 +1,7 @@
 """Clients for other cloud run functions"""
 import asyncio
 import json
+import os
 import zipfile
 from base64 import b64encode
 from datetime import datetime
@@ -98,8 +99,12 @@ class CloudRunInferenceClient:
 
         inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
-        async with semaphore:
-            res = await http_client.post(
+
+        # async with semaphore:
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+        ) as client:
+            res = await client.post(
                 self.url + "/predict", json=payload.dict(), timeout=None
             )
         if res.status_code == 200:
@@ -141,8 +146,11 @@ class CloudRunInferenceClient:
 
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
 
-        async with semaphore:
-            res = await http_client.post(
+        # async with semaphore:
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+        ) as client:
+            res = await client.post(
                 self.url + "/predict", json=payload.dict(), timeout=None
             )
         if res.status_code == 200:

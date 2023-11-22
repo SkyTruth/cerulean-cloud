@@ -263,19 +263,16 @@ async def perform_inference(tiles, inference_func, description):
     """
     print(f"Inference on {description}!")
 
-    # Add semaphore to limit number of conncurrent requests
-    semaphore = asyncio.Semaphore(value=25)
-    async with httpx.AsyncClient(
-        headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"},
-        timeout=None,
-    ) as async_http_client:
-        inferences = await asyncio.gather(
-            *[
-                inference_func(tile, async_http_client, semaphore, rescale=(0, 255))
-                for tile in tiles
-            ],
-            return_exceptions=False,  # This raises exceptions
-        )
+    # async with httpx.AsyncClient(
+    #     headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+    # ) as async_http_client:
+
+    async_http_client = None
+
+    inferences = await asyncio.gather(
+        *[inference_func(tile, async_http_client, rescale=(0, 255)) for tile in tiles],
+        return_exceptions=False,  # This raises exceptions
+    )
     return inferences
 
 
