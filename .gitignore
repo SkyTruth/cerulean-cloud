@@ -172,3 +172,5 @@ scratch/*
 
 *.pt 
 *.pth
+
+state.json

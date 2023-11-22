@@ -8,7 +8,8 @@ needs env vars:
 - TITILER_URL
 - INFERENCE_URL
 """
-import asyncio
+# import asyncio
+import concurrent.futures
 import os
 import urllib.parse as urlparse
 from base64 import b64decode  # , b64encode
@@ -262,18 +263,25 @@ async def perform_inference(tiles, inference_func, description):
     - Prints traceback of exceptions to the console.
     """
     print(f"Inference on {description}!")
-
-    async with httpx.AsyncClient(
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as exec, httpx.Client(
         headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
-    ) as async_http_client:
-        inferences = await asyncio.gather(
-            *[
-                inference_func(tile, async_http_client, rescale=(0, 255))
-                for tile in tiles
-            ],
-            return_exceptions=False,  # This raises exceptions
+    ) as client:
+        inferences = exec.map(
+            lambda tile: inference_func(tile, client, rescale=(0, 255)), tiles
         )
     return inferences
+    # semaphore = asyncio.Semaphore(25)
+    # async with httpx.AsyncClient(
+    #     headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+    # ) as async_http_client:
+    #     inferences = await asyncio.gather(
+    #         *[
+    #             inference_func(tile, async_http_client, semaphore, rescale=(0, 255))
+    #             for tile in tiles
+    #         ],
+    #         return_exceptions=False,  # This raises exceptions
+    #     )
+    # return inferences
 
 
 async def _orchestrate(
