@@ -24,6 +24,10 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 )
 from cerulean_cloud.tiling import TMS
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def img_array_to_b64_image(img_array: np.ndarray) -> str:
     """convert input b64image to torch tensor"""
@@ -100,6 +104,11 @@ class CloudRunInferenceClient:
 
         inf_stack = [InferenceInput(image=encoded, bounds=TMS.bounds(tile))]
         payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
+        if self.jitter > 0:
+            # avoid overloading the service
+            jit = random.uniform(0, self.jitter)
+            logger.info(f"Jittering by {jit} seconds")
+            await asyncio.sleep(jit)
         res = await http_client.post(
             self.url + "/predict", json=payload.dict(), timeout=None
         )
@@ -140,7 +149,9 @@ class CloudRunInferenceClient:
 
         if self.jitter > 0:
             # avoid overloading the service
-            await asyncio.sleep(random.uniform(0, self.jitter))
+            jit = random.uniform(0, self.jitter)
+            logger.info(f"Jittering by {jit} seconds")
+            await asyncio.sleep(jit)
         res = await http_client.post(
             self.url + "/predict", json=payload.dict(), timeout=None
         )
