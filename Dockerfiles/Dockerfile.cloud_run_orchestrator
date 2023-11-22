@@ -9,6 +9,7 @@ ENV APP_HOME /app
 WORKDIR $APP_HOME
 COPY cerulean_cloud/ /app/cerulean_cloud/
 
+RUN pip install --upgrade pip
 # Install production dependencies.
 RUN pip install -r cerulean_cloud/cloud_run_orchestrator/requirements.txt
 
