@@ -53,15 +53,13 @@ inference_client = httpx.AsyncClient(
     timeout=None,
 )
 
+# register a function to close the client when the app exits
+atexit.register(inference_client.aclose)
+
+
 app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
-
-
-# Close the inference client on shutdown
-@app.on_event("shutdown")
-async def shutdown_event():
-    await inference_client.aclose()
 
 
 landmask_gdf = None
