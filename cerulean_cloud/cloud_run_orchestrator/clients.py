@@ -16,7 +16,13 @@ from rasterio.enums import Resampling
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 from rio_tiler.io import COGReader
-from tenacity import RetryCallState, retry, stop_after_attempt, wait_random_exponential
+from tenacity import (
+    RetryCallState,
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_random_exponential,
+)
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInput,
@@ -82,7 +88,7 @@ class CloudRunInferenceClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_random_exponential(multiplier=1, max=10),
-        retry_if_exception_type=httpx.TransportError,
+        retry=retry_if_exception_type(httpx.TransportError),
         reraise=True,
         before_sleep=report_inference_retry,
     )
@@ -136,7 +142,7 @@ class CloudRunInferenceClient:
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_random_exponential(multiplier=1, max=10),
-        retry_if_exception_type=httpx.TransportError,
+        retry=retry_if_exception_type(httpx.TransportError),
         reraise=True,
         before_sleep=report_inference_retry,
     )
