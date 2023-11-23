@@ -25,3 +25,4 @@ pygeos
 networkx
 google-cloud-tasks
 protobuf
+tenacity==8.2.3
