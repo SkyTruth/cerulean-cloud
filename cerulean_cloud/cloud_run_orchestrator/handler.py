@@ -9,10 +9,10 @@ needs env vars:
 - INFERENCE_URL
 """
 import asyncio
-import atexit
 import os
 import urllib.parse as urlparse
 from base64 import b64decode  # , b64encode
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
@@ -55,11 +55,20 @@ inference_client = httpx.AsyncClient(
     timeout=None,
 )
 
-# register a function to close the client when the app exits
-atexit.register(inference_client.aclose)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("Starting up...")
+    yield
+    await inference_client.aclose()
+    print("Shutting down...")
 
 
-app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
+app = FastAPI(
+    title="Cloud Run orchestrator",
+    dependencies=[Depends(api_key_auth)],
+    lifespan=lifespan,
+)
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
