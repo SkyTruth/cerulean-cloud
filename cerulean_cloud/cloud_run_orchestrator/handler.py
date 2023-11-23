@@ -58,6 +58,13 @@ inference_client = httpx.AsyncClient(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Asynchronous context manager for managing the lifespan of a FastAPI application.
+    Args:
+        app (FastAPI): The FastAPI application instance to manage.
+    Yields:
+        None: This function does not yield any value but ensures proper resource management.
+    """
     print("Starting up...")
     yield
     await inference_client.aclose()
