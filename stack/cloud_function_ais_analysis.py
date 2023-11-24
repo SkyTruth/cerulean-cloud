@@ -88,7 +88,7 @@ fxn = cloudfunctions.Function(
     source_archive_object=source_archive_object.name,
     trigger_http=True,
     service_account_email=cloud_function_service_account.email,
-    available_memory_mb=2048,
+    available_memory_mb=4096,
     timeout=540,
     secret_environment_variables=[gfw_credentials],
 )
