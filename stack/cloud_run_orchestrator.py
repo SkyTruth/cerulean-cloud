@@ -100,8 +100,21 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("gcp").require("region"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TITILER_API_KEY",
+                            value=pulumi.Config("cerulean-cloud").require(
+                                "titiler_apikey"
+                            ),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="API_KEY",
-                            value=pulumi.Config("cerulean-cloud").require("apikey"),
+                            value_from=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromArgs(
+                                secret_key_ref=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromSecretKeyRefArgs(
+                                    name=pulumi.Config("cerulean-cloud").require(
+                                        "keyname"
+                                    ),
+                                    key="latest",
+                                )
+                            ),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="AAA_QUEUE",

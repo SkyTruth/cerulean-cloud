@@ -58,7 +58,9 @@ lambda_titiler_sentinel = aws.lambda_.Function(
             "VSI_CACHE_SIZE": "5000000",
             "AWS_REQUEST_PAYER": "requester",
             "RIO_TILER_MAX_THREADS": 1,
-            "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
+            "API_KEY": pulumi.Config("cerulean-cloud").require(
+                "titiler_apikey"
+            ),  # XXX Not using GCP secrets because it seems tough to set up security handshake
         },
     ),
     opts=pulumi.ResourceOptions(depends_on=[lambda_obj]),

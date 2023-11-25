@@ -21,7 +21,7 @@ class TitilerClient:
         """use deployment of titiler URL"""
         self.url = url
         self.client = httpx.AsyncClient(
-            headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+            headers={"Authorization": f"Bearer {os.getenv('TITILER_API_KEY')}"}
         )
         self.timeout = timeout
 

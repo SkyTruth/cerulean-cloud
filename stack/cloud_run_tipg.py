@@ -85,7 +85,14 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SECRET_API_KEY",
-                            value=pulumi.Config("cerulean-cloud").require("apikey"),
+                            value_from=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromArgs(
+                                secret_key_ref=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromSecretKeyRefArgs(
+                                    name=pulumi.Config("cerulean-cloud").require(
+                                        "keyname"
+                                    ),
+                                    key="latest",
+                                )
+                            ),
                         ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="6000m")),

@@ -21,7 +21,6 @@ config_values = {
     "FUNCTION_NAME": function_name,
     "SCIHUB_USERNAME": pulumi.Config("scihub").require("username"),
     "SCIHUB_PASSWORD": pulumi.Config("scihub").require("password"),
-    "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
     "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_historical"),
 }
 
@@ -45,6 +44,13 @@ source_archive_object = storage.BucketObject(
     source=archive,
 )
 
+apikey = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
+    key="API_KEY",
+    secret=pulumi.Config("cerulean-cloud").require("keyname"),
+    version="latest",
+    project_id=pulumi.Config("gcp").require("project"),
+)
+
 fxn = cloudfunctions.Function(
     function_name,
     name=function_name,
@@ -57,6 +63,7 @@ fxn = cloudfunctions.Function(
     trigger_http=True,
     service_account_email=cloud_function_scene_relevancy.cloud_function_service_account.email,
     timeout=500,
+    secret_environment_variables=[apikey],
 )
 
 invoker = cloudfunctions.FunctionIamMember(

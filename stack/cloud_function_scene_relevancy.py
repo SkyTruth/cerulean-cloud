@@ -44,7 +44,6 @@ config_values = {
     "QUEUE": queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
     "FUNCTION_NAME": function_name,
-    "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
     "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_relevancy"),
 }
 
@@ -83,6 +82,14 @@ cloud_function_service_account_iam = projects.IAMMember(
     ),
 )
 
+apikey = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
+    key="API_KEY",
+    secret=pulumi.Config("cerulean-cloud").require("keyname"),
+    version="latest",
+    project_id=pulumi.Config("gcp").require("project"),
+)
+
+
 fxn = cloudfunctions.Function(
     function_name,
     name=function_name,
@@ -94,6 +101,7 @@ fxn = cloudfunctions.Function(
     source_archive_object=source_archive_object.name,
     trigger_http=True,
     service_account_email=cloud_function_service_account.email,
+    secret_environment_variables=[apikey],
 )
 
 invoker = cloudfunctions.FunctionIamMember(
