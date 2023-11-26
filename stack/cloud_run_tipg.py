@@ -19,6 +19,15 @@ cloud_function_service_account = gcp.serviceaccount.Account(
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-tipg-cloudSqlClient"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/cloudsql.client",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
+
+cloud_function_service_account_iam = gcp.projects.IAMMember(
     construct_name("cloud-run-tipg-secretmanagerSecretAccessor"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/secretmanager.secretAccessor",
