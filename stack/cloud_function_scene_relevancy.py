@@ -112,12 +112,3 @@ invoker = cloudfunctions.FunctionIamMember(
     role="roles/cloudfunctions.invoker",
     member="allUsers",
 )
-
-accessor = cloudfunctions.FunctionIamMember(
-    construct_name("cloud-function-sr-accessor"),
-    project=fxn.project,
-    region=fxn.region,
-    cloud_function=fxn.name,
-    role="roles/secretmanager.secretAccessor",
-    member="allUsers",
-)
