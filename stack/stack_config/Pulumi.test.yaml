@@ -7,7 +7,7 @@ config:
   cerulean-cloud:dryrun_relevancy: "True" # Make empty "" to turn on recurring runs
   cerulean-cloud:keyname: test-cerulean-cloud-api-key
   cerulean-cloud:titiler_apikey:
-    secure: v1:AL3MAvUCn2EmEXit:80nTnEIPMVDQVFP65aLHNQ8sKqN4gXeCppWVD7p3ls4f
+    secure: v1:X24VmXJfPdOr4seI:k3hVALElB/E/bEl9jK+jgebtEN0vpxSfsyfCbspFDXpolsw2VrkxYg29XARFZXtJD+9arpQ8qigG/i8=
   db:db-instance: db-f1-micro
   db:db-mem: "59904"
   db:db-password:

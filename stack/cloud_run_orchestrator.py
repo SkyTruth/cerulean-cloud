@@ -46,6 +46,15 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
     ),
 )
 
+cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-orchestrator-secretmanagerSecretAccessor"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/secretmanager.secretAccessor",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
+
 # IAM Binding for Secret Manager access
 secret_accessor_binding = gcp.secretmanager.SecretIamMember(
     construct_name("cloud-run-orchestrator-secret-accessor-binding"),
