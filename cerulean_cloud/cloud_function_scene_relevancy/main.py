@@ -1,7 +1,6 @@
 """cloud function scene relevancy handler
 inspired by https://github.com/jonaraphael/ceruleanserver/tree/master/lambda/Machinable
 """
-
 import asyncio
 import json
 import os
@@ -10,6 +9,7 @@ from datetime import datetime, timedelta
 
 import asyncpg
 import shapely.geometry as sh  # https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
+from flask import abort
 from google.cloud import tasks_v2
 
 
@@ -67,6 +67,29 @@ async def add_trigger_row(n_scenes=1, n_filtered_scenes=1, logs_url=""):
     return row
 
 
+def verify_api_key(request):
+    """Function to verify API key"""
+    expected_api_key = os.getenv("API_KEY")
+    auth_header = request.headers.get("Authorization")
+
+    # Check if the Authorization header is present
+    if not auth_header:
+        abort(401, description="Unauthorized: No Authorization header")
+
+    # Split the header into 'Bearer' and the token part
+    parts = auth_header.split()
+
+    # Check if the header is formed correctly
+    if parts[0].lower() != "bearer" or len(parts) != 2:
+        abort(401, description="Unauthorized: Invalid Authorization header format")
+
+    request_api_key = parts[1]
+
+    # Compare the token part with your expected API key
+    if request_api_key != expected_api_key:
+        abort(401, description="Unauthorized: Invalid API key")
+
+
 def main(request):
     """Responds to any HTTP request.
     Args:
@@ -77,6 +100,7 @@ def main(request):
         `make_response <http://flask.pocoo.org/docs/1.0/api/#flask.Flask.make_response>`.
     """
     start_time = datetime.now()
+    verify_api_key(request)
 
     request_json = request.get_json()
     print(request_json)
