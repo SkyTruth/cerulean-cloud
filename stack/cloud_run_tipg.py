@@ -9,6 +9,23 @@ from database import instance, sql_instance_url
 from utils import construct_name
 
 config = pulumi.Config()
+stack = pulumi.get_stack()
+
+# Assign access to cloud secrets
+cloud_function_service_account = gcp.serviceaccount.Account(
+    construct_name("cloud-run-tipg"),
+    account_id=f"{stack}-cloud-run-tipg",
+    display_name="Service Account for cloud run.",
+)
+
+cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-orchestrator-secretmanagerSecretAccessor"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/secretmanager.secretAccessor",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
 
 service_name = construct_name("cloud-run-tipg")
 default = gcp.cloudrun.Service(
@@ -17,6 +34,7 @@ default = gcp.cloudrun.Service(
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
+            service_account_name=cloud_function_service_account.email,
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
                     image=cloud_run_images.cloud_run_tipg_image.name,

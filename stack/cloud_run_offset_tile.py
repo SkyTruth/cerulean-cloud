@@ -6,6 +6,24 @@ import pulumi
 import pulumi_gcp as gcp
 from utils import construct_name
 
+stack = pulumi.get_stack()
+
+# Assign access to cloud secrets
+cloud_function_service_account = gcp.serviceaccount.Account(
+    construct_name("cloud-run-offset-tile"),
+    account_id=f"{stack}-cloud-run-offset-tile",
+    display_name="Service Account for cloud run.",
+)
+
+cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-offset-tile-secretmanagerSecretAccessor"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/secretmanager.secretAccessor",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
+
 service_name = construct_name("cloud-run-offset-tiles")
 default = gcp.cloudrun.Service(
     service_name,
@@ -13,6 +31,7 @@ default = gcp.cloudrun.Service(
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
+            service_account_name=cloud_function_service_account.email,
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
                     image=cloud_run_images.cloud_run_offset_tile_image.name,
