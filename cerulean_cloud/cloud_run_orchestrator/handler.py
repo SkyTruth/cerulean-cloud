@@ -345,53 +345,57 @@ async def _orchestrate(
 
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
-        try:
-            async with db_client.session.begin():
-                trigger = await db_client.get_trigger(trigger=payload.trigger)
-                layers = [await db_client.get_layer(layer) for layer in model.layers]
-                sentinel1_grd = await db_client.get_sentinel1_grd(
-                    payload.sceneid,
-                    scene_info,
-                    titiler_client.get_base_tile_url(
-                        payload.sceneid,
-                        rescale=(0, 255),
-                    ),
-                )
-                stale_slick_count = (
-                    await db_client.deactivate_stale_slicks_from_scene_id(
-                        payload.sceneid
-                    )
-                )
-                print(
-                    f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
-                )
-                orchestrator_run = await db_client.add_orchestrator(
-                    start_time,
-                    start_time,
-                    ntiles,
-                    noffsettiles,
-                    os.getenv("GIT_HASH"),
-                    os.getenv("GIT_TAG"),
-                    make_cloud_log_url(
-                        os.getenv("CLOUD_RUN_NAME"), start_time, os.getenv("PROJECT_ID")
-                    ),
-                    zoom,
-                    scale,
-                    scene_bounds,
-                    trigger,
-                    model,
-                    sentinel1_grd,
-                )
-        except:  # noqa: E722
-            await db_client.session.close()
-            raise
-
-        inference_parms = {
-            "model_type": model.type,
-            "thresholds": model.thresholds,
-        }
-
         if not payload.dry_run:
+            try:
+                async with db_client.session.begin():
+                    trigger = await db_client.get_trigger(trigger=payload.trigger)
+                    layers = [
+                        await db_client.get_layer(layer) for layer in model.layers
+                    ]
+                    sentinel1_grd = await db_client.get_sentinel1_grd(
+                        payload.sceneid,
+                        scene_info,
+                        titiler_client.get_base_tile_url(
+                            payload.sceneid,
+                            rescale=(0, 255),
+                        ),
+                    )
+                    stale_slick_count = (
+                        await db_client.deactivate_stale_slicks_from_scene_id(
+                            payload.sceneid
+                        )
+                    )
+                    print(
+                        f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
+                    )
+                    orchestrator_run = await db_client.add_orchestrator(
+                        start_time,
+                        start_time,
+                        ntiles,
+                        noffsettiles,
+                        os.getenv("GIT_HASH"),
+                        os.getenv("GIT_TAG"),
+                        make_cloud_log_url(
+                            os.getenv("CLOUD_RUN_NAME"),
+                            start_time,
+                            os.getenv("PROJECT_ID"),
+                        ),
+                        zoom,
+                        scale,
+                        scene_bounds,
+                        trigger,
+                        model,
+                        sentinel1_grd,
+                    )
+            except:  # noqa: E722
+                await db_client.session.close()
+                raise
+
+            inference_parms = {
+                "model_type": model.type,
+                "thresholds": model.thresholds,
+            }
+
             success = True
             try:
                 print(f"{start_time}: Instantiating inference client.")
