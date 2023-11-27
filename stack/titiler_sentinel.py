@@ -8,7 +8,7 @@ titiler_keyname = pulumi.Config("cerulean-cloud").require("titiler_keyname")
 secret = gcp.secretmanager.get_secret(secret_id=titiler_keyname)
 titiler_api_key = gcp.secretmanager.get_secret_version_output(
     secret=titiler_keyname
-).payload_data.apply(lambda data: data.decode("utf-8"))
+).secret_data.apply(lambda data: data.decode("utf-8"))
 
 
 s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
