@@ -8,7 +8,6 @@ from utils import construct_name
 api_key = gcp.secretmanager.SecretVersion(
     construct_name("lambda-sentinel1-api-key"),
     secret=pulumi.Config("cerulean-cloud").require("keyname"),
-    version="latest",  # You can specify a specific version number if needed
     project=pulumi.Config("gcp").require("project"),
 ).secret_data.apply(lambda data: data.decode("utf-8"))
 

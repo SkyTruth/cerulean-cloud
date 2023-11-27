@@ -7,7 +7,6 @@ from utils import construct_name, create_package, filebase64sha256
 titler_api_key = gcp.secretmanager.SecretVersion(
     construct_name("lambda-titiler-api-key"),
     secret=pulumi.Config("cerulean-cloud").require("titiler_keyname"),
-    version="latest",  # You can specify a specific version number if needed
     project=pulumi.Config("gcp").require("project"),
 ).secret_data.apply(lambda data: data.decode("utf-8"))
 
