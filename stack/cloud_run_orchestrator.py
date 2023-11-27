@@ -124,7 +124,7 @@ default = gcp.cloudrun.Service(
                             value_from=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromArgs(
                                 secret_key_ref=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromSecretKeyRefArgs(
                                     name=pulumi.Config("cerulean-cloud").require(
-                                        "titler_keyname"
+                                        "titiler_keyname"
                                     ),
                                     key="latest",
                                 )
