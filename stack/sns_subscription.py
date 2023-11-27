@@ -6,7 +6,7 @@ import pulumi_gcp as gcp
 from utils import construct_name
 
 keyname = pulumi.Config("cerulean-cloud").require("keyname")
-secret = gcp.secretmanager.get_secret(name=keyname)
+secret = gcp.secretmanager.get_secret(secret_id=keyname)
 api_key = gcp.secretmanager.get_secret_version_output(
     secret=keyname
 ).payload_data.apply(lambda data: data.decode("utf-8"))
