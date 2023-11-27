@@ -22,22 +22,30 @@ def verify_api_key(request):
     """Function to verify API key"""
     expected_api_key = os.getenv("API_KEY")
     auth_header = request.headers.get("Authorization")
+    print("request.get_json", request.get_json())
+    print("auth_header", auth_header)
 
     # Check if the Authorization header is present
     if not auth_header:
+        print("not auth_header")
         abort(401, description="Unauthorized: No Authorization header")
 
     # Split the header into 'Bearer' and the token part
     parts = auth_header.split()
+    print("parts", parts)
+    print("len(parts)", len(parts))
 
     # Check if the header is formed correctly
     if parts[0].lower() != "bearer" or len(parts) != 2:
+        print("Invalid Authorization header format")
         abort(401, description="Unauthorized: Invalid Authorization header format")
 
     request_api_key = parts[1]
+    print("request_api_key", request_api_key)
 
     # Compare the token part with your expected API key
     if request_api_key != expected_api_key:
+        print("Unauthorized: Invalid API key")
         abort(401, description="Unauthorized: Invalid API key")
 
 
