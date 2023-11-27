@@ -1,7 +1,16 @@
 """titiler sentinel infra module"""
 import pulumi
 import pulumi_aws as aws
+import pulumi_gcp as gcp
 from utils import construct_name, create_package, filebase64sha256
+
+titler_api_key = gcp.secretmanager.SecretVersion(
+    construct_name("lambda-titiler-api-key"),
+    secret=pulumi.Config("cerulean-cloud").require("titler_keyname"),
+    version="latest",  # You can specify a specific version number if needed
+    project=pulumi.Config("gcp").require("project"),
+).secret_data.apply(lambda data: data.decode("utf-8"))
+
 
 s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
 
@@ -58,9 +67,7 @@ lambda_titiler_sentinel = aws.lambda_.Function(
             "VSI_CACHE_SIZE": "5000000",
             "AWS_REQUEST_PAYER": "requester",
             "RIO_TILER_MAX_THREADS": 1,
-            "API_KEY": pulumi.Config("cerulean-cloud").require(
-                "titiler_apikey"
-            ),  # XXX Not using GCP secrets because it seems tough to set up security handshake
+            "API_KEY": titler_api_key,
         },
     ),
     opts=pulumi.ResourceOptions(depends_on=[lambda_obj]),

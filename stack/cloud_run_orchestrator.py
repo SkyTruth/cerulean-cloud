@@ -121,8 +121,13 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TITILER_API_KEY",
-                            value=pulumi.Config("cerulean-cloud").require(
-                                "titiler_apikey"
+                            value_from=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromArgs(
+                                secret_key_ref=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromSecretKeyRefArgs(
+                                    name=pulumi.Config("cerulean-cloud").require(
+                                        "titler_keyname"
+                                    ),
+                                    key="latest",
+                                )
                             ),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(

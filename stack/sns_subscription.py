@@ -2,9 +2,15 @@
 import cloud_function_scene_relevancy
 import pulumi
 import pulumi_aws as aws
+import pulumi_gcp as gcp
 from utils import construct_name
 
-api_key = pulumi.Config("cerulean-cloud").require("apikey")
+api_key = gcp.secretmanager.SecretVersion(
+    construct_name("lambda-sentinel1-api-key"),
+    secret=pulumi.Config("cerulean-cloud").require("keyname"),
+    version="latest",  # You can specify a specific version number if needed
+    project=pulumi.Config("gcp").require("project"),
+).secret_data.apply(lambda data: data.decode("utf-8"))
 
 
 iam_for_lambda = aws.iam.Role(
