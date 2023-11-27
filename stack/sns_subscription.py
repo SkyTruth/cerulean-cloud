@@ -4,6 +4,9 @@ import pulumi
 import pulumi_aws as aws
 from utils import construct_name
 
+api_key = pulumi.Config("cerulean-cloud").require("apikey")
+
+
 iam_for_lambda = aws.iam.Role(
     construct_name("lambda-sentinel1-iam"),
     assume_role_policy="""{
@@ -34,7 +37,8 @@ lambda_sentinel1_topic = aws.lambda_.Function(
     role=iam_for_lambda.arn,
     environment=aws.lambda_.FunctionEnvironmentArgs(
         variables={
-            "FUNCTION_URL": cloud_function_scene_relevancy.fxn.https_trigger_url
+            "FUNCTION_URL": cloud_function_scene_relevancy.fxn.https_trigger_url,
+            "API_KEY": api_key,
         },
     ),
 )
