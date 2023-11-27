@@ -4,11 +4,16 @@ import pulumi_aws as aws
 import pulumi_gcp as gcp
 from utils import construct_name, create_package, filebase64sha256
 
-titler_api_key = gcp.secretmanager.SecretVersion(
-    construct_name("lambda-titiler-api-key"),
-    secret=pulumi.Config("cerulean-cloud").require("titiler_keyname"),
+secret_resource = gcp.secretmanager.Secret(
+    construct_name("titler-apikey"),
     project=pulumi.Config("gcp").require("project"),
-).secret_data.apply(lambda data: data.decode("utf-8"))
+    secret_id=pulumi.Config("cerulean-cloud").require("titiler_keyname"),
+)
+secret_version = gcp.secretmanager.SecretVersion(
+    construct_name("titler-apikey-version"),
+    secret=secret_resource.id,
+)
+titler_api_key = secret_version.secret_data.apply(lambda data: data.decode("utf-8"))
 
 
 s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
