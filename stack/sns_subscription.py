@@ -5,10 +5,11 @@ import pulumi_aws as aws
 import pulumi_gcp as gcp
 from utils import construct_name
 
-api_key = gcp.secretmanager.SecretVersion(
-    construct_name("lambda-sentinel1-api-key"),
-    secret=pulumi.Config("cerulean-cloud").require("keyname"),
-).secret_data.apply(lambda data: data.decode("utf-8"))
+keyname = pulumi.Config("cerulean-cloud").require("keyname")
+secret = gcp.secretmanager.get_secret(name=keyname)
+api_key = gcp.secretmanager.get_secret_version_output(
+    secret=keyname
+).payload_data.apply(lambda data: data.decode("utf-8"))
 
 
 iam_for_lambda = aws.iam.Role(
