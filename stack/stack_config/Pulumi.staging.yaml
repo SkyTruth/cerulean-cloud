@@ -1,17 +1,17 @@
 encryptionsalt: v1:5bZrZv+vt08=:v1:2g/MGwZygH99RO1o:/SYBjfvFWKhefeTSbupB2bXA3G8wsg==
 config:
+  ais:credentials: world-fishing-827-service-account-json
   aws:region: eu-central-1
+  cerulean-cloud:dryrun_ais: "" # Make empty "" to turn on AIS analysis
   cerulean-cloud:dryrun_historical: "" # Make empty "" to turn on historical runs
   cerulean-cloud:dryrun_relevancy: "" # Make empty "" to turn on recurring runs
-  cerulean-cloud:dryrun_ais: "" # Make empty "" to turn on AIS analysis
-  ais:credentials: world-fishing-827-service-account-json
-  cerulean-cloud:apikey:
-    secure: v1:GEqP+nWvrQb16t/f:uhLbrS+C7yFjQunkOnBOw9eZXt8JUS5dsiDTSH5hytK5vJ3zO8DJO5bOjQNBOKn/T5AWGA==
+  cerulean-cloud:keyname: staging-cerulean-cloud-api-key
+  cerulean-cloud:titiler_keyname: staging-titiler-api-key
   db:db-instance: db-custom-4-15360
   db:db-mem: 599040
-  db:deletion-protection: "True"
   db:db-password:
     secure: v1:Ea/zFeRAgMYN80Zj:TTw3Y7ETepsDhd1tpK6z6fzab54PT1g1udNHmchgIT7/IcjiMgTb
+  db:deletion-protection: "True"
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b

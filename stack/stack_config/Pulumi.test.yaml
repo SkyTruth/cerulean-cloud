@@ -8,7 +8,7 @@ config:
   cerulean-cloud:keyname: test-cerulean-cloud-api-key
   cerulean-cloud:titiler_keyname: test-titiler-api-key
   db:db-instance: db-f1-micro
-  db:db-mem: "59904"
+  db:db-mem: 59904
   db:db-password:
     secure: v1:8dQyKnlQOrLqBXX6:lTmKOPMN2CYD/Oozi3IpPsUNgaFjDaCtVclsYgX4Tg0/6g==
   db:deletion-protection: "True"
