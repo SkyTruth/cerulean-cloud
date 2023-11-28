@@ -36,11 +36,17 @@ class TitilerClient:
             List[float]: A 4 item list containing bounding box
                             coordinates of the scene.
                             (minx, miny, maxx, maxy)
+        Raises:
+            HTTPException: For various HTTP related errors including authentication issues.
         """
-        url = urlib.urljoin(self.url, "bounds")
-        url += f"?sceneid={sceneid}"
-        resp = await self.client.get(url, timeout=self.timeout)
-        return resp.json()["bounds"]
+        try:
+            url = urlib.urljoin(self.url, "bounds")
+            url += f"?sceneid={sceneid}"
+            resp = await self.client.get(url, timeout=self.timeout)
+            resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
+            return resp.json()["bounds"]
+        except Exception:
+            raise
 
     async def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
         """fetch bounds of a scene
