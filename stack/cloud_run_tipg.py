@@ -14,7 +14,7 @@ stack = pulumi.get_stack()
 # Assign access to cloud secrets
 cloud_function_service_account = gcp.serviceaccount.Account(
     construct_name("cloud-run-tipg"),
-    account_id=f"{stack}-cloud-run-tipg",
+    account_id=f"{stack}-cr-tipg",
     display_name="Service Account for cloud run.",
 )
 

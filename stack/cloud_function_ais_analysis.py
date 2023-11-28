@@ -57,7 +57,7 @@ source_archive_object = storage.BucketObject(
 # Assign access to cloud SQL
 cloud_function_service_account = serviceaccount.Account(
     construct_name("cloud-function-ais"),
-    account_id=f"{stack}-cloud-function-ais",
+    account_id=f"{stack}-cf-ais",
     display_name="Service Account for cloud function.",
 )
 
