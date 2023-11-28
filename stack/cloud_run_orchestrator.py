@@ -183,6 +183,7 @@ default = gcp.cloudrun.Service(
         depends_on=[
             titiler_sentinel.lambda_api,
             cloud_run_offset_tile.default,
+            secret_accessor_binding,
         ]
     ),
 )

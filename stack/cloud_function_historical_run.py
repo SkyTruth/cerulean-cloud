@@ -64,6 +64,9 @@ fxn = cloudfunctions.Function(
     service_account_email=cloud_function_scene_relevancy.cloud_function_service_account.email,
     timeout=500,
     secret_environment_variables=[apikey],
+    opts=pulumi.ResourceOptions(
+        depends_on=[cloud_function_scene_relevancy.cloud_function_service_account_iam]
+    ),
 )
 
 invoker = cloudfunctions.FunctionIamMember(

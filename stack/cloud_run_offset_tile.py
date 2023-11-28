@@ -47,6 +47,7 @@ secret_accessor_binding = gcp.secretmanager.SecretIamMember(
 service_name = construct_name("cloud-run-offset-tiles")
 default = gcp.cloudrun.Service(
     service_name,
+    opts=pulumi.ResourceOptions(depends_on=[secret_accessor_binding]),
     name=service_name,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
