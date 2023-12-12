@@ -126,7 +126,7 @@ lambda_stage = aws.apigatewayv2.Stage(
     opts=pulumi.ResourceOptions(depends_on=[lambda_route]),
 )
 
-api_abuse_alerts_topic = aws.sns.get_topic(name="APIAbuseAlerts")
+api_abuse_alerts_topic = aws.sns.Topic(construct_name("lambda-APIAbuseAlert"))
 
 lambda_invocations_alarm = aws.cloudwatch.MetricAlarm(
     resource_name=construct_name("lambda-titiler-alarm"),
