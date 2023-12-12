@@ -144,28 +144,28 @@ lambda_invocations_alarm = aws.cloudwatch.MetricAlarm(
 )
 
 email_subscription = aws.sns.TopicSubscription(
-    resource_name=construct_name("lambda-titiler-emailSubscription"),
+    resource_name=construct_name("lambda-titiler-email-support"),
     topic=api_abuse_alerts_topic.arn,
     protocol="email",
     endpoint="support+cerulean@skytruth.org",
 )
 
 email_subscription = aws.sns.TopicSubscription(
-    resource_name=construct_name("lambda-titiler-emailSubscription"),
+    resource_name=construct_name("lambda-titiler-email-jona"),
     topic=api_abuse_alerts_topic.arn,
     protocol="email",
     endpoint="jona@skytruth.org",
 )
 
 email_subscription = aws.sns.TopicSubscription(
-    resource_name=construct_name("lambda-titiler-emailSubscription"),
+    resource_name=construct_name("lambda-titiler-email-aemon"),
     topic=api_abuse_alerts_topic.arn,
     protocol="email",
     endpoint="aemon@skytruth.org",
 )
 
 email_subscription = aws.sns.TopicSubscription(
-    resource_name=construct_name("lambda-titiler-emailSubscription"),
+    resource_name=construct_name("lambda-titiler-email-jason"),
     topic=api_abuse_alerts_topic.arn,
     protocol="email",
     endpoint="jason@skytruth.org",
