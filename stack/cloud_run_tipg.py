@@ -9,14 +9,53 @@ from database import instance, sql_instance_url
 from utils import construct_name
 
 config = pulumi.Config()
+stack = pulumi.get_stack()
+
+# Assign access to cloud secrets
+cloud_function_service_account = gcp.serviceaccount.Account(
+    construct_name("cloud-run-tipg"),
+    account_id=f"{stack}-cr-tipg",
+    display_name="Service Account for cloud run.",
+)
+
+cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-tipg-cloudSqlClient"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/cloudsql.client",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
+
+cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-tipg-secretmanagerSecretAccessor"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/secretmanager.secretAccessor",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
+
+# IAM Binding for Secret Manager access
+secret_accessor_binding = gcp.secretmanager.SecretIamMember(
+    construct_name("cloud-run-tipg-secret-accessor-binding"),
+    secret_id=pulumi.Config("cerulean-cloud").require("keyname"),
+    role="roles/secretmanager.secretAccessor",
+    member=pulumi.Output.concat(
+        "serviceAccount:", cloud_function_service_account.email
+    ),
+    opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account]),
+)
 
 service_name = construct_name("cloud-run-tipg")
 default = gcp.cloudrun.Service(
     service_name,
+    opts=pulumi.ResourceOptions(depends_on=[secret_accessor_binding]),
     name=service_name,
     location=pulumi.Config("gcp").require("region"),
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
+            service_account_name=cloud_function_service_account.email,
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
                     image=cloud_run_images.cloud_run_tipg_image.name,
@@ -85,7 +124,14 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SECRET_API_KEY",
-                            value=pulumi.Config("cerulean-cloud").require("apikey"),
+                            value_from=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromArgs(
+                                secret_key_ref=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromSecretKeyRefArgs(
+                                    name=pulumi.Config("cerulean-cloud").require(
+                                        "keyname"
+                                    ),
+                                    key="latest",
+                                )
+                            ),
                         ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="6000m")),

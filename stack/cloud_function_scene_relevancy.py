@@ -44,7 +44,6 @@ config_values = {
     "QUEUE": queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
     "FUNCTION_NAME": function_name,
-    "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
     "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_relevancy"),
 }
 
@@ -71,7 +70,7 @@ source_archive_object = storage.BucketObject(
 # Assign access to cloud SQL
 cloud_function_service_account = serviceaccount.Account(
     construct_name("cloud-function-sr"),
-    account_id=f"{stack}-cloud-function-sr",
+    account_id=f"{stack}-cf-sr",
     display_name="Service Account for cloud function.",
 )
 cloud_function_service_account_iam = projects.IAMMember(
@@ -82,6 +81,14 @@ cloud_function_service_account_iam = projects.IAMMember(
         lambda email: f"serviceAccount:{email}"
     ),
 )
+
+apikey = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
+    key="API_KEY",
+    secret=pulumi.Config("cerulean-cloud").require("keyname"),
+    version="latest",
+    project_id=pulumi.Config("gcp").require("project"),
+)
+
 
 fxn = cloudfunctions.Function(
     function_name,
@@ -94,6 +101,8 @@ fxn = cloudfunctions.Function(
     source_archive_object=source_archive_object.name,
     trigger_http=True,
     service_account_email=cloud_function_service_account.email,
+    secret_environment_variables=[apikey],
+    opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account_iam]),
 )
 
 invoker = cloudfunctions.FunctionIamMember(

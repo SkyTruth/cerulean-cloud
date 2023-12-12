@@ -24,7 +24,7 @@ git_tag = next((tag.name for tag in repo.tags if tag.commit == repo.head.commit)
 # Assign access to cloud SQL
 cloud_function_service_account = gcp.serviceaccount.Account(
     construct_name("cloud-run-orchestrator"),
-    account_id=f"{stack}-cloud-run-orch",
+    account_id=f"{stack}-cr-orch",
     display_name="Service Account for cloud run.",
 )
 
@@ -44,6 +44,26 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
     member=cloud_function_service_account.email.apply(
         lambda email: f"serviceAccount:{email}"
     ),
+)
+
+cloud_function_service_account_iam = gcp.projects.IAMMember(
+    construct_name("cloud-run-orchestrator-secretmanagerSecretAccessor"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/secretmanager.secretAccessor",
+    member=cloud_function_service_account.email.apply(
+        lambda email: f"serviceAccount:{email}"
+    ),
+)
+
+# IAM Binding for Secret Manager access
+secret_accessor_binding = gcp.secretmanager.SecretIamMember(
+    construct_name("cloud-run-orchestrator-secret-accessor-binding"),
+    secret_id=pulumi.Config("cerulean-cloud").require("keyname"),
+    role="roles/secretmanager.secretAccessor",
+    member=pulumi.Output.concat(
+        "serviceAccount:", cloud_function_service_account.email
+    ),
+    opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account]),
 )
 
 
@@ -100,8 +120,26 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("gcp").require("region"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TITILER_API_KEY",
+                            value_from=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromArgs(
+                                secret_key_ref=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromSecretKeyRefArgs(
+                                    name=pulumi.Config("cerulean-cloud").require(
+                                        "titiler_keyname"
+                                    ),
+                                    key="latest",
+                                )
+                            ),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="API_KEY",
-                            value=pulumi.Config("cerulean-cloud").require("apikey"),
+                            value_from=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromArgs(
+                                secret_key_ref=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromSecretKeyRefArgs(
+                                    name=pulumi.Config("cerulean-cloud").require(
+                                        "keyname"
+                                    ),
+                                    key="latest",
+                                )
+                            ),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="AAA_QUEUE",
@@ -116,17 +154,17 @@ default = gcp.cloudrun.Service(
                             value=cloud_function_ais_analysis.fxn.https_trigger_url,
                         ),
                     ],
-                    resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
+                    resources=dict(limits=dict(memory="4Gi", cpu="1000m")),
                 ),
             ],
             timeout_seconds=3540,
-            container_concurrency=15,
+            container_concurrency=1,
         ),
         metadata=dict(
             name=service_name + "-" + cloud_run_images.cloud_run_orchestrator_sha,
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
-                "autoscaling.knative.dev/maxScale": "5",
+                "autoscaling.knative.dev/maxScale": "45",
             },
         ),
     ),
@@ -145,6 +183,7 @@ default = gcp.cloudrun.Service(
         depends_on=[
             titiler_sentinel.lambda_api,
             cloud_run_offset_tile.default,
+            secret_accessor_binding,
         ]
     ),
 )

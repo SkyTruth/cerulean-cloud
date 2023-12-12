@@ -51,8 +51,15 @@ instance = gcp.sql.DatabaseInstance(
     ),
     deletion_protection=pulumi.Config("db").require("deletion-protection"),
 )
+
+
 db_name = construct_name("database")
-database = gcp.sql.Database(db_name, instance=instance.name, name=db_name)
+database = gcp.sql.Database(
+    db_name,
+    instance=instance.name,
+    name=db_name,
+    opts=pulumi.ResourceOptions(protect=True),
+)
 users = gcp.sql.User(
     construct_name("database-users"),
     name=db_name,

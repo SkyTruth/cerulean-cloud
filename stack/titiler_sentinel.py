@@ -1,7 +1,15 @@
 """titiler sentinel infra module"""
 import pulumi
 import pulumi_aws as aws
+import pulumi_gcp as gcp
 from utils import construct_name, create_package, filebase64sha256
+
+titiler_keyname = pulumi.Config("cerulean-cloud").require("titiler_keyname")
+secret = gcp.secretmanager.get_secret(secret_id=titiler_keyname)
+titiler_api_key = gcp.secretmanager.get_secret_version_output(
+    secret=titiler_keyname
+).secret_data
+
 
 s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
 
@@ -58,7 +66,7 @@ lambda_titiler_sentinel = aws.lambda_.Function(
             "VSI_CACHE_SIZE": "5000000",
             "AWS_REQUEST_PAYER": "requester",
             "RIO_TILER_MAX_THREADS": 1,
-            "API_KEY": pulumi.Config("cerulean-cloud").require("apikey"),
+            "API_KEY": titiler_api_key,
         },
     ),
     opts=pulumi.ResourceOptions(depends_on=[lambda_obj]),
