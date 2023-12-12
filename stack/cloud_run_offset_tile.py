@@ -77,7 +77,7 @@ default = gcp.cloudrun.Service(
                 ),
             ],
             timeout_seconds=300,
-            container_concurrency=1,
+            container_concurrency=3,
         ),
         metadata=dict(
             name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
