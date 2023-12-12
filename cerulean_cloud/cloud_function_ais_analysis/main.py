@@ -6,6 +6,7 @@ import os
 
 import geopandas as gpd
 import pandas as pd
+from flask import abort
 from shapely import wkb
 from utils.ais import AISConstructor
 from utils.associate import (
@@ -15,6 +16,29 @@ from utils.associate import (
 )
 
 from cerulean_cloud.database_client import DatabaseClient, get_engine
+
+
+def verify_api_key(request):
+    """Function to verify API key"""
+    expected_api_key = os.getenv("API_KEY")
+    auth_header = request.headers.get("Authorization")
+
+    # Check if the Authorization header is present
+    if not auth_header:
+        abort(401, description="Unauthorized: No Authorization header")
+
+    # Split the header into 'Bearer' and the token part
+    parts = auth_header.split()
+
+    # Check if the header is formed correctly
+    if parts[0].lower() != "bearer" or len(parts) != 2:
+        abort(401, description="Unauthorized: Invalid Authorization header format")
+
+    request_api_key = parts[1]
+
+    # Compare the token part with your expected API key
+    if request_api_key != expected_api_key:
+        abort(401, description="Unauthorized: Invalid API key")
 
 
 def main(request):
@@ -34,6 +58,7 @@ def main(request):
         - It's important to set up a new event loop if the function is running
           in a context where the default event loop is not available (e.g., in some WSGI servers).
     """
+    verify_api_key(request)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     res = loop.run_until_complete(handle_aaa_request(request))

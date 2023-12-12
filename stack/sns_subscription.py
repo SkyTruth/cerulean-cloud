@@ -2,7 +2,13 @@
 import cloud_function_scene_relevancy
 import pulumi
 import pulumi_aws as aws
+import pulumi_gcp as gcp
 from utils import construct_name
+
+keyname = pulumi.Config("cerulean-cloud").require("keyname")
+secret = gcp.secretmanager.get_secret(secret_id=keyname)
+api_key = gcp.secretmanager.get_secret_version_output(secret=keyname).secret_data
+
 
 iam_for_lambda = aws.iam.Role(
     construct_name("lambda-sentinel1-iam"),
@@ -34,7 +40,8 @@ lambda_sentinel1_topic = aws.lambda_.Function(
     role=iam_for_lambda.arn,
     environment=aws.lambda_.FunctionEnvironmentArgs(
         variables={
-            "FUNCTION_URL": cloud_function_scene_relevancy.fxn.https_trigger_url
+            "FUNCTION_URL": cloud_function_scene_relevancy.fxn.https_trigger_url,
+            "API_KEY": api_key,
         },
     ),
 )

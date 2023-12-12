@@ -14,7 +14,10 @@ def lambda_handler(event, context):
         "POST",
         "/" + path,
         body=json.dumps(event),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {os.getenv('API_KEY')}",
+        },
     )
     res = conn.getresponse()
     return {"statusCode": res.status}
