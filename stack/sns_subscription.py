@@ -41,7 +41,7 @@ lambda_sentinel1_topic = aws.lambda_.Function(
     environment=aws.lambda_.FunctionEnvironmentArgs(
         variables={
             "FUNCTION_URL": cloud_function_scene_relevancy.fxn.https_trigger_url,
-            "API_KEY": api_key,
+            "API_KEY": str(api_key),
         },
     ),
 )
