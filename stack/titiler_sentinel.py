@@ -125,3 +125,19 @@ lambda_stage = aws.apigatewayv2.Stage(
     auto_deploy=True,
     opts=pulumi.ResourceOptions(depends_on=[lambda_route]),
 )
+
+lambda_invocations_alarm = aws.cloudwatch.MetricAlarm(
+    resource_name=construct_name("lambda-titiler-alarm"),
+    alarm_name=f"{lambda_titiler_sentinel.name}-HighInvocationRate",
+    comparison_operator="GreaterThanThreshold",
+    evaluation_periods=1,
+    metric_name="Invocations",
+    namespace="AWS/Lambda",
+    period=3600,  # 1 Hour in seconds
+    statistic="Sum",
+    threshold=30000,
+    dimensions={"FunctionName": lambda_titiler_sentinel.name},
+    alarm_description="Alarm when the function's invocations exceed 30,000 within 1 hour.",
+    actions_enabled=True,
+    # add any other relevant configurations like alarm actions (e.g., SNS topics) here
+)
