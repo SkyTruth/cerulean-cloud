@@ -128,7 +128,6 @@ lambda_stage = aws.apigatewayv2.Stage(
 
 lambda_invocations_alarm = aws.cloudwatch.MetricAlarm(
     resource_name=construct_name("lambda-titiler-alarm"),
-    alarm_name=f"{lambda_titiler_sentinel.name}-HighInvocationRate",
     comparison_operator="GreaterThanThreshold",
     evaluation_periods=1,
     metric_name="Invocations",
