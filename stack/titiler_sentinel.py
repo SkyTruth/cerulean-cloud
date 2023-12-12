@@ -141,5 +141,11 @@ lambda_invocations_alarm = aws.cloudwatch.MetricAlarm(
     alarm_description="Alarm when the function's invocations exceed 30,000 within 1 hour.",
     alarm_actions=[api_abuse_alerts_topic.arn],
     actions_enabled=True,
-    # add any other relevant configurations like alarm actions (e.g., SNS topics) here
+)
+
+email_subscription = aws.sns.TopicSubscription(
+    resource_name=construct_name("lambda-titiler-emailSubscription"),
+    topic=api_abuse_alerts_topic.arn,
+    protocol="email",
+    endpoint="support+cerulean@skytruth.org",
 )
