@@ -65,8 +65,8 @@ lambda_titiler_sentinel = aws.lambda_.Function(
             "VSI_CACHE": "TRUE",
             "VSI_CACHE_SIZE": "5000000",
             "AWS_REQUEST_PAYER": "requester",
-            "RIO_TILER_MAX_THREADS": 1,
             "API_KEY": titiler_api_key,
+            "RIO_TILER_MAX_THREADS": "1",
         },
     ),
     opts=pulumi.ResourceOptions(depends_on=[lambda_obj]),
@@ -124,4 +124,49 @@ lambda_stage = aws.apigatewayv2.Stage(
     name="$default",
     auto_deploy=True,
     opts=pulumi.ResourceOptions(depends_on=[lambda_route]),
+)
+
+api_abuse_alerts_topic = aws.sns.Topic(construct_name("lambda-APIAbuseAlert"))
+
+lambda_invocations_alarm = aws.cloudwatch.MetricAlarm(
+    resource_name=construct_name("lambda-titiler-alarm"),
+    comparison_operator="GreaterThanThreshold",
+    evaluation_periods=1,
+    metric_name="Invocations",
+    namespace="AWS/Lambda",
+    period=3600,  # 1 Hour in seconds
+    statistic="Sum",
+    threshold=30000,
+    dimensions={"FunctionName": lambda_titiler_sentinel.name},
+    alarm_description="Alarm when the function's invocations exceed 30,000 within 1 hour.",
+    alarm_actions=[api_abuse_alerts_topic.arn],
+    actions_enabled=True,
+)
+
+email_subscription = aws.sns.TopicSubscription(
+    resource_name=construct_name("lambda-titiler-email-support"),
+    topic=api_abuse_alerts_topic.arn,
+    protocol="email",
+    endpoint="support+cerulean@skytruth.org",
+)
+
+email_subscription = aws.sns.TopicSubscription(
+    resource_name=construct_name("lambda-titiler-email-jona"),
+    topic=api_abuse_alerts_topic.arn,
+    protocol="email",
+    endpoint="jona@skytruth.org",
+)
+
+email_subscription = aws.sns.TopicSubscription(
+    resource_name=construct_name("lambda-titiler-email-aemon"),
+    topic=api_abuse_alerts_topic.arn,
+    protocol="email",
+    endpoint="aemon@skytruth.org",
+)
+
+email_subscription = aws.sns.TopicSubscription(
+    resource_name=construct_name("lambda-titiler-email-jason"),
+    topic=api_abuse_alerts_topic.arn,
+    protocol="email",
+    endpoint="jason@skytruth.org",
 )
