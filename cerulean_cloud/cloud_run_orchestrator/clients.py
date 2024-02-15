@@ -19,6 +19,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInput,
     InferenceResultStack,
     PredictPayload,
+    InferenceResult
 )
 from cerulean_cloud.tiling import TMS
 
@@ -53,6 +54,7 @@ class CloudRunInferenceClient:
         layers: List,
         scale: int,
         inference_parms,
+        filter_empty_tiles=True
     ):
         """init"""
         self.url = url
@@ -84,6 +86,9 @@ class CloudRunInferenceClient:
         img_array = reshape_as_raster(img_array)
 
         bounds = list(TMS.bounds(tile))
+
+        if np.max(img_array)==0 and self.filter_empty_tiles:
+            return InferenceResultStack(stack = [InferenceResult(classes=None, confidence=None, bounds=bounds, features=[])])
 
         with self.aux_datasets.open() as src:
             window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
@@ -121,6 +126,9 @@ class CloudRunInferenceClient:
             rescale=rescale,
         )
         img_array = reshape_as_raster(img_array)
+        if np.max(img_array)==0 and self.filter_empty_tiles:
+            return InferenceResultStack(stack = [InferenceResult(classes=None, confidence=None, bounds=bounds, features=[])])
+
         with self.aux_datasets.open() as src:
             window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
             height, width = img_array.shape[1:]
