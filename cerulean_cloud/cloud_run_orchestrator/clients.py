@@ -295,6 +295,10 @@ def handle_aux_datasets(layers, scene_id, bounds, image_shape, **kwargs):
             ar = get_ship_density(bounds, image_shape, scene_date_month)
         elif layer.short_name == "INFRA":
             ar = get_dist_array(bounds, image_shape, layer.source_url)
+        elif layer.short_name == "EMPTY_INFRA":
+            ar = 255*np.ones(shape=image_shape)
+        elif layer.short_name == "ALL_ZEROS":
+            ar = np.zeros(shape=image_shape)
 
         ar = np.expand_dims(ar, 2)
         if aux_dataset_channels is None:
