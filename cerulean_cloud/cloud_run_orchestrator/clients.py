@@ -87,7 +87,7 @@ class CloudRunInferenceClient:
 
         bounds = list(TMS.bounds(tile))
 
-        if np.max(img_array)==0 and self.filter_empty_tiles:
+        if not np.any(img_array) and self.filter_empty_tiles:
             return InferenceResultStack(stack = [InferenceResult(classes=None, confidence=None, bounds=bounds, features=[])])
 
         with self.aux_datasets.open() as src:
@@ -126,7 +126,7 @@ class CloudRunInferenceClient:
             rescale=rescale,
         )
         img_array = reshape_as_raster(img_array)
-        if np.max(img_array)==0 and self.filter_empty_tiles:
+        if not np.any(img_array) and self.filter_empty_tiles:
             return InferenceResultStack(stack = [InferenceResult(classes=None, confidence=None, bounds=bounds, features=[])])
 
         with self.aux_datasets.open() as src:
