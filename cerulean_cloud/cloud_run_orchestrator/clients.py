@@ -1,4 +1,5 @@
 """Clients for other cloud run functions"""
+
 import json
 import zipfile
 from base64 import b64encode
@@ -17,9 +18,9 @@ from rio_tiler.io import COGReader
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInput,
+    InferenceResult,
     InferenceResultStack,
     PredictPayload,
-    InferenceResult
 )
 from cerulean_cloud.tiling import TMS
 
@@ -54,7 +55,7 @@ class CloudRunInferenceClient:
         layers: List,
         scale: int,
         inference_parms,
-        filter_empty_tiles=True
+        filter_empty_tiles=True,
     ):
         """init"""
         self.url = url
@@ -68,6 +69,7 @@ class CloudRunInferenceClient:
         # )
         self.scale = scale  # 1=256, 2=512, 3=...
         self.inference_parms = inference_parms
+        self.filter_empty_tiles = filter_empty_tiles
 
     async def get_base_tile_inference(
         self,
@@ -87,8 +89,14 @@ class CloudRunInferenceClient:
 
         bounds = list(TMS.bounds(tile))
 
-        if not np.any(img_array) and self.filter_empty_tiles:
-            return InferenceResultStack(stack = [InferenceResult(classes=None, confidence=None, bounds=bounds, features=[])])
+        if self.filter_empty_tiles and not np.any(img_array):
+            return InferenceResultStack(
+                stack=[  # TODO Test if this can just be an empty list?
+                    InferenceResult(
+                        classes=None, confidence=None, bounds=bounds, features=[]
+                    )
+                ]
+            )
 
         with self.aux_datasets.open() as src:
             window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
@@ -126,8 +134,14 @@ class CloudRunInferenceClient:
             rescale=rescale,
         )
         img_array = reshape_as_raster(img_array)
-        if not np.any(img_array) and self.filter_empty_tiles:
-            return InferenceResultStack(stack = [InferenceResult(classes=None, confidence=None, bounds=bounds, features=[])])
+        if self.filter_empty_tiles and not np.any(img_array):
+            return InferenceResultStack(
+                stack=[  # TODO Test if this can just be an empty list?
+                    InferenceResult(
+                        classes=None, confidence=None, bounds=bounds, features=[]
+                    )
+                ]
+            )
 
         with self.aux_datasets.open() as src:
             window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
@@ -295,10 +309,12 @@ def handle_aux_datasets(layers, scene_id, bounds, image_shape, **kwargs):
             ar = get_ship_density(bounds, image_shape, scene_date_month)
         elif layer.short_name == "INFRA":
             ar = get_dist_array(bounds, image_shape, layer.source_url)
-        elif layer.short_name == "EMPTY_INFRA":
-            ar = 255*np.ones(shape=image_shape)
+        elif layer.short_name == "ALL_255":
+            ar = 255 * np.ones(shape=image_shape)
         elif layer.short_name == "ALL_ZEROS":
             ar = np.zeros(shape=image_shape)
+        else:
+            raise NotImplementedError(f"Unrecognized layer: {layer.short_name}")
 
         ar = np.expand_dims(ar, 2)
         if aux_dataset_channels is None:
