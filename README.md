@@ -349,7 +349,7 @@ If you are getting this error on test&deploy, then you should try to pulumi refr
 ## Updating the trained model
 If you are going to deploy a new scripted model, first save it as a tracing model using the function "save_icevision_model_state_dict_and_tracing" in the cerulean-ml repo.
 Then, upload the experiment folder and contents to the GCP `ceruleanml` bucket.
-Update the value of the Pulumi pamater `cerulean-cloud-images:weigths_name` found in your local version of 
+Update the value of the Pulumi pamater `cerulean-cloud-images:weights_name` found in your local version of 
 `cerulean-cloud/images/stack_config/Pulumi.STACK_NAME_OF_INTEREST.yaml` to match the experiment naming you just uploaded. 
 --- You must then push these changes to the git repo. ---
 Finally, do the following stsps:

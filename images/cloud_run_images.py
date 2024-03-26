@@ -1,5 +1,6 @@
 """images for cloud run
 """
+
 import pulumi
 import pulumi_docker as docker
 import pulumi_gcp as gcp
@@ -36,8 +37,8 @@ def construct_name(resource_name: str) -> str:
 
 config = pulumi.Config()
 
-weigths_bucket = config.require("weigths_bucket")
-weigths_name = config.require("weigths_name")
+weights_bucket = config.require("weights_bucket")
+weights_name = config.require("weights_name")
 
 
 registry = gcp.container.Registry(construct_name("registry"), location="EU")
@@ -56,8 +57,8 @@ cloud_run_tipg_image_url = registry_url.apply(
 registry_info = None  # use gcloud for authentication.
 
 model_weights = get_file_from_gcs(
-    weigths_bucket,
-    weigths_name,
+    weights_bucket,
+    weights_name,
     out_path="../cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
 )
 cloud_run_offset_tile_image = docker.Image(
@@ -76,7 +77,7 @@ cloud_run_orchestrator_image = docker.Image(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_orchestrator",
         extra_options=["--no-cache", "--quiet"],
-        env={"MODEL": weigths_name},
+        env={"MODEL": weights_name},
     ),
     image_name=cloud_run_orchestrator_image_url,
     registry=registry_info,
