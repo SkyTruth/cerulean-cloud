@@ -8,7 +8,7 @@ needs env vars:
 - TITILER_URL
 - INFERENCE_URL
 """
-import asyncio
+
 import os
 import urllib.parse as urlparse
 from base64 import b64decode  # , b64encode
@@ -17,7 +17,6 @@ from typing import Dict, List, Tuple
 
 import geojson
 import geopandas as gpd
-import httpx
 import morecantile
 import numpy as np
 import rasterio
@@ -245,37 +244,6 @@ def flatten_feature_list(
     return flat_list
 
 
-async def perform_inference(tiles, inference_func, description):
-    """
-    Perform inference on a set of tiles asynchronously.
-
-    Parameters:
-    - tiles or bounds (list): List of tiles to perform inference on. (depends on inference_func)
-    - inference_func (function): Asynchronous function to call for inference.
-    - description (str): Description of the inference task for logging.
-
-    Returns:
-    - list: List of inference results. Exceptions, if any, are filtered out.
-
-    Side Effects:
-    - Prints log messages and warnings to the console.
-    - Prints traceback of exceptions to the console.
-    """
-    print(f"Inference on {description}!")
-
-    async with httpx.AsyncClient(
-        headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
-    ) as async_http_client:
-        inferences = await asyncio.gather(
-            *[
-                inference_func(tile, async_http_client, rescale=(0, 255))
-                for tile in tiles
-            ],
-            return_exceptions=False,  # This raises exceptions
-        )
-    return inferences
-
-
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
@@ -312,19 +280,14 @@ async def _orchestrate(
     print(f"{start_time}: scene_info: {scene_info}")
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
-    # base_tiles_bounds = [tiler.bounds(t) for t in base_tiles]
-    # base_group_bounds = group_bounds_from_list_of_bounds(base_tiles_bounds)
 
-    # tiling.py was updated to allow for offset_amount to be declared by offset_bounds_from_base_tiles(), see tiling.py line 61.
     offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles, offset_amount=0.33)
-    offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
-    offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
-
     offset_2_tiles_bounds = offset_bounds_from_base_tiles(
         base_tiles, offset_amount=0.66
     )
-    # offset_2_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale) # XXXC figure out where these should be used
-    # offset_2_group_bounds = group_bounds_from_list_of_bounds(offset_2_tiles_bounds) # XXXC figure out where these should be used
+
+    offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
+    offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
 
     print(
         f"{start_time}: Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}, {len(offset_2_tiles_bounds)}"
@@ -410,26 +373,32 @@ async def _orchestrate(
                     inference_parms=inference_parms,
                 )
 
-                base_tiles_inference = await perform_inference(
-                    base_tiles,
-                    cloud_run_inference.get_base_tile_inference,
-                    f"base tiles: {start_time}",
+                # Prepare the inference tasks
+                base_tiles_tasks = [{"tile": tile} for tile in base_tiles]
+                offset_tiles_tasks = [
+                    {"bounds": bounds} for bounds in offset_tiles_bounds
+                ]
+                offset_2_tiles_tasks = [
+                    {"bounds": bounds} for bounds in offset_2_tiles_bounds
+                ]
+
+                # Perform inferences
+                print(f"Base inference starting: {start_time}")
+                base_tiles_inference = await cloud_run_inference.run_parallel_inference(
+                    base_tiles_tasks
+                )
+                print(f"Offset inference starting: {start_time}")
+                offset_tiles_inference = (
+                    await cloud_run_inference.run_parallel_inference(offset_tiles_tasks)
+                )
+                print(f"Offset_2 inference starting: {start_time}")
+                offset_2_tiles_inference = (
+                    await cloud_run_inference.run_parallel_inference(
+                        offset_2_tiles_tasks
+                    )
                 )
 
-                offset_tiles_inference = await perform_inference(
-                    offset_tiles_bounds,
-                    cloud_run_inference.get_offset_tile_inference,
-                    f"offset tiles: {start_time}",
-                )
-
-                offset_2_tiles_inference = await perform_inference(
-                    offset_2_tiles_bounds,
-                    cloud_run_inference.get_offset_tile_inference,
-                    f"offset2 tiles: {start_time}",
-                )
-                del base_tiles
-                del offset_tiles_bounds
-
+                # Collect and merge inferences
                 if model.type == "MASKRCNN":
                     out_fc = geojson.FeatureCollection(
                         features=flatten_feature_list(base_tiles_inference)
@@ -442,7 +411,7 @@ async def _orchestrate(
                     )
                     del base_tiles_inference
                     del offset_tiles_inference
-                elif model.type == "UNET":
+                elif model.type == "FASTAIUNET":
                     # print("Loading all tiles into memory for merge!")
                     # ds_base_tiles = []
                     # for base_tile_inference in base_tiles_inference:
@@ -493,10 +462,10 @@ async def _orchestrate(
                     #     dst.write(ar)
 
                     # out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
-                    raise NotImplementedError("UNET pathway isn't well defined")
+                    raise NotImplementedError("FASTAIUNET pathway isn't well defined")
                 else:
                     raise NotImplementedError(
-                        "Model_type must be one of ['MASKRCNN', 'UNET']"
+                        "Model_type must be one of ['MASKRCNN', 'FASTAIUNET']"
                     )
 
                 merged_inferences = merge_inferences(

@@ -92,7 +92,7 @@ def fixture_cloud_inference_tile(httpx_mock):
 )
 @pytest.mark.skip
 @pytest.mark.asyncio
-async def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock):
+async def test_get_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     payload = {
         "inference_input": InferenceResultStack(
             stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
@@ -113,65 +113,28 @@ async def test_get_base_tile_inference(fixture_cloud_inference_tile, httpx_mock)
         url=fixture_cloud_inference_tile.url + "/predict",
         json=payload,
     )
-    semaphore = asyncio.Semaphore(20)
     tasks = [
-        fixture_cloud_inference_tile.get_base_tile_inference(
-            tile=TMS._tile(0, 0, 0), semaphore=semaphore, rescale=(0, 255)
+        fixture_cloud_inference_tile.get_tile_inference(
+            httpx_mock, tile=TMS._tile(0, 0, 0)
         ),
-        fixture_cloud_inference_tile.get_base_tile_inference(
-            tile=TMS._tile(0, 0, 0), semaphore=semaphore, rescale=(0, 255)
+        fixture_cloud_inference_tile.get_tile_inference(
+            httpx_mock, tile=TMS._tile(0, 0, 0)
+        ),
+        fixture_cloud_inference_tile.get_tile_inference(
+            httpx_mock,
+            bounds=list(TMS.bounds(TMS._tile(0, 0, 0))),
+        ),
+        fixture_cloud_inference_tile.get_tile_inference(
+            httpx_mock,
+            bounds=list(TMS.bounds(TMS._tile(0, 0, 0))),
         ),
     ]
     res = await asyncio.gather(*tasks, return_exceptions=True)
     print(res)
     assert res[0].stack[0].classes == ""
     assert res[1].stack[0].classes == ""
-
-
-@patch.object(
-    cerulean_cloud.titiler_client.TitilerClient, "get_offset_tile", mock_get_offset_tile
-)
-@pytest.mark.skip
-@pytest.mark.asyncio
-async def test_get_offset_tile_inference(fixture_cloud_inference_tile, httpx_mock):
-    payload = {
-        "inference_input": InferenceResultStack(
-            stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
-        ).dict(),
-        "inference_parms": {
-            "model_type": "MASKRCNN",
-            "thresholds": {
-                "pixel_nms_thresh": 0.4,
-                "bbox_score_thresh": 0.2,
-                "poly_score_thresh": 0.2,
-                "pixel_score_thresh": 0.2,
-                "groundtruth_dice_thresh": 0.0,
-            },
-        },
-    }
-    httpx_mock.add_response(
-        method="POST",
-        url=fixture_cloud_inference_tile.url + "/predict",
-        json=payload,
-    )
-
-    semaphore = asyncio.Semaphore(20)
-    tasks = [
-        fixture_cloud_inference_tile.get_offset_tile_inference(
-            bounds=list(TMS.bounds(TMS._tile(0, 0, 0))),
-            rescale=(0, 255),
-            semaphore=semaphore,
-        ),
-        fixture_cloud_inference_tile.get_offset_tile_inference(
-            bounds=list(TMS.bounds(TMS._tile(0, 0, 0))),
-            rescale=(0, 255),
-            semaphore=semaphore,
-        ),
-    ]
-    res = await asyncio.gather(*tasks, return_exceptions=True)
-    print(res)
-    assert res[0].stack[0].classes == ""
-    assert res[1].stack[0].classes == ""
+    assert res[2].stack[0].classes == ""
+    assert res[3].stack[0].classes == ""
 
 
 def test_get_ship_density(httpx_mock):

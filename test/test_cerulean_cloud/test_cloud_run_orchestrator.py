@@ -64,7 +64,7 @@ def test_create_fixture_inference(
         url=inference_url, titiler_client=titiler_client
     )
 
-    res = inference_client.get_base_tile_inference(S1_ID, tile)
+    res = inference_client.get_tile_inference(None, tile=tile)
     print(res)
 
     array = b64_image_to_array(res.classes)
@@ -114,7 +114,9 @@ def fixture_roda_sentinelhub_client():
     return RodaSentinelHubClient(url="some_url")
 
 
-async def mock_get_base_tile_inference(self, tile, rescale):
+async def mock_get_tile_inference(
+    http_client, tile=None, bounds=None, rescale=(0, 255)
+):
     with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
         enc_classes = src.read()
 
@@ -125,22 +127,7 @@ async def mock_get_base_tile_inference(self, tile, rescale):
             InferenceResult(
                 classes=enc_classes,
                 confidence=enc_confidence,
-                bounds=list(TMS.bounds(tile)),
-            )
-        ]
-    )
-
-
-async def mock_get_offset_tile_inference(self, bounds, rescale):
-    with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
-        enc_classes = src.read()
-
-    with open("test/test_cerulean_cloud/fixtures/enc_confidence_512_512.txt") as src:
-        enc_confidence = src.read()
-    return InferenceResultStack(
-        stack=[
-            InferenceResult(
-                classes=enc_classes, confidence=enc_confidence, bounds=bounds
+                bounds=list(TMS.bounds(tile)) if tile else bounds,
             )
         ]
     )
@@ -172,13 +159,8 @@ async def mock_get_product_info(*args, **kwargs):
 )
 @patch.object(
     cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
-    "get_base_tile_inference",
-    mock_get_base_tile_inference,
-)
-@patch.object(
-    cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
-    "get_offset_tile_inference",
-    mock_get_offset_tile_inference,
+    "get_tile_inference",
+    mock_get_tile_inference,
 )
 @pytest.mark.asyncio
 async def test_orchestrator(
@@ -300,13 +282,8 @@ def custom_response(url, data, timeout):
 )
 @patch.object(
     cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
-    "get_base_tile_inference",
-    mock_get_base_tile_inference,
-)
-@patch.object(
-    cerulean_cloud.cloud_run_orchestrator.clients.CloudRunInferenceClient,
-    "get_offset_tile_inference",
-    mock_get_offset_tile_inference,
+    "get_tile_inference",
+    mock_get_tile_inference,
 )
 async def test_orchestrator_live():
     payload = OrchestratorInput(
