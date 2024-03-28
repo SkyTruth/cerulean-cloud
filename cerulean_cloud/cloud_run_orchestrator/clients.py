@@ -183,7 +183,7 @@ class CloudRunInferenceClient:
         - This function integrates several steps: fetching the image, processing it, adding auxiliary data, and sending it for inference. It also includes a check to optionally skip empty tiles.
         """
 
-        if bool(tile) != bool(bounds):  # XOR
+        if bool(tile) == bool(bounds):  # XOR
             raise Exception(
                 f"Inference requires (tile XOR bounds). Found {'neither' if not tile else 'both'}."
             )
