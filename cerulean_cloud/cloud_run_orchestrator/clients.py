@@ -118,19 +118,12 @@ class CloudRunInferenceClient:
         Returns:
         - np.ndarray: The augmented image array, which now includes the auxiliary datasets as additional channels.
 
-        Note:
-        - The function assumes that `self.layers` contains the names of the auxiliary datasets to be added and that `self.aux_datasets` provides access to these datasets.
         """
-
-        if len(self.layers) > 1:
-            with self.aux_datasets.open() as src:
-                window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
-                height, width = img_array.shape[1:]
-                aux_ds = src.read(
-                    window=window, out_shape=(len(self.layers), height, width)
-                )
-            img_array = np.concatenate([img_array, aux_ds], axis=0)
-        return img_array
+        with self.aux_datasets.open() as src:
+            window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
+            height, width = img_array.shape[1:]
+            aux_ds = src.read(window=window, out_shape=(src.count, height, width))
+        return np.concatenate([img_array, aux_ds], axis=0)
 
     async def send_inference_request_and_handle_response(
         self, http_client, img_array, bounds
@@ -190,15 +183,18 @@ class CloudRunInferenceClient:
         - This function integrates several steps: fetching the image, processing it, adding auxiliary data, and sending it for inference. It also includes a check to optionally skip empty tiles.
         """
 
-        if not (tile or bounds):
-            raise Exception("Function requires either a tile or a tile bounds")
-        bounds = list(TMS.bounds(tile)) if tile else bounds
+        if bool(tile) != bool(bounds):  # XOR
+            raise Exception(
+                f"Inference requires (tile XOR bounds). Found {'neither' if not tile else 'both'}."
+            )
+        bounds = bounds or list(TMS.bounds(tile))
         img_array = await self.fetch_and_process_image(
             tile=tile, bounds=bounds, rescale=rescale
         )
         if self.filter_empty_tiles and not np.any(img_array):
             return InferenceResultStack(stack=[])
-        img_array = await self.process_auxiliary_datasets(img_array, bounds)
+        if self.aux_datasets:
+            img_array = await self.process_auxiliary_datasets(img_array, bounds)
         return await self.send_inference_request_and_handle_response(
             http_client, img_array, bounds
         )
