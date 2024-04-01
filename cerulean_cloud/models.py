@@ -38,11 +38,10 @@ class BaseModel:
             inf_parms (dict, optional): A dictionary of inference parameters.
         """
         self.model = None
+        self.model_path = model_path
         self.inf_parms = inf_parms
-        if model_path:
-            self.load(model_path)
 
-    def load(self, model_path):
+    def load(self):
         """
         Loads the model from the given path. This method should be implemented by subclasses.
 
@@ -85,19 +84,19 @@ class MASKRCNNModel(BaseModel):
     stacking results, and stitching outputs for geospatial analysis.
     """
 
-    def load(self, model_path, heavy):
+    def load(self):
         """
-        Loads the MASKRCNN model, with an option for a "heavy" load process for more intensive operations.
+        Loads the MASKRCNN model
 
         Args:
             model_path (str): The path to the model file.
-            heavy (bool): If True, performs a heavier model loading process.
         """
-        if heavy:
-            self.model = torch.jit.load(model_path, map_location="cpu")
+        if self.model is None:
+            self.model = torch.jit.load(self.model_path, map_location="cpu")
 
     def predict(
-        self, inf_stack
+        self,
+        inf_stack,
     ) -> List[
         Union[
             Tuple[np.ndarray, np.ndarray, List[float]],
@@ -115,6 +114,8 @@ class MASKRCNNModel(BaseModel):
         """
         print("Initiating cloud_run_offset_tiles/_predict()")
         print(f"Stack has {len(inf_stack)} images")
+
+        self.load()
 
         stack_tensors = [
             b64_image_to_tensor(record.image) / 255 for record in inf_stack
@@ -172,26 +173,26 @@ class FASTAIUNETModel(BaseModel):
     result stacking, and output stitching.
     """
 
-    def load(self, model_path, heavy):
+    def load(self):
         """
-        Loads the FASTAIUNET model. This method is not fully implemented and raises NotImplementedError.
+        Loads the FASTAIUNET model.
 
         Args:
             model_path (str): The path to the model file.
-            heavy (bool): If True, performs a heavier model loading process.
         """
-        # if heavy:
-        #     self.model = torch.jit.load(model_path, map_location="cpu")
+        # if self.model is None:
+        #     self.model = torch.jit.load(self.model_path, map_location="cpu")
         raise NotImplementedError("FASTAIUNET pathway isn't well defined")
 
     def predict(self, inf_stack):
         """
         Predicts using the FASTAIUNET model on the given input stack.
-        This method is not fully implemented and raises NotImplementedError.
 
         Args:
             inf_stack: The input data stack for inference.
         """
+        # self.load()
+
         # out_batch_logits = model(tensor)
         # print("Finished inference, applying softmax")
 
@@ -211,7 +212,7 @@ class FASTAIUNETModel(BaseModel):
 
     def stack(self, results):
         """
-        Stacks the results of FASTAIUNET predictions. This method is not fully implemented and raises NotImplementedError.
+        Stacks the results of FASTAIUNET predictions.
 
         Args:
             results: The prediction results to be stacked.
@@ -225,7 +226,7 @@ class FASTAIUNETModel(BaseModel):
 
     def stitch(self, inference_list):
         """
-        Stitches together inference results from the FASTAIUNET model. This method is not fully implemented and raises NotImplementedError.
+        Stitches together inference results from the FASTAIUNET model.
 
         Args:
             inference_list: The list of inference results to stitch together.
@@ -286,7 +287,6 @@ class FASTAIUNETModel(BaseModel):
 def get_model(
     inf_parms,
     model_path="cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
-    heavy=True,
 ):
     """
     Factory function to get the appropriate model instance based on inference parameters.
@@ -294,7 +294,6 @@ def get_model(
     Args:
         inf_parms (dict): Inference parameters including the model type.
         model_path (str, optional): Path to the model file.
-        heavy (bool, optional): Flag to indicate if heavy loading is required.
 
     Returns:
         An instance of the appropriate model class.
@@ -303,9 +302,9 @@ def get_model(
     print(f"Model type is {model_type}")
 
     if model_type == "MASKRCNN":
-        return MASKRCNNModel(model_path, inf_parms, heavy)
+        return MASKRCNNModel(model_path, inf_parms)
     elif model_type == "FASTAIUNET":
-        return FASTAIUNETModel(model_path, inf_parms, heavy)
+        return FASTAIUNETModel(model_path, inf_parms)
     else:
         raise ValueError("Unsupported model type")
 
