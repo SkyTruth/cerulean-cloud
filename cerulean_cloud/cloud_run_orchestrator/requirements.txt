@@ -25,3 +25,5 @@ pygeos
 networkx
 google-cloud-tasks
 protobuf
+torch==1.11.0
+torchvision==0.12.0
