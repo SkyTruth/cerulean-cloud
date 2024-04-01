@@ -8,8 +8,8 @@ import torchvision  # noqa necessary for torch.jit.load of icevision mrcnn model
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 
-import cerulean_cloud.cloud_run_offset_tiles.handler as handler
 import cerulean_cloud.cloud_run_orchestrator.handler as orch_handler
+import cerulean_cloud.models as models
 from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, PredictPayload
 from cerulean_cloud.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
@@ -45,26 +45,20 @@ def test_b64_image_to_tensor():
     with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
         encoded = b64encode(src.read()).decode("ascii")
 
-    tensor = handler.b64_image_to_tensor(encoded)
+    tensor = models.b64_image_to_tensor(encoded)
     assert tensor.shape == torch.Size([3, 512, 512])
 
 
 @pytest.mark.skip
 def test_inference():
     with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
-        encoded = handler.b64encode(src.read()).decode("ascii")
+        encoded = models.b64encode(src.read()).decode("ascii")
 
-    tensor = handler.b64_image_to_tensor(encoded)
-    tensor = tensor[None, :, :, :]
-    tensor = tensor.float() / 255
-
-    model = handler.load_tracing_model(
-        "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
-    )
-    res = model(tensor)
+    model = models.get_model({"model_type": "MASKRCNN"})
+    res = model.predict(encoded)
     for tile in res:  # iterating through the batch dimension.
-        conf, classes = handler.logits_to_classes(tile)
-        high_conf_classes = handler.apply_conf_threshold(
+        conf, classes = models.logits_to_classes(tile)
+        high_conf_classes = models.apply_conf_threshold(
             conf, classes, conf_threshold=0.9
         )
         assert conf.shape == torch.Size([512, 512])
@@ -90,11 +84,8 @@ def test_inference():
 @pytest.mark.skip
 def test_inference_():
     with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
-        encoded = handler.b64encode(src.read()).decode("ascii")
+        encoded = models.b64encode(src.read()).decode("ascii")
 
-    model = handler.load_tracing_model(
-        "cerulean_cloud/cloud_run_offset_tiles/model/model.pt"
-    )
     payload = PredictPayload(
         inf_stack=[InferenceInput(image=encoded)],
         inf_parms={
@@ -119,16 +110,16 @@ def test_inference_():
             "pixel_score_thresh": 0.2,  # prediction vs score, pixels
         },
     )
-
-    inference_stack = handler._predict(payload.inf_stack, model, payload.inf_parms)
+    model = models.get_model(payload.inf_parms)
+    inference_stack = model.predict(payload.inf_stack)
     classes, conf, bounds = inference_stack[0]
-    enc_classes = handler.array_to_b64_image(classes)
-    enc_conf = handler.array_to_b64_image(conf)
+    enc_classes = model.array_to_b64_image(classes)
+    enc_conf = model.array_to_b64_image(conf)
 
-    array_classes = handler.b64_image_to_tensor(enc_classes)
+    array_classes = model.b64_image_to_tensor(enc_classes)
     assert array_classes.shape == torch.Size([1, 512, 512])
 
-    array_conf = handler.b64_image_to_tensor(enc_conf)
+    array_conf = model.b64_image_to_tensor(enc_conf)
     assert array_conf.shape == torch.Size([1, 512, 512])
 
 
@@ -137,19 +128,19 @@ def test_inference_mrcnn():
     bbox_conf_threshold = 0.5
     mask_conf_threshold = 0.05
 
+    model = models.get_model({"model_type": "MASKRCNN"})
+    # res_list = model.predict(encoded)
+
     with open(
         "test/test_cerulean_cloud/fixtures/tile_with_slick_512_512_3band.png", "rb"
     ) as src:
-        encoded = handler.b64encode(src.read()).decode("ascii")
+        encoded = model.b64encode(src.read()).decode("ascii")
 
-    tensor = handler.b64_image_to_tensor(encoded)
+    tensor = model.b64_image_to_tensor(encoded)
     tensor = torch.stack([tensor, tensor, tensor])
 
     tensor = tensor.float() / 255
 
-    model = handler.load_tracing_model(
-        "cerulean_cloud/cloud_run_offset_tiles/model/model_mrcnn.pt"
-    )
     tiles = list(
         TMS.tiles(*[32.989094, 43.338009, 36.540836, 45.235191], [10], truncate=False)
     )
@@ -166,11 +157,11 @@ def test_inference_mrcnn():
     res_pred_dicts = []
     for tile in res_list[1]:  # iterating through the batch dimension.
         print(tile)
-        pred_dict = handler.apply_conf_threshold_instances(
+        pred_dict = model.apply_conf_threshold_instances(
             tile, bbox_conf_threshold=bbox_conf_threshold
         )
 
-        out_features = handler.apply_conf_threshold_masks_vectorize(  # no prediction dict data changed in this step that we store in db
+        out_features = model.apply_conf_threshold_masks_vectorize(  # no prediction dict data changed in this step that we store in db
             pred_dict,
             mask_conf_threshold=mask_conf_threshold,
             size=size,
