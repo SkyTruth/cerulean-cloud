@@ -11,7 +11,6 @@ needs env vars:
 
 import os
 import urllib.parse as urlparse
-from base64 import b64decode  # , b64encode
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
@@ -29,17 +28,14 @@ from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_aaa_queue
-from cerulean_cloud.cloud_run_offset_tiles.schema import (
-    InferenceResult,
-    InferenceResultStack,
-)
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
-from cerulean_cloud.cloud_run_orchestrator.merging import merge_inferences
+from cerulean_cloud.cloud_run_orchestrator.merging import ensemble_inferences
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
 )
 from cerulean_cloud.database_client import DatabaseClient, get_engine
+from cerulean_cloud.models import get_model
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
@@ -91,18 +87,6 @@ def make_cloud_log_url(
     project_id = f"?project={project_id}"
     url = base_url + urlparse.quote(query) + t_range + t + project_id
     return url
-
-
-def b64_image_to_array(image: str) -> np.ndarray:
-    """convert input b64image to torch tensor"""
-    # handle image
-    img_bytes = b64decode(image)
-
-    with MemoryFile(img_bytes) as memfile:
-        with memfile.open() as dataset:
-            np_img = dataset.read()
-
-    return np_img
 
 
 def offset_group_shape_from_base_tiles(
@@ -200,48 +184,10 @@ async def orchestrate(
     )
 
 
-def create_dataset_from_inference_result(
-    inference_output: InferenceResult,
-) -> rasterio.io.DatasetReader:
-    """From inference result create a open rasterio dataset for merge"""
-    classes_array = b64_image_to_array(inference_output.classes)
-    conf_array = b64_image_to_array(inference_output.confidence)
-    ar = np.concatenate([classes_array, conf_array])
-
-    transform = rasterio.transform.from_bounds(
-        *inference_output.bounds, width=ar.shape[1], height=ar.shape[2]
-    )
-
-    memfile = MemoryFile()
-    with memfile.open(
-        driver="GTiff",
-        height=ar.shape[1],
-        width=ar.shape[2],
-        count=ar.shape[0],
-        dtype=ar.dtype,
-        transform=transform,
-        crs="EPSG:4326",
-    ) as dst:
-        dst.write(ar)
-    return memfile.open()
-
-
 def is_tile_over_water(tile_bounds: List[float]) -> bool:
     """are the tile bounds over water"""
     minx, miny, maxx, maxy = tile_bounds
     return any(globe.is_ocean([miny, maxy], [minx, maxx]))
-
-
-def flatten_feature_list(
-    stack_list: List[InferenceResultStack],
-) -> List[geojson.Feature]:
-    """flatten a feature list coming from inference"""
-    flat_list: List[geojson.Feature] = []
-    for r in stack_list:
-        for i in r.stack:
-            for f in i.features:
-                flat_list.append(f)
-    return flat_list
 
 
 async def _orchestrate(
@@ -373,114 +319,42 @@ async def _orchestrate(
                     inference_parms=inference_parms,
                 )
 
-                # Prepare the inference tasks
-                base_tiles_tasks = [{"tile": tile} for tile in base_tiles]
-                offset_tiles_tasks = [
-                    {"bounds": bounds} for bounds in offset_tiles_bounds
-                ]
-                offset_2_tiles_tasks = [
-                    {"bounds": bounds} for bounds in offset_2_tiles_bounds
+                # Prepare the inference group tasks
+                inference_group_tasks = [
+                    [{"tile": tile} for tile in base_tiles],
+                    [{"bounds": bounds} for bounds in offset_tiles_bounds],
+                    [{"bounds": bounds} for bounds in offset_2_tiles_bounds],
                 ]
 
                 # Perform inferences
-                print(f"Base inference starting: {start_time}")
-                base_tiles_inference = await cloud_run_inference.run_parallel_inference(
-                    base_tiles_tasks
-                )
-                print(f"Offset inference starting: {start_time}")
-                offset_tiles_inference = (
-                    await cloud_run_inference.run_parallel_inference(offset_tiles_tasks)
-                )
-                print(f"Offset_2 inference starting: {start_time}")
-                offset_2_tiles_inference = (
-                    await cloud_run_inference.run_parallel_inference(
-                        offset_2_tiles_tasks
-                    )
-                )
+                print(f"Inference starting: {start_time}")
+                inference_group_results = [
+                    await cloud_run_inference.run_parallel_inference(igt)
+                    for igt in inference_group_tasks
+                ]
 
-                # Collect and merge inferences
-                if model.type == "MASKRCNN":
-                    out_fc = geojson.FeatureCollection(
-                        features=flatten_feature_list(base_tiles_inference)
-                    )
-                    out_fc_offset = geojson.FeatureCollection(
-                        features=flatten_feature_list(offset_tiles_inference)
-                    )
-                    out_fc_offset_2 = geojson.FeatureCollection(
-                        features=flatten_feature_list(offset_2_tiles_inference)
-                    )
-                    del base_tiles_inference
-                    del offset_tiles_inference
-                elif model.type == "FASTAIUNET":
-                    # print("Loading all tiles into memory for merge!")
-                    # ds_base_tiles = []
-                    # for base_tile_inference in base_tiles_inference:
-                    #     ds_base_tiles.append(
-                    #         *[
-                    #             create_dataset_from_inference_result(b)
-                    #             for b in base_tile_inference.stack
-                    #         ]
-                    #     )
+                # Stitch inferences
+                print(f"Stitching results: {start_time}")
+                model = get_model(inference_parms, heavy=False)
+                feature_collections = [
+                    model.stitch(results) for results in inference_group_results
+                ]
 
-                    # ds_offset_tiles = []
-                    # for offset_tile_inference in offset_tiles_inference:
-                    #     ds_offset_tiles.append(
-                    #         *[
-                    #             create_dataset_from_inference_result(b)
-                    #             for b in offset_tile_inference.stack
-                    #         ]
-                    #     )
-
-                    # print("Merging base tiles!")
-                    # base_tile_inference_file = MemoryFile()
-                    # ar, transform = merge(ds_base_tiles)
-                    # with base_tile_inference_file.open(
-                    #     driver="GTiff",
-                    #     height=ar.shape[1],
-                    #     width=ar.shape[2],
-                    #     count=ar.shape[0],
-                    #     dtype=ar.dtype,
-                    #     transform=transform,
-                    #     crs="EPSG:4326",
-                    # ) as dst:
-                    #     dst.write(ar)
-
-                    # out_fc = get_fc_from_raster(base_tile_inference_file)
-
-                    # print("Merging offset tiles!")
-                    # offset_tile_inference_file = MemoryFile()
-                    # ar, transform = merge(ds_offset_tiles)
-                    # with offset_tile_inference_file.open(
-                    #     driver="GTiff",
-                    #     height=ar.shape[1],
-                    #     width=ar.shape[2],
-                    #     count=ar.shape[0],
-                    #     dtype=ar.dtype,
-                    #     transform=transform,
-                    #     crs="EPSG:4326",
-                    # ) as dst:
-                    #     dst.write(ar)
-
-                    # out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
-                    raise NotImplementedError("FASTAIUNET pathway isn't well defined")
-                else:
-                    raise NotImplementedError(
-                        "Model_type must be one of ['MASKRCNN', 'FASTAIUNET']"
-                    )
-
-                merged_inferences = merge_inferences(
-                    feature_collections=[out_fc, out_fc_offset, out_fc_offset_2],
+                # Ensemble inferences
+                print(f"Ensembling results: {start_time}")
+                final_ensemble = ensemble_inferences(
+                    feature_collections=feature_collections,
                     proximity_meters=None,
                     closing_meters=None,
                     opening_meters=None,
                 )
 
-                if merged_inferences.get("features"):
+                if final_ensemble.get("features"):
                     LAND_MASK_BUFFER_M = 1000
                     print(
                         f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
                     )
-                    for feat in merged_inferences.get("features"):
+                    for feat in final_ensemble.get("features"):
                         buffered_gdf = gpd.GeoDataFrame(
                             geometry=[shape(feat["geometry"])], crs="4326"
                         )
@@ -502,7 +376,7 @@ async def _orchestrate(
                     # database session to avoid holidng locks on the
                     # table while performing un-related calculations.
                     async with db_client.session.begin():
-                        for feat in merged_inferences.get("features"):
+                        for feat in final_ensemble.get("features"):
                             slick = await db_client.add_slick(
                                 orchestrator_run,
                                 sentinel1_grd.start_time,
@@ -516,7 +390,7 @@ async def _orchestrate(
                     if any(
                         feat.get("properties").get("machine_confidence")
                         > AAA_CONFIDENCE_THRESHOLD
-                        for feat in merged_inferences.get("features")
+                        for feat in final_ensemble.get("features")
                     ):
                         print(f"{start_time}: Queueing up Automatic AIS Analysis")
                         add_to_aaa_queue(sentinel1_grd.scene_id)

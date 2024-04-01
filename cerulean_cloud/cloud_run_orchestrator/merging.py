@@ -1,4 +1,5 @@
 """merging inference from base and offset tiles"""
+
 from typing import List
 
 import geojson
@@ -13,27 +14,27 @@ def reproject_to_utm(gdf_wgs84):
     return gdf_wgs84.to_crs(utm_crs)
 
 
-def merge_inferences(
+def ensemble_inferences(
     feature_collections: List[geojson.FeatureCollection],
     proximity_meters: int = 500,
     closing_meters: int = 0,
     opening_meters: int = 0,
 ) -> geojson.FeatureCollection:
     """
-    Merge base and all offset tile inference.
+    ensemble base and all offset tile inference.
 
-    This function takes a list of geojson FeatureCollections and merges them together. During the merge, the
+    This function takes a list of geojson FeatureCollections and ensembles them together. During the ensemble, the
     geometries can be adjusted to incorporate neighboring features based on the proximity setting. The
     confidence of isolated features can also be adjusted.
 
     Parameters:
-    - feature_collections: A list of FeatureCollecitons to be merged, a primary and any secondary FeatureCollections
+    - feature_collections: A list of FeatureCollecitons to be ensembled, a primary and any secondary FeatureCollections
     - proximity_meters: The distance to check for neighboring features and expand the geometries (default is 500m).
     - closing_meters: The distance to apply the morphological 'closing' operation (default is 0m).
     - opening_meters: The distance to apply the morphological 'opening' operation (default is 0m).
 
     Returns:
-    A merged geojson FeatureCollection.
+    A ensembled geojson FeatureCollection.
     """
     # We reproject to UTM for processing. This assumes that all offset images will either be in the same UTM zone as
     # the input image chip, or that the difference that arise from an offset crossing into a second UTM zone will

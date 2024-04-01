@@ -22,15 +22,14 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
-    b64_image_to_array,
-    flatten_feature_list,
     group_bounds_from_list_of_bounds,
     is_tile_over_water,
     make_cloud_log_url,
     offset_group_shape_from_base_tiles,
 )
-from cerulean_cloud.cloud_run_orchestrator.merging import merge_inferences
+from cerulean_cloud.cloud_run_orchestrator.merging import ensemble_inferences
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
+from cerulean_cloud.models import b64_image_to_array, flatten_feature_list
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
@@ -409,7 +408,7 @@ def test_func_merge_inferences():
     with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
         offset_tile_fc = dict(geojson.load(src))
 
-    merged = merge_inferences(
+    merged = ensemble_inferences(
         [base_tile_fc, offset_tile_fc],
         proximity_meters=500,
         closing_meters=100,
@@ -433,15 +432,19 @@ def test_func_merge_inferences_empty():
     with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
         offset_tile_fc = dict(geojson.load(src))
 
-    merged = merge_inferences([geojson.FeatureCollection(features=[]), offset_tile_fc])
+    merged = ensemble_inferences(
+        [geojson.FeatureCollection(features=[]), offset_tile_fc]
+    )
     assert merged["type"] == "FeatureCollection"
     assert len(merged["features"]) == 5
 
-    merged = merge_inferences([offset_tile_fc, geojson.FeatureCollection(features=[])])
+    merged = ensemble_inferences(
+        [offset_tile_fc, geojson.FeatureCollection(features=[])]
+    )
     assert merged["type"] == "FeatureCollection"
     assert len(merged["features"]) == 5
 
-    merged = merge_inferences(
+    merged = ensemble_inferences(
         [
             geojson.FeatureCollection(features=[]),
             geojson.FeatureCollection(features=[]),
