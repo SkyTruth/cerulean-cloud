@@ -408,10 +408,6 @@ async def _orchestrate(
             if success is False:
                 raise exc
 
-            # Clean up potentially memory heavy assets
-            del out_fc
-            del out_fc_offset
-            del out_fc_offset_2
         else:
             print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
     return OrchestratorResult(status="Success")
