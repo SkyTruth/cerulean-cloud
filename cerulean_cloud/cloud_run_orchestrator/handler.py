@@ -335,7 +335,7 @@ async def _orchestrate(
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
-                model = get_model(inference_parms, heavy=False)
+                model = get_model(inference_parms)
                 feature_collections = [
                     model.stitch(results) for results in inference_group_results
                 ]
