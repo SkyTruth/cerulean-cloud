@@ -146,11 +146,9 @@ class MASKRCNNModel(BaseModel):
             A list of structured stack results.
         """
         inference_result_stack = []
-        for conf, classes, bounds in results:
-            enc_classes = array_to_b64_image(classes)
-            enc_conf = array_to_b64_image(conf)
+        for feats, bounds in results:
             inference_result_stack.append(
-                InferenceResult(classes=enc_classes, confidence=enc_conf, bounds=bounds)
+                InferenceResult(features=feats, bounds=bounds)
             )
         return inference_result_stack
 
@@ -218,9 +216,11 @@ class FASTAIUNETModel(BaseModel):
             results: The prediction results to be stacked.
         """
         inference_result_stack = []
-        for feats, bounds in results:
+        for conf, classes, bounds in results:
+            enc_classes = array_to_b64_image(classes)
+            enc_conf = array_to_b64_image(conf)
             inference_result_stack.append(
-                InferenceResult(features=feats, bounds=bounds)
+                InferenceResult(classes=enc_classes, confidence=enc_conf, bounds=bounds)
             )
         return inference_result_stack
 
