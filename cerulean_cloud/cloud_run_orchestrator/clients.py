@@ -54,7 +54,6 @@ class CloudRunInferenceClient:
         offset_image_shape: Tuple[int, int],
         layers: List,
         scale: int,
-        inference_parms,
         filter_empty_tiles=True,
     ):
         """init"""
@@ -65,7 +64,6 @@ class CloudRunInferenceClient:
             layers, self.sceneid, offset_bounds, offset_image_shape
         )
         self.scale = scale  # 1=256, 2=512, 3=...
-        self.inference_parms = inference_parms
         self.filter_empty_tiles = filter_empty_tiles
 
     async def fetch_and_process_image(
@@ -144,12 +142,12 @@ class CloudRunInferenceClient:
         - Exception: If the request fails or the service returns an unexpected status code, with details provided in the exception message.
 
         Note:
-        - This function constructs the inference payload by encoding the image and specifying the geographic bounds and any additional inference parameters through `self.inference_parms`.
+        - This function constructs the inference payload by encoding the image and specifying the geographic bounds and any additional inference parameters through `self.model_dict`.
         """
 
         encoded = img_array_to_b64_image(img_array)
         inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
-        payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
+        payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
         res = await http_client.post(
             self.url + "/predict", json=payload.dict(), timeout=None
         )

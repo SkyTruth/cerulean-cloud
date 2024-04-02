@@ -40,7 +40,7 @@ def predict(request: Request, payload: PredictPayload) -> Dict:
     """Run prediction using the loaded model."""
     record_timing(request, note="Started")
 
-    model = get_model(payload.inf_parms)
+    model = get_model(payload.model_dict)
     record_timing(request, note="Model loaded")
 
     results = model.predict(payload.inf_stack)

@@ -1,4 +1,5 @@
 """schema for inference enpoint"""
+
 from typing import Any, Dict, List, Optional
 
 import geojson
@@ -20,7 +21,7 @@ class PredictPayload(BaseModel):
     """
 
     inf_stack: List[InferenceInput]
-    inf_parms: Dict[str, Any]
+    model_dict: Dict[str, Any]
 
 
 class InferenceResult(BaseModel):

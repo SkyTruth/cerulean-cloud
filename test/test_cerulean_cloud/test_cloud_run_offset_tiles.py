@@ -88,7 +88,7 @@ def test_inference_():
 
     payload = PredictPayload(
         inf_stack=[InferenceInput(image=encoded)],
-        inf_parms={
+        model_dict={
             "model_type": "MASKRCNN",
             "img_shape": [3, 224, 224],  # rrctile of runlist[-1][0]
             "classes_to_remove": [
@@ -110,7 +110,7 @@ def test_inference_():
             "pixel_score_thresh": 0.2,  # prediction vs score, pixels
         },
     )
-    model = models.get_model(payload.inf_parms)
+    model = models.get_model(payload.model_dict)
     inference_stack = model.predict(payload.inf_stack)
     classes, conf, bounds = inference_stack[0]
     enc_classes = model.array_to_b64_image(classes)

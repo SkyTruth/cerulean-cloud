@@ -1,4 +1,5 @@
 """Client code to interact with the database"""
+
 import os
 from typing import Optional
 
@@ -87,7 +88,7 @@ class DatabaseClient:
                 trigger_type="MANUAL",
             )
 
-    async def get_model(self, model_path: str):
+    async def get_db_model(self, model_path: str):
         """get model from path"""
         return await get(self.session, db.Model, file_path=model_path)
 

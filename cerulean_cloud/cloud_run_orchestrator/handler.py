@@ -200,19 +200,23 @@ async def _orchestrate(
 
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
-            model = await db_client.get_model(os.getenv("MODEL"))
-    zoom = payload.zoom or model.zoom_level
-    scale = payload.scale or model.scale
+            db_model = await db_client.get_db_model(os.getenv("MODEL"))
+            model_dict = {
+                column.name: getattr(db_model, column.name)
+                for column in db_model.__table__.columns
+            }
+    zoom = payload.zoom or model_dict["zoom_level"]
+    scale = payload.scale or model_dict["scale"]
     print(f"{start_time}: zoom: {zoom}")
     print(f"{start_time}: scale: {scale}")
 
-    if model.zoom_level != zoom:
+    if model_dict["zoom_level"] != zoom:
         print(
-            f"{start_time}: WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
+            f"{start_time}: WARNING: Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}"
         )
-    if model.tile_width_px != scale * 256:
+    if model_dict["tile_width_px"] != scale * 256:
         print(
-            f"{start_time}: WARNING: Model was trained on image tile of resolution {model.tile_width_px} but is being run on {scale*256}"
+            f"{start_time}: WARNING: Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}"
         )
 
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
@@ -259,7 +263,8 @@ async def _orchestrate(
                 async with db_client.session.begin():
                     trigger = await db_client.get_trigger(trigger=payload.trigger)
                     layers = [
-                        await db_client.get_layer(layer) for layer in model.layers
+                        await db_client.get_layer(layer)
+                        for layer in model_dict["layers"]
                     ]
                     sentinel1_grd = await db_client.get_sentinel1_grd(
                         payload.sceneid,
@@ -293,17 +298,12 @@ async def _orchestrate(
                         scale,
                         scene_bounds,
                         trigger,
-                        model,
+                        db_model,
                         sentinel1_grd,
                     )
             except:  # noqa: E722
                 await db_client.session.close()
                 raise
-
-            inference_parms = {
-                "model_type": model.type,
-                "thresholds": model.thresholds,
-            }
 
             success = True
             try:
@@ -316,7 +316,6 @@ async def _orchestrate(
                     offset_image_shape=offset_group_shape,
                     layers=layers,
                     scale=scale,
-                    inference_parms=inference_parms,
                 )
 
                 # Prepare the inference group tasks
@@ -335,7 +334,7 @@ async def _orchestrate(
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
-                model = get_model(inference_parms)
+                model = get_model(model_dict)
                 feature_collections = [
                     model.stitch(results) for results in inference_group_results
                 ]

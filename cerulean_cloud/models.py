@@ -29,17 +29,17 @@ class BaseModel:
     making predictions, stacking results, and stitching outputs.
     """
 
-    def __init__(self, model_path=None, inf_parms=None):
+    def __init__(self, model_dict=None, model_path_local=None):
         """
         Initializes the BaseModel with a model path and inference parameters.
 
         Args:
-            model_path (str, optional): The path to the model file.
-            inf_parms (dict, optional): A dictionary of inference parameters.
+            model_path_local (str, optional): The path to the model file.
+            model_dict (dict, optional): A dictionary of inference parameters.
         """
         self.model = None
-        self.model_path = model_path
-        self.inf_parms = inf_parms
+        self.model_dict = model_dict
+        self.model_path_local = model_path_local
 
     def load(self):
         """
@@ -92,7 +92,7 @@ class MASKRCNNModel(BaseModel):
             model_path (str): The path to the model file.
         """
         if self.model is None:
-            self.model = torch.jit.load(self.model_path, map_location="cpu")
+            self.model = torch.jit.load(self.model_path_local, map_location="cpu")
 
     def predict(
         self,
@@ -129,7 +129,7 @@ class MASKRCNNModel(BaseModel):
 
         reduced_preds = reduce_preds(
             raw_preds,
-            **self.inf_parms["thresholds"],
+            **self.model_dict["thresholds"],
             bounds=bounds,
         )
         # returns List[Tuple[List[geojson.Feature], List[float]]]
@@ -179,7 +179,7 @@ class FASTAIUNETModel(BaseModel):
             model_path (str): The path to the model file.
         """
         # if self.model is None:
-        #     self.model = torch.jit.load(self.model_path, map_location="cpu")
+        #     self.model = torch.jit.load(self.model_path_local, map_location="cpu")
         raise NotImplementedError("FASTAIUNET pathway isn't well defined")
 
     def predict(self, inf_stack):
@@ -285,26 +285,26 @@ class FASTAIUNETModel(BaseModel):
 
 
 def get_model(
-    inf_parms,
-    model_path="cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
+    model_dict,
+    model_path_local="cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
 ):
     """
     Factory function to get the appropriate model instance based on inference parameters.
 
     Args:
-        inf_parms (dict): Inference parameters including the model type.
+        model_dict (dict): Inference parameters including the model type.
         model_path (str, optional): Path to the model file.
 
     Returns:
         An instance of the appropriate model class.
     """
-    model_type = inf_parms["model_type"]
+    model_type = model_dict["type"]
     print(f"Model type is {model_type}")
 
     if model_type == "MASKRCNN":
-        return MASKRCNNModel(model_path, inf_parms)
+        return MASKRCNNModel(model_dict, model_path_local)
     elif model_type == "FASTAIUNET":
-        return FASTAIUNETModel(model_path, inf_parms)
+        return FASTAIUNETModel(model_dict, model_path_local)
     else:
         raise ValueError("Unsupported model type")
 
