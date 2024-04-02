@@ -1,5 +1,6 @@
 """database configurations
 """
+
 import pulumi
 import pulumi_gcp as gcp
 from utils import construct_name
@@ -49,7 +50,6 @@ instance = gcp.sql.DatabaseInstance(
             dict(name="max_wal_size", value="4096"),
         ],
     ),
-    deletion_protection=pulumi.Config("db").require("deletion-protection"),
 )
 
 
