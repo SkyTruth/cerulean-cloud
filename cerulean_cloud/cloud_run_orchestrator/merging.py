@@ -13,6 +13,10 @@ def reproject_to_utm(gdf_wgs84):
     utm_crs = gdf_wgs84.estimate_utm_crs(datum_name="WGS 84")
     return gdf_wgs84.to_crs(utm_crs)
 
+def calculate_overlap_factor(gdf, number_of_offsets):
+    return gdf.groupby("group_index")[
+        "fc_index"
+    ].transform(lambda x: len(x.unique()) / number_of_offsets)
 
 def ensemble_inferences(
     feature_collections: List[geojson.FeatureCollection],
@@ -86,9 +90,7 @@ def ensemble_inferences(
     final_gdf["group_count"] = final_gdf.index.map(group_counts)
 
     # Adjust the confidence value for features that are isolated (not part of a larger group)
-    final_gdf["overlap_factor"] = final_gdf.groupby("group_index")[
-        "fc_index"
-    ].transform(lambda x: len(x.unique()) / len(feature_collections))
+    final_gdf["overlap_factor"] = calculate_overlap_factor(gdf=final_gdf, number_of_offsets=len(feature_collections))
 
     final_gdf["machine_confidence"] *= final_gdf["overlap_factor"]
 
