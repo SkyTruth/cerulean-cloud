@@ -8,7 +8,6 @@ import torchvision  # noqa necessary for torch.jit.load of icevision mrcnn model
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 
-import cerulean_cloud.cloud_run_orchestrator.handler as orch_handler
 import cerulean_cloud.models as models
 from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, PredictPayload
 from cerulean_cloud.tiling import TMS
@@ -57,12 +56,8 @@ def test_inference():
     model = models.get_model({"model_type": "MASKRCNN"})
     res = model.predict(encoded)
     for tile in res:  # iterating through the batch dimension.
-        conf, classes = models.logits_to_classes(tile)
-        high_conf_classes = models.apply_conf_threshold(
-            conf, classes, conf_threshold=0.9
-        )
+        conf, high_conf_classes = models.logits_to_classes(tile, 0.9)
         assert conf.shape == torch.Size([512, 512])
-        assert classes.shape == torch.Size([512, 512])
         assert high_conf_classes.shape == torch.Size([512, 512])
 
         conf = high_conf_classes.detach().numpy().astype("int8")
@@ -77,7 +72,7 @@ def test_inference():
             ) as dataset:
                 dataset.write(conf, 1)
 
-            out_fc = orch_handler.get_fc_from_raster(memfile)
+            out_fc = models.get_fc_from_raster(memfile)
             assert len(out_fc.features) == 0
 
 

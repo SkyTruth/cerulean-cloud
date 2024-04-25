@@ -14,16 +14,13 @@ import urllib.parse as urlparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
-import geojson
 import geopandas as gpd
 import morecantile
 import numpy as np
-import rasterio
 import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
-from rasterio.io import MemoryFile
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
@@ -116,29 +113,6 @@ def group_bounds_from_list_of_bounds(bounds: List[List[float]]) -> List[float]:
     return list((minx, miny, maxx, maxy))
 
 
-def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
-    """create a geojson from an input raster with classification
-
-    Args:
-        raster (MemoryFile): input raster
-
-    Returns:
-        geojson.FeatureCollection: output feature collection
-    """
-    with raster.open() as dataset:
-        shapes = rasterio.features.shapes(
-            dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
-        )
-    out_fc = geojson.FeatureCollection(
-        features=[
-            geojson.Feature(geometry=geom, properties=dict(inf_idx=inf_idx))
-            for geom, inf_idx in shapes
-            if int(inf_idx) != 0  # XXX HACK This assumes background index is 0
-        ]
-    )
-    return out_fc
-
-
 def get_tiler():
     """get tiler"""
     return TMS
@@ -202,7 +176,11 @@ async def _orchestrate(
         async with db_client.session.begin():
             db_model = await db_client.get_db_model(os.getenv("MODEL"))
             model_dict = {
-                column.name: getattr(db_model, column.name)
+                column.name: (
+                    getattr(db_model, column.name).isoformat()
+                    if isinstance(getattr(db_model, column.name), datetime)
+                    else getattr(db_model, column.name)
+                )
                 for column in db_model.__table__.columns
             }
     zoom = payload.zoom or model_dict["zoom_level"]
