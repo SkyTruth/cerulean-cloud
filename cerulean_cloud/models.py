@@ -6,7 +6,7 @@ and stitch together inference outputs for geospatial analysis.
 """
 
 from base64 import b64decode, b64encode
-from typing import List, Tuple, Union
+from typing import List
 
 import geojson
 import numpy as np
@@ -18,6 +18,7 @@ from rasterio.io import MemoryFile
 from shapely.geometry import MultiPolygon, shape
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceInput,
     InferenceResult,
     InferenceResultStack,
 )
@@ -40,17 +41,24 @@ class BaseModel:
         self.model = None
         self.model_dict = model_dict
         self.model_path_local = model_path_local
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def load(self):
         """
         Loads the model from the given path. This method should be implemented by subclasses.
-
-        Args:
-            model_path (str): The path to the model file.
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def predict(self, inf_stack):
+    def preprocess_stack(self, inf_stack: List[InferenceInput]):
+        """
+        Prepares inf_stack for inference.
+
+        Args:
+            inf_stack: The input data stack for inference.
+        """
+        raise NotImplementedError("Subclasses should implement this method")
+
+    def predict(self, inf_stack: List[InferenceInput]):
         """
         Makes predictions on the given input stack. This method should be implemented by subclasses.
 
@@ -59,12 +67,13 @@ class BaseModel:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def stack(self, results):
+    def postprocess_stack(self, raw_preds, bounds):
         """
-        Stacks the results of predictions. This method should be implemented by subclasses.
+        Process and stack the raw_preds of predictions. This method should be implemented by subclasses.
 
         Args:
-            results: The results to be stacked.
+            raw_preds: The results to be processed and stacked.
+            bounds: The bounds corresponding with each pred.
         """
         raise NotImplementedError("Subclasses should implement this method")
 
@@ -87,22 +96,27 @@ class MASKRCNNModel(BaseModel):
     def load(self):
         """
         Loads the MASKRCNN model
-
-        Args:
-            model_path (str): The path to the model file.
         """
-        if self.model is None:
-            self.model = torch.jit.load(self.model_path_local, map_location="cpu")
+        try:
+            if self.model is None:
+                self.model = torch.jit.load(self.model_path_local, map_location="cpu")
+                self.model.eval()
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            raise
 
-    def predict(
-        self,
-        inf_stack,
-    ) -> List[
-        Union[
-            Tuple[np.ndarray, np.ndarray, List[float]],
-            Tuple[List[geojson.Feature], List[float]],
+    def preprocess_stack(self, inf_stack: List[InferenceInput]):
+        """
+        Converts a list of InferenceInput objects into a processed tensor batch for model prediction.
+        Processes image data contained in InferenceInput and prepares them for MASKRCNN model inference.
+        """
+        stack_tensors = [
+            b64_image_to_tensor(record.image) / 255 for record in inf_stack
         ]
-    ]:
+        print(f"Images have shape {stack_tensors[0].shape}")
+        return stack_tensors
+
+    def predict(self, inf_stack: List[InferenceInput]):
         """
         Predicts using the MASKRCNN model on the given input stack.
 
@@ -115,42 +129,35 @@ class MASKRCNNModel(BaseModel):
         print("Initiating cloud_run_offset_tiles/_predict()")
         print(f"Stack has {len(inf_stack)} images")
 
-        self.load()
+        self.load()  # Load model into memory
+        stack_tensors = self.preprocess_stack(inf_stack)  # Preprocess imagery
+        raw_preds = self.model(stack_tensors)[1]  # Run inference
+        inference_results = self.postprocess_stack(  # Postprocess inference
+            raw_preds, bounds=[record.bounds for record in inf_stack]
+        )
+        return inference_results
 
-        stack_tensors = [
-            b64_image_to_tensor(record.image) / 255 for record in inf_stack
-        ]
-        bounds = [record.bounds for record in inf_stack]
+    def postprocess_stack(self, raw_preds, bounds):
+        """
+        Process and stack the raw_preds of MASKRCNN predictions.
 
-        print(f"Images have shape {stack_tensors[0].shape}")
-
-        raw_preds = self.model(stack_tensors)[1]
-        print("Finished inference, applying post-process, thresholding")
+        Args:
+            raw_preds: The results to be processed and stacked.
+            bounds: The bounds corresponding with each pred.
+        """
 
         reduced_preds = reduce_preds(
             raw_preds,
             **self.model_dict["thresholds"],
             bounds=bounds,
         )
-        # returns List[Tuple[List[geojson.Feature], List[float]]]
-        return [(inf["polys"], bounds[i]) for i, inf in enumerate(reduced_preds)]
 
-    def stack(self, results):
-        """
-        Stacks the results of MASKRCNN predictions into a structured format.
-
-        Args:
-            results: The prediction results to be stacked.
-
-        Returns:
-            A list of structured stack results.
-        """
-        inference_result_stack = []
-        for feats, bounds in results:
-            inference_result_stack.append(
-                InferenceResult(features=feats, bounds=bounds)
+        inference_results = []
+        for i, inf in enumerate(reduced_preds):
+            inference_results.append(
+                InferenceResult(features=inf["polys"], bounds=bounds[i])
             )
-        return inference_result_stack
+        return inference_results
 
     def stitch(self, inference_list):
         """
