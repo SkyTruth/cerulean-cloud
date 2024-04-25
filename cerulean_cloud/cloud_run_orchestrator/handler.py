@@ -316,6 +316,7 @@ async def _orchestrate(
                     offset_image_shape=offset_group_shape,
                     layers=layers,
                     scale=scale,
+                    model_dict=model_dict,
                 )
 
                 # Prepare the inference group tasks

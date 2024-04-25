@@ -43,9 +43,6 @@ def predict(request: Request, payload: PredictPayload) -> Dict:
     model = get_model(payload.model_dict)
     record_timing(request, note="Model loaded")
 
-    results = model.predict(payload.inf_stack)
-    record_timing(request, note="Finished inference")
+    inference_results = model.predict(payload.inf_stack)
 
-    inference_result_stack = model.stack(results)
-    record_timing(request, note="Returning stack")
-    return InferenceResultStack(stack=inference_result_stack)
+    return InferenceResultStack(stack=inference_results)

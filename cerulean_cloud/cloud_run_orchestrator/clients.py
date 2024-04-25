@@ -54,6 +54,7 @@ class CloudRunInferenceClient:
         offset_image_shape: Tuple[int, int],
         layers: List,
         scale: int,
+        model_dict,
         filter_empty_tiles=True,
     ):
         """init"""
@@ -64,6 +65,7 @@ class CloudRunInferenceClient:
             layers, self.sceneid, offset_bounds, offset_image_shape
         )
         self.scale = scale  # 1=256, 2=512, 3=...
+        self.model_dict = model_dict
         self.filter_empty_tiles = filter_empty_tiles
 
     async def fetch_and_process_image(
