@@ -65,7 +65,7 @@ users = gcp.sql.User(
     name=db_name,
     instance=instance.name,
     password=pulumi.Config("db").require_secret("db-password"),
-    opts=pulumi.ResourceOptions(dependsOn=[database]),
+    opts=pulumi.ResourceOptions(depends_on=[database]),
 )
 
 sql_instance_url_with_asyncpg = pulumi.Output.concat(
