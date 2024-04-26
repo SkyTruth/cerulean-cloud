@@ -150,21 +150,8 @@ class CloudRunInferenceClient:
         encoded = img_array_to_b64_image(img_array)
         inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
         payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
-        print("self.model_dict", self.model_dict)
-        print(
-            "Inside CloudRunInference",
-            json.dumps(
-                payload.dict(),
-                default=lambda o: o.isoformat() if isinstance(o, datetime) else o,
-            ),
-        )
         res = await http_client.post(
-            self.url + "/predict",
-            json=json.dumps(
-                payload.dict(),
-                default=lambda o: o.isoformat() if isinstance(o, datetime) else o,
-            ),
-            timeout=None,
+            self.url + "/predict", json=payload.dict(), timeout=None
         )
         if res.status_code == 200:
             return InferenceResultStack(**res.json())
