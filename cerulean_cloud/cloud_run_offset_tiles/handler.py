@@ -36,13 +36,11 @@ def ping() -> Dict:
     tags=["Run inference"],
     response_model=InferenceResultStack,
 )
-def predict(request: Request, payload: PredictPayload) -> Dict:
+def predict(request: Request, payload: PredictPayload) -> InferenceResultStack:
     """Run prediction using the loaded model."""
     record_timing(request, note="Started")
 
     model = get_model(payload.model_dict)
     record_timing(request, note="Model loaded")
 
-    inference_results = model.predict(payload.inf_stack)
-
-    return InferenceResultStack(stack=inference_results)
+    return model.predict(payload.inf_stack)

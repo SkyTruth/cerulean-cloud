@@ -29,10 +29,9 @@ class InferenceResult(BaseModel):
     Inference result from the model
     """
 
-    classes: Optional[str]
-    confidence: Optional[str]
+    tile_logits_b64: Optional[str]  # FASTAIUNET
+    features_geojson: Optional[List[geojson.Feature]]  # MASKRCNN
     bounds: Optional[List[float]]
-    features: Optional[List[geojson.Feature]]
 
 
 class InferenceResultStack(BaseModel):

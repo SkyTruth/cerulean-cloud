@@ -71,7 +71,7 @@ def upgrade() -> None:
             database_schema.Model(
                 type="MASKRCNN",
                 file_path="experiments/2023_10_05_02_22_46_4cls_rnxt101_pr512_px1024_680min_maskrcnn_wd01/scripting_cpu_model.pt",
-                layers=["VV", "INFRA", "VESSEL"],
+                layers=["VV", "ALL_255", "VESSEL"],
                 cls_map={
                     0: "BACKGROUND",
                     1: "INFRA",
@@ -92,6 +92,34 @@ def upgrade() -> None:
                 backbone_size=101,
                 pixel_f1=0.461,
                 instance_f1=0.47,
+            ),
+            database_schema.Model(
+                type="FASTAIUNET",
+                file_path="experiments/2024_03_06_18_14_31_7cls_rn101_pr256_z9_fastai_baseline_noamb/fastai_model.pth",
+                layers=["VV"],
+                cls_map={
+                    0: "BACKGROUND",
+                    1: "INFRA",
+                    2: "NATURAL",
+                    3: "COIN_VESSEL",
+                    4: "REC_VESSEL",
+                    5: "OLD_VESSEL",
+                    6: "BACKGROUND",  # HITL AMBIGUOUS, should never be output by inference_idx
+                },  # inference_idx maps to class table
+                name="ResNet101 Baseline Noamb",
+                tile_width_m=40844,  # Used to calculate zoom
+                tile_width_px=256,  # Used to calculate scale
+                epochs=80,
+                thresholds={
+                    "pixel_nms_thresh": 0.4,
+                    "bbox_score_thresh": 0.2,
+                    "poly_score_thresh": 0.2,
+                    "pixel_score_thresh": 0.2,
+                    "groundtruth_dice_thresh": 0.0,
+                },
+                backbone_size=101,
+                # pixel_f1=0.0, # TODO CALCULATE
+                # instance_f1=0.0, # TODO CALCULATE
             ),
         ]
         session.add_all(models)

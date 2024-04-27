@@ -315,7 +315,8 @@ async def _orchestrate(
                 print(f"Stitching results: {start_time}")
                 model = get_model(model_dict)
                 feature_collections = [
-                    model.stitch(results) for results in inference_group_results
+                    model.postprocess_tiling(results)
+                    for results in inference_group_results
                 ]
 
                 # Ensemble inferences

@@ -85,7 +85,7 @@ def fixture_cloud_inference_tile(httpx_mock):
 async def test_get_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     payload = {
         "inference_input": InferenceResultStack(
-            stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
+            stack=[InferenceResult(tile_logits_b64="", bounds=[1, 2, 3, 4])]
         ).dict(),
         "model_dict": {
             "model_type": "MASKRCNN",
