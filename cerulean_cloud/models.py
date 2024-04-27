@@ -5,6 +5,7 @@ These classes are designed to load models, make predictions, stack results,
 and stitch together inference outputs for geospatial analysis.
 """
 
+import logging
 from base64 import b64decode, b64encode
 from typing import List
 
@@ -22,6 +23,10 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInput,
     InferenceResult,
     InferenceResultStack,
+)
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 
@@ -56,7 +61,13 @@ class BaseModel:
         """
         Loads the model from the given path. This method should be implemented by subclasses.
         """
-        raise NotImplementedError("Subclasses should implement this method")
+        try:
+            if self.model is None:
+                self.model = torch.jit.load(self.model_path_local, map_location="cpu")
+                self.model.eval()
+        except Exception as e:
+            logging.error("Error loading model: %s", e, exc_info=True)
+            raise
 
     def preprocess_tiles(self, inf_stack: List[InferenceInput]):
         """
@@ -104,18 +115,6 @@ class MASKRCNNModel(BaseModel):
     stacking results, and stitching outputs for geospatial analysis.
     """
 
-    def load(self):
-        """
-        Loads the MASKRCNN model
-        """
-        try:
-            if self.model is None:
-                self.model = torch.jit.load(self.model_path_local, map_location="cpu")
-                self.model.eval()
-        except Exception as e:
-            print(f"Error loading model: {e}")
-            raise
-
     def preprocess_tiles(self, inf_stack: List[InferenceInput]):
         """
         Converts a list of InferenceInput objects into a processed tensor batch for model prediction.
@@ -137,8 +136,8 @@ class MASKRCNNModel(BaseModel):
         Returns:
             A list of prediction results including geometries and their associated scores.
         """
-        print("Initiating cloud_run_offset_tiles/_predict()")
-        print(f"Stack has {len(inf_stack)} images")
+        logging.info("Initiating cloud_run_offset_tiles/_predict()")
+        logging.info(f"Stack has {len(inf_stack)} images")
 
         self.load()  # Load model into memory
         stack_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
@@ -194,18 +193,6 @@ class FASTAIUNETModel(BaseModel):
     result stacking, and output stitching.
     """
 
-    def load(self):
-        """
-        Loads the FASTAIUNET model.
-        """
-        try:
-            if self.model is None:
-                self.model = torch.jit.load(self.model_path_local, map_location="cpu")
-                self.model.eval()
-        except Exception as e:
-            print(f"Error loading model: {e}")
-            raise
-
     def preprocess_tiles(self, inf_stack: List[InferenceInput]):
         """
         Converts a list of InferenceInput objects into a processed tensor batch for model prediction.
@@ -225,10 +212,10 @@ class FASTAIUNETModel(BaseModel):
                 for record in inf_stack
             ]
             batch_tensor = torch.cat(stack_tensors, dim=0).to(self.device)
-            print(f"Batch tensor shape: {batch_tensor.shape}")
+            logging.info(f"Batch tensor shape: {batch_tensor.shape}")
             return batch_tensor  # Only the tensor batch is needed for the model
         except Exception as e:
-            print(f"Error in preprocessing: {e}")
+            logging.error("Error in preprocessing: %s", e, exc_info=True)
             raise
 
     def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
@@ -238,7 +225,7 @@ class FASTAIUNETModel(BaseModel):
         Args:
             inf_stack: The input data stack for inference.
         """
-        print(f"Stack has {len(inf_stack)} images")
+        logging.info(f"Stack has {len(inf_stack)} images")
 
         self.load()  # Load model into memory
         preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
@@ -279,11 +266,11 @@ class FASTAIUNETModel(BaseModel):
         Args:
             inference_result_stacks: The list of InferenceResultStacks to stitch together.
         """
-        print("Stitching tiles into scene")
+        logging.info("Stitching tiles into scene")
         scene_array_logits, transform = self.stitch(inference_result_stacks)
-        print("Finding instances in scene")
+        logging.info("Finding instances in scene")
         features = self.instantiate(scene_array_logits)
-        print("Reducing feature count")
+        logging.info("Reducing feature count")
         reduced_features = self.reduce_scene_features(features)
         return geojson.FeatureCollection(features=reduced_features)
 
@@ -307,7 +294,7 @@ class FASTAIUNETModel(BaseModel):
                 for inf in inf_stack.stack
             ]
 
-            print("Merging tiles!")
+            logging.info("Merging tiles!")
             scene_array, transform = rasterio.merge.merge(ds_tiles)
             return scene_array, transform
         finally:
@@ -369,7 +356,7 @@ def get_model(
         An instance of the appropriate model class.
     """
     model_type = model_dict["type"]
-    print(f"Model type is {model_type}")
+    logging.info(f"Model type is {model_type}")
 
     if model_type == "MASKRCNN":
         return MASKRCNNModel(model_dict, model_path_local)
@@ -771,9 +758,9 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
     """
     # Label components based on p3 to find peaks
     p1_islands, p1_island_count = label(raster >= p1)
-    print("p1_island_count", p1_island_count)
+    logging.info("p1_island_count", p1_island_count)
     p3_islands, p3_island_count = label(raster >= p3)
-    print("p3_island_count", p3_island_count)
+    logging.info("p3_island_count", p3_island_count)
 
     # Initialize an empty set for unique p1 labels corresponding to p3 components
     reduced_labels = set()
@@ -785,7 +772,7 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
             0
         ]  # Take the first pixel's p1 label
         reduced_labels.add(p1_label_at_p3)
-    print("reduced_labels", len(reduced_labels))
+    logging.info("reduced_labels", len(reduced_labels))
 
     features = []
     # Process into feature collections based on unique p1 labels
