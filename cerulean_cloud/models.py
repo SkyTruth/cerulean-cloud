@@ -5,7 +5,6 @@ These classes are designed to load models, make predictions, stack results,
 and stitch together inference outputs for geospatial analysis.
 """
 
-import io
 from base64 import b64decode, b64encode
 from typing import List
 
@@ -720,12 +719,13 @@ def b64_image_to_array(image: str, tensor: bool = False):
     Returns:
         np.ndarray or torch.Tensor: A numpy array or torch tensor representation of the decoded image.
     """
-    try:
-        img_bytes = b64decode(image)
-        img_array = np.load(io.BytesIO(img_bytes), allow_pickle=False)
-        return torch.tensor(img_array) if tensor else img_array
-    except Exception as e:
-        raise ValueError(f"An error occurred while decoding the image: {e}")
+    img_bytes = b64decode(image)
+
+    with MemoryFile(img_bytes) as memfile:
+        with memfile.open() as dataset:
+            np_img = dataset.read()
+
+    return torch.tensor(np_img) if tensor else np_img
 
 
 def normalize_and_clamp(x, mean, std, min_val=-3, max_val=3, device="cpu"):
