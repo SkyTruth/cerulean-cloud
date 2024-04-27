@@ -58,7 +58,6 @@ database = gcp.sql.Database(
     db_name,
     instance=instance.name,
     name=db_name,
-    opts=pulumi.ResourceOptions(protect=True),
 )
 users = gcp.sql.User(
     construct_name("database-users"),

@@ -59,7 +59,7 @@ class BaseModel:
 
     def load(self):
         """
-        Loads the model from the given path. This method should be implemented by subclasses.
+        Loads the model from the given path.
         """
         try:
             if self.model is None:
@@ -123,7 +123,7 @@ class MASKRCNNModel(BaseModel):
         stack_tensors = [
             b64_image_to_array(record.image, tensor=True) / 255 for record in inf_stack
         ]
-        print(f"Images have shape {stack_tensors[0].shape}")
+        logging.info(f"Images have shape {stack_tensors[0].shape}")
         return stack_tensors
 
     def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
