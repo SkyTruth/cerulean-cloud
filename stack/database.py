@@ -59,7 +59,6 @@ database = gcp.sql.Database(
     db_name,
     instance=instance.name,
     name=db_name,
-    protect=True,  # This protects the database from being deleted by Pulumi (not by GCP)
 )
 users = gcp.sql.User(
     construct_name("database-users"),
