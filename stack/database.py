@@ -14,6 +14,7 @@ instance = gcp.sql.DatabaseInstance(
         tier=pulumi.Config("db").require("db-instance"),
         backup_configuration=dict(enabled=True),
         # Postgres tuning values ref: https://github.com/developmentseed/how/tree/main/dev/postgresql
+        deletionProtection=False,  # Explicitly disable deletion protection
         database_flags=[
             # flag definitions and allowable values here: https://cloud.google.com/sql/docs/postgres/flags
             dict(name="pg_stat_statements.track", value="all"),
@@ -58,6 +59,7 @@ database = gcp.sql.Database(
     db_name,
     instance=instance.name,
     name=db_name,
+    protect=True,  # This protects the database from being deleted by Pulumi (not by GCP)
 )
 users = gcp.sql.User(
     construct_name("database-users"),
