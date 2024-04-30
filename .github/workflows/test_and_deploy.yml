@@ -83,7 +83,7 @@ jobs:
         run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
@@ -94,7 +94,7 @@ jobs:
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
@@ -147,7 +147,7 @@ jobs:
         run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
@@ -164,7 +164,7 @@ jobs:
           cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
       
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi-refresh
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
@@ -172,7 +172,7 @@ jobs:
           command: refresh
           stack-name: test
       
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
@@ -218,7 +218,7 @@ jobs:
         run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
@@ -235,7 +235,7 @@ jobs:
           cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
       
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi-refresh
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
@@ -243,7 +243,7 @@ jobs:
           command: refresh
           stack-name: staging
 
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi
         with:
           command: up
@@ -290,7 +290,7 @@ jobs:
         run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
@@ -307,7 +307,7 @@ jobs:
           cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
       
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi-refresh
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
@@ -315,7 +315,7 @@ jobs:
           command: refresh
           stack-name: production
 
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v3.113.3
         id: pulumi
         with:
           command: up
