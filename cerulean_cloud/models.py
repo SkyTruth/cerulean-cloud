@@ -645,11 +645,12 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
         crs="EPSG:4326",
     ) as dataset:
         dataset.write(nparray)
-        dataset.flush()
-        img_bytes = dataset.read()
-        encoded_image = b64encode(img_bytes).decode("ascii")
-
-    return encoded_image if encode else memfile
+    if encode:
+        with memfile.open() as dataset:
+            img_bytes = dataset.read()
+            encoded_image = b64encode(img_bytes).decode("ascii")
+        return encoded_image
+    return memfile
 
 
 # def logits_to_classes(out_batch_logits, conf_threshold=0.0):
