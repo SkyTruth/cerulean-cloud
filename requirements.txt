@@ -1,4 +1,4 @@
-pulumi==3.113.3
+pulumi>=3.0.0,<4.0.0
 pulumi-gcp
 pulumi-aws
 pulumi-command
@@ -8,11 +8,11 @@ morecantile
 numpy==1.21
 supermercado
 httpx==0.22.*
-protobuf~=4.21
+protobuf==3.20.*
 geojson
 shapely==2.0.1
 google-cloud-storage
-grpcio~=1.60.1
+grpcio<=1.43.0
 alembic
 asyncpg
 GeoAlchemy2
