@@ -1,6 +1,5 @@
 """cloud function to find slick culprits from AIS tracks"""
-
-# import time
+import time
 
 import database
 import pulumi
@@ -41,19 +40,19 @@ config_values = {
     "DB_URL": database.sql_instance_url_with_asyncpg,
 }
 
-# # The Cloud Function source code itself needs to be zipped up into an
-# # archive, which we create using the pulumi.AssetArchive primitive.
-# PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_ais_analysis"
-# archive = pulumi.FileArchive(PATH_TO_SOURCE_CODE)
+# The Cloud Function source code itself needs to be zipped up into an
+# archive, which we create using the pulumi.AssetArchive primitive.
+PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_ais_analysis"
+archive = pulumi.FileArchive(PATH_TO_SOURCE_CODE)
 
-# # Create the single Cloud Storage object, which contains all of the function's
-# # source code. ("main.py" and "requirements.txt".)
-# source_archive_object = storage.BucketObject(
-#     construct_name("source-cloud-function-ais"),
-#     name="handler.py-%f" % time.time(),
-#     bucket=bucket.name,
-#     source=archive,
-# )
+# Create the single Cloud Storage object, which contains all of the function's
+# source code. ("main.py" and "requirements.txt".)
+source_archive_object = storage.BucketObject(
+    construct_name("source-cloud-function-ais"),
+    name="handler.py-%f" % time.time(),
+    bucket=bucket.name,
+    source=archive,
+)
 
 # Assign access to cloud SQL
 cloud_function_service_account = serviceaccount.Account(
@@ -86,28 +85,28 @@ api_key = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
     project_id=pulumi.Config("gcp").require("project"),
 )
 
-# fxn = cloudfunctions.Function(
-#     function_name,
-#     name=function_name,
-#     entry_point="main",
-#     environment_variables=config_values,
-#     region=pulumi.Config("gcp").require("region"),
-#     runtime="python38",
-#     source_archive_bucket=bucket.name,
-#     source_archive_object=source_archive_object.name,
-#     trigger_http=True,
-#     service_account_email=cloud_function_service_account.email,
-#     available_memory_mb=4096,
-#     timeout=540,
-#     secret_environment_variables=[gfw_credentials, api_key],
-#     opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account_iam]),
-# )
+fxn = cloudfunctions.Function(
+    function_name,
+    name=function_name,
+    entry_point="main",
+    environment_variables=config_values,
+    region=pulumi.Config("gcp").require("region"),
+    runtime="python38",
+    source_archive_bucket=bucket.name,
+    source_archive_object=source_archive_object.name,
+    trigger_http=True,
+    service_account_email=cloud_function_service_account.email,
+    available_memory_mb=4096,
+    timeout=540,
+    secret_environment_variables=[gfw_credentials, api_key],
+    opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account_iam]),
+)
 
-# invoker = cloudfunctions.FunctionIamMember(
-#     construct_name("cloud-function-ais-invoker"),
-#     project=fxn.project,
-#     region=fxn.region,
-#     cloud_function=fxn.name,
-#     role="roles/cloudfunctions.invoker",
-#     member="allUsers",
-# )
+invoker = cloudfunctions.FunctionIamMember(
+    construct_name("cloud-function-ais-invoker"),
+    project=fxn.project,
+    region=fxn.region,
+    cloud_function=fxn.name,
+    role="roles/cloudfunctions.invoker",
+    member="allUsers",
+)
