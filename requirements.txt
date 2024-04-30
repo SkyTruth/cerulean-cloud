@@ -8,7 +8,7 @@ morecantile
 numpy==1.21
 supermercado
 httpx==0.22.*
-protobuf==3.20.*
+protobuf~=4.21
 geojson
 shapely==2.0.1
 google-cloud-storage
