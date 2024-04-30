@@ -12,7 +12,7 @@ protobuf~=4.21
 geojson
 shapely==2.0.1
 google-cloud-storage
-grpcio<=1.43.0
+grpcio~=1.60.1
 alembic
 asyncpg
 GeoAlchemy2
