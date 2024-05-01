@@ -2,6 +2,7 @@
 0. Make any changes you want to EVERYWHERE ELSE that has #EditTheDatabase, but NOT here
 1. Copy this comment
 2. Run:
+    Build the database locally using the readme
     sqlacodegen postgresql://user:password@localhost:5432/db --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
 3. Add to every class:
     #noqa
@@ -224,6 +225,7 @@ class Users(Base):  # noqa
     email = Column(Text)
     emailVerified = Column(DateTime)
     image = Column(Text)
+    role = Column(Text)
 
 
 class VerificationToken(Base):  # noqa

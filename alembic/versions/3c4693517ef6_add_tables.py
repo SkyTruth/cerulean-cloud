@@ -163,6 +163,7 @@ def upgrade() -> None:
         sa.Column("email", sa.Text),
         sa.Column("emailVerified", sa.DateTime),
         sa.Column("image", sa.Text),
+        sa.Column("role", sa.Text),
     )
 
     op.create_table(
