@@ -313,3 +313,5 @@ class DatabaseClient:
 
         # Return the number of rows updated
         return result.rowcount
+
+    # EditTheDatabase

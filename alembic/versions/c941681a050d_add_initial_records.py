@@ -25,6 +25,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 
+    # EditTheDatabase
     with session.begin():
         clses = [
             database_schema.Cls(

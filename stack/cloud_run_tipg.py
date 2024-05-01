@@ -1,6 +1,7 @@
 """infra for cloud run function for orchestration
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
+
 import cloud_run_images
 import pulumi
 import pulumi_gcp as gcp
@@ -94,7 +95,6 @@ default = gcp.cloudrun.Service(
                                 "layer",
                                 "model",
                                 "subscription",
-                                "magic_link",
                                 "aoi_type",
                             ]
                         ],
@@ -120,7 +120,8 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="RESTRICTED_COLLECTIONS",
-                            value='["public.aoi_user","public.filter", "public.frequency", "public.magic_link", "public.subscription", "public.user", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel"]',
+                            value='["public.aoi_user","public.filter", "public.frequency", "public.verification_token", "public.accounts", "public.sessions", "public.subscription", "public.users", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel"]',
+                            # EditTheDatabase
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SECRET_API_KEY",
