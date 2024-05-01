@@ -1,5 +1,5 @@
 """"
-#EditTheDatabase
+0. Make any changes you want to EVERYWHERE ELSE that has #EditTheDatabase, but NOT here
 1. Copy this comment
 2. Run:
     sqlacodegen postgresql://user:password@localhost:5432/db --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
@@ -13,7 +13,7 @@
 6. Paste this comment
 """
 
-from geoalchemy2.types import Geography
+from geoalchemy2.types import Geography, Geometry
 
 # coding: utf-8
 from sqlalchemy import (
@@ -29,6 +29,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Table,
     Text,
     text,
 )
@@ -211,16 +212,49 @@ class Trigger(Base):  # noqa
     trigger_type = Column(String(200), nullable=False)
 
 
-class User(Base):  # noqa
-    __tablename__ = "user"
+class Users(Base):  # noqa
+    __tablename__ = "users"
 
     id = Column(
         BigInteger,
         primary_key=True,
-        server_default=text("nextval('user_id_seq'::regclass)"),
+        server_default=text("nextval('users_id_seq'::regclass)"),
     )
-    email = Column(Text, nullable=False, unique=True)
-    create_time = Column(DateTime, server_default=text("now()"))
+    name = Column(Text)
+    email = Column(Text)
+    emailVerified = Column(DateTime)
+    image = Column(Text)
+
+
+class VerificationToken(Base):  # noqa
+    __tablename__ = "verification_token"
+
+    identifier = Column(Text, primary_key=True, nullable=False)
+    expires = Column(DateTime, nullable=False)
+    token = Column(Text, primary_key=True, nullable=False)
+
+
+class Accounts(Base):  # noqa
+    __tablename__ = "accounts"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('accounts_id_seq'::regclass)"),
+    )
+    userId = Column(ForeignKey("users.id"), nullable=False)
+    type = Column(Text, nullable=False)
+    provider = Column(Text, nullable=False)
+    providerAccountId = Column(Text, nullable=False)
+    refresh_token = Column(Text)
+    access_token = Column(Text)
+    expires_at = Column(BigInteger)
+    id_token = Column(Text)
+    scope = Column(Text)
+    session_state = Column(Text)
+    token_type = Column(Text)
+
+    users = relationship("Users")
 
 
 class Aoi(Base):  # noqa
@@ -239,6 +273,7 @@ class Aoi(Base):  # noqa
     )
 
     aoi_type = relationship("AoiType")
+    slick = relationship("Slick", secondary="slick_to_aoi")
 
 
 class AoiEez(Aoi):  # noqa
@@ -272,28 +307,10 @@ class AoiUser(Aoi):  # noqa
     __tablename__ = "aoi_user"
 
     aoi_id = Column(ForeignKey("aoi.id"), primary_key=True)
-    user = Column(ForeignKey("user.id"))
+    user = Column(ForeignKey("users.id"))
     create_time = Column(DateTime, server_default=text("now()"))
 
-    user1 = relationship("User")
-
-
-class MagicLink(Base):  # noqa
-    __tablename__ = "magic_link"
-
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('magic_link_id_seq'::regclass)"),
-    )
-    user = Column(ForeignKey("user.id"), nullable=False)
-    token = Column(Text, nullable=False)
-    expiration_time = Column(DateTime, nullable=False)
-    is_used = Column(Boolean, nullable=False)
-    create_time = Column(DateTime, server_default=text("now()"))
-    update_time = Column(DateTime, server_default=text("now()"))
-
-    user1 = relationship("User")
+    users = relationship("Users")
 
 
 class OrchestratorRun(Base):  # noqa
@@ -325,6 +342,21 @@ class OrchestratorRun(Base):  # noqa
     model1 = relationship("Model")
     sentinel1_grd1 = relationship("Sentinel1Grd")
     trigger1 = relationship("Trigger")
+
+
+class Sessions(Base):  # noqa
+    __tablename__ = "sessions"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('sessions_id_seq'::regclass)"),
+    )
+    userId = Column(ForeignKey("users.id"), nullable=False)
+    expires = Column(DateTime, nullable=False)
+    sessionToken = Column(Text, nullable=False)
+
+    users = relationship("Users")
 
 
 class Source(Base):  # noqa
@@ -374,7 +406,7 @@ class Subscription(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('subscription_id_seq'::regclass)"),
     )
-    user = Column(ForeignKey("user.id"), nullable=False)
+    user = Column(ForeignKey("users.id"), nullable=False)
     filter = Column(ForeignKey("filter.id"), nullable=False)
     frequency = Column(ForeignKey("frequency.id"), nullable=False)
     active = Column(Boolean)
@@ -383,7 +415,22 @@ class Subscription(Base):  # noqa
 
     filter1 = relationship("Filter")
     frequency1 = relationship("Frequency")
-    user1 = relationship("User")
+    users = relationship("Users")
+
+
+t_aoi_chunks = Table(
+    "aoi_chunks",
+    metadata,
+    Column(
+        "id",
+        ForeignKey("aoi.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"),
+    ),
+    Column(
+        "geometry",
+        Geometry("POLYGON", 4326, from_text="ST_GeomFromEWKT", name="geometry"),
+        nullable=False,
+    ),
+)
 
 
 class Slick(Base):  # noqa
@@ -408,51 +455,37 @@ class Slick(Base):  # noqa
     machine_confidence = Column(Float(53))
     precursor_slicks = Column(ARRAY(BigInteger()))
     notes = Column(Text)
-    length = Column(
-        Float(53),
-        Computed(
-            "GREATEST(st_distance((st_pointn(st_exteriorring(st_orientedenvelope((geometry)::geometry)), 1))::geography, (st_pointn(st_exteriorring(st_orientedenvelope((geometry)::geometry)), 2))::geography), st_distance((st_pointn(st_exteriorring(st_orientedenvelope((geometry)::geometry)), 2))::geography, (st_pointn(st_exteriorring(st_orientedenvelope((geometry)::geometry)), 3))::geography))",
-            persisted=True,
-        ),
-    )
-    area = Column(Float(53), Computed("st_area(geometry)", persisted=True))
-    perimeter = Column(Float(53), Computed("st_perimeter(geometry)", persisted=True))
+    length = Column(Float(53))
+    area = Column(Float(53))
+    perimeter = Column(Float(53))
     centroid = Column(
-        Geography("POINT", 4326, from_text="ST_GeogFromText", name="geography"),
-        Computed("st_centroid(geometry)", persisted=True),
+        Geography("POINT", 4326, from_text="ST_GeogFromText", name="geography")
     )
-    polsby_popper = Column(
-        Float(53),
-        Computed(
-            "((((4)::double precision * pi()) * st_area(geometry)) / (st_perimeter(geometry) ^ (2)::double precision))",
-            persisted=True,
-        ),
-    )
-    fill_factor = Column(
-        Float(53),
-        Computed(
-            "(st_area(geometry) / st_area((st_orientedenvelope((geometry)::geometry))::geography))",
-            persisted=True,
-        ),
-    )
+    polsby_popper = Column(Float(53))
+    fill_factor = Column(Float(53))
 
-    cls = relationship("Cls")
+    cls1 = relationship("Cls")
     orchestrator_run1 = relationship("OrchestratorRun")
 
 
-class SlickToAoi(Base):  # noqa
-    __tablename__ = "slick_to_aoi"
-
-    id = Column(
-        BigInteger,
+t_slick_to_aoi = Table(
+    "slick_to_aoi",
+    metadata,
+    Column(
+        "slick",
+        ForeignKey(
+            "slick.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"
+        ),
         primary_key=True,
-        server_default=text("nextval('slick_to_aoi_id_seq'::regclass)"),
-    )
-    slick = Column(ForeignKey("slick.id"), nullable=False)
-    aoi = Column(ForeignKey("aoi.id"), nullable=False)
-
-    aoi1 = relationship("Aoi")
-    slick1 = relationship("Slick")
+        nullable=False,
+    ),
+    Column(
+        "aoi",
+        ForeignKey("aoi.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"),
+        primary_key=True,
+        nullable=False,
+    ),
+)
 
 
 class SlickToSource(Base):  # noqa
@@ -470,7 +503,7 @@ class SlickToSource(Base):  # noqa
     hitl_confirmed = Column(Boolean)
     geojson_fc = Column(JSON, nullable=False)
     geometry = Column(
-        Geography("GEOMETRY", 4326, from_text="ST_GeogFromText", name="geography"),
+        Geography(srid=4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))

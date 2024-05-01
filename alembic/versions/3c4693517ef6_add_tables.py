@@ -157,10 +157,12 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "user",
+        "users",
         sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("email", sa.Text, nullable=False, unique=True),
-        sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("name", sa.Text),
+        sa.Column("email", sa.Text),
+        sa.Column("emailVerified", sa.DateTime),
+        sa.Column("image", sa.Text),
     )
 
     op.create_table(
@@ -180,7 +182,7 @@ def upgrade() -> None:
     op.create_table(
         "subscription",
         sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("user", sa.BigInteger, sa.ForeignKey("user.id"), nullable=False),
+        sa.Column("user", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
         sa.Column("filter", sa.BigInteger, sa.ForeignKey("filter.id"), nullable=False),
         sa.Column(
             "frequency", sa.Integer, sa.ForeignKey("frequency.id"), nullable=False
@@ -191,14 +193,35 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "magic_link",
-        sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("user", sa.BigInteger, sa.ForeignKey("user.id"), nullable=False),
+        "verification_token",
+        sa.Column("identifier", sa.Text, nullable=False),
+        sa.Column("expires", sa.DateTime, nullable=False),
         sa.Column("token", sa.Text, nullable=False),
-        sa.Column("expiration_time", sa.DateTime, nullable=False),
-        sa.Column("is_used", sa.Boolean, nullable=False),
-        sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
-        sa.Column("update_time", sa.DateTime, server_default=sa.func.now()),
+        sa.PrimaryKeyConstraint("identifier", "token"),
+    )
+
+    op.create_table(
+        "accounts",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("userId", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("type", sa.Text, nullable=False),
+        sa.Column("provider", sa.Text, nullable=False),
+        sa.Column("providerAccountId", sa.Text, nullable=False),
+        sa.Column("refresh_token", sa.Text),
+        sa.Column("access_token", sa.Text),
+        sa.Column("expires_at", sa.BigInteger),
+        sa.Column("id_token", sa.Text),
+        sa.Column("scope", sa.Text),
+        sa.Column("session_state", sa.Text),
+        sa.Column("token_type", sa.Text),
+    )
+
+    op.create_table(
+        "sessions",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("userId", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("expires", sa.DateTime, nullable=False),
+        sa.Column("sessionToken", sa.Text, nullable=False),
     )
 
     op.create_table(
@@ -247,7 +270,7 @@ def upgrade() -> None:
     op.create_table(
         "aoi_user",
         sa.Column("aoi_id", sa.BigInteger, sa.ForeignKey("aoi.id"), primary_key=True),
-        sa.Column("user", sa.BigInteger, sa.ForeignKey("user.id")),
+        sa.Column("user", sa.BigInteger, sa.ForeignKey("users.id")),
         sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
     )
 
@@ -355,11 +378,13 @@ def downgrade() -> None:
     op.drop_table("aoi_eez")
     op.drop_table("aoi")
     op.drop_table("aoi_type")
-    op.drop_table("magic_link")
+    op.drop_table("verification_token")
+    op.drop_table("sessions")
+    op.drop_table("accounts")
     op.drop_table("subscription")
     op.drop_table("frequency")
     op.drop_table("filter")
-    op.drop_table("user")
+    op.drop_table("users")
     op.drop_table("slick")
     op.drop_table("cls")
     op.drop_table("orchestrator_run")
