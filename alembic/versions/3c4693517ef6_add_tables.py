@@ -372,6 +372,7 @@ def downgrade() -> None:
     op.drop_table("source")
     op.drop_table("source_type")
     op.drop_table("slick_to_aoi")
+    op.drop_table("aoi_chunks")
     op.drop_table("aoi_user")
     op.drop_table("aoi_mpa")
     op.drop_table("aoi_iho")
