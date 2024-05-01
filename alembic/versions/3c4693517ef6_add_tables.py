@@ -5,6 +5,7 @@ Revises: 54c42e9e879f
 Create Date: 2022-06-30 11:45:00.359562
 
 """
+
 import sqlalchemy as sa
 from geoalchemy2 import Geography, Geometry
 from sqlalchemy.dialects.postgresql import JSONB
@@ -21,6 +22,7 @@ depends_on = None
 
 def upgrade() -> None:
     """add tables"""
+    # EditTheDatabase
 
     op.create_table(
         "layer",
@@ -49,7 +51,7 @@ def upgrade() -> None:
         sa.Column(
             "zoom_level",
             sa.Integer,
-            sa.Computed("ROUND(LOG(2, 40075000.0 / tile_width_m)) - 1")
+            sa.Computed("ROUND(LOG(2, 40075000.0 / tile_width_m)) - 1"),
             # 40075000 = Earth Circumference in meters
             # '- 1' comes from using WorldCRS84Quad which has the zoom level "off-by-one" compared to WebMercatorQuad
         ),
@@ -365,3 +367,5 @@ def downgrade() -> None:
     op.drop_table("sentinel1_grd")
     op.drop_table("model")
     op.drop_table("layer")
+
+    # EditTheDatabase

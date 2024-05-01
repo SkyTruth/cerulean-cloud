@@ -1,4 +1,5 @@
 """"
+#EditTheDatabase
 1. Copy this comment
 2. Run:
     sqlacodegen postgresql://user:password@localhost:5432/db --noviews --noindexes --noinflect > cerulean_cloud/database_schema.py
@@ -11,6 +12,7 @@
     metadata = Base.metadata
 6. Paste this comment
 """
+
 from geoalchemy2.types import Geography
 
 # coding: utf-8

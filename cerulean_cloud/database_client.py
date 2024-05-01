@@ -1,4 +1,5 @@
 """Client code to interact with the database"""
+
 import os
 from typing import Optional
 
@@ -312,3 +313,5 @@ class DatabaseClient:
 
         # Return the number of rows updated
         return result.rowcount
+
+    # EditTheDatabase
