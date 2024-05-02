@@ -71,7 +71,7 @@ def upgrade() -> None:
         models = [
             database_schema.Model(
                 type="MASKRCNN",
-                file_path="experiments/2023_10_05_02_22_46_4cls_rnxt101_pr512_px1024_680min_maskrcnn_wd01/scripting_cpu_model.pt",
+                file_path="experiments/2024_03_06_18_14_31_7cls_rn101_pr256_z9_fastai_baseline_noamb/scripting_cpu_model.pt",
                 layers=["VV", "ALL_255", "VESSEL"],
                 cls_map={
                     0: "BACKGROUND",
