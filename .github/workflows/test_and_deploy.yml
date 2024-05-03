@@ -149,15 +149,31 @@ jobs:
         run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
+
+      - name: Log system information before Pulumi
+        run: |
+          echo "Disk space:"
+          df -h
+          echo "Memory usage:"
+          free -m  
+
       - uses: pulumi/actions@v3
         id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
+          PULUMI_LOG_LEVEL: debug
         with:
           pulumi-version: '3.113.3'
           work-dir: images/
           command: up
           stack-name: test
+          
+      - name: Log system information after Pulumi
+        run: |
+          echo "Disk space:"
+          df -h
+          echo "Memory usage:"
+          free -m
 
       # Copy shared database_client.py files
       - name: Copy Shared File
