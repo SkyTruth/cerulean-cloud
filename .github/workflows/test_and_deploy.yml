@@ -183,11 +183,19 @@ jobs:
           echo "Memory usage:"
           free -m  
       
+      - name: Log system information before Pulumi
+        run: |
+          echo "Disk space:"
+          df -h
+          echo "Memory usage:"
+          free -m  
+
       - uses: pulumi/actions@v3
         id: pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
+          PULUMI_LOG_LEVEL: debug
         with:
           pulumi-version: '3.113.3'
           command: up
