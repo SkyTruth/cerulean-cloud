@@ -1,21 +1,30 @@
 FROM python:3.8-slim
+
 # Allow statements and log messages to immediately appear in the Knative logs
 ENV PYTHONUNBUFFERED True
 
-# RUN apt-get update && apt-get install -y gcc python3-opencv g++ && apt-get -y clean && apt-get -y autoremove
-
-# Copy local code to the container image.
+# Set the application directory
 ENV APP_HOME /app
 WORKDIR $APP_HOME
+
+# Copy local code to the container image.
 COPY cerulean_cloud/ /app/cerulean_cloud/
 
-# Install production dependencies.
-RUN pip install -r cerulean_cloud/cloud_run_offset_tiles/requirements.txt
+# Install system dependencies required for GDAL
+RUN apt-get update && apt-get install -y \
+    libgdal-dev \
+    gcc \
+    g++ \
+    && apt-get -y clean \
+    && apt-get -y autoremove
 
-# Run the web service on container startup. Here we use the gunicorn
-# webserver, with one worker process and 8 threads.
+# Set GDAL environment variable for the config path and install Python dependencies
+RUN GDAL_VERSION=$(gdal-config --version) && \
+    pip install -r cerulean_cloud/cloud_run_offset_tiles/requirements.txt
+
+# Run the web service on container startup. Here we use the uvicorn
+# web server, with one worker process and 8 threads.
 # For environments with multiple CPU cores, increase the number of workers
 # to be equal to the cores available.
 # Timeout is set to 0 to disable the timeouts of the workers to allow Cloud Run to handle instance scaling.
 CMD exec uvicorn --port $PORT --host 0.0.0.0 cerulean_cloud.cloud_run_offset_tiles.handler:app
-
