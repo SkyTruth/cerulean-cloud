@@ -175,6 +175,13 @@ jobs:
           pulumi-version: '3.113.3'
           command: refresh
           stack-name: test
+
+      - name: Log system information before Pulumi
+        run: |
+          echo "Disk space:"
+          df -h
+          echo "Memory usage:"
+          free -m  
       
       - uses: pulumi/actions@v3
         id: pulumi
@@ -185,6 +192,13 @@ jobs:
           pulumi-version: '3.113.3'
           command: up
           stack-name: test
+
+      - name: Log system information after Pulumi
+        run: |
+          echo "Disk space:"
+          df -h
+          echo "Memory usage:"
+          free -m
 
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
