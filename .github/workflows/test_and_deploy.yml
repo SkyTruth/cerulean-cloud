@@ -175,13 +175,6 @@ jobs:
           pulumi-version: '3.113.3'
           command: refresh
           stack-name: test
-
-      - name: Log system information before Pulumi
-        run: |
-          echo "Disk space:"
-          df -h
-          echo "Memory usage:"
-          free -m  
       
       - name: Log system information before Pulumi
         run: |
