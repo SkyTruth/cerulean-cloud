@@ -96,7 +96,7 @@ def upgrade() -> None:
             ),
             database_schema.Model(
                 type="FASTAIUNET",
-                file_path="experiments/2024_03_06_18_14_31_7cls_rn101_pr256_z9_fastai_baseline_noamb/tracing_cpu_model.pt",
+                file_path="experiments/2024_03_06_18_14_31_7cls_rn101_pr256_z9_fastai_baseline_noamb/4x_scripting_cpu_model.pt",
                 layers=["VV"],
                 cls_map={
                     0: "BACKGROUND",

@@ -2,7 +2,7 @@ encryptionsalt: v1:/dV9M1NH8EA=:v1:IPmnUfz0q6E6S8y7:fl72KMTy2rm7uY4bZzP4p790z9k8
 config:
   aws:region: eu-central-1
   cerulean-cloud-images:weights_bucket: ceruleanml
-  cerulean-cloud-images:weights_name: experiments/2024_03_06_18_14_31_7cls_rn101_pr256_z9_fastai_baseline_noamb/scripting_cpu_model.pt
+  cerulean-cloud-images:weights_name: experiments/2024_03_06_18_14_31_7cls_rn101_pr256_z9_fastai_baseline_noamb/4x_scripting_cpu_model.pt
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
