@@ -115,15 +115,6 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v2
-      
-      - name: Free up Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
-            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          fi
 
       - name: Docker Cleanup
         run: |
