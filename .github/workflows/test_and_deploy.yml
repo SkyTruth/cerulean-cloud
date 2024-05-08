@@ -115,6 +115,15 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v2
+      
+      - name: Free up Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
+            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          fi
 
       - name: Docker Cleanup
         run: |
@@ -241,6 +250,22 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v2
+      
+      - name: Free up Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
+            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          fi
+
+      - name: Docker Cleanup
+        run: |
+          docker system prune -af
+          echo "Disk space after cleanup:"
+          df -h
+      
       - uses: actions/setup-python@v2
         with:
           python-version: 3.8
@@ -316,6 +341,22 @@ jobs:
     if: startsWith(github.event.ref, 'refs/tags')
     steps:
       - uses: actions/checkout@v2
+      
+      - name: Free up Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
+            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          fi
+
+      - name: Docker Cleanup
+        run: |
+          docker system prune -af
+          echo "Disk space after cleanup:"
+          df -h
+      
       - uses: actions/setup-python@v2
         with:
           python-version: 3.8
