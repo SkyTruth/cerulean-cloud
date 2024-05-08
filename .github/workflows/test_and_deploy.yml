@@ -109,12 +109,28 @@ jobs:
 
   deploy-test:
     name: Deploy [TEST]
-    runs-on: ubuntu-latest-32
+    runs-on: ubuntu-latest
     environment: test
     needs: [tests]
     if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v2
+      
+      - name: Free up Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
+            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          fi
+
+      - name: Docker Cleanup
+        run: |
+          docker system prune -af
+          echo "Disk space after cleanup:"
+          df -h
+      
       - uses: actions/setup-python@v2
         with:
           python-version: 3.8
@@ -229,7 +245,7 @@ jobs:
   deploy-staging:
     name: Deploy [STAGING]
     needs: [tests]
-    runs-on: ubuntu-latest-32
+    runs-on: ubuntu-latest
     environment: staging
     if: github.ref == 'refs/heads/main'
     steps:
@@ -304,7 +320,7 @@ jobs:
   deploy-production:
     name: Deploy [PRODUCTION]
     needs: [tests]
-    runs-on: ubuntu-latest-32
+    runs-on: ubuntu-latest
     environment: production
     if: startsWith(github.event.ref, 'refs/tags')
     steps:
