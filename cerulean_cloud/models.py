@@ -710,13 +710,18 @@ def b64_image_to_array(image: str, tensor: bool = False):
     Returns:
         np.ndarray or torch.Tensor: A numpy array or torch tensor representation of the decoded image.
     """
-    img_bytes = b64decode(image)
+    print("XXX 713 image: ", image)
+    try:
+        img_bytes = b64decode(image)
 
-    with MemoryFile(img_bytes) as memfile:
-        with memfile.open() as dataset:
-            np_img = dataset.read()
+        with MemoryFile(img_bytes) as memfile:
+            with memfile.open() as dataset:
+                np_img = dataset.read()
 
-    return torch.tensor(np_img) if tensor else np_img
+        return torch.tensor(np_img) if tensor else np_img
+    except Exception as e:
+        logging.error(f"Failed to convert base64 image to array: {e}")
+        raise
 
 
 def normalize_and_clamp(x, mean, std, min_val=-3, max_val=3, device="cpu"):
