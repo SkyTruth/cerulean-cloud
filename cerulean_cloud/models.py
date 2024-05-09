@@ -249,7 +249,7 @@ class FASTAIUNETModel(BaseModel):
         inference_results = [
             InferenceResult(
                 tile_logits_b64=memfile_gtiff(
-                    p.astype("uint8"), bounds=bounds[i], encode=True
+                    p.cpu().numpy().astype("uint8"), bounds=bounds[i], encode=True
                 ),
                 bounds=bounds[i],
             )
