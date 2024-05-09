@@ -55,16 +55,17 @@ instance = gcp.sql.DatabaseInstance(
 
 
 db_name = construct_name("database")
-database = gcp.sql.Database(
-    db_name,
-    instance=instance.name,
-    name=db_name,
-)
 users = gcp.sql.User(
     construct_name("database-users"),
     name=db_name,
     instance=instance.name,
     password=pulumi.Config("db").require_secret("db-password"),
+)
+database = gcp.sql.Database(
+    db_name,
+    instance=instance.name,
+    name=db_name,
+    opts=pulumi.ResourceOptions(depends_on=[users]),
 )
 
 sql_instance_url_with_asyncpg = pulumi.Output.concat(
