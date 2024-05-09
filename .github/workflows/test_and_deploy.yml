@@ -124,12 +124,6 @@ jobs:
           if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
             sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           fi
-
-      - name: Docker Cleanup
-        run: |
-          docker system prune -af
-          echo "Disk space after cleanup:"
-          df -h
       
       - uses: actions/setup-python@v2
         with:
