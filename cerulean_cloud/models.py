@@ -249,7 +249,9 @@ class FASTAIUNETModel(BaseModel):
         inference_results = [
             InferenceResult(
                 tile_logits_b64=memfile_gtiff(
-                    p.detach().numpy().astype("uint8"), bounds=bounds[i], encode=True
+                    nparray=p.detach().numpy().astype("uint8"),
+                    bounds=bounds[i],
+                    encode=True,
                 ),
                 bounds=bounds[i],
             )
@@ -622,8 +624,10 @@ def vectorize_mask_instance(
 
 
 def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
-    """Creates a raster in memory from an array."""
-    # Ensure nparray is at least 3D (1 x height x width)
+    """
+    Creates a raster in memory from an array and optionally returns it as a base64 encoded string.
+    If encode is False, returns a numpy array of the raster data.
+    """
     nparray = nparray[np.newaxis, :, :] if nparray.ndim == 2 else nparray
     transform = transform or (
         rasterio.transform.from_bounds(
@@ -633,24 +637,27 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
         else rasterio.transform.from_origin(0, 0, 1, 1)
     )
 
-    memfile = MemoryFile()
+    with MemoryFile() as memfile:
+        with memfile.open(
+            driver="GTiff",
+            count=nparray.shape[0],  # number of bands
+            height=nparray.shape[1],
+            width=nparray.shape[2],
+            dtype=nparray.dtype,
+            transform=transform,
+            crs="EPSG:4326",
+        ) as dataset:
+            dataset.write(nparray)
+            dataset.flush()  # Ensure data is written before accessing it
 
-    with memfile.open(
-        driver="GTiff",
-        count=nparray.shape[0],  # number of bands
-        height=nparray.shape[1],
-        width=nparray.shape[2],
-        dtype=nparray.dtype,
-        transform=transform,
-        crs="EPSG:4326",
-    ) as dataset:
-        dataset.write(nparray)
-    if encode:
-        with memfile.open() as dataset:
-            img_bytes = dataset.read()
-            encoded_image = b64encode(img_bytes).decode("ascii")
-        return encoded_image
-    return memfile
+            if encode:
+                # Ensure the memory file's pointer is at the beginning
+                memfile.seek(0)
+                # Return base64-encoded string of the GeoTIFF
+                return b64encode(memfile.read()).decode("ascii")
+            else:
+                # Read the data to return as numpy array within the context
+                return dataset.read(array_out=True)
 
 
 # def logits_to_classes(out_batch_logits, conf_threshold=0.0):
