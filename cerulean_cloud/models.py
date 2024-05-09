@@ -637,27 +637,25 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
         else rasterio.transform.from_origin(0, 0, 1, 1)
     )
 
-    with MemoryFile() as memfile:
-        with memfile.open(
-            driver="GTiff",
-            count=nparray.shape[0],  # number of bands
-            height=nparray.shape[1],
-            width=nparray.shape[2],
-            dtype=nparray.dtype,
-            transform=transform,
-            crs="EPSG:4326",
-        ) as dataset:
-            dataset.write(nparray)
-            dataset.flush()  # Ensure data is written before accessing it
+    memfile = MemoryFile()
+    with memfile.open(
+        driver="GTiff",
+        count=nparray.shape[0],  # number of bands
+        height=nparray.shape[1],
+        width=nparray.shape[2],
+        dtype=nparray.dtype,
+        transform=transform,
+        crs="EPSG:4326",
+    ) as dataset:
+        dataset.write(nparray)
+        dataset.flush()
 
-            if encode:
-                # Ensure the memory file's pointer is at the beginning
-                memfile.seek(0)
-                # Return base64-encoded string of the GeoTIFF
-                return b64encode(memfile.read()).decode("ascii")
-            else:
-                # Read the data to return as numpy array within the context
-                return dataset.read(array_out=True)
+        if encode:
+            # Ensure the memory file's pointer is at the beginning
+            memfile.seek(0)
+            # Return base64-encoded string of the GeoTIFF
+            return b64encode(memfile.read()).decode("ascii")
+    return memfile
 
 
 # def logits_to_classes(out_batch_logits, conf_threshold=0.0):
