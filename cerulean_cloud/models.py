@@ -648,8 +648,6 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
         crs="EPSG:4326",
     ) as dataset:
         dataset.write(nparray)
-        dataset.flush()
-
         if encode:
             # Ensure the memory file's pointer is at the beginning
             memfile.seek(0)
