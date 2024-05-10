@@ -648,11 +648,12 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
         crs="EPSG:4326",
     ) as dataset:
         dataset.write(nparray)
-        if encode:
-            # Ensure the memory file's pointer is at the beginning
-            memfile.seek(0)
-            # Return base64-encoded string of the GeoTIFF
-            return b64encode(memfile.read()).decode("ascii")
+
+    memfile.seek(0)
+    if encode:
+        encoded = b64encode(memfile.read()).decode("ascii")
+        print("XXX 655 encoded:", encoded)
+        return encoded
     return memfile
 
 
@@ -713,11 +714,13 @@ def b64_image_to_array(image: str, tensor: bool = False):
     print("XXX 713 image: ", image)
     try:
         img_bytes = b64decode(image)
+        print("XXX 717 img_bytes", img_bytes)
 
         with MemoryFile(img_bytes) as memfile:
             with memfile.open() as dataset:
                 np_img = dataset.read()
 
+        print("XXX 722 np_img", np_img)
         return torch.tensor(np_img) if tensor else np_img
     except Exception as e:
         logging.error(f"Failed to convert base64 image to array: {e}")
