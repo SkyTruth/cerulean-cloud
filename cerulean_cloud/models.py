@@ -306,21 +306,28 @@ class FASTAIUNETModel(BaseModel):
 
     def instantiate(self, scene_array_logits):
         """
-        Processes scene logits to probabilities using softmax, excluding the background class,
-        and generates features for each class index.
+            Processes scene logits to probabilities using softmax, excluding the background class,
+            and generates features for each class index.
 
         Args:
-            scene_array_logits (Tensor): A tensor containing logits for each class in the scene,
-                                        where the first dimension corresponds to class indices.
+            scene_array_logits (Tensor or numpy.ndarray): A tensor containing logits for each class in the scene,
+                where the first dimension corresponds to class indices.
 
-        Returns:
-            list: A list of features, where each feature is derived from class probabilities,
-                excluding the background class. Each feature includes additional properties
-                such as the class index.
+            Returns:
+                list: A list of features, where each feature is derived from class probabilities,
+                    excluding the background class. Each feature includes additional properties
+                    such as the class index.
         """
+
+        # Convert numpy.ndarray to PyTorch tensor if necessary
+        if isinstance(scene_array_logits, np.ndarray):
+            scene_array_logits = torch.tensor(scene_array_logits)
+
         scene_probs = torch.nn.functional.softmax(scene_array_logits, dim=0)
         features = []
+        print("len(scene_probs)", len(scene_probs))
         for inf_idx, cls_probs in enumerate(scene_probs):
+            # XXX Do we need to add 1 to inf_idx? i.e. do the logits include a background layer or not?
             if inf_idx != self.background_class_idx:
                 features.append(
                     instances_from_probs(cls_probs, addl_props={"inf_idx": inf_idx})
@@ -712,16 +719,13 @@ def b64_image_to_array(image: str, tensor: bool = False):
     Returns:
         np.ndarray or torch.Tensor: A numpy array or torch tensor representation of the decoded image.
     """
-    print("XXX 713 image: ", image)
     try:
         img_bytes = b64decode(image)
-        print("XXX 717 img_bytes", img_bytes)
 
         with MemoryFile(img_bytes) as memfile:
             with memfile.open() as dataset:
                 np_img = dataset.read()
 
-        print("XXX 722 np_img", np_img)
         return torch.tensor(np_img) if tensor else np_img
     except Exception as e:
         logging.error(f"Failed to convert base64 image to array: {e}")
