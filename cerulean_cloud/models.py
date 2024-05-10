@@ -16,7 +16,7 @@ import torch
 import torchvision  # noqa
 from rasterio.features import shapes
 from rasterio.io import MemoryFile
-from rasterio.merge import rio_merge
+from rasterio.merge import merge as rio_merge
 from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
 
