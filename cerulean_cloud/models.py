@@ -16,6 +16,7 @@ import torch
 import torchvision  # noqa
 from rasterio.features import shapes
 from rasterio.io import MemoryFile
+from rasterio.merge import rio_merge
 from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
 
@@ -297,7 +298,7 @@ class FASTAIUNETModel(BaseModel):
             ]
 
             logging.info("Merging tiles!")
-            scene_array, transform = rasterio.merge.merge(ds_tiles)
+            scene_array, transform = rio_merge(ds_tiles)
             return scene_array, transform
         finally:
             for ds in ds_tiles:
