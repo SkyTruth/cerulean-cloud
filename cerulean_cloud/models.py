@@ -323,7 +323,10 @@ class FASTAIUNETModel(BaseModel):
         if isinstance(scene_array_logits, np.ndarray):
             scene_array_logits = torch.tensor(scene_array_logits)
 
-        scene_probs = torch.nn.functional.softmax(scene_array_logits, dim=0)
+        scene_probs = torch.nn.functional.softmax(
+            scene_array_logits.to(dtype=torch.float32),
+            dim=0,
+        )
         features = []
         print("len(scene_probs)", len(scene_probs))
         for inf_idx, cls_probs in enumerate(scene_probs):
