@@ -113,9 +113,9 @@ def upgrade() -> None:
                 epochs=80,
                 thresholds={
                     "pixel_nms_thresh": 0.4,
-                    "bbox_score_thresh": 0.01,
+                    "bbox_score_thresh": 0.001,
                     "poly_score_thresh": 0.5,
-                    "pixel_score_thresh": 0.995,
+                    "pixel_score_thresh": 0.9995,
                     "groundtruth_dice_thresh": 0.0,
                 },
                 backbone_size=101,

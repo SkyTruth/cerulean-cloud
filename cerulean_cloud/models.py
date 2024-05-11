@@ -780,6 +780,9 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
     Returns:
         GeoJSON: A GeoJSON feature collection of the processed predictions.
     """
+
+    raster = raster.float().detach().numpy()
+
     # Label components based on p3 to find peaks
     p1_islands, p1_island_count = label(raster >= p1)
     logging.info(f"p1_island_count: {p1_island_count}")
@@ -795,9 +798,10 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
         p1_label_at_p3 = p1_islands[p3_island_mask].flat[
             0
         ]  # Take the first pixel's p1 label
+        if not i % 1000:
+            print("i:", i)
+            print("reduced_labels", reduced_labels)
         reduced_labels.add(p1_label_at_p3)
-        print("i", i)
-        print("reduced_labels", reduced_labels)
     logging.info(f"reduced_labels: {len(reduced_labels)}")
 
     features = []

@@ -21,6 +21,7 @@ import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
+from google.cloud import storage
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
@@ -311,6 +312,13 @@ async def _orchestrate(
                     for igt in inference_group_tasks
                 ]
 
+                bucket_name = "stitching_results_dump"
+                for index, results in enumerate(inference_group_results):
+                    file_name = (
+                        f"inference_results_{index}_{datetime.now().isoformat()}.bin"
+                    )
+                    save_to_gcs(bucket_name, file_name, results)
+
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
                 model = get_model(model_dict)
@@ -390,3 +398,16 @@ async def _orchestrate(
         else:
             print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
     return OrchestratorResult(status="Success")
+
+
+def save_to_gcs(bucket_name, file_name, data):
+    """Saves data to a file in Google Cloud Storage."""
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(file_name)
+
+    # Serialize and write the numpy data to the bucket
+    np_data = np.array(
+        data, dtype=np.uint8
+    )  # Ensure data is in the correct uint8 format
+    blob.upload_from_string(np_data.tobytes(), content_type="application/octet-stream")
