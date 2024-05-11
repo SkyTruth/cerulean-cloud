@@ -328,12 +328,16 @@ class FASTAIUNETModel(BaseModel):
             dim=0,
         )
         features = []
-        print("len(scene_probs)", len(scene_probs))
         for inf_idx, cls_probs in enumerate(scene_probs):
-            # XXX Do we need to add 1 to inf_idx? i.e. do the logits include a background layer or not?
             if inf_idx != self.background_class_idx:
                 features.append(
-                    instances_from_probs(cls_probs, addl_props={"inf_idx": inf_idx})
+                    instances_from_probs(
+                        cls_probs,
+                        p1=self.model_dict["thresholds"]["bbox_score_thresh"],
+                        p2=self.model_dict["thresholds"]["poly_score_thresh"],
+                        p3=self.model_dict["thresholds"]["pixel_score_thresh"],
+                        addl_props={"inf_idx": inf_idx},
+                    )
                 )
 
         return features
@@ -772,7 +776,7 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
         p2 (float): The middle probability, used to trim the final polygons size. lower value = coarser polygons
         p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. higher value = more restrictive
         Sample values: p1, p2, p3 = 0.1, 0.5, 0.95
-        Analogous to p1, bbox_score_thresh, pixel_score_thresh
+        Analogous to bbox_score_thresh, poly_score_thresh, pixel_score_thresh
     Returns:
         GeoJSON: A GeoJSON feature collection of the processed predictions.
     """
