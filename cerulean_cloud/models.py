@@ -782,9 +782,9 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
     """
     # Label components based on p3 to find peaks
     p1_islands, p1_island_count = label(raster >= p1)
-    logging.info("p1_island_count", p1_island_count)
+    logging.info(f"p1_island_count: {p1_island_count}")
     p3_islands, p3_island_count = label(raster >= p3)
-    logging.info("p3_island_count", p3_island_count)
+    logging.info(f"p3_island_count: {p3_island_count}")
 
     # Initialize an empty set for unique p1 labels corresponding to p3 components
     reduced_labels = set()
@@ -796,7 +796,9 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
             0
         ]  # Take the first pixel's p1 label
         reduced_labels.add(p1_label_at_p3)
-    logging.info("reduced_labels", len(reduced_labels))
+        print("i", i)
+        print("reduced_labels", reduced_labels)
+    logging.info(f"reduced_labels: {len(reduced_labels)}")
 
     features = []
     # Process into feature collections based on unique p1 labels
