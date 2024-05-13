@@ -313,11 +313,11 @@ async def _orchestrate(
                 ]
 
                 bucket_name = "stitching_results_dump"
-                for index, results in enumerate(inference_group_results):
+                for index, result in enumerate(inference_group_results[0]):
                     file_name = (
                         f"inference_results_{index}_{datetime.now().isoformat()}.bin"
                     )
-                    save_to_gcs(bucket_name, file_name, results)
+                    save_to_gcs(bucket_name, file_name, result.tile_logits_b64)
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
@@ -405,9 +405,4 @@ def save_to_gcs(bucket_name, file_name, data):
     client = storage.Client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(file_name)
-
-    # Serialize and write the numpy data to the bucket
-    np_data = np.array(
-        data, dtype=np.uint8
-    )  # Ensure data is in the correct uint8 format
-    blob.upload_from_string(np_data.tobytes(), content_type="application/octet-stream")
+    blob.upload_from_string(data)

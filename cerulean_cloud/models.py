@@ -667,7 +667,6 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
     memfile.seek(0)
     if encode:
         encoded = b64encode(memfile.read()).decode("ascii")
-        print("XXX 655 encoded:", encoded)
         return encoded
     return memfile
 
