@@ -36,6 +36,7 @@ def upgrade() -> None:
     session = orm.Session(bind=bind)
 
     mpa = get_mpa_from_url()
+    mpa = {"features": []}  # noqa
     for feat in mpa.get("features"):
         geometry = shape(feat["geometry"]).buffer(0)
         if not isinstance(geometry, MultiPolygon):

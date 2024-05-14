@@ -37,6 +37,7 @@ def upgrade() -> None:
 
     iho = get_iho_from_url()
 
+    iho = {"features": []}  # noqa
     for feat in iho.get("features"):
         geometry = shape(feat["geometry"]).buffer(0)
         if not isinstance(geometry, MultiPolygon):
