@@ -361,7 +361,7 @@ def upgrade() -> None:
         sa.Column(
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
-        sa.Column("hitl_status", sa.Boolean),
+        sa.Column("hitl_verification", sa.Boolean),
         sa.Column("hitl_confidence", sa.Float),
         sa.Column("hitl_user", sa.BigInteger, sa.ForeignKey("users.id")),
         sa.Column("hitl_time", sa.DateTime),
