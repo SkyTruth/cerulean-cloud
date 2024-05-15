@@ -33,6 +33,15 @@ class InferenceResult(BaseModel):
     features_geojson: Optional[List[geojson.Feature]]  # MASKRCNN
     bounds: Optional[List[float]]
 
+    class Config:
+        """
+        This tells Pydantic to allow arbitrary types, like geojson.Feature,
+        within this model without trying to validate them based on Pydantic's
+        internal schema constraints.
+        """
+
+        arbitrary_types_allowed = True  # Allow geojson.Feature
+
 
 class InferenceResultStack(BaseModel):
     """
