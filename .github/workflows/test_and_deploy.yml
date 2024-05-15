@@ -88,7 +88,6 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
-          pulumi-version: '3.113.3'
           work-dir: images/
           command: preview
           stack-name: test
@@ -100,7 +99,6 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
-          pulumi-version: '3.113.3'
           command: preview
           stack-name: test
 
@@ -154,7 +152,6 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
-          pulumi-version: '3.113.3'
           work-dir: images/
           command: up
           stack-name: test
@@ -172,7 +169,6 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
-          pulumi-version: '3.113.3'
           command: refresh
           stack-name: test
       
@@ -182,7 +178,6 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
-          pulumi-version: '3.113.3'
           command: up
           stack-name: test
 
@@ -228,7 +223,6 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
         with:
-          pulumi-version: '3.113.3'
           work-dir: images/
           command: up
           stack-name: staging
@@ -246,14 +240,12 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
         with:
-          pulumi-version: '3.113.3'
           command: refresh
           stack-name: staging
 
       - uses: pulumi/actions@v3
         id: pulumi
         with:
-          pulumi-version: '3.113.3'
           command: up
           stack-name: staging
 
@@ -303,7 +295,6 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
         with:
-          pulumi-version: '3.113.3'
           work-dir: images/
           command: up
           stack-name: production
@@ -321,14 +312,12 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
         with:
-          pulumi-version: '3.113.3'
           command: refresh
           stack-name: production
 
       - uses: pulumi/actions@v3
         id: pulumi
         with:
-          pulumi-version: '3.113.3'
           command: up
           stack-name: production
 
