@@ -470,6 +470,25 @@ class Slick(Base):  # noqa
     orchestrator_run1 = relationship("OrchestratorRun")
 
 
+class HitlSlick(Base):  # noqa
+    __tablename__ = "hitl_slick"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('hitl_slick_id_seq'::regclass)"),
+    )
+    slick = Column(ForeignKey("slick.id"), nullable=False)
+    user = Column(ForeignKey("users.id"), nullable=False)
+    cls = Column(ForeignKey("cls.id"), nullable=False)
+    confidence = Column(Float(53))
+    update_time = Column(DateTime, nullable=False, server_default=text("now()"))
+
+    cls1 = relationship("Cls")
+    slick1 = relationship("Slick")
+    users = relationship("Users")
+
+
 t_slick_to_aoi = Table(
     "slick_to_aoi",
     metadata,
@@ -502,13 +521,17 @@ class SlickToSource(Base):  # noqa
     source = Column(ForeignKey("source.id"), nullable=False)
     coincidence_score = Column(Float(53))
     rank = Column(BigInteger)
-    hitl_confirmed = Column(Boolean)
     geojson_fc = Column(JSON, nullable=False)
     geometry = Column(
         Geography(srid=4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))
+    hitl_verification = Column(Boolean)
+    hitl_confidence = Column(Float(53))
+    hitl_user = Column(ForeignKey("users.id"))
+    hitl_time = Column(DateTime)
 
+    users = relationship("Users")
     slick1 = relationship("Slick")
     source1 = relationship("Source")
