@@ -313,7 +313,31 @@ async def _orchestrate(
                 ]
 
                 bucket_name = "stitching_results_dump"
+                print("inference_group_results", inference_group_results)
+                print("type(inference_group_results)", type(inference_group_results))
+                print("len(inference_group_results)", len(inference_group_results))
                 for index, result in enumerate(inference_group_results[0]):
+                    print("result", result)
+                    print("type(result)", type(result))
+                    print("len(result)", len(result))
+                    print("result[0]", result[0])
+                    print("type(result[0])", type(result[0]))
+                    print("result[0].stack", result[0].stack)
+                    print("type(result[0].stack)", type(result[0].stack))
+                    print("len(result[0].stack)", len(result[0].stack))
+                    print("result[0].stack[0]", result[0].stack[0])
+                    print("type(result[0].stack[0])", type(result[0].stack[0]))
+                    print("len(result[0].stack[0])", len(result[0].stack[0]))
+                    print(
+                        "result[0].stack[0].tile_logits_b64",
+                        result[0].stack[0].tile_logits_b64,
+                    )
+                    print(
+                        "type(result[0].stack[0].tile_logits_b64)",
+                        type(result[0].stack[0].tile_logits_b64),
+                    )
+                    print("type(result.stack)", type(result.stack))
+                    print("len(result.stack)", len(result.stack))
                     file_name = (
                         f"inference_results_{index}_{datetime.now().isoformat()}.bin"
                     )
