@@ -317,7 +317,7 @@ async def _orchestrate(
                     file_name = (
                         f"inference_results_{index}_{datetime.now().isoformat()}.bin"
                     )
-                    save_to_gcs(bucket_name, file_name, result.tile_logits_b64)
+                    save_to_gcs(bucket_name, file_name, result.stack[0].tile_logits_b64)
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
