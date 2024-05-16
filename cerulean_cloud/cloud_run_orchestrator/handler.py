@@ -313,35 +313,25 @@ async def _orchestrate(
                 ]
 
                 bucket_name = "stitching_results_dump"
-                print("inference_group_results", inference_group_results)
-                print("type(inference_group_results)", type(inference_group_results))
-                print("len(inference_group_results)", len(inference_group_results))
-                for index, result in enumerate(inference_group_results[0]):
-                    print("result", result)
-                    print("type(result)", type(result))
-                    print("len(result)", len(result))
-                    print("result[0]", result[0])
-                    print("type(result[0])", type(result[0]))
-                    print("result[0].stack", result[0].stack)
-                    print("type(result[0].stack)", type(result[0].stack))
-                    print("len(result[0].stack)", len(result[0].stack))
-                    print("result[0].stack[0]", result[0].stack[0])
-                    print("type(result[0].stack[0])", type(result[0].stack[0]))
-                    print("len(result[0].stack[0])", len(result[0].stack[0]))
-                    print(
-                        "result[0].stack[0].tile_logits_b64",
-                        result[0].stack[0].tile_logits_b64,
-                    )
-                    print(
-                        "type(result[0].stack[0].tile_logits_b64)",
-                        type(result[0].stack[0].tile_logits_b64),
-                    )
-                    print("type(result.stack)", type(result.stack))
-                    print("len(result.stack)", len(result.stack))
+                # inference_group_results is
+                #   List( # 1 per tiling
+                #     List( # roughly 1 per tile, or fewer if we start processing multiple tiles in a stack
+                #       InferenceResultStack
+                #         .stack is a List( # currently len==1 for a single tile
+                #           InferenceResult
+                first_tiling = inference_group_results[0]
+                for index, infresultstack in enumerate(first_tiling):
+                    listofinfresults = infresultstack.stack
+                    if len(listofinfresults) == 0:
+                        # XXX Not sure why this would ever be the case!!!
+                        continue
+                    firsttileinfresult = listofinfresults[0]
                     file_name = (
                         f"inference_results_{index}_{datetime.now().isoformat()}.bin"
                     )
-                    save_to_gcs(bucket_name, file_name, result.stack[0].tile_logits_b64)
+                    save_to_gcs(
+                        bucket_name, file_name, firsttileinfresult.tile_logits_b64
+                    )
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
