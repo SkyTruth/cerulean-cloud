@@ -204,12 +204,13 @@ class FASTAIUNETModel(BaseModel):
 
         try:
             stack_tensors = [
-                normalize_and_clamp(
-                    b64_image_to_array(record.image, tensor=True),
-                    mean=SAR_stats[0],
-                    std=SAR_stats[1],
-                    device=self.device,
-                ).unsqueeze(0)
+                torch.tensor(b64_image_to_array(record.image, tensor=True) / 255).unsqueeze(0)
+                # normalize_and_clamp(
+                #    b64_image_to_array(record.image, tensor=True),
+                #    mean=SAR_stats[0],
+                #    std=SAR_stats[1],
+                #    device=self.device,
+                # ).unsqueeze(0)
                 for record in inf_stack
             ]
             batch_tensor = torch.cat(stack_tensors, dim=0).to(self.device)
