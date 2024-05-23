@@ -251,7 +251,7 @@ class FASTAIUNETModel(BaseModel):
         inference_results = [
             InferenceResult(
                 tile_logits_b64=memfile_gtiff(
-                    nparray=p.detach().numpy().astype("uint8"),
+                    nparray=torch.nn.functional.softmax(p, dim=0).detach().numpy().astype("uint8"),
                     bounds=bounds[i],
                     encode=True,
                 ),
