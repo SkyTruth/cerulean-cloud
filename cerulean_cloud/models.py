@@ -200,11 +200,13 @@ class FASTAIUNETModel(BaseModel):
         Processes image data contained in InferenceInput and prepares them for FASTAIUNET model inference.
         """
         # Pre-calculated statistics from training dataset
-        SAR_stats = [0.2087162, 0.13736105]
+        # SAR_stats = [0.2087162, 0.13736105]
 
         try:
             stack_tensors = [
-                torch.tensor(b64_image_to_array(record.image, tensor=True) / 255).unsqueeze(0)
+                torch.tensor(
+                    b64_image_to_array(record.image, tensor=True) / 255
+                ).unsqueeze(0)
                 # normalize_and_clamp(
                 #    b64_image_to_array(record.image, tensor=True),
                 #    mean=SAR_stats[0],
@@ -251,7 +253,10 @@ class FASTAIUNETModel(BaseModel):
         inference_results = [
             InferenceResult(
                 tile_logits_b64=memfile_gtiff(
-                    nparray=torch.nn.functional.softmax(p, dim=0).detach().numpy().astype("uint8"),
+                    nparray=torch.nn.functional.softmax(p, dim=0)
+                    .detach()
+                    .numpy()
+                    .astype("uint8"),
                     bounds=bounds[i],
                     encode=True,
                 ),
