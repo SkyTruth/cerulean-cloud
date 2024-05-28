@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import zipfile
+import skimage
 from base64 import b64encode
 from datetime import datetime
 from io import BytesIO
@@ -346,8 +347,12 @@ def get_dist_array(
     else:
         data = data / (max_distance / 255)  # 60 km
         data[data >= 255] = 255
-    data = np.squeeze(data)
-    return data.astype(np.uint8)
+
+    upsampled = skimage.transform.resize(
+        data, (*img_shape[0:2], 1), order = 1,preserve_range=True
+    )  # resampling interpolation must match training data prep
+    upsampled = np.squeeze(upsampled)
+    return upsampled.astype(np.uint8)
 
 
 def handle_aux_datasets(layers, scene_id, bounds, image_shape, **kwargs):
