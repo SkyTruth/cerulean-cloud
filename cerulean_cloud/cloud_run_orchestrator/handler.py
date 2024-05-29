@@ -14,16 +14,14 @@ import urllib.parse as urlparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
-import geojson
 import geopandas as gpd
 import morecantile
 import numpy as np
-import rasterio
 import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
-from rasterio.io import MemoryFile
+from google.cloud import storage
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
@@ -116,29 +114,6 @@ def group_bounds_from_list_of_bounds(bounds: List[List[float]]) -> List[float]:
     return list((minx, miny, maxx, maxy))
 
 
-def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
-    """create a geojson from an input raster with classification
-
-    Args:
-        raster (MemoryFile): input raster
-
-    Returns:
-        geojson.FeatureCollection: output feature collection
-    """
-    with raster.open() as dataset:
-        shapes = rasterio.features.shapes(
-            dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
-        )
-    out_fc = geojson.FeatureCollection(
-        features=[
-            geojson.Feature(geometry=geom, properties=dict(inf_idx=inf_idx))
-            for geom, inf_idx in shapes
-            if int(inf_idx) != 0  # XXX HACK This assumes background index is 0
-        ]
-    )
-    return out_fc
-
-
 def get_tiler():
     """get tiler"""
     return TMS
@@ -200,19 +175,27 @@ async def _orchestrate(
 
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
-            model = await db_client.get_model(os.getenv("MODEL"))
-    zoom = payload.zoom or model.zoom_level
-    scale = payload.scale or model.scale
+            db_model = await db_client.get_db_model(os.getenv("MODEL"))
+            model_dict = {
+                column.name: (
+                    getattr(db_model, column.name).isoformat()
+                    if isinstance(getattr(db_model, column.name), datetime)
+                    else getattr(db_model, column.name)
+                )
+                for column in db_model.__table__.columns
+            }
+    zoom = payload.zoom or model_dict["zoom_level"]
+    scale = payload.scale or model_dict["scale"]
     print(f"{start_time}: zoom: {zoom}")
     print(f"{start_time}: scale: {scale}")
 
-    if model.zoom_level != zoom:
+    if model_dict["zoom_level"] != zoom:
         print(
-            f"{start_time}: WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
+            f"{start_time}: WARNING: Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}"
         )
-    if model.tile_width_px != scale * 256:
+    if model_dict["tile_width_px"] != scale * 256:
         print(
-            f"{start_time}: WARNING: Model was trained on image tile of resolution {model.tile_width_px} but is being run on {scale*256}"
+            f"{start_time}: WARNING: Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}"
         )
 
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
@@ -259,7 +242,8 @@ async def _orchestrate(
                 async with db_client.session.begin():
                     trigger = await db_client.get_trigger(trigger=payload.trigger)
                     layers = [
-                        await db_client.get_layer(layer) for layer in model.layers
+                        await db_client.get_layer(layer)
+                        for layer in model_dict["layers"]
                     ]
                     sentinel1_grd = await db_client.get_sentinel1_grd(
                         payload.sceneid,
@@ -293,17 +277,12 @@ async def _orchestrate(
                         scale,
                         scene_bounds,
                         trigger,
-                        model,
+                        db_model,
                         sentinel1_grd,
                     )
             except:  # noqa: E722
                 await db_client.session.close()
                 raise
-
-            inference_parms = {
-                "model_type": model.type,
-                "thresholds": model.thresholds,
-            }
 
             success = True
             try:
@@ -316,7 +295,7 @@ async def _orchestrate(
                     offset_image_shape=offset_group_shape,
                     layers=layers,
                     scale=scale,
-                    inference_parms=inference_parms,
+                    model_dict=model_dict,
                 )
 
                 # Prepare the inference group tasks
@@ -333,11 +312,33 @@ async def _orchestrate(
                     for igt in inference_group_tasks
                 ]
 
+                bucket_name = "stitching_results_dump"
+                # inference_group_results is
+                #   List( # 1 per tiling
+                #     List( # roughly 1 per tile, or fewer if we start processing multiple tiles in a stack
+                #       InferenceResultStack
+                #         .stack is a List( # currently len==1 for a single tile
+                #           InferenceResult
+                first_tiling = inference_group_results[0]
+                for index, infresultstack in enumerate(first_tiling):
+                    listofinfresults = infresultstack.stack
+                    if len(listofinfresults) == 0:
+                        # XXX Not sure why this would ever be the case!!!
+                        continue
+                    firsttileinfresult = listofinfresults[0]
+                    file_name = (
+                        f"inference_results_{index}_{datetime.now().isoformat()}.bin"
+                    )
+                    save_to_gcs(
+                        bucket_name, file_name, firsttileinfresult.tile_logits_b64
+                    )
+
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
-                model = get_model(inference_parms)
+                model = get_model(model_dict)
                 feature_collections = [
-                    model.stitch(results) for results in inference_group_results
+                    model.postprocess_tiling(results)
+                    for results in inference_group_results
                 ]
 
                 # Ensemble inferences
@@ -411,3 +412,11 @@ async def _orchestrate(
         else:
             print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
     return OrchestratorResult(status="Success")
+
+
+def save_to_gcs(bucket_name, file_name, data):
+    """Saves data to a file in Google Cloud Storage."""
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(file_name)
+    blob.upload_from_string(data)

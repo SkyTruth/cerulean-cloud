@@ -116,16 +116,15 @@ def fixture_roda_sentinelhub_client():
 async def mock_get_tile_inference(
     http_client, tile=None, bounds=None, rescale=(0, 255)
 ):
-    with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
-        enc_classes = src.read()
+    # with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
+    #     enc_classes = src.read()
 
     with open("test/test_cerulean_cloud/fixtures/enc_confidence_512_512.txt") as src:
         enc_confidence = src.read()
     return InferenceResultStack(
         stack=[
             InferenceResult(
-                classes=enc_classes,
-                confidence=enc_confidence,
+                tile_logits_b64=enc_confidence,
                 bounds=list(TMS.bounds(tile)) if tile else bounds,
             )
         ]
@@ -264,9 +263,7 @@ def test_is_tile_over_water():
 
 def custom_response(url, data, timeout):
     data = json.loads(data)
-    r = InferenceResult(
-        classes=data["image"], confidence=data["image"], bounds=data["bounds"]
-    )
+    r = InferenceResult(tile_logits_b64=data["image"], bounds=data["bounds"])
     return httpx.Response(status_code=200, json=r.dict())
 
 
@@ -340,11 +337,11 @@ def test_flatten_result():
     result_stack = InferenceResultStack(
         stack=[
             InferenceResult(
-                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
+                features_geojson=[geojson.Feature(geometry=box(1, 2, 3, 4))],
                 bounds=[1, 2, 3, 4],
             ),
             InferenceResult(
-                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
+                features_geojson=[geojson.Feature(geometry=box(1, 2, 3, 4))],
                 bounds=[1, 2, 3, 4],
             ),
         ]
@@ -359,11 +356,11 @@ def test_flatten_result():
     result_stack = InferenceResultStack(
         stack=[
             InferenceResult(
-                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
+                features_geojson=[geojson.Feature(geometry=box(1, 2, 3, 4))],
                 bounds=[1, 2, 3, 4],
             ),
             InferenceResult(
-                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
+                features_geojson=[geojson.Feature(geometry=box(1, 2, 3, 4))],
                 bounds=[1, 2, 3, 4],
             ),
         ]
@@ -373,7 +370,7 @@ def test_flatten_result():
         InferenceResultStack(
             stack=[
                 InferenceResult(
-                    features=[
+                    features_geojson=[
                         geojson.Feature(geometry=box(1, 2, 3, 4)),
                         geojson.Feature(geometry=box(1, 2, 3, 4)),
                         geojson.Feature(geometry=box(1, 2, 3, 4)),
@@ -381,7 +378,7 @@ def test_flatten_result():
                     bounds=[1, 2, 3, 4],
                 ),
                 InferenceResult(
-                    features=[],
+                    features_geojson=[],
                     bounds=[1, 2, 3, 4],
                 ),
             ]

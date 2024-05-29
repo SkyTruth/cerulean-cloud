@@ -5,10 +5,8 @@ import pytest
 import rasterio
 import torch
 import torchvision  # noqa necessary for torch.jit.load of icevision mrcnn model
-from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 
-import cerulean_cloud.cloud_run_orchestrator.handler as orch_handler
 import cerulean_cloud.models as models
 from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, PredictPayload
 from cerulean_cloud.tiling import TMS
@@ -41,44 +39,40 @@ async def test_create_fixture_tile(
         dst.write(reshape_as_raster(np.repeat(array[:, :, 0:1], 3, 2)))
 
 
-def test_b64_image_to_tensor():
+def test_b64_image_to_array():
     with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
         encoded = b64encode(src.read()).decode("ascii")
 
-    tensor = models.b64_image_to_tensor(encoded)
+    tensor = models.b64_image_to_array(encoded, tensor=True)
     assert tensor.shape == torch.Size([3, 512, 512])
 
 
-@pytest.mark.skip
-def test_inference():
-    with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
-        encoded = models.b64encode(src.read()).decode("ascii")
+# @pytest.mark.skip
+# def test_inference():
+#     with open("test/test_cerulean_cloud/fixtures/tile_512_512_3band.png", "rb") as src:
+#         encoded = models.b64encode(src.read()).decode("ascii")
 
-    model = models.get_model({"model_type": "MASKRCNN"})
-    res = model.predict(encoded)
-    for tile in res:  # iterating through the batch dimension.
-        conf, classes = models.logits_to_classes(tile)
-        high_conf_classes = models.apply_conf_threshold(
-            conf, classes, conf_threshold=0.9
-        )
-        assert conf.shape == torch.Size([512, 512])
-        assert classes.shape == torch.Size([512, 512])
-        assert high_conf_classes.shape == torch.Size([512, 512])
+#     model = models.get_model({"model_type": "MASKRCNN"})
+#     res = model.predict(encoded)
+#     for tile in res:  # iterating through the batch dimension.
+#         conf, high_conf_classes = models.logits_to_classes(tile, 0.9)
+#         assert conf.shape == torch.Size([512, 512])
+#         assert high_conf_classes.shape == torch.Size([512, 512])
 
-        conf = high_conf_classes.detach().numpy().astype("int8")
+#         conf = high_conf_classes.detach().numpy().astype("int8")
 
-        with MemoryFile() as memfile:
-            with memfile.open(
-                driver="GTiff",
-                count=1,
-                dtype=conf.dtype,
-                width=conf.shape[0],
-                height=conf.shape[1],
-            ) as dataset:
-                dataset.write(conf, 1)
+#         with MemoryFile() as memfile:
+#             with memfile.open(
+#                 driver="GTiff",
+#                 count=1,
+#                 dtype=conf.dtype,
+#                 width=conf.shape[0],
+#                 height=conf.shape[1],
+#             ) as dataset:
+#                 dataset.write(conf, 1)
 
-            out_fc = orch_handler.get_fc_from_raster(memfile)
-            assert len(out_fc.features) == 0
+# out_fc = models.get_fc_from_raster(memfile)
+# assert len(out_fc.features) == 0
 
 
 @pytest.mark.skip
@@ -88,7 +82,7 @@ def test_inference_():
 
     payload = PredictPayload(
         inf_stack=[InferenceInput(image=encoded)],
-        inf_parms={
+        model_dict={
             "model_type": "MASKRCNN",
             "img_shape": [3, 224, 224],  # rrctile of runlist[-1][0]
             "classes_to_remove": [
@@ -110,16 +104,16 @@ def test_inference_():
             "pixel_score_thresh": 0.2,  # prediction vs score, pixels
         },
     )
-    model = models.get_model(payload.inf_parms)
+    model = models.get_model(payload.model_dict)
     inference_stack = model.predict(payload.inf_stack)
     classes, conf, bounds = inference_stack[0]
     enc_classes = model.array_to_b64_image(classes)
     enc_conf = model.array_to_b64_image(conf)
 
-    array_classes = model.b64_image_to_tensor(enc_classes)
+    array_classes = model.b64_image_to_array(enc_classes, tensor=True)
     assert array_classes.shape == torch.Size([1, 512, 512])
 
-    array_conf = model.b64_image_to_tensor(enc_conf)
+    array_conf = model.b64_image_to_array(enc_conf, tensor=True)
     assert array_conf.shape == torch.Size([1, 512, 512])
 
 
@@ -136,7 +130,7 @@ def test_inference_mrcnn():
     ) as src:
         encoded = model.b64encode(src.read()).decode("ascii")
 
-    tensor = model.b64_image_to_tensor(encoded)
+    tensor = model.b64_image_to_array(encoded, tensor=True)
     tensor = torch.stack([tensor, tensor, tensor])
 
     tensor = tensor.float() / 255

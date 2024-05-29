@@ -5,7 +5,7 @@ uvicorn
 setuptools==59.5.0 
 anyio>=3.3.4
 httpx
-asyncio
+asyncio==3.4.3
 morecantile==3.4
 rasterio
 supermercado
@@ -27,3 +27,5 @@ google-cloud-tasks
 protobuf
 torch==1.11.0
 torchvision==0.12.0
+scipy
+google-cloud-storage

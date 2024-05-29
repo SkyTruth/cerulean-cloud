@@ -5,8 +5,9 @@ These classes are designed to load models, make predictions, stack results,
 and stitch together inference outputs for geospatial analysis.
 """
 
+import logging
 from base64 import b64decode, b64encode
-from typing import List, Tuple, Union
+from typing import List
 
 import geojson
 import numpy as np
@@ -15,11 +16,18 @@ import torch
 import torchvision  # noqa
 from rasterio.features import shapes
 from rasterio.io import MemoryFile
+from rasterio.merge import merge as rio_merge
+from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceInput,
     InferenceResult,
     InferenceResultStack,
+)
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 
@@ -29,28 +37,49 @@ class BaseModel:
     making predictions, stacking results, and stitching outputs.
     """
 
-    def __init__(self, model_path=None, inf_parms=None):
+    def __init__(self, model_dict=None, model_path_local=None):
         """
         Initializes the BaseModel with a model path and inference parameters.
 
         Args:
-            model_path (str, optional): The path to the model file.
-            inf_parms (dict, optional): A dictionary of inference parameters.
+            model_path_local (str, optional): The path to the model file.
+            model_dict (dict, optional): A dictionary of inference parameters.
         """
         self.model = None
-        self.model_path = model_path
-        self.inf_parms = inf_parms
+        self.model_dict = model_dict
+        self.model_path_local = model_path_local
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.background_class_idx = next(
+            (
+                key
+                for key, value in model_dict["cls_map"].items()
+                if value == "BACKGROUND"
+            ),
+            None,
+        )
 
     def load(self):
         """
-        Loads the model from the given path. This method should be implemented by subclasses.
+        Loads the model from the given path.
+        """
+        try:
+            if self.model is None:
+                self.model = torch.jit.load(self.model_path_local, map_location="cpu")
+                self.model.eval()
+        except Exception as e:
+            logging.error("Error loading model: %s", e, exc_info=True)
+            raise
+
+    def preprocess_tiles(self, inf_stack: List[InferenceInput]):
+        """
+        Prepares inf_stack for inference.
 
         Args:
-            model_path (str): The path to the model file.
+            inf_stack: The input data stack for inference.
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def predict(self, inf_stack):
+    def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
         """
         Makes predictions on the given input stack. This method should be implemented by subclasses.
 
@@ -59,21 +88,24 @@ class BaseModel:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def stack(self, results):
+    def postprocess_tiles(self, raw_preds, bounds) -> InferenceResultStack:
         """
-        Stacks the results of predictions. This method should be implemented by subclasses.
+        Process and stack the raw_preds of predictions. This method should be implemented by subclasses.
 
         Args:
-            results: The results to be stacked.
+            raw_preds: The results to be processed and stacked.
+            bounds: The bounds corresponding with each pred.
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def stitch(self, inference_lists):
+    def postprocess_tiling(
+        self, inference_result_stacks: List[InferenceResultStack]
+    ) -> geojson.FeatureCollection:
         """
-        Stitches together inference results. This method should be implemented by subclasses.
+        Process the InferenceResultStack into a scene and then return a FC. This method should be implemented by subclasses.
 
         Args:
-            inference_lists: The list of inference results to stitch together.
+            inference_result_stacks: The input data stack for inference.
         """
         raise NotImplementedError("Subclasses should implement this method")
 
@@ -84,25 +116,18 @@ class MASKRCNNModel(BaseModel):
     stacking results, and stitching outputs for geospatial analysis.
     """
 
-    def load(self):
+    def preprocess_tiles(self, inf_stack: List[InferenceInput]):
         """
-        Loads the MASKRCNN model
-
-        Args:
-            model_path (str): The path to the model file.
+        Converts a list of InferenceInput objects into a processed tensor batch for model prediction.
+        Processes image data contained in InferenceInput and prepares them for MASKRCNN model inference.
         """
-        if self.model is None:
-            self.model = torch.jit.load(self.model_path, map_location="cpu")
-
-    def predict(
-        self,
-        inf_stack,
-    ) -> List[
-        Union[
-            Tuple[np.ndarray, np.ndarray, List[float]],
-            Tuple[List[geojson.Feature], List[float]],
+        stack_tensors = [
+            b64_image_to_array(record.image, tensor=True) / 255 for record in inf_stack
         ]
-    ]:
+        logging.info(f"Images have shape {stack_tensors[0].shape}")
+        return stack_tensors
+
+    def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
         """
         Predicts using the MASKRCNN model on the given input stack.
 
@@ -112,47 +137,42 @@ class MASKRCNNModel(BaseModel):
         Returns:
             A list of prediction results including geometries and their associated scores.
         """
-        print("Initiating cloud_run_offset_tiles/_predict()")
-        print(f"Stack has {len(inf_stack)} images")
+        logging.info("Initiating cloud_run_offset_tiles/_predict()")
+        logging.info(f"Stack has {len(inf_stack)} images")
 
-        self.load()
+        self.load()  # Load model into memory
+        stack_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
+        raw_preds = self.model(stack_tensors)[1]  # Run inference
+        inference_result_stack = self.postprocess_tiles(  # Postprocess inference
+            raw_preds, bounds=[record.bounds for record in inf_stack]
+        )
+        return inference_result_stack
 
-        stack_tensors = [
-            b64_image_to_tensor(record.image) / 255 for record in inf_stack
-        ]
-        bounds = [record.bounds for record in inf_stack]
+    def postprocess_tiles(self, raw_preds, bounds) -> InferenceResultStack:
+        """
+        Process and stack the raw_preds of MASKRCNN predictions.
 
-        print(f"Images have shape {stack_tensors[0].shape}")
-
-        raw_preds = self.model(stack_tensors)[1]
-        print("Finished inference, applying post-process, thresholding")
+        Args:
+            raw_preds: The results to be processed and stacked.
+            bounds: The bounds corresponding with each pred.
+        """
 
         reduced_preds = reduce_preds(
             raw_preds,
-            **self.inf_parms["thresholds"],
+            **self.model_dict["thresholds"],
             bounds=bounds,
         )
-        # returns List[Tuple[List[geojson.Feature], List[float]]]
-        return [(inf["polys"], bounds[i]) for i, inf in enumerate(reduced_preds)]
 
-    def stack(self, results):
-        """
-        Stacks the results of MASKRCNN predictions into a structured format.
-
-        Args:
-            results: The prediction results to be stacked.
-
-        Returns:
-            A list of structured stack results.
-        """
-        inference_result_stack = []
-        for feats, bounds in results:
-            inference_result_stack.append(
-                InferenceResult(features=feats, bounds=bounds)
+        inference_results = []
+        for i, inf in enumerate(reduced_preds):
+            inference_results.append(
+                InferenceResult(features_geojson=inf["polys"], bounds=bounds[i])
             )
-        return inference_result_stack
+        return InferenceResultStack(stack=inference_results)
 
-    def stitch(self, inference_list):
+    def postprocess_tiling(
+        self, inference_result_stacks: List[InferenceResultStack]
+    ) -> geojson.FeatureCollection:
         """
         Stitches together inference results from the MASKRCNN model into a geojson feature collection.
 
@@ -162,7 +182,10 @@ class MASKRCNNModel(BaseModel):
         Returns:
             A geojson.FeatureCollection of stitched inference results.
         """
-        return geojson.FeatureCollection(features=flatten_feature_list(inference_list))
+        # XXX TODO Move some of the inference processing into here.
+        return geojson.FeatureCollection(
+            features=flatten_feature_list(inference_result_stacks)
+        )
 
 
 class FASTAIUNETModel(BaseModel):
@@ -171,140 +194,197 @@ class FASTAIUNETModel(BaseModel):
     result stacking, and output stitching.
     """
 
-    def load(self):
+    def preprocess_tiles(self, inf_stack: List[InferenceInput]):
         """
-        Loads the FASTAIUNET model.
-
-        Args:
-            model_path (str): The path to the model file.
+        Converts a list of InferenceInput objects into a processed tensor batch for model prediction.
+        Processes image data contained in InferenceInput and prepares them for FASTAIUNET model inference.
         """
-        # if self.model is None:
-        #     self.model = torch.jit.load(self.model_path, map_location="cpu")
-        raise NotImplementedError("FASTAIUNET pathway isn't well defined")
+        # Pre-calculated statistics from training dataset
+        # SAR_stats = [0.2087162, 0.13736105]
 
-    def predict(self, inf_stack):
+        try:
+            stack_tensors = [
+                torch.tensor(
+                    b64_image_to_array(record.image, tensor=True) / 255
+                ).unsqueeze(0)
+                # normalize_and_clamp(
+                #    b64_image_to_array(record.image, tensor=True),
+                #    mean=SAR_stats[0],
+                #    std=SAR_stats[1],
+                #    device=self.device,
+                # ).unsqueeze(0)
+                for record in inf_stack
+            ]
+            batch_tensor = torch.cat(stack_tensors, dim=0).to(self.device)
+            logging.info(f"Batch tensor shape: {batch_tensor.shape}")
+            return batch_tensor  # Only the tensor batch is needed for the model
+        except Exception as e:
+            logging.error("Error in preprocessing: %s", e, exc_info=True)
+            raise
+
+    def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
         """
         Predicts using the FASTAIUNET model on the given input stack.
 
         Args:
             inf_stack: The input data stack for inference.
         """
-        # self.load()
+        logging.info(f"Stack has {len(inf_stack)} images")
 
-        # out_batch_logits = model(tensor)
-        # print("Finished inference, applying softmax")
-
-        # res: Tuple[np.ndarray, np.ndarray, List[float]] = []
-        # for i, inference_input in enumerate(inf_stack):
-        #     conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
-        #     classes = apply_conf_threshold(conf, _classes, confidence_threshold)
-        #     print(f"Output classes array is {classes.shape}")
-        #     res.append(
-        #         (
-        #             conf.detach().numpy(),
-        #             classes.detach().numpy(),
-        #             inference_input.bounds,
-        #         )
-        #     )
-        raise NotImplementedError("FASTAIUNET pathway isn't well defined")
-
-    def stack(self, results):
-        """
-        Stacks the results of FASTAIUNET predictions.
-
-        Args:
-            results: The prediction results to be stacked.
-        """
-        inference_result_stack = []
-        for conf, classes, bounds in results:
-            enc_classes = array_to_b64_image(classes)
-            enc_conf = array_to_b64_image(conf)
-            inference_result_stack.append(
-                InferenceResult(classes=enc_classes, confidence=enc_conf, bounds=bounds)
-            )
+        self.load()  # Load model into memory
+        preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
+        raw_preds = self.model(preprocessed_tensors)  # Run inference
+        inference_result_stack = self.postprocess_tiles(  # Postprocess inference
+            raw_preds, bounds=[record.bounds for record in inf_stack]
+        )
         return inference_result_stack
 
-    def stitch(self, inference_list):
+    def postprocess_tiles(
+        self, raw_preds, bounds: List[List[float]]
+    ) -> InferenceResultStack:
         """
-        Stitches together inference results from the FASTAIUNET model.
+        Process and stack the raw_preds of FASTAIUNET predictions.
 
         Args:
-            inference_list: The list of inference results to stitch together.
+            raw_preds: The 4D results [batch_size, num_classes, pixel_count, pixel_count] to be processed and stacked.
+            bounds: The bounds corresponding with each pred.
         """
-        # print("Loading all tiles into memory for stitch!")
-        # ds_base_tiles = []
-        # for base_tile_inference in base_tiles_inference:
-        #     ds_base_tiles.append(
-        #         *[
-        #             create_dataset_from_inference_result(b)
-        #             for b in base_tile_inference.stack
-        #         ]
-        #     )
 
-        # ds_offset_tiles = []
-        # for offset_tile_inference in offset_tiles_inference:
-        #     ds_offset_tiles.append(
-        #         *[
-        #             create_dataset_from_inference_result(b)
-        #             for b in offset_tile_inference.stack
-        #         ]
-        #     )
+        inference_results = [
+            InferenceResult(
+                tile_logits_b64=memfile_gtiff(
+                    nparray=torch.nn.functional.softmax(p, dim=0)
+                    .detach()
+                    .numpy()
+                    .astype("uint8"),
+                    bounds=bounds[i],
+                    encode=True,
+                ),
+                bounds=bounds[i],
+            )
+            for i, p in enumerate(raw_preds)
+        ]
+        return InferenceResultStack(stack=inference_results)
 
-        # print("Merging base tiles!")
-        # base_tile_inference_file = MemoryFile()
-        # ar, transform = merge(ds_base_tiles)
-        # with base_tile_inference_file.open(
-        #     driver="GTiff",
-        #     height=ar.shape[1],
-        #     width=ar.shape[2],
-        #     count=ar.shape[0],
-        #     dtype=ar.dtype,
-        #     transform=transform,
-        #     crs="EPSG:4326",
-        # ) as dst:
-        #     dst.write(ar)
+    def postprocess_tiling(
+        self, inference_result_stacks: List[InferenceResultStack]
+    ) -> geojson.FeatureCollection:
+        """
+        Stitches together multiple InferenceResultStacks from the FASTAIUNET model.
 
-        # out_fc = get_fc_from_raster(base_tile_inference_file)
+        Args:
+            inference_result_stacks: The list of InferenceResultStacks to stitch together.
+        """
+        logging.info("Stitching tiles into scene")
+        scene_array_logits, transform = self.stitch(inference_result_stacks)
+        logging.info("Finding instances in scene")
+        features = self.instantiate(scene_array_logits)
+        logging.info("Reducing feature count")
+        reduced_features = self.reduce_scene_features(features)
+        return geojson.FeatureCollection(features=reduced_features)
 
-        # print("Merging offset tiles!")
-        # offset_tile_inference_file = MemoryFile()
-        # ar, transform = merge(ds_offset_tiles)
-        # with offset_tile_inference_file.open(
-        #     driver="GTiff",
-        #     height=ar.shape[1],
-        #     width=ar.shape[2],
-        #     count=ar.shape[0],
-        #     dtype=ar.dtype,
-        #     transform=transform,
-        #     crs="EPSG:4326",
-        # ) as dst:
-        #     dst.write(ar)
+    def stitch(self, inference_result_stacks: List[InferenceResultStack]):
+        """Merge arrays based on their geographical bounds and return the merged array and its bounds.
 
-        # out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
-        raise NotImplementedError("FASTAIUNET pathway isn't well defined")
+        Args:
+            inference_result_stacks:
+
+        Returns:
+            tuple: A tuple containing the merged numpy array and the bounds (min_x, min_y, max_x, max_y) of the merged area.
+        """
+        ds_tiles = []
+        try:
+            ds_tiles = [
+                memfile_gtiff(
+                    nparray=b64_image_to_array(inf.tile_logits_b64),
+                    bounds=inf.bounds,
+                ).open()
+                for inf_stack in inference_result_stacks
+                for inf in inf_stack.stack
+            ]
+
+            logging.info("Merging tiles!")
+            scene_array, transform = rio_merge(ds_tiles)
+            return scene_array, transform
+        finally:
+            for ds in ds_tiles:
+                ds.close()
+
+    def instantiate(self, scene_array_logits):
+        """
+            Processes scene logits to probabilities using softmax, excluding the background class,
+            and generates features for each class index.
+
+        Args:
+            scene_array_logits (Tensor or numpy.ndarray): A tensor containing logits for each class in the scene,
+                where the first dimension corresponds to class indices.
+
+            Returns:
+                list: A list of features, where each feature is derived from class probabilities,
+                    excluding the background class. Each feature includes additional properties
+                    such as the class index.
+        """
+
+        # Convert numpy.ndarray to PyTorch tensor if necessary
+        if isinstance(scene_array_logits, np.ndarray):
+            scene_array_logits = torch.tensor(scene_array_logits)
+
+        scene_probs = torch.nn.functional.softmax(
+            scene_array_logits.to(dtype=torch.float32),
+            dim=0,
+        )
+        features = []
+        for inf_idx, cls_probs in enumerate(scene_probs):
+            if inf_idx != self.background_class_idx:
+                features.append(
+                    instances_from_probs(
+                        cls_probs,
+                        p1=self.model_dict["thresholds"]["bbox_score_thresh"],
+                        p2=self.model_dict["thresholds"]["poly_score_thresh"],
+                        p3=self.model_dict["thresholds"]["pixel_score_thresh"],
+                        addl_props={"inf_idx": inf_idx},
+                    )
+                )
+
+        return features
+
+    def reduce_scene_features(self, features):
+        """
+        Placeholder for a method intended to reduce or process a list of features further.
+        Currently, it directly returns the input list without modifications.
+
+        Args:
+            features (list): A list of features to be potentially reduced or processed.
+
+        Returns:
+            list: The unmodified input list of features, as the function currently does not
+                implement any reduction or processing.
+        """
+        reduced_features = features
+        return reduced_features
 
 
 def get_model(
-    inf_parms,
-    model_path="cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
+    model_dict,
+    model_path_local="cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
 ):
     """
     Factory function to get the appropriate model instance based on inference parameters.
 
     Args:
-        inf_parms (dict): Inference parameters including the model type.
+        model_dict (dict): Inference parameters including the model type.
         model_path (str, optional): Path to the model file.
 
     Returns:
         An instance of the appropriate model class.
     """
-    model_type = inf_parms["model_type"]
-    print(f"Model type is {model_type}")
+    model_type = model_dict["type"]
+    logging.info(f"Model type is {model_type}")
 
     if model_type == "MASKRCNN":
-        return MASKRCNNModel(model_path, inf_parms)
+        return MASKRCNNModel(model_dict, model_path_local)
     elif model_type == "FASTAIUNET":
-        return FASTAIUNETModel(model_path, inf_parms)
+        return FASTAIUNETModel(model_dict, model_path_local)
     else:
         raise ValueError("Unsupported model type")
 
@@ -526,7 +606,9 @@ def extract_geometry(dataset):
         dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
     )
     geoms, inf_idxs = zip(
-        *[s for s in shps if s[1] != 0]  # XXX HACK assumes inf_idx=0 is background
+        *[
+            s for s in shps if s[1] != 0
+        ]  # XXX HACK assumes inf_idx=0 is background should use self.background_class_idx instead
     )
     return MultiPolygon([shape(g) for g in geoms]), inf_idxs[0] if inf_idxs else 0
 
@@ -545,8 +627,10 @@ def vectorize_mask_instance(
         geojson.Feature: A GeoJSON feature object.
     """
 
-    memfile = create_memfile(high_conf_mask, transform)
-
+    memfile = memfile_gtiff(
+        nparray=high_conf_mask.detach().numpy().astype("int16"),
+        transform=transform,
+    )
     with memfile.open() as dataset:
         multipoly, inf_idx = extract_geometry(dataset)
 
@@ -560,48 +644,60 @@ def vectorize_mask_instance(
     )
 
 
-def create_memfile(high_conf_mask, transform):
-    """Creates a raster in memory from a mask tensor."""
+def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
+    """
+    Creates a raster in memory from an array and optionally returns it as a base64 encoded string.
+    If encode is False, returns a numpy array of the raster data.
+    """
+    nparray = nparray[np.newaxis, :, :] if nparray.ndim == 2 else nparray
+    transform = transform or (
+        rasterio.transform.from_bounds(
+            *bounds, width=nparray.shape[2], height=nparray.shape[1]
+        )
+        if bounds
+        else rasterio.transform.from_origin(0, 0, 1, 1)
+    )
 
     memfile = MemoryFile()
-    high_conf_mask = high_conf_mask.detach().numpy().astype("int16")
-
     with memfile.open(
         driver="GTiff",
-        height=high_conf_mask.shape[0],
-        width=high_conf_mask.shape[1],
-        count=1,
-        dtype=high_conf_mask.dtype,
+        count=nparray.shape[0],  # number of bands
+        height=nparray.shape[1],
+        width=nparray.shape[2],
+        dtype=nparray.dtype,
         transform=transform,
         crs="EPSG:4326",
     ) as dataset:
-        dataset.write(high_conf_mask, 1)
+        dataset.write(nparray)
 
+    memfile.seek(0)
+    if encode:
+        encoded = b64encode(memfile.read()).decode("ascii")
+        return encoded
     return memfile
 
 
-def logits_to_classes(out_batch_logits):
-    """returns the confidence scores of the max confident classes
-    and an array of max confident class ids for a single tile of shape [classes, H, W].
-    """
-    probs = torch.nn.functional.softmax(out_batch_logits, dim=0)
-    conf, classes = torch.max(probs, 0)
-    return (conf, classes)
+# def logits_to_classes(out_batch_logits, conf_threshold=0.0):
+#     """
+#     Convert logits from a neural network batch output to class predictions based on probability confidence.
 
+#     Parameters:
+#     - out_batch_logits (Tensor): A tensor containing logits for each class, typically of shape (num_classes, num_samples).
+#     - conf_threshold (float, optional): A threshold value for confidence. Class predictions with confidence below this value will be set to 0. Default is 0, meaning all predictions are returned regardless of confidence.
 
-def apply_conf_threshold(conf, classes, conf_threshold):
-    """Apply a confidence threshold to the output of logits_to_classes for a tile.
+#     Returns:
+#     - tuple(Tensor, Tensor): A tuple containing two tensors:
+#         - The first tensor (`conf`) contains the maximum probabilities (confidences) for each sample.
+#         - The second tensor (`classes`) contains the class indices of the highest probability for each sample. If `conf_threshold` is used and the confidence of a prediction is below the threshold, the class index is set to 0.
 
-    Args:
-        conf (np.ndarray): an array of shape [H, W] of max confidence scores for each pixel
-        classes (np.ndarray): an array of shape [H, W] of class integers for the max confidence scores for each pixel
-        conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
-
-    Returns:
-        torch.Tensor: An array of shape [H,W] with the class ids that satisfy the confidence threshold. This can be vectorized.
-    """
-    high_conf_mask = torch.any(torch.where(conf > conf_threshold, 1, 0), axis=0)
-    return torch.where(high_conf_mask, classes, 0)
+#     This function applies a softmax normalization to convert logits to probabilities, identifies the maximum probability and corresponding class for each sample, and applies a confidence threshold if specified.
+#     """
+#     probs = torch.nn.functional.softmax(out_batch_logits, dim=0)
+#     conf, classes = torch.max(probs, 0)
+#     if conf_threshold > 0:
+#         high_conf_mask = torch.any(torch.where(conf > conf_threshold, 1, 0), axis=0)
+#         classes = torch.where(high_conf_mask, classes, 0)
+#     return (conf, classes)
 
 
 def flatten_feature_list(
@@ -619,91 +715,122 @@ def flatten_feature_list(
     flat_list: List[geojson.Feature] = []
     for r in stack_list:
         for i in r.stack:
-            for f in i.features:
+            for f in i.features_geojson:
                 flat_list.append(f)
     return flat_list
 
 
-def create_dataset_from_inference_result(
-    inference_output: InferenceResult,
-) -> rasterio.io.DatasetReader:
-    """From inference result create a open rasterio dataset for merge"""
-    classes_array = b64_image_to_array(inference_output.classes)
-    conf_array = b64_image_to_array(inference_output.confidence)
-    ar = np.concatenate([classes_array, conf_array])
-
-    transform = rasterio.transform.from_bounds(
-        *inference_output.bounds, width=ar.shape[1], height=ar.shape[2]
-    )
-
-    memfile = MemoryFile()
-    with memfile.open(
-        driver="GTiff",
-        height=ar.shape[1],
-        width=ar.shape[2],
-        count=ar.shape[0],
-        dtype=ar.dtype,
-        transform=transform,
-        crs="EPSG:4326",
-    ) as dst:
-        dst.write(ar)
-    return memfile.open()
-
-
-def b64_image_to_array(image: str) -> np.ndarray:
-    """convert input b64image to torch tensor"""
-    # handle image
-    img_bytes = b64decode(image)
-
-    with MemoryFile(img_bytes) as memfile:
-        with memfile.open() as dataset:
-            np_img = dataset.read()
-
-    return np_img
-
-
-def b64_image_to_tensor(image: str) -> torch.Tensor:
+def b64_image_to_array(image: str, tensor: bool = False):
     """
-    Converts a base64-encoded image string into a PyTorch tensor.
+    Converts a base64-encoded image string into a np.array or torch.tensor.
 
     Args:
         image (str): A base64-encoded image string.
+        tensor (bool, optional): Whether to return a PyTorch tensor. Defaults to False.
 
     Returns:
-        torch.Tensor: A tensor representation of the decoded image.
+        np.ndarray or torch.Tensor: A numpy array or torch tensor representation of the decoded image.
     """
-    """convert input b64image to torch tensor"""
-    img_bytes = b64decode(image)
+    try:
+        img_bytes = b64decode(image)
 
-    with MemoryFile(img_bytes) as memfile:
-        with memfile.open() as dataset:
-            np_img = dataset.read()
+        with MemoryFile(img_bytes) as memfile:
+            with memfile.open() as dataset:
+                np_img = dataset.read()
 
-    return torch.tensor(np_img)
+        return torch.tensor(np_img) if tensor else np_img
+    except Exception as e:
+        logging.error(f"Failed to convert base64 image to array: {e}")
+        raise
 
 
-def array_to_b64_image(np_array: np.ndarray) -> str:
+def normalize_and_clamp(x, mean, std, min_val=-3, max_val=3, device="cpu"):
     """
-    Encodes a numpy array into a base64-encoded image string.
+    Normalizes and clamps a tensor using specified mean and standard deviation,
+    and clamps the resulting values to a specified range.
 
     Args:
-        np_array (np.ndarray): The numpy array to encode.
+        x (Tensor): The input tensor to be normalized and clamped.
+        mean (float or list): The mean used for normalization, can be a single float
+                              or a list of floats matching the tensor dimensions.
+        std (float or list): The standard deviation used for normalization, can be a
+                             single float or a list of floats matching the tensor dimensions.
+        min_val (float, optional): The minimum value to clamp the tensor to. Defaults to -3.
+        max_val (float, optional): The maximum value to clamp the tensor to. Defaults to 3.
+        device (str, optional): The device to perform the operations on (e.g., 'cpu' or 'cuda').
 
     Returns:
-        str: A base64-encoded image string.
+        Tensor: The normalized and clamped tensor.
     """
-    np_array = np_array.astype("int8")
-    if len(np_array.shape) == 2:
-        np_array = np.expand_dims(np_array, 0)
-    with MemoryFile() as memfile:
-        with memfile.open(
-            driver="GTiff",
-            count=np_array.shape[0],
-            dtype=np_array.dtype,
-            width=np_array.shape[1],
-            height=np_array.shape[2],
-        ) as dataset:
-            dataset.write(np_array)
-        img_bytes = memfile.read()
 
-    return b64encode(img_bytes).decode("ascii")
+    mean = torch.tensor(mean, device=device)
+    std = torch.tensor(std, device=device)
+    x = (x - mean) / std
+    x = x.clamp(min=min_val, max=max_val)
+    return x
+
+
+def instances_from_probs(raster, p1, p2, p3, addl_props={}):
+    """
+    Converts raster predictions to GeoJSON based on probability thresholds.
+    Effectively performs grouping, filtering, and trimming of a probability raster, to produce independent features.
+
+    Args:
+        raster (np.array): The input raster array to be processed.
+        p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. lower value = fewer groups
+        p2 (float): The middle probability, used to trim the final polygons size. lower value = coarser polygons
+        p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. higher value = more restrictive
+        Sample values: p1, p2, p3 = 0.1, 0.5, 0.95
+        Analogous to bbox_score_thresh, poly_score_thresh, pixel_score_thresh
+    Returns:
+        GeoJSON: A GeoJSON feature collection of the processed predictions.
+    """
+
+    raster = raster.float().detach().numpy()
+
+    # Label components based on p3 to find peaks
+    p1_islands, p1_island_count = label(raster >= p1)
+    logging.info(f"p1_island_count: {p1_island_count}")
+    p3_islands, p3_island_count = label(raster >= p3)
+    logging.info(f"p3_island_count: {p3_island_count}")
+
+    # Initialize an empty set for unique p1 labels corresponding to p3 components
+    reduced_labels = set()
+
+    # Iterate over each p3 component
+    for i in range(1, p3_island_count + 1):
+        p3_island_mask = p3_islands == i
+        p1_label_at_p3 = p1_islands[p3_island_mask].flat[
+            0
+        ]  # Take the first pixel's p1 label
+        if not i % 1000:
+            print("i:", i)
+            print("reduced_labels", reduced_labels)
+        reduced_labels.add(p1_label_at_p3)
+    logging.info(f"reduced_labels: {len(reduced_labels)}")
+
+    features = []
+    # Process into feature collections based on unique p1 labels
+    for p1_label in reduced_labels:
+        mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
+        masked_raster = raster[mask]
+        shapes = rasterio.features.shapes(mask.astype(np.uint8), mask=mask)
+        polygons = [shape(geom) for geom, value in shapes if value == 1]
+        if polygons:  # Ensure there are polygons to process into a MultiPolygon
+            multipolygon = MultiPolygon(polygons)
+            features.append(
+                geojson.Feature(
+                    geometry=multipolygon,
+                    properties={
+                        "instance_id": p1_label,
+                        "mean_conf": np.mean(masked_raster),
+                        "median_conf": np.median(masked_raster),
+                        "max_conf": np.max(masked_raster),
+                        "pixel_count": masked_raster.size,
+                        "machine_confidence": np.median(masked_raster),
+                        **addl_props,
+                    },
+                )
+            )
+
+    return features
