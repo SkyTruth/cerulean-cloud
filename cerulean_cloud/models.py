@@ -204,9 +204,7 @@ class FASTAIUNETModel(BaseModel):
 
         try:
             stack_tensors = [
-                torch.tensor(
-                    b64_image_to_array(record.image, tensor=True) / 255
-                ).unsqueeze(0)
+                b64_image_to_array(record.image, tensor=True).unsqueeze(0) / 255
                 # normalize_and_clamp(
                 #    b64_image_to_array(record.image, tensor=True),
                 #    mean=SAR_stats[0],
