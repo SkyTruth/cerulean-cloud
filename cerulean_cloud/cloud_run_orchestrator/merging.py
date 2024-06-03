@@ -88,7 +88,7 @@ def ensemble_inferences(
     # Adjust the confidence value for features that are isolated (not part of a larger group)
     final_gdf["overlap_factor"] = final_gdf.groupby("group_index")[
         "fc_index"
-    ].transform(lambda x: (len(x.unique())-1) / (len(feature_collections)-1)) 
+    ].transform(lambda x: (len(x.unique())-1) / (len(feature_collections)-1)) # XXX Future bug: machine confidence will always be 0% if number of offset tilings = 1
 
     final_gdf["machine_confidence"] *= final_gdf["overlap_factor"]
 
