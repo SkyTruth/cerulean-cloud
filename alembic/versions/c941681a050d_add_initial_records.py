@@ -65,6 +65,10 @@ def upgrade() -> None:
                 long_name="Vessel, coincident",
                 supercls=7,
             ),
+            database_schema.Cls(
+                short_name="AMBIGUOUS",
+                long_name="Ambiguous",
+            ),
         ]
         session.add_all(clses)
 
@@ -270,6 +274,7 @@ def downgrade() -> None:
                         "OLD_VESSEL",
                         "REC_VESSEL",
                         "COIN_VESSEL",
+                        "AMBIGUOUS",
                     ]
                 )
             )
