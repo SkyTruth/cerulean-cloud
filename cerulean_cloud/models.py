@@ -6,6 +6,7 @@ and stitch together inference outputs for geospatial analysis.
 """
 
 import logging
+import os
 from base64 import b64decode, b64encode
 from typing import List
 
@@ -70,7 +71,23 @@ class BaseModel:
             logging.error("Error loading model: %s", e, exc_info=True)
             raise
 
-    def preprocess_tiles(self, inf_stack: List[InferenceInput]):
+    def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
+        """
+        Makes predictions on the given input stack. The submethods should be implemented by subclasses.
+
+        Args:
+            inf_stack: The input data stack for inference.
+        """
+        logging.info(f"Stack has {len(inf_stack)} images")
+
+        preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
+        raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
+        inference_result_stack = self.postprocess_tiles(  # Postprocess inference
+            raw_preds, bounds=[record.bounds for record in inf_stack]
+        )
+        return inference_result_stack
+
+    def preprocess_tiles(self, inf_stack):
         """
         Prepares inf_stack for inference.
 
@@ -79,9 +96,9 @@ class BaseModel:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
+    def process_tiles(self, inf_stack: List[InferenceInput]):
         """
-        Makes predictions on the given input stack. This method should be implemented by subclasses.
+        Runs inf_stack through inference.
 
         Args:
             inf_stack: The input data stack for inference.
@@ -98,7 +115,7 @@ class BaseModel:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def postprocess_tiling(
+    def postprocess_tileset(
         self, inference_result_stacks: List[InferenceResultStack]
     ) -> geojson.FeatureCollection:
         """
@@ -122,31 +139,18 @@ class MASKRCNNModel(BaseModel):
         Processes image data contained in InferenceInput and prepares them for MASKRCNN model inference.
         """
         stack_tensors = [
-            b64_image_to_array(record.image, tensor=True) / 255 for record in inf_stack
+            b64_image_to_array(record.image, tensor=True, to_float=True)
+            for record in inf_stack
         ]
         logging.info(f"Images have shape {stack_tensors[0].shape}")
         return stack_tensors
 
-    def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
+    def process_tiles(self, stack_tensors):
         """
-        Predicts using the MASKRCNN model on the given input stack.
-
-        Args:
-            inf_stack: The input data stack for inference.
-
-        Returns:
-            A list of prediction results including geometries and their associated scores.
+        Run inference on the loaded model
         """
-        logging.info("Initiating cloud_run_offset_tiles/_predict()")
-        logging.info(f"Stack has {len(inf_stack)} images")
 
-        self.load()  # Load model into memory
-        stack_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
-        raw_preds = self.model(stack_tensors)[1]  # Run inference
-        inference_result_stack = self.postprocess_tiles(  # Postprocess inference
-            raw_preds, bounds=[record.bounds for record in inf_stack]
-        )
-        return inference_result_stack
+        return self.model(stack_tensors)[1]
 
     def postprocess_tiles(self, raw_preds, bounds) -> InferenceResultStack:
         """
@@ -170,7 +174,7 @@ class MASKRCNNModel(BaseModel):
             )
         return InferenceResultStack(stack=inference_results)
 
-    def postprocess_tiling(
+    def postprocess_tileset(
         self, inference_result_stacks: List[InferenceResultStack]
     ) -> geojson.FeatureCollection:
         """
@@ -204,9 +208,11 @@ class FASTAIUNETModel(BaseModel):
 
         try:
             stack_tensors = [
-                b64_image_to_array(record.image, tensor=True).unsqueeze(0) / 255
+                b64_image_to_array(record.image, tensor=True, to_float=True).unsqueeze(
+                    0
+                )
                 # normalize_and_clamp(
-                #    b64_image_to_array(record.image, tensor=True),
+                #    b64_image_to_array(record.image, tensor=True, to_float=True),
                 #    mean=SAR_stats[0],
                 #    std=SAR_stats[1],
                 #    device=self.device,
@@ -220,22 +226,11 @@ class FASTAIUNETModel(BaseModel):
             logging.error("Error in preprocessing: %s", e, exc_info=True)
             raise
 
-    def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
+    def process_tiles(self, preprocessed_tensors):
         """
-        Predicts using the FASTAIUNET model on the given input stack.
-
-        Args:
-            inf_stack: The input data stack for inference.
+        Run inference on the loaded model
         """
-        logging.info(f"Stack has {len(inf_stack)} images")
-
-        self.load()  # Load model into memory
-        preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
-        raw_preds = self.model(preprocessed_tensors)  # Run inference
-        inference_result_stack = self.postprocess_tiles(  # Postprocess inference
-            raw_preds, bounds=[record.bounds for record in inf_stack]
-        )
-        return inference_result_stack
+        return self.model(preprocessed_tensors)
 
     def postprocess_tiles(
         self, raw_preds, bounds: List[List[float]]
@@ -247,14 +242,10 @@ class FASTAIUNETModel(BaseModel):
             raw_preds: The 4D results [batch_size, num_classes, pixel_count, pixel_count] to be processed and stacked.
             bounds: The bounds corresponding with each pred.
         """
-
         inference_results = [
             InferenceResult(
-                tile_logits_b64=memfile_gtiff(
-                    nparray=torch.nn.functional.softmax(p, dim=0)
-                    .detach()
-                    .numpy()
-                    .astype("uint8"),
+                tile_probs_b64=memfile_gtiff(
+                    nparray=torch.nn.functional.softmax(p, dim=0).detach().numpy(),
                     bounds=bounds[i],
                     encode=True,
                 ),
@@ -264,7 +255,7 @@ class FASTAIUNETModel(BaseModel):
         ]
         return InferenceResultStack(stack=inference_results)
 
-    def postprocess_tiling(
+    def postprocess_tileset(
         self, inference_result_stacks: List[InferenceResultStack]
     ) -> geojson.FeatureCollection:
         """
@@ -274,11 +265,11 @@ class FASTAIUNETModel(BaseModel):
             inference_result_stacks: The list of InferenceResultStacks to stitch together.
         """
         logging.info("Stitching tiles into scene")
-        scene_array_logits, transform = self.stitch(inference_result_stacks)
+        scene_array_probs, transform = self.stitch(inference_result_stacks)
         logging.info("Finding instances in scene")
-        features = self.instantiate(scene_array_logits)
+        features_list = self.instantiate(scene_array_probs)
         logging.info("Reducing feature count")
-        reduced_features = self.reduce_scene_features(features)
+        reduced_features = self.reduce_scene_features(features_list)
         return geojson.FeatureCollection(features=reduced_features)
 
     def stitch(self, inference_result_stacks: List[InferenceResultStack]):
@@ -294,7 +285,7 @@ class FASTAIUNETModel(BaseModel):
         try:
             ds_tiles = [
                 memfile_gtiff(
-                    nparray=b64_image_to_array(inf.tile_logits_b64),
+                    nparray=b64_image_to_array(inf.tile_probs_b64, to_float=True),
                     bounds=inf.bounds,
                 ).open()
                 for inf_stack in inference_result_stacks
@@ -308,13 +299,13 @@ class FASTAIUNETModel(BaseModel):
             for ds in ds_tiles:
                 ds.close()
 
-    def instantiate(self, scene_array_logits):
+    def instantiate(self, scene_array_probs):
         """
-            Processes scene logits to probabilities using softmax, excluding the background class,
+            Processes scene probablities to probabilities using softmax, excluding the background class,
             and generates features for each class index.
 
         Args:
-            scene_array_logits (Tensor or numpy.ndarray): A tensor containing logits for each class in the scene,
+            scene_array_probs (Tensor or numpy.ndarray): A tensor containing probabilities for each class in the scene,
                 where the first dimension corresponds to class indices.
 
             Returns:
@@ -324,17 +315,13 @@ class FASTAIUNETModel(BaseModel):
         """
 
         # Convert numpy.ndarray to PyTorch tensor if necessary
-        if isinstance(scene_array_logits, np.ndarray):
-            scene_array_logits = torch.tensor(scene_array_logits)
+        if isinstance(scene_array_probs, np.ndarray):
+            scene_array_probs = torch.tensor(scene_array_probs)
 
-        scene_probs = torch.nn.functional.softmax(
-            scene_array_logits.to(dtype=torch.float32),
-            dim=0,
-        )
-        features = []
-        for inf_idx, cls_probs in enumerate(scene_probs):
+        classes_features = []
+        for inf_idx, cls_probs in enumerate(scene_array_probs):
             if inf_idx != self.background_class_idx:
-                features.append(
+                classes_features.append(
                     instances_from_probs(
                         cls_probs,
                         p1=self.model_dict["thresholds"]["bbox_score_thresh"],
@@ -344,7 +331,7 @@ class FASTAIUNETModel(BaseModel):
                     )
                 )
 
-        return features
+        return classes_features
 
     def reduce_scene_features(self, features):
         """
@@ -364,7 +351,7 @@ class FASTAIUNETModel(BaseModel):
 
 def get_model(
     model_dict,
-    model_path_local="cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
+    model_path_local=os.getenv("MODEL_PATH_LOCAL"),
 ):
     """
     Factory function to get the appropriate model instance based on inference parameters.
@@ -675,12 +662,12 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
     return memfile
 
 
-# def logits_to_classes(out_batch_logits, conf_threshold=0.0):
+# def probs_to_classes(out_batch_probs, conf_threshold=0.0):
 #     """
-#     Convert logits from a neural network batch output to class predictions based on probability confidence.
+#     Convert probabilitiess from a neural network batch output to class predictions based on probability confidence.
 
 #     Parameters:
-#     - out_batch_logits (Tensor): A tensor containing logits for each class, typically of shape (num_classes, num_samples).
+#     - out_batch_probs (Tensor): A tensor containing probs for each class, typically of shape (num_classes, num_samples).
 #     - conf_threshold (float, optional): A threshold value for confidence. Class predictions with confidence below this value will be set to 0. Default is 0, meaning all predictions are returned regardless of confidence.
 
 #     Returns:
@@ -688,10 +675,9 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
 #         - The first tensor (`conf`) contains the maximum probabilities (confidences) for each sample.
 #         - The second tensor (`classes`) contains the class indices of the highest probability for each sample. If `conf_threshold` is used and the confidence of a prediction is below the threshold, the class index is set to 0.
 
-#     This function applies a softmax normalization to convert logits to probabilities, identifies the maximum probability and corresponding class for each sample, and applies a confidence threshold if specified.
+#     This function identifies the maximum probability and corresponding class for each sample, and applies a confidence threshold if specified.
 #     """
-#     probs = torch.nn.functional.softmax(out_batch_logits, dim=0)
-#     conf, classes = torch.max(probs, 0)
+#     conf, classes = torch.max(out_batch_probs, 0)
 #     if conf_threshold > 0:
 #         high_conf_mask = torch.any(torch.where(conf > conf_threshold, 1, 0), axis=0)
 #         classes = torch.where(high_conf_mask, classes, 0)
@@ -718,7 +704,7 @@ def flatten_feature_list(
     return flat_list
 
 
-def b64_image_to_array(image: str, tensor: bool = False):
+def b64_image_to_array(image: str, tensor: bool = False, to_float=False):
     """
     Converts a base64-encoded image string into a np.array or torch.tensor.
 
@@ -736,6 +722,8 @@ def b64_image_to_array(image: str, tensor: bool = False):
             with memfile.open() as dataset:
                 np_img = dataset.read()
 
+        if to_float:
+            np_img = dtype_to_float(np_img)
         return torch.tensor(np_img) if tensor else np_img
     except Exception as e:
         logging.error(f"Failed to convert base64 image to array: {e}")
@@ -788,9 +776,9 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
 
     # Label components based on p3 to find peaks
     p1_islands, p1_island_count = label(raster >= p1)
-    logging.info(f"p1_island_count: {p1_island_count}")
+    # logging.info(f"p1_island_count: {p1_island_count}")
     p3_islands, p3_island_count = label(raster >= p3)
-    logging.info(f"p3_island_count: {p3_island_count}")
+    # logging.info(f"p3_island_count: {p3_island_count}")
 
     # Initialize an empty set for unique p1 labels corresponding to p3 components
     reduced_labels = set()
@@ -801,11 +789,8 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
         p1_label_at_p3 = p1_islands[p3_island_mask].flat[
             0
         ]  # Take the first pixel's p1 label
-        if not i % 1000:
-            print("i:", i)
-            print("reduced_labels", reduced_labels)
         reduced_labels.add(p1_label_at_p3)
-    logging.info(f"reduced_labels: {len(reduced_labels)}")
+    # logging.info(f"reduced_labels: {len(reduced_labels)}")
 
     features = []
     # Process into feature collections based on unique p1 labels
@@ -814,21 +799,68 @@ def instances_from_probs(raster, p1, p2, p3, addl_props={}):
         masked_raster = raster[mask]
         shapes = rasterio.features.shapes(mask.astype(np.uint8), mask=mask)
         polygons = [shape(geom) for geom, value in shapes if value == 1]
-        if polygons:  # Ensure there are polygons to process into a MultiPolygon
+
+        # Ensure there are polygons left after trimming to process into a MultiPolygon
+        if polygons:
             multipolygon = MultiPolygon(polygons)
             features.append(
                 geojson.Feature(
                     geometry=multipolygon,
                     properties={
-                        "instance_id": p1_label,
-                        "mean_conf": np.mean(masked_raster),
-                        "median_conf": np.median(masked_raster),
-                        "max_conf": np.max(masked_raster),
-                        "pixel_count": masked_raster.size,
-                        "machine_confidence": np.median(masked_raster),
+                        "instance_id": int(p1_label),
+                        "mean_conf": float(np.mean(masked_raster)),
+                        "median_conf": float(np.median(masked_raster)),
+                        "max_conf": float(np.max(masked_raster)),
+                        "pixel_count": int(masked_raster.size),
+                        "machine_confidence": float(np.median(masked_raster)),
                         **addl_props,
                     },
                 )
             )
 
     return features
+
+
+def dtype_to_float(data, dtype=np.float32):
+    """
+    Convert numerical data to a specified floating-point type and normalize if data type is uint8.
+
+    This function supports inputs that are either numpy arrays or PyTorch tensors. If the input data type
+    is uint8, the function normalizes the data by dividing by 255.0, which is common practice for image data.
+    Otherwise, it simply converts the data to the specified floating-point type.
+
+    Parameters:
+    data (Union[np.ndarray, torch.Tensor]): The data to convert. Must be either a numpy array or a PyTorch tensor.
+    dtype (data-type, optional): The target data type for the conversion, defaults to np.float32. The dtype
+                                 should be a floating-point type as defined by numpy or torch.
+
+    Returns:
+    Union[np.ndarray, torch.Tensor]: The converted and potentially normalized data as a numpy array or a PyTorch tensor.
+
+    Raises:
+    TypeError: If `data` is neither a numpy array nor a PyTorch tensor.
+
+    Examples:
+    >>> import numpy as np
+    >>> import torch
+    >>> array = np.array([0, 128, 255], dtype=np.uint8)
+    >>> print(dtype_to_float(array))
+    [0. , 0.50196078, 1. ]
+
+    >>> tensor = torch.tensor([0, 128, 255], dtype=torch.uint8)
+    >>> print(dtype_to_float(tensor))
+    tensor([0.0000, 0.5020, 1.0000])
+    """
+
+    if isinstance(data, np.ndarray):
+        if data.dtype == np.uint8:
+            return (data.astype(dtype) / 255.0).astype(dtype)
+        else:
+            return data.astype(dtype)
+    elif isinstance(data, torch.Tensor):
+        if data.dtype == torch.uint8:
+            return (data.to(dtype) / 255.0).to(dtype)
+        else:
+            return data.to(dtype)
+    else:
+        raise TypeError("Input must be a numpy array or a torch tensor")

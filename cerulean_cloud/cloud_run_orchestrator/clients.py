@@ -25,9 +25,13 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 from cerulean_cloud.tiling import TMS
 
 
-def img_array_to_b64_image(img_array: np.ndarray) -> str:
+def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
     """convert input b64image to torch tensor"""
-    img_array = img_array.astype("int8")
+    if to_uint8 and not img_array.dtype == np.uint8:
+        print(
+            f"WARNING: changing from dtype {img_array.dtype} to uint8 without scaling!"
+        )
+        img_array = img_array.astype("uint8")
     with MemoryFile() as memfile:
         with memfile.open(
             driver="GTiff",

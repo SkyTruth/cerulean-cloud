@@ -29,7 +29,7 @@ class InferenceResult(BaseModel):
     Inference result from the model
     """
 
-    tile_logits_b64: Optional[str] = Field(default=None)  # FASTAIUNET
+    tile_probs_b64: Optional[str] = Field(default=None)  # FASTAIUNET
     features_geojson: Optional[List[geojson.Feature]] = None  # MASKRCNN
     bounds: Optional[List[float]] = None
 

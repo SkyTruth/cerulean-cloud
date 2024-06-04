@@ -21,7 +21,6 @@ import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
-from google.cloud import storage
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
@@ -298,8 +297,8 @@ async def _orchestrate(
                     model_dict=model_dict,
                 )
 
-                # Prepare the inference group tasks
-                inference_group_tasks = [
+                # Prepare the tasks grouped by tileset
+                tileset_tasks = [
                     [{"tile": tile} for tile in base_tiles],
                     [{"bounds": bounds} for bounds in offset_tiles_bounds],
                     [{"bounds": bounds} for bounds in offset_2_tiles_bounds],
@@ -307,44 +306,22 @@ async def _orchestrate(
 
                 # Perform inferences
                 print(f"Inference starting: {start_time}")
-                inference_group_results = [
+                tileset_results = [
                     await cloud_run_inference.run_parallel_inference(igt)
-                    for igt in inference_group_tasks
+                    for igt in tileset_tasks
                 ]
-
-                bucket_name = "stitching_results_dump"
-                # inference_group_results is
-                #   List( # 1 per tiling
-                #     List( # roughly 1 per tile, or fewer if we start processing multiple tiles in a stack
-                #       InferenceResultStack
-                #         .stack is a List( # currently len==1 for a single tile
-                #           InferenceResult
-                first_tiling = inference_group_results[0]
-                for index, infresultstack in enumerate(first_tiling):
-                    listofinfresults = infresultstack.stack
-                    if len(listofinfresults) == 0:
-                        # XXX Not sure why this would ever be the case!!!
-                        continue
-                    firsttileinfresult = listofinfresults[0]
-                    file_name = (
-                        f"inference_results_{index}_{datetime.now().isoformat()}.bin"
-                    )
-                    save_to_gcs(
-                        bucket_name, file_name, firsttileinfresult.tile_logits_b64
-                    )
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
                 model = get_model(model_dict)
-                feature_collections = [
-                    model.postprocess_tiling(results)
-                    for results in inference_group_results
+                tileset_fcs = [
+                    model.postprocess_tileset(results) for results in tileset_results
                 ]
 
                 # Ensemble inferences
                 print(f"Ensembling results: {start_time}")
                 final_ensemble = ensemble_inferences(
-                    feature_collections=feature_collections,
+                    feature_collections=tileset_fcs,
                     proximity_meters=None,
                     closing_meters=None,
                     opening_meters=None,
@@ -412,11 +389,3 @@ async def _orchestrate(
         else:
             print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
     return OrchestratorResult(status="Success")
-
-
-def save_to_gcs(bucket_name, file_name, data):
-    """Saves data to a file in Google Cloud Storage."""
-    client = storage.Client()
-    bucket = client.bucket(bucket_name)
-    blob = bucket.blob(file_name)
-    blob.upload_from_string(data)

@@ -124,7 +124,7 @@ async def mock_get_tile_inference(
     return InferenceResultStack(
         stack=[
             InferenceResult(
-                tile_logits_b64=enc_confidence,
+                tile_probs_b64=enc_confidence,
                 bounds=list(TMS.bounds(tile)) if tile else bounds,
             )
         ]
@@ -263,7 +263,7 @@ def test_is_tile_over_water():
 
 def custom_response(url, data, timeout):
     data = json.loads(data)
-    r = InferenceResult(tile_logits_b64=data["image"], bounds=data["bounds"])
+    r = InferenceResult(tile_probs_b64=data["image"], bounds=data["bounds"])
     return httpx.Response(status_code=200, json=r.dict())
 
 

@@ -55,7 +55,7 @@ def test_b64_image_to_array():
 #     model = models.get_model({"model_type": "MASKRCNN"})
 #     res = model.predict(encoded)
 #     for tile in res:  # iterating through the batch dimension.
-#         conf, high_conf_classes = models.logits_to_classes(tile, 0.9)
+#         conf, high_conf_classes = models.probs_to_classes(tile, 0.9)
 #         assert conf.shape == torch.Size([512, 512])
 #         assert high_conf_classes.shape == torch.Size([512, 512])
 
@@ -130,10 +130,8 @@ def test_inference_mrcnn():
     ) as src:
         encoded = model.b64encode(src.read()).decode("ascii")
 
-    tensor = model.b64_image_to_array(encoded, tensor=True)
+    tensor = model.b64_image_to_array(encoded, tensor=True, to_float=True)
     tensor = torch.stack([tensor, tensor, tensor])
-
-    tensor = tensor.float() / 255
 
     tiles = list(
         TMS.tiles(*[32.989094, 43.338009, 36.540836, 45.235191], [10], truncate=False)
