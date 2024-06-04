@@ -59,7 +59,6 @@ class CloudRunInferenceClient:
         layers: List,
         scale: int,
         model_dict,
-        filter_empty_tiles=True,
     ):
         """init"""
         self.url = url
@@ -70,7 +69,6 @@ class CloudRunInferenceClient:
         )
         self.scale = scale  # 1=256, 2=512, 3=...
         self.model_dict = model_dict
-        self.filter_empty_tiles = filter_empty_tiles
 
     async def fetch_and_process_image(
         self, tile=None, bounds=None, rescale=(0, 255), num_channels=1
@@ -195,7 +193,7 @@ class CloudRunInferenceClient:
         img_array = await self.fetch_and_process_image(
             tile=tile, bounds=bounds, rescale=rescale
         )
-        if self.filter_empty_tiles and not np.any(img_array):
+        if not np.any(img_array):
             return InferenceResultStack(stack=[])
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, bounds)

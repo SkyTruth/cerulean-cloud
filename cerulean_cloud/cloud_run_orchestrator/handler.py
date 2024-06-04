@@ -209,16 +209,18 @@ async def _orchestrate(
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
 
-    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles, offset_amount=0.33)
+    offset_1_tiles_bounds = offset_bounds_from_base_tiles(
+        base_tiles, offset_amount=0.33
+    )
     offset_2_tiles_bounds = offset_bounds_from_base_tiles(
         base_tiles, offset_amount=0.66
     )
 
     offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
-    offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
+    offset_1_group_bounds = group_bounds_from_list_of_bounds(offset_1_tiles_bounds)
 
     print(
-        f"{start_time}: Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}, {len(offset_2_tiles_bounds)}"
+        f"{start_time}: Original tiles are {len(base_tiles)}, {len(offset_1_tiles_bounds)}, {len(offset_2_tiles_bounds)}"
     )
 
     # Filter out land tiles
@@ -226,11 +228,11 @@ async def _orchestrate(
     # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
     base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
 
-    offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
+    offset_1_tiles_bounds = [b for b in offset_1_tiles_bounds if is_tile_over_water(b)]
     offset_2_tiles_bounds = [b for b in offset_2_tiles_bounds if is_tile_over_water(b)]
 
     ntiles = len(base_tiles)
-    noffsettiles = len(offset_tiles_bounds)
+    noffsettiles = len(offset_1_tiles_bounds)
     print(f"{start_time}: Preparing {ntiles} base tiles (no land).")
     print(f"{start_time}: Preparing {noffsettiles} offset tiles (no land).")
 
@@ -290,7 +292,7 @@ async def _orchestrate(
                     url=os.getenv("INFERENCE_URL"),
                     titiler_client=titiler_client,
                     sceneid=payload.sceneid,
-                    offset_bounds=offset_group_bounds,
+                    offset_bounds=offset_1_group_bounds,
                     offset_image_shape=offset_group_shape,
                     layers=layers,
                     scale=scale,
@@ -300,9 +302,10 @@ async def _orchestrate(
                 # Prepare the tasks grouped by tileset
                 tileset_tasks = [
                     [{"tile": tile} for tile in base_tiles],
-                    [{"bounds": bounds} for bounds in offset_tiles_bounds],
+                    [{"bounds": bounds} for bounds in offset_1_tiles_bounds],
                     [{"bounds": bounds} for bounds in offset_2_tiles_bounds],
                 ]
+                # TODO could refactor into a new class, that you specify on creation about whether it is tile-based or bounds-based
 
                 # Perform inferences
                 print(f"Inference starting: {start_time}")
