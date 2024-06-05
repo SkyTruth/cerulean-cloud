@@ -356,17 +356,34 @@ def upgrade() -> None:
         sa.Column("source", sa.BigInteger, sa.ForeignKey("source.id"), nullable=False),
         sa.Column("coincidence_score", sa.Float),
         sa.Column("rank", sa.BigInteger),
-        sa.Column("hitl_confirmed", sa.Boolean),
         sa.Column("geojson_fc", sa.JSON, nullable=False),
         sa.Column("geometry", Geography("GEOMETRY"), nullable=False),
         sa.Column(
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
+        ),
+        sa.Column("hitl_verification", sa.Boolean),
+        sa.Column("hitl_confidence", sa.Float),
+        sa.Column("hitl_user", sa.BigInteger, sa.ForeignKey("users.id")),
+        sa.Column("hitl_time", sa.DateTime),
+        sa.Column("hitl_notes", sa.Text),
+    )
+
+    op.create_table(
+        "hitl_slick",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
+        sa.Column("user", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("cls", sa.BigInteger, sa.ForeignKey("cls.id"), nullable=False),
+        sa.Column("confidence", sa.Float),
+        sa.Column(
+            "update_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
     )
 
 
 def downgrade() -> None:
     """drop tables"""
+    op.drop_table("hitl_slick")
     op.drop_table("slick_to_source")
     op.drop_table("source_infra")
     op.drop_table("source_vessel")

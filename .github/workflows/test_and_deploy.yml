@@ -88,7 +88,6 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
-          pulumi-version: '3.113.3'
           work-dir: images/
           command: preview
           stack-name: test

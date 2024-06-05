@@ -12,6 +12,7 @@ from typing import List, Tuple
 import httpx
 import numpy as np
 import rasterio
+import skimage
 from rasterio.enums import Resampling
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
@@ -348,8 +349,12 @@ def get_dist_array(
     else:
         data = data / (max_distance / 255)  # 60 km
         data[data >= 255] = 255
-    data = np.squeeze(data)
-    return data.astype(np.uint8)
+
+    upsampled = skimage.transform.resize(
+        data, (*img_shape[0:2], 1), order=1, preserve_range=True
+    )  # resampling interpolation must match training data prep
+    upsampled = np.squeeze(upsampled)
+    return upsampled.astype(np.uint8)
 
 
 def handle_aux_datasets(layers, scene_id, bounds, image_shape, **kwargs):

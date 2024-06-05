@@ -96,6 +96,7 @@ default = gcp.cloudrun.Service(
                                 "model",
                                 "subscription",
                                 "aoi_type",
+                                "hitl_slick",
                             ]
                         ],
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
