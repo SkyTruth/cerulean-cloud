@@ -310,15 +310,15 @@ async def _orchestrate(
                 # Perform inferences
                 print(f"Inference starting: {start_time}")
                 tileset_results = [
-                    await cloud_run_inference.run_parallel_inference(igt)
-                    for igt in tileset_tasks
+                    await cloud_run_inference.run_parallel_inference(tileset)
+                    for tileset in tileset_tasks
                 ]
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
                 model = get_model(model_dict)
                 tileset_fcs = [
-                    model.postprocess_tileset(results) for results in tileset_results
+                    model.postprocess_tileset(tileset) for tileset in tileset_results
                 ]
 
                 # Ensemble inferences
