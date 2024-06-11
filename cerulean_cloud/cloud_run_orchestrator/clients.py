@@ -202,12 +202,12 @@ class CloudRunInferenceClient:
             http_client, img_array, bounds
         )
 
-    async def run_parallel_inference(self, inference_items):
+    async def run_parallel_inference(self, tileset):
         """
         Perform inference on a set of tiles or bounds asynchronously.
 
         Parameters:
-        - inference_items (list): List of either tiles or bounds for inference.
+        - tileset (list): List of either tiles or bounds for inference.
 
         Returns:
         - list: List of inference results, with exceptions filtered out.
@@ -216,8 +216,8 @@ class CloudRunInferenceClient:
             headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
         ) as async_http_client:
             tasks = [
-                self.get_tile_inference(http_client=async_http_client, **item)
-                for item in inference_items
+                self.get_tile_inference(http_client=async_http_client, **tile)
+                for tile in tileset
             ]
             inferences = await asyncio.gather(*tasks, return_exceptions=False)
         return inferences

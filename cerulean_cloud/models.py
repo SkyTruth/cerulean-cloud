@@ -80,6 +80,7 @@ class BaseModel:
         """
         logging.info(f"Stack has {len(inf_stack)} images")
 
+        self.load()  # Load model into memory
         preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
         raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
         inference_result_stack = self.postprocess_tiles(  # Postprocess inference
@@ -116,13 +117,13 @@ class BaseModel:
         raise NotImplementedError("Subclasses should implement this method")
 
     def postprocess_tileset(
-        self, inference_result_stacks: List[InferenceResultStack]
+        self, tileset_results: List[InferenceResultStack]
     ) -> geojson.FeatureCollection:
         """
         Process the InferenceResultStack into a scene and then return a FC. This method should be implemented by subclasses.
 
         Args:
-            inference_result_stacks: The input data stack for inference.
+            tileset_results: The input data stack for inference.
         """
         raise NotImplementedError("Subclasses should implement this method")
 
@@ -175,21 +176,19 @@ class MASKRCNNModel(BaseModel):
         return InferenceResultStack(stack=inference_results)
 
     def postprocess_tileset(
-        self, inference_result_stacks: List[InferenceResultStack]
+        self, tileset_results: List[InferenceResultStack]
     ) -> geojson.FeatureCollection:
         """
         Stitches together inference results from the MASKRCNN model into a geojson feature collection.
 
         Args:
-            inference_list: The list of inference results to stitch together.
+            tileset_results: The list of inference results to stitch together.
 
         Returns:
             A geojson.FeatureCollection of stitched inference results.
         """
         # XXX TODO Move some of the inference processing into here.
-        return geojson.FeatureCollection(
-            features=flatten_feature_list(inference_result_stacks)
-        )
+        return geojson.FeatureCollection(features=flatten_feature_list(tileset_results))
 
 
 class FASTAIUNETModel(BaseModel):
@@ -256,27 +255,27 @@ class FASTAIUNETModel(BaseModel):
         return InferenceResultStack(stack=inference_results)
 
     def postprocess_tileset(
-        self, inference_result_stacks: List[InferenceResultStack]
+        self, tileset_results: List[InferenceResultStack]
     ) -> geojson.FeatureCollection:
         """
         Stitches together multiple InferenceResultStacks from the FASTAIUNET model.
 
         Args:
-            inference_result_stacks: The list of InferenceResultStacks to stitch together.
+            tileset_results: The list of InferenceResultStacks to stitch together.
         """
         logging.info("Stitching tiles into scene")
-        scene_array_probs, transform = self.stitch(inference_result_stacks)
+        scene_array_probs, transform = self.stitch(tileset_results)
         logging.info("Finding instances in scene")
         features_list = self.instantiate(scene_array_probs)
         logging.info("Reducing feature count")
         reduced_features = self.reduce_scene_features(features_list)
         return geojson.FeatureCollection(features=reduced_features)
 
-    def stitch(self, inference_result_stacks: List[InferenceResultStack]):
+    def stitch(self, tileset_results: List[InferenceResultStack]):
         """Merge arrays based on their geographical bounds and return the merged array and its bounds.
 
         Args:
-            inference_result_stacks:
+            tileset_results:
 
         Returns:
             tuple: A tuple containing the merged numpy array and the bounds (min_x, min_y, max_x, max_y) of the merged area.
@@ -288,8 +287,8 @@ class FASTAIUNETModel(BaseModel):
                     nparray=b64_image_to_array(inf.tile_probs_b64, to_float=True),
                     bounds=inf.bounds,
                 ).open()
-                for inf_stack in inference_result_stacks
-                for inf in inf_stack.stack
+                for inference_result_stack in tileset_results
+                for inf in inference_result_stack.stack
             ]
 
             logging.info("Merging tiles!")
