@@ -162,7 +162,7 @@ class MASKRCNNModel(BaseModel):
             bounds: The bounds corresponding with each pred.
         """
 
-        reduced_preds = reduce_preds(
+        reduced_preds = self.reduce_preds(
             raw_preds,
             **self.model_dict["thresholds"],
             bounds=bounds,
@@ -187,8 +187,287 @@ class MASKRCNNModel(BaseModel):
         Returns:
             A geojson.FeatureCollection of stitched inference results.
         """
-        # XXX TODO Move some of the inference processing into here.
-        return geojson.FeatureCollection(features=flatten_feature_list(tileset_results))
+        logging.info("Stitching tiles into scene")
+        features_list = self.stitch(tileset_results)
+        logging.info("Reducing feature count")
+        reduced_features = self.reduce_scene_features(features_list)
+
+        return geojson.FeatureCollection(features=reduced_features)
+
+    def stitch(
+        self,
+        tileset_results: List[InferenceResultStack],
+    ):
+        """Merge arrays based on their geographical bounds and return the merged array and its bounds.
+
+        Args:
+            tileset_results:
+
+        Returns:
+
+        """
+        return tileset_results
+
+    def reduce_scene_features(self, features):
+        """
+        Placeholder for a method intended to reduce or process a list of features further.
+        Currently, it directly returns the input list without modifications.
+
+        Args:
+            features (list): A list of features to be potentially reduced or processed.
+
+        Returns:
+            list: The unmodified input list of features, as the function currently does not
+                implement any reduction or processing.
+        """
+        reduced_features = flatten_feature_list(features)
+        # XXX TODO move feature reduction here
+        return reduced_features
+
+    def reduce_preds(
+        self,
+        pred_list,
+        bbox_score_thresh=None,
+        pixel_score_thresh=None,
+        pixel_nms_thresh=None,
+        poly_score_thresh=None,
+        bounds=[],
+        **kwargs,
+    ):
+        """
+        Apply various post-processing steps to the predictions from an object detection model.
+
+        The post-processing includes:
+        1. Removal of instances with bounding boxes below a certain confidence score.
+        2. Removal of instances with pixel scores below a certain threshold.
+        3. Application of non-maximum suppression at the pixel level.
+        4. Generation of vectorized polygons from the remaining predictions.
+
+        Args:
+            pred_list: A list of prediction dictionaries from the model.
+            bbox_score_thresh (Optional[float]): Threshold for bounding box scores.
+            pixel_score_thresh (Optional[float]): Threshold for pixel scores.
+            pixel_nms_thresh (Optional[float]): Threshold for pixel-level NMS.
+            poly_score_thresh (Optional[float]): Threshold for polygon scores.
+            bounds (List): Geographic bounds for the predictions.
+
+        Returns:
+            A list of reduced and processed prediction dictionaries.
+        """
+        bounds = bounds or [[0, -1, 1, 0]] * len(pred_list)
+        reduced_preds = []
+        for i, pred_dict in enumerate(pred_list):
+            # remove instances with low scoring boxes
+            if bbox_score_thresh is not None:
+                keep = self.keep_by_bbox_score(pred_dict, bbox_score_thresh)
+                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
+
+            # remove instances with low scoring pixels
+            if pixel_score_thresh is not None:
+                keep = self.keep_by_pixel_score(pred_dict, pixel_score_thresh)
+                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
+
+            # non-maximum suppression, done globally, across classes, using pixels rather than bboxes
+            if pixel_nms_thresh is not None:
+                keep = self.keep_by_global_pixel_nms(pred_dict, pixel_nms_thresh)
+                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
+
+            # generate vectorized polygons from predictions
+            # adds "polys" to pred_dict
+            if poly_score_thresh is not None:
+                pred_dict, keep = self.polygonize_pixel_segmentations(
+                    pred_dict, poly_score_thresh, bounds[i]
+                )
+                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
+
+            reduced_preds.extend([pred_dict])
+        return reduced_preds
+
+    def keep_boxes_by_idx(self, pred_dict, keep_idxs):
+        """
+        Filters the prediction dictionary to keep only the indices specified in keep_idxs.
+
+        Args:
+        pred_dict (dict): The prediction dictionary to be filtered.
+        keep_idxs (list or torch.Tensor): A list or a tensor of indices to keep.
+
+        Returns:
+        dict: A new dictionary with the same keys as pred_dict, but with values filtered to include only those at the indices specified by keep_idxs.
+        """
+        if not len(keep_idxs):  # if keep_idxs is empty
+            return {
+                key: [] if isinstance(val, list) else torch.tensor([])
+                for key, val in pred_dict.items()
+            }
+        else:
+            keep_idxs = (
+                torch.tensor(keep_idxs) if isinstance(keep_idxs, list) else keep_idxs
+            )
+            return {
+                key: (
+                    [val[i] for i in keep_idxs]
+                    if isinstance(val, list)
+                    else torch.index_select(val, 0, keep_idxs)
+                )
+                for key, val in pred_dict.items()
+            }
+
+    def keep_by_bbox_score(self, pred_dict, bbox_score_thresh):
+        """
+        Finds the indices of bounding box predictions that have a score greater than bbox_score_thresh.
+
+        Args:
+        pred_dict (dict): The prediction dictionary to be filtered.
+        bbox_score_thresh (float): The minimum score for a bounding box prediction to be kept.
+
+        Returns:
+        torch.Tensor: A tensor of indices for bounding box predictions that meet the score threshold.
+        """
+        return torch.where(pred_dict["scores"] > bbox_score_thresh)[0]
+
+    def keep_by_pixel_score(self, pred_dict, pixel_score_thresh):
+        """
+        Given a dictionary of predictions and a pixel score threshold, returns the indices
+        of those predictions that exceed the threshold.
+
+        Args:
+            pred_dict (dict): Dictionary of prediction data.
+            pixel_score_thresh (float): Threshold for pixel scores.
+
+        Returns:
+            torch.Tensor: Indices of predictions exceeding the threshold.
+
+        """
+        mask_maxes = (
+            torch.stack([m.max() for m in pred_dict["masks"]])
+            if len(pred_dict["masks"])
+            else torch.tensor([])
+        )
+        return torch.where(mask_maxes > pixel_score_thresh)[0]
+
+    def keep_by_global_pixel_nms(self, pred_dict, pixel_nms_thresh):
+        """
+        Apply non-maximum suppression (NMS) to a dictionary of predictions.
+
+        This function iterates over a dictionary of predicted masks and calculates
+        the Dice Coefficient to measure similarity between each pair of masks.
+        If the coefficient exceeds a certain threshold, the mask is marked for removal.
+
+        Args:
+            pred_dict (dict): Dictionary with key "masks" containing a list of predicted masks.
+            pixel_nms_thresh (float): The threshold above which two predictions are considered overlapping.
+
+        Returns:
+            list: List of indices of masks to keep.
+        """
+        masks = pred_dict["masks"]
+        masks_to_remove = []
+
+        for i, current_mask in enumerate(masks):  # Loop through all masks
+            # Skip if the mask is already marked for removal
+            if i in masks_to_remove:
+                continue
+
+            # Check similarity against all subsequent masks
+            for j, comparison_mask in enumerate(masks[i + 1 :], start=i + 1):
+                # Skip if the mask is already marked for removal
+                if j in masks_to_remove:
+                    continue
+
+                # Calculate Dice Coefficient; if the similarity is too high, mark mask for removal
+                if (
+                    self.calculate_dice_coefficient_pixel(
+                        current_mask.squeeze(), comparison_mask.squeeze()
+                    )
+                    > pixel_nms_thresh
+                ):
+                    masks_to_remove.append(j)
+
+        # Return a list of mask indices that are not marked for removal
+        return [i for i in range(len(masks)) if i not in masks_to_remove]
+
+    def polygonize_pixel_segmentations(self, pred_dict, poly_score_thresh, bounds):
+        """
+        Given a dictionary of predictions, a polygon score threshold, and bounding coordinates,
+        transforms pixel segmentations into polygons and updates the prediction dictionary
+        to include these polygons.
+
+        Args:
+            pred_dict (dict): Dictionary of prediction data.
+            poly_score_thresh (float): Threshold for polygon scores.
+            bounds (tuple): Bounding coordinates.
+
+        Returns:
+            tuple: Updated prediction dictionary and indices of polygons.
+
+        """
+        high_conf_classes = [
+            torch.where(mask > poly_score_thresh, pred_dict["labels"][i], 0)
+            .squeeze()
+            .long()
+            for i, mask in enumerate(pred_dict["masks"])
+        ]
+        transform = (
+            rasterio.transform.from_bounds(*bounds, *high_conf_classes[0].shape[:2])
+            if high_conf_classes
+            else None
+        )
+        pred_dict["polys"] = [
+            self.vectorize_mask_instance(
+                c, pred_dict["scores"][i].detach().item(), transform
+            )
+            for i, c in enumerate(high_conf_classes)
+        ]
+        keep_masks = [i for i, poly in enumerate(pred_dict["polys"]) if poly]
+        return pred_dict, keep_masks
+
+    def vectorize_mask_instance(
+        self, high_conf_mask: torch.Tensor, machine_confidence, transform
+    ):
+        """
+        From a high confidence mask, generate a GeoJSON feature collection.
+
+        Args:
+            high_conf_mask (torch.Tensor): A tensor representing the high confidence mask.
+            transform: A transformation to apply to the mask.
+
+        Returns:
+            geojson.Feature: A GeoJSON feature object.
+        """
+
+        memfile = memfile_gtiff(
+            nparray=high_conf_mask.detach().numpy().astype("int16"),
+            transform=transform,
+        )
+        with memfile.open() as dataset:
+            multipoly, inf_idx = self.extract_geometry(dataset)
+
+        return (
+            geojson.Feature(
+                geometry=multipoly,
+                properties=dict(machine_confidence=machine_confidence, inf_idx=inf_idx),
+            )
+            if multipoly
+            else None
+        )
+
+    def extract_geometry(self, dataset):
+        """Extracts the geometries from a raster dataset."""
+
+        shps = shapes(
+            dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
+        )
+        geoms, inf_idxs = zip(*[s for s in shps if s[1] != self.background_class_idx])
+        return MultiPolygon([shape(g) for g in geoms]), inf_idxs[0] if inf_idxs else 0
+
+    def calculate_dice_coefficient_pixel(self, u, v):
+        """
+        Takes two pixel-confidence masks, and calculates how similar they are to each other
+        Returns a value between 0 (no overlap) and 1 (identical)
+        Utilizes an IoU style construction
+        Can be used as NMS across classes for mutually-exclusive classifications
+        """
+        return 2 * torch.sum(torch.sqrt(torch.mul(u, v))) / (torch.sum(u + v))
 
 
 class FASTAIUNETModel(BaseModel):
@@ -317,11 +596,11 @@ class FASTAIUNETModel(BaseModel):
         if isinstance(scene_array_probs, np.ndarray):
             scene_array_probs = torch.tensor(scene_array_probs)
 
-        classes_features = []
+        features = []
         for inf_idx, cls_probs in enumerate(scene_array_probs):
             if inf_idx != self.background_class_idx:
-                classes_features.append(
-                    instances_from_probs(
+                features.extend(
+                    self.instances_from_probs(
                         cls_probs,
                         p1=self.model_dict["thresholds"]["bbox_score_thresh"],
                         p2=self.model_dict["thresholds"]["poly_score_thresh"],
@@ -330,22 +609,165 @@ class FASTAIUNETModel(BaseModel):
                     )
                 )
 
-        return classes_features
+        return features
 
     def reduce_scene_features(self, features):
         """
-        Placeholder for a method intended to reduce or process a list of features further.
-        Currently, it directly returns the input list without modifications.
+        Reduces the number of features in a scene by applying Non-Maximum Suppression (NMS)
+        based on a global pixel threshold to remove similar overlapping features.
 
-        Args:
-            features (list): A list of features to be potentially reduced or processed.
+        This function utilizes a defined pixel NMS threshold from the model's configuration
+        to determine which features are kept based on their uniqueness.
+
+        Parameters:
+            features (list of dict): A list of feature dictionaries. Each feature dictionary
+                should contain at least the 'properties' key with necessary information.
 
         Returns:
-            list: The unmodified input list of features, as the function currently does not
-                implement any reduction or processing.
+            list of dict: A reduced list of features after applying the pixel NMS.
         """
-        reduced_features = features
+        reduced_features = self.keep_by_global_pixel_nms(
+            features, self.model_dict["thresholds"]["pixel_nms_thresh"]
+        )
         return reduced_features
+
+    def keep_by_global_pixel_nms(self, features, pixel_nms_thresh):
+        """
+        Filters out features that are similar based on the Dice coefficient, which is
+        calculated between each pair of features. This is intended to perform a global
+        Non-Maximum Suppression (NMS) where features that are too similar to each other
+        (above the given threshold) are removed.
+
+        Parameters:
+            features (list of dict): A list of features to evaluate. Each feature must have
+                a 'properties' dictionary containing at least 'inf_idx', which indicates
+                the class index of the feature.
+            pixel_nms_thresh (float): The similarity threshold for the Dice coefficient. If the
+                Dice coefficient between two features exceeds this value, the later feature
+                in the list is considered for removal.
+
+        Returns:
+            list of dict: A list of features that are not marked for removal. Features are
+                considered non-redundant if their similarity (by Dice coefficient) to other
+                features does not exceed the specified threshold.
+        """
+
+        feats_to_remove = []
+
+        for i, current_feat in enumerate(features):  # Loop through all feats
+            # Skip if the feat is already marked for removal
+            if i in feats_to_remove:
+                continue
+
+            # Check similarity against all subsequent feats
+            for j, comparison_feat in enumerate(features[i + 1 :], start=i + 1):
+                # Skip if the feat is already marked for removal
+                if j in feats_to_remove:
+                    continue
+                # Skip if the feat came from the same class (cannot overlap in FASTAIUNET by definition)
+                if (
+                    current_feat["properties"]["inf_idx"]
+                    == comparison_feat["properties"]["inf_idx"]
+                ):
+                    continue
+
+                # Calculate Dice Coefficient; if the similarity is too high, mark feat for removal
+                if (
+                    self.calculate_dice_coefficient_geojson(
+                        current_feat, comparison_feat
+                    )
+                    > pixel_nms_thresh
+                ):
+                    feats_to_remove.append(j)
+
+        # Return a list of feats that are not marked for removal
+        return [
+            feat for i, feat in enumerate(features) if i not in set(feats_to_remove)
+        ]
+
+    def instances_from_probs(self, raster, p1, p2, p3, addl_props={}):
+        """
+        Converts raster predictions to GeoJSON based on probability thresholds.
+        Effectively performs grouping, filtering, and trimming of a probability raster, to produce independent features.
+
+        Args:
+            raster (np.array): The input raster array to be processed.
+            p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. lower value = fewer groups
+            p2 (float): The middle probability, used to trim the final polygons size. lower value = coarser polygons
+            p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. higher value = more restrictive
+            Sample values: p1, p2, p3 = 0.1, 0.5, 0.95
+            Analogous to bbox_score_thresh, poly_score_thresh, pixel_score_thresh
+        Returns:
+            GeoJSON: A GeoJSON feature collection of the processed predictions.
+        """
+
+        raster = raster.float().detach().numpy()
+
+        # Label components based on p3 to find peaks
+        p1_islands, p1_island_count = label(raster >= p1)
+        # logging.info(f"p1_island_count: {p1_island_count}")
+        p3_islands, p3_island_count = label(raster >= p3)
+        # logging.info(f"p3_island_count: {p3_island_count}")
+
+        # Initialize an empty set for unique p1 labels corresponding to p3 components
+        reduced_labels = set()
+
+        # Iterate over each p3 component
+        for i in range(1, p3_island_count + 1):
+            p3_island_mask = p3_islands == i
+            p1_label_at_p3 = p1_islands[p3_island_mask].flat[
+                0
+            ]  # Take the first pixel's p1 label
+            reduced_labels.add(p1_label_at_p3)
+        # logging.info(f"reduced_labels: {len(reduced_labels)}")
+
+        features = []
+        # Process into feature collections based on unique p1 labels
+        for p1_label in reduced_labels:
+            mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
+            masked_raster = raster[mask]
+            shapes = rasterio.features.shapes(mask.astype(np.uint8), mask=mask)
+            polygons = [shape(geom) for geom, value in shapes if value == 1]
+
+            # Ensure there are polygons left after trimming to process into a MultiPolygon
+            if polygons:
+                multipolygon = MultiPolygon(polygons)
+                features.append(
+                    geojson.Feature(
+                        geometry=multipolygon,
+                        properties={
+                            "instance_id": int(p1_label),
+                            "mean_conf": float(np.mean(masked_raster)),
+                            "median_conf": float(np.median(masked_raster)),
+                            "max_conf": float(np.max(masked_raster)),
+                            "pixel_count": int(masked_raster.size),
+                            "machine_confidence": float(np.median(masked_raster)),
+                            **addl_props,
+                        },
+                    )
+                )
+
+        return features
+
+    def calculate_dice_coefficient_geojson(self, geojson1, geojson2):
+        """
+        Takes two GeoJSON feature dictionaries and calculates how similar they are to each other.
+        Returns a value between 0 (no overlap) and 1 (identical).
+        Utilizes an intersection over union (IoU) style construction.
+        """
+        # Convert GeoJSON features to Shapely polygons
+        polygon1 = shape(geojson1["geometry"])
+        polygon2 = shape(geojson2["geometry"])
+
+        # Calculate the intersection and union of both polygons
+        intersection = polygon1.intersection(polygon2)
+        union = polygon1.union(polygon2)
+
+        # Calculate Dice Coefficient using the area of the intersection and union
+        if union.area == 0:
+            return 0
+        dice_coefficient = 2 * intersection.area / (polygon1.area + polygon2.area)
+        return dice_coefficient
 
 
 def get_model(
@@ -371,261 +793,6 @@ def get_model(
         return FASTAIUNETModel(model_dict, model_path_local)
     else:
         raise ValueError("Unsupported model type")
-
-
-def reduce_preds(
-    pred_list,
-    bbox_score_thresh=None,
-    pixel_score_thresh=None,
-    pixel_nms_thresh=None,
-    poly_score_thresh=None,
-    bounds=[],
-    **kwargs,
-):
-    """
-    Apply various post-processing steps to the predictions from an object detection model.
-
-    The post-processing includes:
-    1. Removal of instances with bounding boxes below a certain confidence score.
-    2. Removal of instances with pixel scores below a certain threshold.
-    3. Application of non-maximum suppression at the pixel level.
-    4. Generation of vectorized polygons from the remaining predictions.
-
-    Args:
-        pred_list: A list of prediction dictionaries from the model.
-        bbox_score_thresh (Optional[float]): Threshold for bounding box scores.
-        pixel_score_thresh (Optional[float]): Threshold for pixel scores.
-        pixel_nms_thresh (Optional[float]): Threshold for pixel-level NMS.
-        poly_score_thresh (Optional[float]): Threshold for polygon scores.
-        bounds (List): Geographic bounds for the predictions.
-
-    Returns:
-        A list of reduced and processed prediction dictionaries.
-    """
-    bounds = bounds or [[0, -1, 1, 0]] * len(pred_list)
-    reduced_preds = []
-    for i, pred_dict in enumerate(pred_list):
-        # remove instances with low scoring boxes
-        if bbox_score_thresh is not None:
-            keep = keep_by_bbox_score(pred_dict, bbox_score_thresh)
-            pred_dict = keep_boxes_by_idx(pred_dict, keep)
-
-        # remove instances with low scoring pixels
-        if pixel_score_thresh is not None:
-            keep = keep_by_pixel_score(pred_dict, pixel_score_thresh)
-            pred_dict = keep_boxes_by_idx(pred_dict, keep)
-
-        # non-maximum suppression, done globally, across classes, using pixels rather than bboxes
-        if pixel_nms_thresh is not None:
-            keep = keep_by_global_pixel_nms(pred_dict, pixel_nms_thresh)
-            pred_dict = keep_boxes_by_idx(pred_dict, keep)
-
-        # generate vectorized polygons from predictions
-        # adds "polys" to pred_dict
-        if poly_score_thresh is not None:
-            pred_dict, keep = polygonize_pixel_segmentations(
-                pred_dict, poly_score_thresh, bounds[i]
-            )
-            pred_dict = keep_boxes_by_idx(pred_dict, keep)
-
-        reduced_preds.extend([pred_dict])
-    return reduced_preds
-
-
-def keep_boxes_by_idx(pred_dict, keep_idxs):
-    """
-    Filters the prediction dictionary to keep only the indices specified in keep_idxs.
-
-    Args:
-    pred_dict (dict): The prediction dictionary to be filtered.
-    keep_idxs (list or torch.Tensor): A list or a tensor of indices to keep.
-
-    Returns:
-    dict: A new dictionary with the same keys as pred_dict, but with values filtered to include only those at the indices specified by keep_idxs.
-    """
-    if not len(keep_idxs):  # if keep_idxs is empty
-        return {
-            key: [] if isinstance(val, list) else torch.tensor([])
-            for key, val in pred_dict.items()
-        }
-    else:
-        keep_idxs = (
-            torch.tensor(keep_idxs) if isinstance(keep_idxs, list) else keep_idxs
-        )
-        return {
-            key: (
-                [val[i] for i in keep_idxs]
-                if isinstance(val, list)
-                else torch.index_select(val, 0, keep_idxs)
-            )
-            for key, val in pred_dict.items()
-        }
-
-
-def keep_by_bbox_score(pred_dict, bbox_score_thresh):
-    """
-    Finds the indices of bounding box predictions that have a score greater than bbox_score_thresh.
-
-    Args:
-    pred_dict (dict): The prediction dictionary to be filtered.
-    bbox_score_thresh (float): The minimum score for a bounding box prediction to be kept.
-
-    Returns:
-    torch.Tensor: A tensor of indices for bounding box predictions that meet the score threshold.
-    """
-    return torch.where(pred_dict["scores"] > bbox_score_thresh)[0]
-
-
-def keep_by_pixel_score(pred_dict, pixel_score_thresh):
-    """
-    Given a dictionary of predictions and a pixel score threshold, returns the indices
-    of those predictions that exceed the threshold.
-
-    Args:
-        pred_dict (dict): Dictionary of prediction data.
-        pixel_score_thresh (float): Threshold for pixel scores.
-
-    Returns:
-        torch.Tensor: Indices of predictions exceeding the threshold.
-
-    """
-    mask_maxes = (
-        torch.stack([m.max() for m in pred_dict["masks"]])
-        if len(pred_dict["masks"])
-        else torch.tensor([])
-    )
-    return torch.where(mask_maxes > pixel_score_thresh)[0]
-
-
-def keep_by_global_pixel_nms(pred_dict, pixel_nms_thresh):
-    """
-    Apply non-maximum suppression (NMS) to a dictionary of predictions.
-
-    This function iterates over a dictionary of predicted masks and calculates
-    the Dice Coefficient to measure similarity between each pair of masks.
-    If the coefficient exceeds a certain threshold, the mask is marked for removal.
-
-    Args:
-        pred_dict (dict): Dictionary with key "masks" containing a list of predicted masks.
-        pixel_nms_thresh (float): The threshold above which two predictions are considered overlapping.
-
-    Returns:
-        list: List of indices of masks to keep.
-    """
-    masks = pred_dict["masks"]
-    masks_to_remove = []
-
-    for i, current_mask in enumerate(masks):  # Loop through all masks
-        # Skip if the mask is already marked for removal
-        if i in masks_to_remove:
-            continue
-
-        # Check similarity against all subsequent masks
-        for j, comparison_mask in enumerate(masks[i + 1 :], start=i + 1):
-            # Skip if the mask is already marked for removal
-            if j in masks_to_remove:
-                continue
-
-            # Calculate Dice Coefficient; if the similarity is too high, mark mask for removal
-            if (
-                calculate_dice_coefficient(
-                    current_mask.squeeze(), comparison_mask.squeeze()
-                )
-                > pixel_nms_thresh
-            ):
-                masks_to_remove.append(j)
-
-    # Return a list of mask indices that are not marked for removal
-    return [i for i in range(len(masks)) if i not in masks_to_remove]
-
-
-def calculate_dice_coefficient(u, v):
-    """
-    Takes two pixel-confidence masks, and calculates how similar they are to each other
-    Returns a value between 0 (no overlap) and 1 (identical)
-    Utilizes an IoU style construction
-    Can be used as NMS across classes for mutually-exclusive classifications
-    """
-    return 2 * torch.sum(torch.sqrt(torch.mul(u, v))) / (torch.sum(u + v))
-
-
-def polygonize_pixel_segmentations(pred_dict, poly_score_thresh, bounds):
-    """
-    Given a dictionary of predictions, a polygon score threshold, and bounding coordinates,
-    transforms pixel segmentations into polygons and updates the prediction dictionary
-    to include these polygons.
-
-    Args:
-        pred_dict (dict): Dictionary of prediction data.
-        poly_score_thresh (float): Threshold for polygon scores.
-        bounds (tuple): Bounding coordinates.
-
-    Returns:
-        tuple: Updated prediction dictionary and indices of polygons.
-
-    """
-    high_conf_classes = [
-        torch.where(mask > poly_score_thresh, pred_dict["labels"][i], 0)
-        .squeeze()
-        .long()
-        for i, mask in enumerate(pred_dict["masks"])
-    ]
-    transform = (
-        rasterio.transform.from_bounds(*bounds, *high_conf_classes[0].shape[:2])
-        if high_conf_classes
-        else None
-    )
-    pred_dict["polys"] = [
-        vectorize_mask_instance(c, pred_dict["scores"][i].detach().item(), transform)
-        for i, c in enumerate(high_conf_classes)
-    ]
-    keep_masks = [i for i, poly in enumerate(pred_dict["polys"]) if poly]
-    return pred_dict, keep_masks
-
-
-def extract_geometry(dataset):
-    """Extracts the geometries from a raster dataset."""
-
-    shps = shapes(
-        dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
-    )
-    geoms, inf_idxs = zip(
-        *[
-            s for s in shps if s[1] != 0
-        ]  # XXX HACK assumes inf_idx=0 is background should use self.background_class_idx instead
-    )
-    return MultiPolygon([shape(g) for g in geoms]), inf_idxs[0] if inf_idxs else 0
-
-
-def vectorize_mask_instance(
-    high_conf_mask: torch.Tensor, machine_confidence, transform
-):
-    """
-    From a high confidence mask, generate a GeoJSON feature collection.
-
-    Args:
-        high_conf_mask (torch.Tensor): A tensor representing the high confidence mask.
-        transform: A transformation to apply to the mask.
-
-    Returns:
-        geojson.Feature: A GeoJSON feature object.
-    """
-
-    memfile = memfile_gtiff(
-        nparray=high_conf_mask.detach().numpy().astype("int16"),
-        transform=transform,
-    )
-    with memfile.open() as dataset:
-        multipoly, inf_idx = extract_geometry(dataset)
-
-    return (
-        geojson.Feature(
-            geometry=multipoly,
-            properties=dict(machine_confidence=machine_confidence, inf_idx=inf_idx),
-        )
-        if multipoly
-        else None
-    )
 
 
 def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
@@ -755,71 +922,6 @@ def normalize_and_clamp(x, mean, std, min_val=-3, max_val=3, device="cpu"):
     return x
 
 
-def instances_from_probs(raster, p1, p2, p3, addl_props={}):
-    """
-    Converts raster predictions to GeoJSON based on probability thresholds.
-    Effectively performs grouping, filtering, and trimming of a probability raster, to produce independent features.
-
-    Args:
-        raster (np.array): The input raster array to be processed.
-        p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. lower value = fewer groups
-        p2 (float): The middle probability, used to trim the final polygons size. lower value = coarser polygons
-        p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. higher value = more restrictive
-        Sample values: p1, p2, p3 = 0.1, 0.5, 0.95
-        Analogous to bbox_score_thresh, poly_score_thresh, pixel_score_thresh
-    Returns:
-        GeoJSON: A GeoJSON feature collection of the processed predictions.
-    """
-
-    raster = raster.float().detach().numpy()
-
-    # Label components based on p3 to find peaks
-    p1_islands, p1_island_count = label(raster >= p1)
-    # logging.info(f"p1_island_count: {p1_island_count}")
-    p3_islands, p3_island_count = label(raster >= p3)
-    # logging.info(f"p3_island_count: {p3_island_count}")
-
-    # Initialize an empty set for unique p1 labels corresponding to p3 components
-    reduced_labels = set()
-
-    # Iterate over each p3 component
-    for i in range(1, p3_island_count + 1):
-        p3_island_mask = p3_islands == i
-        p1_label_at_p3 = p1_islands[p3_island_mask].flat[
-            0
-        ]  # Take the first pixel's p1 label
-        reduced_labels.add(p1_label_at_p3)
-    # logging.info(f"reduced_labels: {len(reduced_labels)}")
-
-    features = []
-    # Process into feature collections based on unique p1 labels
-    for p1_label in reduced_labels:
-        mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
-        masked_raster = raster[mask]
-        shapes = rasterio.features.shapes(mask.astype(np.uint8), mask=mask)
-        polygons = [shape(geom) for geom, value in shapes if value == 1]
-
-        # Ensure there are polygons left after trimming to process into a MultiPolygon
-        if polygons:
-            multipolygon = MultiPolygon(polygons)
-            features.append(
-                geojson.Feature(
-                    geometry=multipolygon,
-                    properties={
-                        "instance_id": int(p1_label),
-                        "mean_conf": float(np.mean(masked_raster)),
-                        "median_conf": float(np.median(masked_raster)),
-                        "max_conf": float(np.max(masked_raster)),
-                        "pixel_count": int(masked_raster.size),
-                        "machine_confidence": float(np.median(masked_raster)),
-                        **addl_props,
-                    },
-                )
-            )
-
-    return features
-
-
 def dtype_to_float(data, dtype=np.float32):
     """
     Convert numerical data to a specified floating-point type and normalize if data type is uint8.
@@ -863,3 +965,9 @@ def dtype_to_float(data, dtype=np.float32):
             return data.to(dtype)
     else:
         raise TypeError("Input must be a numpy array or a torch tensor")
+
+
+def reproject_to_utm(gdf_wgs84):
+    """Finds utm projection for a WGS84 gdf"""
+    utm_crs = gdf_wgs84.estimate_utm_crs(datum_name="WGS 84")
+    return gdf_wgs84.to_crs(utm_crs)
