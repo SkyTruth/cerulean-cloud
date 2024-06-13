@@ -2,8 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
-import geojson
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class InferenceInput(BaseModel):
@@ -29,18 +28,7 @@ class InferenceResult(BaseModel):
     Inference result from the model
     """
 
-    tile_probs_b64: Optional[str] = Field(default=None)  # FASTAIUNET
-    features_geojson: Optional[List[geojson.Feature]] = None  # MASKRCNN
-    bounds: Optional[List[float]] = None
-
-    class Config:
-        """
-        This tells Pydantic to allow arbitrary types, like geojson.Feature,
-        within this model without trying to validate them based on Pydantic's
-        internal schema constraints.
-        """
-
-        arbitrary_types_allowed = True  # Allow geojson.Feature
+    json_data: str
 
 
 class InferenceResultStack(BaseModel):
@@ -49,3 +37,4 @@ class InferenceResultStack(BaseModel):
     """
 
     stack: List[InferenceResult]
+    bounds: List[List[float]]

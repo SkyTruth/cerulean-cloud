@@ -5,9 +5,11 @@ These classes are designed to load models, make predictions, stack results,
 and stitch together inference outputs for geospatial analysis.
 """
 
+import json
 import logging
 import os
 from base64 import b64decode, b64encode
+from io import BytesIO
 from typing import List
 
 import geojson
@@ -83,10 +85,10 @@ class BaseModel:
         self.load()  # Load model into memory
         preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
         raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
-        inference_result_stack = self.postprocess_tiles(  # Postprocess inference
-            raw_preds, bounds=[record.bounds for record in inf_stack]
+        inference_results = self.postprocess_tiles(raw_preds)  # Postprocess inference
+        return InferenceResultStack(
+            stack=inference_results, bounds=[i.bounds for i in inf_stack]
         )
-        return inference_result_stack
 
     def preprocess_tiles(self, inf_stack):
         """
@@ -106,13 +108,12 @@ class BaseModel:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def postprocess_tiles(self, raw_preds, bounds) -> InferenceResultStack:
+    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
         """
         Process and stack the raw_preds of predictions. This method should be implemented by subclasses.
 
         Args:
             raw_preds: The results to be processed and stacked.
-            bounds: The bounds corresponding with each pred.
         """
         raise NotImplementedError("Subclasses should implement this method")
 
@@ -153,27 +154,50 @@ class MASKRCNNModel(BaseModel):
 
         return self.model(stack_tensors)[1]
 
-    def postprocess_tiles(self, raw_preds, bounds) -> InferenceResultStack:
+    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
         """
         Process and stack the raw_preds of MASKRCNN predictions.
 
         Args:
             raw_preds: The results to be processed and stacked.
-            bounds: The bounds corresponding with each pred.
         """
+        inference_results = [
+            InferenceResult(json_data=self.serialize(pred)) for pred in raw_preds
+        ]
+        return inference_results
 
-        reduced_preds = self.reduce_preds(
-            raw_preds,
-            **self.model_dict["thresholds"],
-            bounds=bounds,
-        )
+    def serialize(self, pred):
+        """
+        Serializes a prediction dictionary by encoding its 'masks' (PyTorch tensors) using torch.save
+        to base64 strings. All other elements in the dictionary are left as-is, and the entire
+        dictionary is converted to a JSON string.
 
-        inference_results = []
-        for i, inf in enumerate(reduced_preds):
-            inference_results.append(
-                InferenceResult(features_geojson=inf["polys"], bounds=bounds[i])
-            )
-        return InferenceResultStack(stack=inference_results)
+        Parameters:
+        - pred (dict): The prediction data containing 'masks' and potentially other items.
+
+        Returns:
+        - str: A JSON string with the 'masks' converted to base64-encoded strings.
+        """
+        pred["masks_b64"] = [tensor_to_base64(mask) for mask in pred.pop("masks")]
+        json_string = json.dumps(pred)
+        return json_string
+
+    def deserialize(self, json_string):
+        """
+        Deserializes a JSON string into a prediction dictionary, decoding 'masks' from base64 strings
+        back to PyTorch tensors using torch.load, automatically handling tensor type and shape.
+
+        Parameters:
+        - json_string (str): The JSON string containing the serialized prediction data.
+
+        Returns:
+        - dict: The original prediction dictionary with 'masks' restored as PyTorch tensors.
+        """
+        pred = json.loads(json_string)
+        pred["masks"] = [
+            torch.load(BytesIO(b64decode(b64_str))) for b64_str in pred.pop("masks_b64")
+        ]
+        return pred
 
     def postprocess_tileset(
         self, tileset_results: List[InferenceResultStack]
@@ -206,6 +230,12 @@ class MASKRCNNModel(BaseModel):
         Returns:
 
         """
+        # bounds = [
+        #     bounds
+        #     for inference_result_stack in tileset_results
+        #     for bounds in inference_result_stack.bounds
+        # ]
+
         return tileset_results
 
     def reduce_scene_features(self, features):
@@ -220,6 +250,11 @@ class MASKRCNNModel(BaseModel):
             list: The unmodified input list of features, as the function currently does not
                 implement any reduction or processing.
         """
+        # reduced_preds = self.reduce_preds(
+        #     features,
+        #     **self.model_dict["thresholds"],
+        # )
+
         reduced_features = flatten_feature_list(features)
         # XXX TODO move feature reduction here
         return reduced_features
@@ -510,28 +545,51 @@ class FASTAIUNETModel(BaseModel):
         """
         return self.model(preprocessed_tensors)
 
-    def postprocess_tiles(
-        self, raw_preds, bounds: List[List[float]]
-    ) -> InferenceResultStack:
+    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
         """
-        Process and stack the raw_preds of FASTAIUNET predictions.
+        Applies a softmax function to the raw predictions from FASTAIUNET, serializes them,
+        and returns a list of InferenceResults with serialized data.
 
         Args:
-            raw_preds: The 4D results [batch_size, num_classes, pixel_count, pixel_count] to be processed and stacked.
-            bounds: The bounds corresponding with each pred.
+            raw_preds (List[torch.Tensor]): A list of 4D tensors representing predictions
+                                            [batch_size, num_classes, height, width].
+
+        Returns:
+            List[InferenceResult]: A list of InferenceResults with serialized prediction data.
         """
-        inference_results = [
-            InferenceResult(
-                tile_probs_b64=memfile_gtiff(
-                    nparray=torch.nn.functional.softmax(p, dim=0).detach().numpy(),
-                    bounds=bounds[i],
-                    encode=True,
-                ),
-                bounds=bounds[i],
-            )
-            for i, p in enumerate(raw_preds)
+        processed_preds = [
+            torch.nn.functional.softmax(pred, dim=0) for pred in raw_preds
         ]
-        return InferenceResultStack(stack=inference_results)
+
+        inference_results = [
+            InferenceResult(json_data=self.serialize(pred)) for pred in processed_preds
+        ]
+        return inference_results
+
+    def serialize(self, pred):
+        """
+        Serializes a PyTorch tensor using base64 encoding after converting it with tensor_to_base64.
+
+        Args:
+            pred (torch.Tensor): The tensor to be serialized.
+
+        Returns:
+            str: A JSON string containing the base64 encoded tensor.
+        """
+        return json.dumps(tensor_to_base64(pred))
+
+    def deserialize(self, json_string):
+        """
+        Deserializes a JSON string into a PyTorch tensor by decoding the base64 string within it and loading it as a tensor.
+
+        Args:
+            json_string (str): The JSON string containing the serialized tensor data.
+
+        Returns:
+            torch.Tensor: The deserialized PyTorch tensor.
+        """
+        base64_string = json.loads(json_string)
+        return torch.load(BytesIO(b64decode(base64_string)))
 
     def postprocess_tileset(
         self, tileset_results: List[InferenceResultStack]
@@ -559,15 +617,21 @@ class FASTAIUNETModel(BaseModel):
         Returns:
             tuple: A tuple containing the merged numpy array and the bounds (min_x, min_y, max_x, max_y) of the merged area.
         """
+        tile_probs_by_class = [
+            self.deserialize(inf.json_data).detach().numpy()
+            for inference_result_stack in tileset_results
+            for inf in inference_result_stack.stack
+        ]
+        bounds = [
+            bounds
+            for inference_result_stack in tileset_results
+            for bounds in inference_result_stack.bounds
+        ]
         ds_tiles = []
         try:
             ds_tiles = [
-                memfile_gtiff(
-                    nparray=b64_image_to_array(inf.tile_probs_b64, to_float=True),
-                    bounds=inf.bounds,
-                ).open()
-                for inference_result_stack in tileset_results
-                for inf in inference_result_stack.stack
+                memfile_gtiff(nparray=tile_probs, bounds=bounds).open()
+                for tile_probs, bounds in zip(tile_probs_by_class, bounds)
             ]
 
             logging.info("Merging tiles!")
@@ -971,3 +1035,19 @@ def reproject_to_utm(gdf_wgs84):
     """Finds utm projection for a WGS84 gdf"""
     utm_crs = gdf_wgs84.estimate_utm_crs(datum_name="WGS 84")
     return gdf_wgs84.to_crs(utm_crs)
+
+
+def tensor_to_base64(tensor):
+    """
+    Convert a PyTorch tensor to a base64 string by first saving it to a BytesIO buffer using torch.save, then encoding the buffer contents.
+
+    Args:
+        tensor (torch.Tensor): The tensor to be converted.
+
+    Returns:
+        str: A base64 encoded string of the tensor.
+    """
+    buffer = BytesIO()
+    torch.save(tensor, buffer)
+    buffer.seek(0)
+    return b64encode(buffer.read()).decode("utf-8")
