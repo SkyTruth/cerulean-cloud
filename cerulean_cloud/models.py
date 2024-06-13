@@ -178,6 +178,8 @@ class MASKRCNNModel(BaseModel):
         Returns:
         - str: A JSON string with the 'masks' converted to base64-encoded strings.
         """
+        for key in ["boxes", "labels", "scores"]:
+            pred[key] = pred[key].tolist()  # Tensors are not json serializable
         pred["masks_b64"] = [tensor_to_base64(mask) for mask in pred.pop("masks")]
         json_string = json.dumps(pred)
         return json_string
@@ -185,18 +187,22 @@ class MASKRCNNModel(BaseModel):
     def deserialize(self, json_string):
         """
         Deserializes a JSON string into a prediction dictionary, decoding 'masks' from base64 strings
-        back to PyTorch tensors using torch.load, automatically handling tensor type and shape.
+        back to PyTorch tensors using torch.load, and converting 'boxes', 'labels', and 'scores' back to tensors
 
         Parameters:
         - json_string (str): The JSON string containing the serialized prediction data.
 
         Returns:
-        - dict: The original prediction dictionary with 'masks' restored as PyTorch tensors.
+        - dict: The original prediction dictionary with 'masks' restored as PyTorch tensors and
+                'boxes', 'labels', 'scores' converted back to tensors if they were originally tensors.
         """
         pred = json.loads(json_string)
         pred["masks"] = [
             torch.load(BytesIO(b64decode(b64_str))) for b64_str in pred.pop("masks_b64")
         ]
+        for key in ["boxes", "labels", "scores"]:
+            pred[key] = torch.tensor(pred[key])
+
         return pred
 
     def postprocess_tileset(
@@ -255,9 +261,9 @@ class MASKRCNNModel(BaseModel):
         #     **self.model_dict["thresholds"],
         # )
 
-        reduced_features = flatten_feature_list(features)
+        # reduced_features = flatten_feature_list(features)
         # XXX TODO move feature reduction here
-        return reduced_features
+        return features
 
     def reduce_preds(
         self,
