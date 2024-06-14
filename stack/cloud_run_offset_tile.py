@@ -58,6 +58,10 @@ default = gcp.cloudrun.Service(
                     image=cloud_run_images.cloud_run_offset_tile_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="UVICORN_PORT",
+                            value="8080",
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SOURCE",
                             value="remote",
                         ),

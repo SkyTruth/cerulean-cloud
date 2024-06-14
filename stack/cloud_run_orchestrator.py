@@ -80,6 +80,10 @@ default = gcp.cloudrun.Service(
                     image=cloud_run_images.cloud_run_orchestrator_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="UVICORN_PORT",
+                            value="8080",
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="DB_URL",
                             value=sql_instance_url_with_asyncpg,
                         ),
