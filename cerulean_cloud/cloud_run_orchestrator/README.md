@@ -10,7 +10,7 @@ docker build -f Dockerfiles/Dockerfile.cloud_run_orchestrator -t gcr.io/cerulean
 # Debug image
 
 ```shell
-PORT=8080 && docker run --rm -p 8080:${PORT} -e UVICORN_PORT=${PORT} --name cloud_run_orchestrator gcr.io/gcr.io/cerulean-338116/cloud-run-orchestrator-image
+PORT=8080 && docker run --rm -p 8080:${PORT} -e UVICORN_PORT=${PORT} --name cloud_run_orchestrator gcr.io/cerulean-338116/cloud-run-orchestrator-image
 ```
 
 # Extract the SBOM
