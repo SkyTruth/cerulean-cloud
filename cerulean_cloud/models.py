@@ -279,8 +279,8 @@ class MASKRCNNModel(BaseModel):
     def stitch(
         self,
         scene_polys: List[geojson.Feature],
-        proximity_meters: int = 0,  # group nearby polygons
-        closing_meters: int = 0,  # fill gaps between very close polygons
+        proximity_meters: int = 1000,  # group nearby polygons
+        closing_meters: int = 1000,  # fill gaps between very close polygons
         opening_meters: int = 0,
     ):
         """
