@@ -56,7 +56,7 @@ class BaseModel:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.background_class_idx = next(
             (
-                key
+                int(key)
                 for key, value in model_dict["cls_map"].items()
                 if value == "BACKGROUND"
             ),
@@ -306,7 +306,6 @@ class MASKRCNNModel(BaseModel):
         # have little or no impact on comparison to the original image.
         gdf = gpd.GeoDataFrame.from_features(scene_polys, crs="4326")
         gdf = reproject_to_utm(gdf)
-        print("274", gdf["geometry"].iloc[0].area)
         final_gdf = gdf.copy()
 
         # Expand the geometry of each feature to connect with neighboring instances
@@ -352,7 +351,6 @@ class MASKRCNNModel(BaseModel):
 
         # Reproject the GeoDataFrame back to WGS 84 CRS
         result = dissolved_gdf.to_crs(crs="4326")
-        result.plot()
 
         # Clean up potentially memory heavy assets
         del dissolved_gdf
@@ -383,6 +381,7 @@ class MASKRCNNModel(BaseModel):
         bbox_score_thresh=None,
         pixel_score_thresh=None,
         pixel_nms_thresh=None,
+        **kwargs,
     ):
         """
         Apply various post-processing steps to the predictions from an object detection model.
@@ -578,14 +577,16 @@ class MASKRCNNModel(BaseModel):
         Returns:
             geojson.Feature: A GeoJSON feature object.
         """
-
-        memfile = memfile_gtiff(
-            nparray=high_conf_mask.detach().numpy().astype("int16"),
+        shps = shapes(
+            high_conf_mask.detach().numpy().astype("int16"),
+            connectivity=8,
             transform=transform,
         )
-        with memfile.open() as dataset:
-            multipoly, inf_idx = self.extract_geometry(dataset)
-
+        shps = [s for s in shps]
+        geoms, inf_idxs = zip(*[s for s in shps if s[1] != self.background_class_idx])
+        multipoly, inf_idx = MultiPolygon([shape(g) for g in geoms]), (
+            inf_idxs[0] if inf_idxs else 0
+        )
         return (
             geojson.Feature(
                 geometry=multipoly,
@@ -594,15 +595,6 @@ class MASKRCNNModel(BaseModel):
             if multipoly
             else None
         )
-
-    def extract_geometry(self, dataset):
-        """Extracts the geometries from a raster dataset."""
-
-        shps = shapes(
-            dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
-        )
-        geoms, inf_idxs = zip(*[s for s in shps if s[1] != self.background_class_idx])
-        return MultiPolygon([shape(g) for g in geoms]), inf_idxs[0] if inf_idxs else 0
 
     def calculate_dice_coefficient_pixel(self, u, v):
         """
