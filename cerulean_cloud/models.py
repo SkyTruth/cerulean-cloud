@@ -327,13 +327,19 @@ class MASKRCNNModel(BaseModel):
 
         # Map the group indices and counts back to the GeoDataFrame
         final_gdf["group_index"] = final_gdf.index.map(group_mapping)
+        final_gdf["mean_conf"] = final_gdf["median_conf"] = final_gdf[
+            "max_conf"
+        ] = final_gdf["machine_confidence"]
 
         # Dissolve overlapping features into one based on their group index and calculate the median confidence and maximum inference index
         dissolved_gdf = final_gdf.dissolve(
             by="group_index",
             aggfunc={
                 "machine_confidence": "max",
-                "inf_idx": "mean",  # inf_idx should all be the same value
+                "inf_idx": lambda x: int(x.mode()[0]),
+                "mean_conf": "mean",
+                "median_conf": "median",
+                "max_conf": "max",
             },
         )
 
@@ -503,7 +509,6 @@ class MASKRCNNModel(BaseModel):
             geojson.FeatureCollection: The filtered FeatureCollection after applying polygon NMS.
         """
         features = feature_collection["features"]
-        print(features[0]["properties"]["machine_confidence"])
         feats_to_remove = []
 
         for i, current_feat in enumerate(features):  # Loop through all features
@@ -992,12 +997,10 @@ class FASTAIUNETModel(BaseModel):
                     geojson.Feature(
                         geometry=multipolygon,
                         properties={
-                            "instance_id": int(p1_label),
                             "mean_conf": float(np.mean(masked_raster)),
                             "median_conf": float(np.median(masked_raster)),
                             "max_conf": float(np.max(masked_raster)),
-                            "pixel_count": int(masked_raster.size),
-                            "machine_confidence": float(np.median(masked_raster)),
+                            "machine_confidence": float(np.max(masked_raster)),
                             **addl_props,
                         },
                     )
