@@ -13,6 +13,8 @@ COPY cerulean_cloud/titiler_sentinel/handler.py handler.py
 COPY cerulean_cloud/auth.py auth.py
 COPY cerulean_cloud/titiler_sentinel/templates/ ./templates
 
-COPY --chown=root:root --chmod=400 Dockerfiles/scripts/titiler-entrypoint.sh /entrypoint.sh
+# Use after upgrade of Pulumi Docker to >= 4
+# COPY --chown=root:root --chmod=400 Dockerfiles/scripts/titiler-entrypoint.sh /entrypoint.sh
+COPY Dockerfiles/scripts/titiler-entrypoint.sh /entrypoint.sh
 
 ENTRYPOINT [ "/bin/sh", "/entrypoint.sh" ]
