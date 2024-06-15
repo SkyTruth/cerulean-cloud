@@ -372,7 +372,12 @@ class MASKRCNNModel(BaseModel):
             list: The unmodified input list of features, as the function currently does not
                 implement any reduction or processing.
         """
-        # XXX TODO move feature reduction here
+        if self.model_dict["thresholds"]["pixel_nms_thresh"] is not None:
+            features = self.keep_by_poly_nms(
+                features,
+                self.model_dict["thresholds"]["pixel_nms_thresh"],
+                in_class_only=False,
+            )
         return features
 
     def reduce_preds(
@@ -484,6 +489,56 @@ class MASKRCNNModel(BaseModel):
         )
         return torch.where(mask_maxes > pixel_score_thresh)[0]
 
+    def keep_by_poly_nms(self, feature_collection, pixel_nms_thresh, in_class_only):
+        """
+        Performs non-maximum suppression (NMS) on a FeatureCollection of geojson.Feature objects based on their polygon overlap,
+        measured by the Dice coefficient. Features are retained only if their overlap with others is below a specified threshold.
+
+        Args:
+            feature_collection (geojson.FeatureCollection): The FeatureCollection to process.
+            pixel_nms_thresh (float): The threshold for the Dice coefficient above which one feature is considered overlapping and is removed.
+            in_class_only (bool): If True, suppression is only applied to features within the same class, identified by the 'inf_idx' property.
+
+        Returns:
+            geojson.FeatureCollection: The filtered FeatureCollection after applying polygon NMS.
+        """
+        features = feature_collection["features"]
+        print(features[0]["properties"]["machine_confidence"])
+        feats_to_remove = []
+
+        for i, current_feat in enumerate(features):  # Loop through all features
+            if i in feats_to_remove:
+                continue
+
+            for j, comparison_feat in enumerate(features[i + 1 :], start=i + 1):
+                if j in feats_to_remove:
+                    continue
+
+                if in_class_only and (
+                    current_feat["properties"]["inf_idx"]
+                    != comparison_feat["properties"]["inf_idx"]
+                ):
+                    continue
+
+                if (
+                    self.calculate_dice_coefficient_feature(
+                        current_feat, comparison_feat
+                    )
+                    > pixel_nms_thresh
+                ):
+                    if (
+                        current_feat["properties"]["machine_confidence"]
+                        >= comparison_feat["properties"]["machine_confidence"]
+                    ):
+                        feats_to_remove.append(j)
+                    else:
+                        feats_to_remove.append(i)
+
+        retained_features = [
+            f for i, f in enumerate(features) if i not in feats_to_remove
+        ]
+        return geojson.FeatureCollection(retained_features)
+
     def keep_by_pixel_nms(self, pred_dict, pixel_nms_thresh, in_class_only):
         """
         Applies non-maximum suppression (NMS) based on the Dice coefficient between pixel masks to filter out overlapping masks.
@@ -583,6 +638,8 @@ class MASKRCNNModel(BaseModel):
             transform=transform,
         )
         shps = [s for s in shps]
+        if len(shps) == 1:  # Only the background class was observed
+            return geojson.Feature([])
         geoms, inf_idxs = zip(*[s for s in shps if s[1] != self.background_class_idx])
         multipoly, inf_idx = MultiPolygon([shape(g) for g in geoms]), (
             inf_idxs[0] if inf_idxs else 0
@@ -604,6 +661,29 @@ class MASKRCNNModel(BaseModel):
         Can be used as NMS across classes for mutually-exclusive classifications
         """
         return 2 * torch.sum(torch.sqrt(torch.mul(u, v))) / (torch.sum(u + v))
+
+    def calculate_dice_coefficient_feature(self, u, v):
+        """
+        Calculates the Dice coefficient for the geometries of two geojson.Feature objects.
+        The Dice coefficient is 2 * |X ∩ Y| / (|X| + |Y|), where |X| and |Y| are the areas of the features.
+
+        Args:
+            u (geojson.Feature): The first feature.
+            v (geojson.Feature): The second feature.
+
+        Returns:
+            float: The Dice coefficient ranging from 0 (no overlap) to 1 (identical).
+        """
+        geom1 = shape(u["geometry"])
+        geom2 = shape(v["geometry"])
+
+        intersection = geom1.intersection(geom2)
+        union_area = geom1.area + geom2.area - intersection.area
+
+        if union_area == 0:
+            return 0.0
+
+        return 2 * intersection.area / union_area
 
 
 class FASTAIUNETModel(BaseModel):
