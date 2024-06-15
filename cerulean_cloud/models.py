@@ -13,6 +13,8 @@ from io import BytesIO
 from typing import List
 
 import geojson
+import geopandas as gpd
+import networkx as nx
 import numpy as np
 import rasterio
 import torch
@@ -209,40 +211,156 @@ class MASKRCNNModel(BaseModel):
         self, tileset_results: List[InferenceResultStack]
     ) -> geojson.FeatureCollection:
         """
-        Stitches together inference results from the MASKRCNN model into a geojson feature collection.
+        Post-process a list of tileset results to create a unified geojson feature collection.
+        This includes reducing the number of features per tile, stitching tiles into a single scene,
+        and further reducing the number of features in the scene.
 
         Args:
-            tileset_results: The list of inference results to stitch together.
+            tileset_results (List[InferenceResultStack]): A list of inference results for each tile.
 
         Returns:
-            A geojson.FeatureCollection of stitched inference results.
+            geojson.FeatureCollection: A geojson feature collection representing the processed and combined geographical data.
         """
+
+        logging.info("Reducing feature count on tiles")
+        scene_polys = self.reduce_tile_features(tileset_results)
         logging.info("Stitching tiles into scene")
-        features_list = self.stitch(tileset_results)
-        logging.info("Reducing feature count")
+        features_list = self.stitch(scene_polys)
+        logging.info("Reducing feature count on scene")
         reduced_features = self.reduce_scene_features(features_list)
 
         return geojson.FeatureCollection(features=reduced_features)
 
-    def stitch(
+    def reduce_tile_features(
         self,
         tileset_results: List[InferenceResultStack],
     ):
-        """Merge arrays based on their geographical bounds and return the merged array and its bounds.
+        """
+        Reduces the number of prediction features within each tile by applying thresholds and generating polygons.
 
         Args:
-            tileset_results:
+            tileset_results (List[InferenceResultStack]): A list containing stacks of inference results for tiles.
 
         Returns:
-
+            List[geojson.Feature]: A list of geojson features representing the reduced set of features per tile.
         """
-        # bounds = [
-        #     bounds
-        #     for inference_result_stack in tileset_results
-        #     for bounds in inference_result_stack.bounds
-        # ]
 
-        return tileset_results
+        scene_bounds = [
+            bounds
+            for inference_result_stack in tileset_results
+            for bounds in inference_result_stack.bounds
+        ]
+
+        pred_list = [
+            self.deserialize(inference_result.json_data)
+            for inference_result_stack in tileset_results
+            for inference_result in inference_result_stack.stack
+        ]
+
+        reduced_pred_list = self.reduce_preds(
+            pred_list, **self.model_dict["thresholds"]
+        )
+
+        scene_polys = []
+        for pred_dict, bounds in zip(reduced_pred_list, scene_bounds):
+            # generate vectorized polygons from predictions
+            # adds "polys" to pred_dict
+            if self.model_dict["thresholds"]["poly_score_thresh"] is not None:
+                pred_dict, keep = self.polygonize_pixel_segmentations(
+                    pred_dict,
+                    self.model_dict["thresholds"]["poly_score_thresh"],
+                    bounds,
+                )
+                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
+            scene_polys.extend(pred_dict["polys"])
+
+        return scene_polys
+
+    def stitch(
+        self,
+        scene_polys: List[geojson.Feature],
+        proximity_meters: int = 0,  # group nearby polygons
+        closing_meters: int = 0,  # fill gaps between very close polygons
+        opening_meters: int = 0,
+    ):
+        """
+        Stitches together multiple geojson features into a single feature collection, optionally applying spatial operations
+        like buffering to connect close polygons and filling gaps.
+
+        Args:
+            scene_polys (List[geojson.Feature]): List of geojson features to be stitched.
+            proximity_meters (int, optional): Buffer radius to apply for connecting nearby polygons. Default is 0.
+            closing_meters (int, optional): Buffer radius to apply for closing gaps between polygons. Default is 0.
+            opening_meters (int, optional): Buffer radius to apply for opening inside the polygons. Default is 0.
+
+        Returns:
+            Dict: A geojson-compatible dictionary representing the stitched and optionally modified features.
+        """
+
+        if len(scene_polys) == 0:
+            # No inferences found
+            return geojson.FeatureCollection(features=[])
+
+        # We reproject to UTM for processing. This assumes that all offset images will either be in the same UTM zone as
+        # the input image chip, or that the difference that arise from an offset crossing into a second UTM zone will
+        # have little or no impact on comparison to the original image.
+        gdf = gpd.GeoDataFrame.from_features(scene_polys, crs="4326")
+        gdf = reproject_to_utm(gdf)
+        print("274", gdf["geometry"].iloc[0].area)
+        final_gdf = gdf.copy()
+
+        # Expand the geometry of each feature to connect with neighboring instances
+        gdf["geometry"] = gdf.buffer(proximity_meters)
+
+        # Ensure the 'inf_idx' is the same before joining
+        joined = gpd.sjoin(gdf, gdf, predicate="intersects")
+        joined = joined[joined["inf_idx_left"] == joined["inf_idx_right"]].reset_index()
+
+        # Create a graph where each node represents a feature and edges represent overlaps/intersections
+        G = nx.from_pandas_edgelist(joined, "index", "index_right")
+
+        # For each connected component in the graph, assign a group index and count its features
+        group_mapping = {
+            feature: group
+            for group, component in enumerate(nx.connected_components(G))
+            for feature in component
+        }
+
+        # Map the group indices and counts back to the GeoDataFrame
+        final_gdf["group_index"] = final_gdf.index.map(group_mapping)
+
+        # Dissolve overlapping features into one based on their group index and calculate the median confidence and maximum inference index
+        dissolved_gdf = final_gdf.dissolve(
+            by="group_index",
+            aggfunc={
+                "machine_confidence": "max",
+                "inf_idx": "mean",  # inf_idx should all be the same value
+            },
+        )
+
+        # If set, apply a morphological 'closing' operation to the geometries
+        if closing_meters is not None:
+            dissolved_gdf["geometry"] = dissolved_gdf.buffer(closing_meters).buffer(
+                -closing_meters
+            )
+
+        # If set, apply a morphological 'opening' operation to the geometries
+        if opening_meters is not None:
+            dissolved_gdf["geometry"] = dissolved_gdf.buffer(-opening_meters).buffer(
+                opening_meters
+            )
+
+        # Reproject the GeoDataFrame back to WGS 84 CRS
+        result = dissolved_gdf.to_crs(crs="4326")
+        result.plot()
+
+        # Clean up potentially memory heavy assets
+        del dissolved_gdf
+        del gdf
+        del final_gdf
+        del joined
+
+        return result.__geo_interface__
 
     def reduce_scene_features(self, features):
         """
@@ -256,12 +374,6 @@ class MASKRCNNModel(BaseModel):
             list: The unmodified input list of features, as the function currently does not
                 implement any reduction or processing.
         """
-        # reduced_preds = self.reduce_preds(
-        #     features,
-        #     **self.model_dict["thresholds"],
-        # )
-
-        # reduced_features = flatten_feature_list(features)
         # XXX TODO move feature reduction here
         return features
 
@@ -271,9 +383,6 @@ class MASKRCNNModel(BaseModel):
         bbox_score_thresh=None,
         pixel_score_thresh=None,
         pixel_nms_thresh=None,
-        poly_score_thresh=None,
-        bounds=[],
-        **kwargs,
     ):
         """
         Apply various post-processing steps to the predictions from an object detection model.
@@ -289,15 +398,12 @@ class MASKRCNNModel(BaseModel):
             bbox_score_thresh (Optional[float]): Threshold for bounding box scores.
             pixel_score_thresh (Optional[float]): Threshold for pixel scores.
             pixel_nms_thresh (Optional[float]): Threshold for pixel-level NMS.
-            poly_score_thresh (Optional[float]): Threshold for polygon scores.
-            bounds (List): Geographic bounds for the predictions.
 
         Returns:
             A list of reduced and processed prediction dictionaries.
         """
-        bounds = bounds or [[0, -1, 1, 0]] * len(pred_list)
         reduced_preds = []
-        for i, pred_dict in enumerate(pred_list):
+        for pred_dict in pred_list:
             # remove instances with low scoring boxes
             if bbox_score_thresh is not None:
                 keep = self.keep_by_bbox_score(pred_dict, bbox_score_thresh)
@@ -308,19 +414,12 @@ class MASKRCNNModel(BaseModel):
                 keep = self.keep_by_pixel_score(pred_dict, pixel_score_thresh)
                 pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
 
-            # non-maximum suppression, done globally, across classes, using pixels rather than bboxes
+            # non-maximum suppression, in-class, using pixels rather than bboxes
             if pixel_nms_thresh is not None:
-                keep = self.keep_by_global_pixel_nms(pred_dict, pixel_nms_thresh)
-                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
-
-            # generate vectorized polygons from predictions
-            # adds "polys" to pred_dict
-            if poly_score_thresh is not None:
-                pred_dict, keep = self.polygonize_pixel_segmentations(
-                    pred_dict, poly_score_thresh, bounds[i]
+                keep = self.keep_by_pixel_nms(
+                    pred_dict, pixel_nms_thresh, in_class_only=True
                 )
                 pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
-
             reduced_preds.extend([pred_dict])
         return reduced_preds
 
@@ -386,21 +485,23 @@ class MASKRCNNModel(BaseModel):
         )
         return torch.where(mask_maxes > pixel_score_thresh)[0]
 
-    def keep_by_global_pixel_nms(self, pred_dict, pixel_nms_thresh):
+    def keep_by_pixel_nms(self, pred_dict, pixel_nms_thresh, in_class_only):
         """
-        Apply non-maximum suppression (NMS) to a dictionary of predictions.
-
-        This function iterates over a dictionary of predicted masks and calculates
-        the Dice Coefficient to measure similarity between each pair of masks.
-        If the coefficient exceeds a certain threshold, the mask is marked for removal.
+        Applies non-maximum suppression (NMS) based on the Dice coefficient between pixel masks to filter out overlapping masks.
+        This function iteratively compares each mask against others and removes those with a high degree of overlap
+        based on a defined threshold, optionally considering only masks within the same class.
 
         Args:
-            pred_dict (dict): Dictionary with key "masks" containing a list of predicted masks.
-            pixel_nms_thresh (float): The threshold above which two predictions are considered overlapping.
+            pred_dict (dict): A dictionary containing 'masks' and 'labels'. 'masks' is a list of masks,
+                            and 'labels' is a list of class labels corresponding to each mask.
+            pixel_nms_thresh (float): The Dice coefficient threshold above which masks are considered overlapping and
+                                    hence one of them is removed.
+            in_class_only (bool): If True, NMS is applied only to masks within the same class.
 
         Returns:
-            list: List of indices of masks to keep.
+            List[int]: A list of indices of masks that remain after applying pixel NMS.
         """
+
         masks = pred_dict["masks"]
         masks_to_remove = []
 
@@ -413,6 +514,8 @@ class MASKRCNNModel(BaseModel):
             for j, comparison_mask in enumerate(masks[i + 1 :], start=i + 1):
                 # Skip if the mask is already marked for removal
                 if j in masks_to_remove:
+                    continue
+                if in_class_only and (pred_dict["labels"][i] != pred_dict["labels"][j]):
                     continue
 
                 # Calculate Dice Coefficient; if the similarity is too high, mark mask for removal
