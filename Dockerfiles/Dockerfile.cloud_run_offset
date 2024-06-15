@@ -1,9 +1,10 @@
 FROM python:3.9-slim AS build-env
 
 WORKDIR /app
-COPY cerulean_cloud/ /app/cerulean_cloud/
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+COPY cerulean_cloud/cloud_run_offset_tiles/requirements.txt ./requirements.txt
 
 RUN pip install \
       --no-input \
@@ -14,13 +15,16 @@ RUN pip install \
       --no-cache-dir \
       --upgrade \
       --target ./site-packages \
-      -r cerulean_cloud/cloud_run_offset_tiles/requirements.txt \
+      -r requirements.txt \
       && pip install \
        --isolated \
        --no-cache-dir \
        --disable-pip-version-check \
        'cyclonedx-bom<4.0.0' \
-      && pip freeze --path ./site-packages | cyclonedx-py -r -i - --purl-bom-ref --format xml -o sbom.xml --force
+      && pip freeze --path ./site-packages | cyclonedx-py -r -i - --purl-bom-ref --format xml -o sbom.xml --force \
+      && rm requirements.txt
+
+COPY cerulean_cloud/ /app/cerulean_cloud/
 
 FROM gcr.io/distroless/python3-debian11:debug-nonroot AS final
 
