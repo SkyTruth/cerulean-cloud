@@ -9,29 +9,10 @@ RUN apt-get -y update &&  \
 WORKDIR /var/task
 
 COPY cerulean_cloud/titiler_sentinel/requirements.txt ./requirements.txt
-
-RUN pip install \
-      --no-input \
-      --disable-pip-version-check \
-      --no-warn-script-location \
-      --isolated \
-      --no-cache-dir \
-      --upgrade \
-      --target /var/task \
-      -r requirements.txt
-
-# Reduce package size and remove useless files
-RUN cd /var/task \
-    && find . -type f -name '*.pyc' | while read f; do n=$(echo $f | sed 's/__pycache__\///' | sed 's/.cpython-[2-3][0-9]//'); cp $f $n; done \
-    && find . -type d -a -name '__pycache__' -print0 | xargs -0 rm -rf \
-    && find . -type f -a -name '*.py' -print0 | xargs -0 rm -f \
-    && find /var/task -type d -a -name 'tests' -print0 | xargs -0 rm -rf \
-    && rm -rdf /var/task/numpy/doc/ \
-    && rm -rdf /var/task/stack \
-    && find /var/task -type d -name "*.dist-info" -exec rm -r {} +
-
 COPY cerulean_cloud/titiler_sentinel/handler.py handler.py
 COPY cerulean_cloud/auth.py auth.py
 COPY cerulean_cloud/titiler_sentinel/templates/ ./templates
 
-RUN zip -rm9q /tmp/package.zip *
+COPY --chown=root:root --chmod=400 Dockerfiles/scripts/titiler-entrypoint.sh /entrypoint.sh
+
+ENTRYPOINT [ "/bin/sh", "/entrypoint.sh" ]

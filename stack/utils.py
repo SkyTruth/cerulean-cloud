@@ -57,15 +57,13 @@ def create_package(code_dir: str) -> str:
         rm=True,
     )
 
-    print("Copying package.zip ...")
+    print("Creating installation package.zip ...")
     client.containers.run(
         image="titiler-lambda:latest",
-        command="/bin/sh -c 'cp /tmp/package.zip /local/package.zip'",
         remove=True,
         volumes={os.path.abspath(code_dir): {"bind": "/local/", "mode": "rw"}},
         user=0,
     )
-    print("Copied package package.zip ...")
     return f"{code_dir}package.zip"
 
 
