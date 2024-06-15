@@ -1,36 +1,37 @@
 # Stage 1
-FROM lambci/lambda:build-python3.8 as builder
+FROM python:3.9-slim as builder
 
-WORKDIR /tmp
+RUN apt-get -y update &&  \
+    apt-get install --no-install-recommends  \
+    -y zip \
+    && rm -rf /var/lib/apt/lists/*
 
-# We install titiler and mangum
+WORKDIR /var/task
 
-COPY cerulean_cloud/titiler_sentinel/ /app/titiler_sentinel/
+COPY cerulean_cloud/titiler_sentinel/requirements.txt ./requirements.txt
 
-RUN pip install --no-cache-dir -r /app/titiler_sentinel/requirements.txt -t /var/task
+RUN pip install \
+      --no-input \
+      --disable-pip-version-check \
+      --no-warn-script-location \
+      --isolated \
+      --no-cache-dir \
+      --upgrade \
+      --target /var/task \
+      -r requirements.txt
 
 # Reduce package size and remove useless files
-RUN cd /var/task && find . -type f -name '*.pyc' | while read f; do n=$(echo $f | sed 's/__pycache__\///' | sed 's/.cpython-[2-3][0-9]//'); cp $f $n; done;
-RUN cd /var/task && find . -type d -a -name '__pycache__' -print0 | xargs -0 rm -rf
-RUN cd /var/task && find . -type f -a -name '*.py' -print0 | xargs -0 rm -f
-RUN find /var/task -type d -a -name 'tests' -print0 | xargs -0 rm -rf
-RUN rm -rdf /var/task/numpy/doc/
-RUN rm -rdf /var/task/stack
-RUN find /var/task -type d -name "*.dist-info" -exec rm -r {} +
-
-RUN cd /var/task && zip -r9q /tmp/package.zip *
-
-# Stage 2
-FROM lambci/lambda:build-python3.8
-
-WORKDIR /tmp
-
-COPY --from=builder /tmp/package.zip .
+RUN cd /var/task \
+    && find . -type f -name '*.pyc' | while read f; do n=$(echo $f | sed 's/__pycache__\///' | sed 's/.cpython-[2-3][0-9]//'); cp $f $n; done \
+    && find . -type d -a -name '__pycache__' -print0 | xargs -0 rm -rf \
+    && find . -type f -a -name '*.py' -print0 | xargs -0 rm -f \
+    && find /var/task -type d -a -name 'tests' -print0 | xargs -0 rm -rf \
+    && rm -rdf /var/task/numpy/doc/ \
+    && rm -rdf /var/task/stack \
+    && find /var/task -type d -name "*.dist-info" -exec rm -r {} +
 
 COPY cerulean_cloud/titiler_sentinel/handler.py handler.py
 COPY cerulean_cloud/auth.py auth.py
-RUN mkdir templates
-COPY cerulean_cloud/titiler_sentinel/templates/viewer.html templates/viewer.html
-RUN zip -r9q /tmp/package.zip handler.py
-RUN zip -r9q /tmp/package.zip auth.py
-RUN zip -r9q /tmp/package.zip templates/viewer.html
+COPY cerulean_cloud/titiler_sentinel/templates/ ./templates
+
+RUN zip -rm9q /tmp/package.zip *
