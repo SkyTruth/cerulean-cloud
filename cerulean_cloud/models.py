@@ -784,7 +784,7 @@ class FASTAIUNETModel(BaseModel):
         logging.info("Stitching tiles into scene")
         scene_array_probs, transform = self.stitch(tileset_results)
         logging.info("Finding instances in scene")
-        features_list = self.instantiate(scene_array_probs)
+        features_list = self.instantiate(scene_array_probs, transform)
         logging.info("Reducing feature count")
         reduced_features = self.reduce_scene_features(features_list)
         return geojson.FeatureCollection(features=reduced_features)
@@ -822,7 +822,7 @@ class FASTAIUNETModel(BaseModel):
             for ds in ds_tiles:
                 ds.close()
 
-    def instantiate(self, scene_array_probs):
+    def instantiate(self, scene_array_probs, transform):
         """
             Processes scene probablities to probabilities using softmax, excluding the background class,
             and generates features for each class index.
@@ -850,6 +850,7 @@ class FASTAIUNETModel(BaseModel):
                         p1=self.model_dict["thresholds"]["bbox_score_thresh"],
                         p2=self.model_dict["thresholds"]["poly_score_thresh"],
                         p3=self.model_dict["thresholds"]["pixel_score_thresh"],
+                        transform=transform,
                         addl_props={"inf_idx": inf_idx},
                     )
                 )
@@ -930,7 +931,15 @@ class FASTAIUNETModel(BaseModel):
             feat for i, feat in enumerate(features) if i not in set(feats_to_remove)
         ]
 
-    def instances_from_probs(self, raster, p1, p2, p3, addl_props={}):
+    def instances_from_probs(
+        self,
+        raster,
+        p1,
+        p2,
+        p3,
+        transform,
+        addl_props={},
+    ):
         """
         Converts raster predictions to GeoJSON based on probability thresholds.
         Effectively performs grouping, filtering, and trimming of a probability raster, to produce independent features.
@@ -971,7 +980,9 @@ class FASTAIUNETModel(BaseModel):
         for p1_label in reduced_labels:
             mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
             masked_raster = raster[mask]
-            shapes = rasterio.features.shapes(mask.astype(np.uint8), mask=mask)
+            shapes = rasterio.features.shapes(
+                mask.astype(np.uint8), mask=mask, transform=transform
+            )
             polygons = [shape(geom) for geom, value in shapes if value == 1]
 
             # Ensure there are polygons left after trimming to process into a MultiPolygon
