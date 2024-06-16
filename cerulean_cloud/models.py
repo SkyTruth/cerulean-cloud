@@ -88,9 +88,7 @@ class BaseModel:
         preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
         raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
         inference_results = self.postprocess_tiles(raw_preds)  # Postprocess inference
-        return InferenceResultStack(
-            stack=inference_results, bounds=[i.bounds for i in inf_stack]
-        )
+        return InferenceResultStack(stack=inference_results)
 
     def preprocess_tiles(self, inf_stack):
         """
@@ -120,7 +118,9 @@ class BaseModel:
         raise NotImplementedError("Subclasses should implement this method")
 
     def postprocess_tileset(
-        self, tileset_results: List[InferenceResultStack]
+        self,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[float]],
     ) -> geojson.FeatureCollection:
         """
         Process the InferenceResultStack into a scene and then return a FC. This method should be implemented by subclasses.
@@ -208,7 +208,9 @@ class MASKRCNNModel(BaseModel):
         return pred
 
     def postprocess_tileset(
-        self, tileset_results: List[InferenceResultStack]
+        self,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[float]],
     ) -> geojson.FeatureCollection:
         """
         Post-process a list of tileset results to create a unified geojson feature collection.
@@ -223,7 +225,7 @@ class MASKRCNNModel(BaseModel):
         """
 
         logging.info("Reducing feature count on tiles")
-        scene_polys = self.reduce_tile_features(tileset_results)
+        scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
         logging.info("Stitching tiles into scene")
         features_list = self.stitch(scene_polys)
         logging.info("Reducing feature count on scene")
@@ -234,6 +236,7 @@ class MASKRCNNModel(BaseModel):
     def reduce_tile_features(
         self,
         tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[float]],
     ):
         """
         Reduces the number of prediction features within each tile by applying thresholds and generating polygons.
@@ -244,12 +247,6 @@ class MASKRCNNModel(BaseModel):
         Returns:
             List[geojson.Feature]: A list of geojson features representing the reduced set of features per tile.
         """
-
-        scene_bounds = [
-            bounds
-            for inference_result_stack in tileset_results
-            for bounds in inference_result_stack.bounds
-        ]
 
         pred_list = [
             self.deserialize(inference_result.json_data)
@@ -262,7 +259,7 @@ class MASKRCNNModel(BaseModel):
         )
 
         scene_polys = []
-        for pred_dict, bounds in zip(reduced_pred_list, scene_bounds):
+        for pred_dict, bounds in zip(reduced_pred_list, tileset_bounds):
             # generate vectorized polygons from predictions
             # adds "polys" to pred_dict
             if self.model_dict["thresholds"]["poly_score_thresh"] is not None:
@@ -778,7 +775,9 @@ class FASTAIUNETModel(BaseModel):
         return torch.load(BytesIO(b64decode(base64_string)))
 
     def postprocess_tileset(
-        self, tileset_results: List[InferenceResultStack]
+        self,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[float]],
     ) -> geojson.FeatureCollection:
         """
         Stitches together multiple InferenceResultStacks from the FASTAIUNET model.
@@ -787,14 +786,18 @@ class FASTAIUNETModel(BaseModel):
             tileset_results: The list of InferenceResultStacks to stitch together.
         """
         logging.info("Stitching tiles into scene")
-        scene_array_probs, transform = self.stitch(tileset_results)
+        scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
         logging.info("Finding instances in scene")
         features_list = self.instantiate(scene_array_probs, transform)
         logging.info("Reducing feature count")
         reduced_features = self.reduce_scene_features(features_list)
         return geojson.FeatureCollection(features=reduced_features)
 
-    def stitch(self, tileset_results: List[InferenceResultStack]):
+    def stitch(
+        self,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[float]],
+    ):
         """Merge arrays based on their geographical bounds and return the merged array and its bounds.
 
         Args:
@@ -808,16 +811,11 @@ class FASTAIUNETModel(BaseModel):
             for inference_result_stack in tileset_results
             for inf in inference_result_stack.stack
         ]
-        bounds = [
-            bounds
-            for inference_result_stack in tileset_results
-            for bounds in inference_result_stack.bounds
-        ]
         ds_tiles = []
         try:
             ds_tiles = [
                 memfile_gtiff(nparray=tile_probs, bounds=bounds).open()
-                for tile_probs, bounds in zip(tile_probs_by_class, bounds)
+                for tile_probs, bounds in zip(tile_probs_by_class, tileset_bounds)
             ]
 
             logging.info("Merging tiles!")

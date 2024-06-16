@@ -128,9 +128,7 @@ class CloudRunInferenceClient:
             aux_ds = src.read(window=window, out_shape=(src.count, height, width))
         return np.concatenate([img_array, aux_ds], axis=0)
 
-    async def send_inference_request_and_handle_response(
-        self, http_client, img_array, bounds
-    ):
+    async def send_inference_request_and_handle_response(self, http_client, img_array):
         """
         Sends an asynchronous request to an inference service with the processed image data and handles the response.
         This involves encoding the image array to a base64 format, constructing the inference payload, and interpreting the service response.
@@ -151,7 +149,7 @@ class CloudRunInferenceClient:
         """
 
         encoded = img_array_to_b64_image(img_array)
-        inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
+        inf_stack = [InferenceInput(image=encoded)]
         payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
         res = await http_client.post(
             self.url + "/predict", json=payload.dict(), timeout=None
@@ -199,7 +197,7 @@ class CloudRunInferenceClient:
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, bounds)
         return await self.send_inference_request_and_handle_response(
-            http_client, img_array, bounds
+            http_client, img_array
         )
 
     async def run_parallel_inference(self, tileset):

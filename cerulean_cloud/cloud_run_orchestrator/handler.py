@@ -300,31 +300,40 @@ async def _orchestrate(
                 )
 
                 # Prepare the tasks grouped by tileset
-                tileset_tasks = [
+                tileset_tasks_list = [
                     [{"tile": tile} for tile in base_tiles],
                     [{"bounds": bounds} for bounds in offset_1_tiles_bounds],
                     [{"bounds": bounds} for bounds in offset_2_tiles_bounds],
                 ]
                 # TODO could refactor into a new class, that you specify on creation about whether it is tile-based or bounds-based
 
+                tileset_bounds_list = [
+                    [list(TMS.bounds(tile)) for tile in base_tiles],
+                    offset_1_tiles_bounds,
+                    offset_2_tiles_bounds,
+                ]
+
                 # Perform inferences
                 print(f"Inference starting: {start_time}")
-                tileset_results = [
+                tileset_results_list = [
                     await cloud_run_inference.run_parallel_inference(tileset)
-                    for tileset in tileset_tasks
+                    for tileset in tileset_tasks_list
                 ]
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
                 model = get_model(model_dict)
-                tileset_fcs = [
-                    model.postprocess_tileset(tileset) for tileset in tileset_results
+                tileset_fc_list = [
+                    model.postprocess_tileset(tileset_results, tileset_bounds)
+                    for (tileset_results, tileset_bounds) in zip(
+                        tileset_results_list, tileset_bounds_list
+                    )
                 ]
 
                 # Ensemble inferences
                 print(f"Ensembling results: {start_time}")
                 final_ensemble = ensemble_inferences(
-                    feature_collections=tileset_fcs,
+                    feature_collections=tileset_fc_list,
                     proximity_meters=None,
                     closing_meters=None,
                     opening_meters=None,

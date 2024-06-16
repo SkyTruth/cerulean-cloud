@@ -1,6 +1,6 @@
 """schema for inference enpoint"""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from pydantic import BaseModel
 
@@ -11,7 +11,6 @@ class InferenceInput(BaseModel):
     """
 
     image: str
-    bounds: Optional[List[float]]
 
 
 class PredictPayload(BaseModel):
@@ -37,4 +36,3 @@ class InferenceResultStack(BaseModel):
     """
 
     stack: List[InferenceResult]
-    bounds: List[List[float]]
