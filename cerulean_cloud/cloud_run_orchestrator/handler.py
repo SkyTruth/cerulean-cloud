@@ -26,7 +26,6 @@ from shapely.geometry import shape
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_aaa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
-from cerulean_cloud.cloud_run_orchestrator.merging import ensemble_inferences
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
@@ -332,11 +331,8 @@ async def _orchestrate(
 
                 # Ensemble inferences
                 print(f"Ensembling results: {start_time}")
-                final_ensemble = ensemble_inferences(
-                    feature_collections=tileset_fc_list,
-                    proximity_meters=None,
-                    closing_meters=None,
-                    opening_meters=None,
+                final_ensemble = model.nms_feature_reduction(
+                    features=tileset_fc_list, min_overlaps_to_keep=1
                 )
 
                 if final_ensemble.get("features"):

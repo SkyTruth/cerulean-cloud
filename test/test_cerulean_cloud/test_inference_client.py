@@ -90,6 +90,7 @@ async def test_get_tile_inference(fixture_cloud_inference_tile, httpx_mock):
         "model_dict": {
             "model_type": "MASKRCNN",
             "thresholds": {
+                "poly_nms_thresh": 0.4,
                 "pixel_nms_thresh": 0.4,
                 "bbox_score_thresh": 0.2,
                 "poly_score_thresh": 0.2,

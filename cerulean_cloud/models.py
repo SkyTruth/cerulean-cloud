@@ -10,7 +10,7 @@ import logging
 import os
 from base64 import b64decode, b64encode
 from io import BytesIO
-from typing import List
+from typing import List, Union
 
 import geojson
 import geopandas as gpd
@@ -130,6 +130,104 @@ class BaseModel:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
+    def nms_feature_reduction(
+        self,
+        features: Union[geojson.FeatureCollection, List[geojson.FeatureCollection]],
+        min_overlaps_to_keep: int = 0,
+        in_class_only: bool = False,
+    ) -> geojson.FeatureCollection:
+        """
+        Performs ensemble inference on a list of geojson Features to eliminate overlapping features based on a non-maximum suppression approach using the Dice coefficient and inclusion thresholds. Features with fewer overlaps than a specified threshold are also discarded.
+
+        Parameters:
+        - feature_list: A list of geojson Features.
+        - poly_nms_thresh: The threshold for the Dice coefficient above which one of the overlapping features is removed.
+        - min_overlaps_to_keep: The minimum number of overlaps a feature must have to be retained.
+        - in_class_only: Determines whether the NMS should only apply to like-classed instances, or classes should supress each other
+
+        Returns:
+        - A geojson FeatureCollection containing the retained features.
+        """
+        feature_list = []
+        if isinstance(features, geojson.FeatureCollection):
+            feature_list.extend(features["features"])
+        elif isinstance(features, list) and all(
+            isinstance(f, geojson.FeatureCollection) for f in features
+        ):
+            feature_list.extend([f for fc in features for f in fc["features"]])
+
+        # Initialize a set for efficient tracking of features to be removed
+        feats_to_remove = set()
+
+        # Precompute the areas of all features to optimize geometry operations
+        feature_areas = [shape(feat["geometry"]).area for feat in feature_list]
+
+        # Loop through each feature in the list to determine overlaps
+        for i, current_feat in enumerate(feature_list):
+            # Skip processing for features already marked for removal
+            if i in feats_to_remove:
+                continue
+
+            # Initialize overlap counter for the current feature
+            num_overlaps = 0
+            geom1 = shape(current_feat["geometry"])
+            geom1_area = feature_areas[i]
+
+            # Compare the current feature against all subsequent features
+            for j, comparison_feat in enumerate(feature_list[i + 1 :], start=i + 1):
+                if j in feats_to_remove:
+                    continue
+
+                if in_class_only and (
+                    current_feat["properties"]["inf_idx"]
+                    != comparison_feat["properties"]["inf_idx"]
+                ):
+                    continue
+
+                geom2 = shape(comparison_feat["geometry"])
+                geom2_area = feature_areas[j]
+
+                # Compute intersection and union areas for Dice coefficient
+                intersection_area = geom1.intersection(geom2).area
+                union_area = geom1_area + geom2_area - intersection_area
+
+                # Calculate Dice coefficient
+                dice = (
+                    2 * intersection_area / union_area if union_area > 0 else 0
+                )  # Ensure no division by zero
+
+                # Count this feature as an overlap if there's any intersection
+                if dice > 0:
+                    num_overlaps += 1
+
+                # Decide which feature to remove based on the Dice coefficient threshold
+                if dice > self.model_dict["thresholds"]["poly_nms_thresh"]:
+                    # Choose to remove the feature with lower confidence
+                    if (
+                        current_feat["properties"]["machine_confidence"]
+                        <= comparison_feat["properties"]["machine_confidence"]
+                    ):
+                        feats_to_remove.add(i)
+                    else:
+                        feats_to_remove.add(j)
+                # Check for substantial inclusion and remove the encompassed feature
+                elif intersection_area > 0.9 * geom1_area:
+                    feats_to_remove.add(i)
+                elif intersection_area > 0.9 * geom2_area:
+                    feats_to_remove.add(j)
+
+            # If the feature has fewer overlaps than required, mark it for removal
+            if num_overlaps < min_overlaps_to_keep:
+                feats_to_remove.add(i)
+
+        # Collect features that are not marked for removal
+        retained_features = [
+            f for i, f in enumerate(feature_list) if i not in feats_to_remove
+        ]
+
+        # Return a new geojson FeatureCollection containing only the retained features
+        return geojson.FeatureCollection(retained_features)
+
 
 class MASKRCNNModel(BaseModel):
     """
@@ -227,11 +325,10 @@ class MASKRCNNModel(BaseModel):
         logging.info("Reducing feature count on tiles")
         scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
         logging.info("Stitching tiles into scene")
-        features_list = self.stitch(scene_polys)
+        feature_collection = self.stitch(scene_polys)
         logging.info("Reducing feature count on scene")
-        reduced_features = self.reduce_scene_features(features_list)
-
-        return geojson.FeatureCollection(features=reduced_features)
+        reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        return reduced_feature_collection
 
     def reduce_tile_features(
         self,
@@ -363,26 +460,6 @@ class MASKRCNNModel(BaseModel):
 
         return result.__geo_interface__
 
-    def reduce_scene_features(self, features):
-        """
-        Placeholder for a method intended to reduce or process a list of features further.
-        Currently, it directly returns the input list without modifications.
-
-        Args:
-            features (list): A list of features to be potentially reduced or processed.
-
-        Returns:
-            list: The unmodified input list of features, as the function currently does not
-                implement any reduction or processing.
-        """
-        if self.model_dict["thresholds"]["pixel_nms_thresh"] is not None:
-            features = self.keep_by_poly_nms(
-                features,
-                self.model_dict["thresholds"]["pixel_nms_thresh"],
-                in_class_only=False,
-            )
-        return features
-
     def reduce_preds(
         self,
         pred_list,
@@ -491,55 +568,6 @@ class MASKRCNNModel(BaseModel):
             else torch.tensor([])
         )
         return torch.where(mask_maxes > pixel_score_thresh)[0]
-
-    def keep_by_poly_nms(self, feature_collection, pixel_nms_thresh, in_class_only):
-        """
-        Performs non-maximum suppression (NMS) on a FeatureCollection of geojson.Feature objects based on their polygon overlap,
-        measured by the Dice coefficient. Features are retained only if their overlap with others is below a specified threshold.
-
-        Args:
-            feature_collection (geojson.FeatureCollection): The FeatureCollection to process.
-            pixel_nms_thresh (float): The threshold for the Dice coefficient above which one feature is considered overlapping and is removed.
-            in_class_only (bool): If True, suppression is only applied to features within the same class, identified by the 'inf_idx' property.
-
-        Returns:
-            geojson.FeatureCollection: The filtered FeatureCollection after applying polygon NMS.
-        """
-        features = feature_collection["features"]
-        feats_to_remove = []
-
-        for i, current_feat in enumerate(features):  # Loop through all features
-            if i in feats_to_remove:
-                continue
-
-            for j, comparison_feat in enumerate(features[i + 1 :], start=i + 1):
-                if j in feats_to_remove:
-                    continue
-
-                if in_class_only and (
-                    current_feat["properties"]["inf_idx"]
-                    != comparison_feat["properties"]["inf_idx"]
-                ):
-                    continue
-
-                if (
-                    self.calculate_dice_coefficient_feature(
-                        current_feat, comparison_feat
-                    )
-                    > pixel_nms_thresh
-                ):
-                    if (
-                        current_feat["properties"]["machine_confidence"]
-                        >= comparison_feat["properties"]["machine_confidence"]
-                    ):
-                        feats_to_remove.append(j)
-                    else:
-                        feats_to_remove.append(i)
-
-        retained_features = [
-            f for i, f in enumerate(features) if i not in feats_to_remove
-        ]
-        return geojson.FeatureCollection(retained_features)
 
     def keep_by_pixel_nms(self, pred_dict, pixel_nms_thresh, in_class_only):
         """
@@ -664,29 +692,6 @@ class MASKRCNNModel(BaseModel):
         """
         return 2 * torch.sum(torch.sqrt(torch.mul(u, v))) / (torch.sum(u + v))
 
-    def calculate_dice_coefficient_feature(self, u, v):
-        """
-        Calculates the Dice coefficient for the geometries of two geojson.Feature objects.
-        The Dice coefficient is 2 * |X ∩ Y| / (|X| + |Y|), where |X| and |Y| are the areas of the features.
-
-        Args:
-            u (geojson.Feature): The first feature.
-            v (geojson.Feature): The second feature.
-
-        Returns:
-            float: The Dice coefficient ranging from 0 (no overlap) to 1 (identical).
-        """
-        geom1 = shape(u["geometry"])
-        geom2 = shape(v["geometry"])
-
-        intersection = geom1.intersection(geom2)
-        union_area = geom1.area + geom2.area - intersection.area
-
-        if union_area == 0:
-            return 0.0
-
-        return 2 * intersection.area / union_area
-
 
 class FASTAIUNETModel(BaseModel):
     """
@@ -788,10 +793,10 @@ class FASTAIUNETModel(BaseModel):
         logging.info("Stitching tiles into scene")
         scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
         logging.info("Finding instances in scene")
-        features_list = self.instantiate(scene_array_probs, transform)
-        logging.info("Reducing feature count")
-        reduced_features = self.reduce_scene_features(features_list)
-        return geojson.FeatureCollection(features=reduced_features)
+        feature_collection = self.instantiate(scene_array_probs, transform)
+        logging.info("Reducing feature count on scene")
+        reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        return reduced_feature_collection
 
     def stitch(
         self,
@@ -818,7 +823,7 @@ class FASTAIUNETModel(BaseModel):
                 for tile_probs, bounds in zip(tile_probs_by_class, tileset_bounds)
             ]
 
-            logging.info("Merging tiles!")
+            logging.info("Stitching tile probabilites together!")
             scene_array, transform = rio_merge(ds_tiles)
             return scene_array, transform
         finally:
@@ -827,19 +832,15 @@ class FASTAIUNETModel(BaseModel):
 
     def instantiate(self, scene_array_probs, transform):
         """
-            Processes scene probablities to probabilities using softmax, excluding the background class,
-            and generates features for each class index.
+        Converts scene probability arrays into a GeoJSON FeatureCollection of detected instances, excluding the background class. It processes each class's probability, transforms them to features, and applies specified thresholds from the model's dictionary.
 
-        Args:
-            scene_array_probs (Tensor or numpy.ndarray): A tensor containing probabilities for each class in the scene,
-                where the first dimension corresponds to class indices.
+        Parameters:
+        - scene_array_probs (np.ndarray or torch.Tensor): Array containing per-class instance probabilities.
+        - transform: A transformation function or operation to apply to each instance feature.
 
-            Returns:
-                list: A list of features, where each feature is derived from class probabilities,
-                    excluding the background class. Each feature includes additional properties
-                    such as the class index.
+        Returns:
+        - geojson.FeatureCollection: A collection of geojson features representing detected instances.
         """
-
         # Convert numpy.ndarray to PyTorch tensor if necessary
         if isinstance(scene_array_probs, np.ndarray):
             scene_array_probs = torch.tensor(scene_array_probs)
@@ -858,81 +859,7 @@ class FASTAIUNETModel(BaseModel):
                     )
                 )
 
-        return features
-
-    def reduce_scene_features(self, features):
-        """
-        Reduces the number of features in a scene by applying Non-Maximum Suppression (NMS)
-        based on a global pixel threshold to remove similar overlapping features.
-
-        This function utilizes a defined pixel NMS threshold from the model's configuration
-        to determine which features are kept based on their uniqueness.
-
-        Parameters:
-            features (list of dict): A list of feature dictionaries. Each feature dictionary
-                should contain at least the 'properties' key with necessary information.
-
-        Returns:
-            list of dict: A reduced list of features after applying the pixel NMS.
-        """
-        reduced_features = self.keep_by_global_pixel_nms(
-            features, self.model_dict["thresholds"]["pixel_nms_thresh"]
-        )
-        return reduced_features
-
-    def keep_by_global_pixel_nms(self, features, pixel_nms_thresh):
-        """
-        Filters out features that are similar based on the Dice coefficient, which is
-        calculated between each pair of features. This is intended to perform a global
-        Non-Maximum Suppression (NMS) where features that are too similar to each other
-        (above the given threshold) are removed.
-
-        Parameters:
-            features (list of dict): A list of features to evaluate. Each feature must have
-                a 'properties' dictionary containing at least 'inf_idx', which indicates
-                the class index of the feature.
-            pixel_nms_thresh (float): The similarity threshold for the Dice coefficient. If the
-                Dice coefficient between two features exceeds this value, the later feature
-                in the list is considered for removal.
-
-        Returns:
-            list of dict: A list of features that are not marked for removal. Features are
-                considered non-redundant if their similarity (by Dice coefficient) to other
-                features does not exceed the specified threshold.
-        """
-
-        feats_to_remove = []
-
-        for i, current_feat in enumerate(features):  # Loop through all feats
-            # Skip if the feat is already marked for removal
-            if i in feats_to_remove:
-                continue
-
-            # Check similarity against all subsequent feats
-            for j, comparison_feat in enumerate(features[i + 1 :], start=i + 1):
-                # Skip if the feat is already marked for removal
-                if j in feats_to_remove:
-                    continue
-                # Skip if the feat came from the same class (cannot overlap in FASTAIUNET by definition)
-                if (
-                    current_feat["properties"]["inf_idx"]
-                    == comparison_feat["properties"]["inf_idx"]
-                ):
-                    continue
-
-                # Calculate Dice Coefficient; if the similarity is too high, mark feat for removal
-                if (
-                    self.calculate_dice_coefficient_geojson(
-                        current_feat, comparison_feat
-                    )
-                    > pixel_nms_thresh
-                ):
-                    feats_to_remove.append(j)
-
-        # Return a list of feats that are not marked for removal
-        return [
-            feat for i, feat in enumerate(features) if i not in set(feats_to_remove)
-        ]
+        return geojson.FeatureCollection(features=features)
 
     def instances_from_probs(
         self,
@@ -1083,48 +1010,6 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
         encoded = b64encode(memfile.read()).decode("ascii")
         return encoded
     return memfile
-
-
-# def probs_to_classes(out_batch_probs, conf_threshold=0.0):
-#     """
-#     Convert probabilitiess from a neural network batch output to class predictions based on probability confidence.
-
-#     Parameters:
-#     - out_batch_probs (Tensor): A tensor containing probs for each class, typically of shape (num_classes, num_samples).
-#     - conf_threshold (float, optional): A threshold value for confidence. Class predictions with confidence below this value will be set to 0. Default is 0, meaning all predictions are returned regardless of confidence.
-
-#     Returns:
-#     - tuple(Tensor, Tensor): A tuple containing two tensors:
-#         - The first tensor (`conf`) contains the maximum probabilities (confidences) for each sample.
-#         - The second tensor (`classes`) contains the class indices of the highest probability for each sample. If `conf_threshold` is used and the confidence of a prediction is below the threshold, the class index is set to 0.
-
-#     This function identifies the maximum probability and corresponding class for each sample, and applies a confidence threshold if specified.
-#     """
-#     conf, classes = torch.max(out_batch_probs, 0)
-#     if conf_threshold > 0:
-#         high_conf_mask = torch.any(torch.where(conf > conf_threshold, 1, 0), axis=0)
-#         classes = torch.where(high_conf_mask, classes, 0)
-#     return (conf, classes)
-
-
-def flatten_feature_list(
-    stack_list: List[InferenceResultStack],
-) -> List[geojson.Feature]:
-    """
-    Flattens a list of InferenceResultStack objects into a list of GeoJSON features.
-
-    Args:
-        stack_list (List[InferenceResultStack]): List of InferenceResultStack objects.
-
-    Returns:
-        List[geojson.Feature]: A list of GeoJSON features.
-    """
-    flat_list: List[geojson.Feature] = []
-    for r in stack_list:
-        for i in r.stack:
-            for f in i.features_geojson:
-                flat_list.append(f)
-    return flat_list
 
 
 def b64_image_to_array(image: str, tensor: bool = False, to_float=False):

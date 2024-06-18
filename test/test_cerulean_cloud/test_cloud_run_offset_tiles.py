@@ -98,6 +98,7 @@ def test_inference_():
                 "natural_seep",
                 "recent_vessel",
             ],
+            "poly_nms_thresh": 0.4,  # prediction vs itself, pixels
             "pixel_nms_thresh": 0.4,  # prediction vs itself, pixels
             "bbox_score_thresh": 0.2,  # prediction vs score, bbox
             "poly_score_thresh": 0.2,  # prediction vs score, polygon

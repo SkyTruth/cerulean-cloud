@@ -88,6 +88,7 @@ def upgrade() -> None:
                 tile_width_px=512,
                 epochs=122,
                 thresholds={
+                    "poly_nms_thresh": 0.8,
                     "pixel_nms_thresh": 0.4,
                     "bbox_score_thresh": 0.2,
                     "poly_score_thresh": 0.2,
@@ -116,6 +117,7 @@ def upgrade() -> None:
                 tile_width_px=256,  # Used to calculate scale
                 epochs=80,
                 thresholds={
+                    "poly_nms_thresh": 0.8,
                     "pixel_nms_thresh": 0.4,
                     "bbox_score_thresh": 0.001,
                     "poly_score_thresh": 0.5,
