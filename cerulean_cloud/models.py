@@ -155,6 +155,7 @@ class BaseModel:
             isinstance(f, geojson.FeatureCollection) for f in features
         ):
             feature_list.extend([f for fc in features for f in fc["features"]])
+
         if not feature_list:
             return geojson.FeatureCollection([])
 
@@ -170,14 +171,18 @@ class BaseModel:
         gdf = reproject_to_utm(gdf)
         gdf["area"] = gdf.area
 
+        # If the feature has fewer overlaps than required, mark it for removal
+        gdf["overlaps"] = gdf.apply(
+            lambda x: sum(x.geometry.intersects(y) for y in gdf.geometry) - 1, axis=1
+        )
+        feats_to_remove.extend(gdf[gdf["overlaps"] < min_overlaps_to_keep].index)
+
         # Loop through each feature in the list to determine overlaps
         for i, feat_i in gdf.iterrows():
+
             # Skip processing for features already marked for removal
             if i in feats_to_remove:
                 continue
-
-            # Initialize overlap counter for the current feature
-            num_overlaps = 0
 
             # Compare the current feature against all subsequent features
             for j, feat_j in gdf.iterrows():
@@ -197,10 +202,6 @@ class BaseModel:
                 intersection = feat_i.geometry.intersection(feat_j.geometry).area
                 union = feat_i["area"] + feat_j["area"] - intersection
 
-                # Count this feature as an overlap if there's any intersection
-                if intersection:
-                    num_overlaps += 1
-
                 # Decide which feature to remove based on the IoU threshold
                 iou = intersection / union
                 if iou > self.model_dict["thresholds"]["poly_nms_thresh"]:
@@ -210,14 +211,10 @@ class BaseModel:
                     else:
                         feats_to_remove.append(j)
                 # Check for substantial inclusion and remove the encompassed feature
-                elif intersection > 0.95 * feat_i["area"]:
+                elif intersection > 0.9 * feat_i["area"]:
                     feats_to_remove.append(i)
-                elif intersection > 0.95 * feat_j["area"]:
+                elif intersection > 0.9 * feat_j["area"]:
                     feats_to_remove.append(j)
-
-            # If the feature has fewer overlaps than required, mark it for removal
-            if num_overlaps < min_overlaps_to_keep:
-                feats_to_remove.append(i)
 
         # Collect features that are not marked for removal
         retained_features = [
