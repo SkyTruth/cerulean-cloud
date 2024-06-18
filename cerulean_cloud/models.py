@@ -137,11 +137,11 @@ class BaseModel:
         in_class_only: bool = False,
     ) -> geojson.FeatureCollection:
         """
-        Performs ensemble inference on a list of geojson Features to eliminate overlapping features based on a non-maximum suppression approach using the Dice coefficient and inclusion thresholds. Features with fewer overlaps than a specified threshold are also discarded.
+        Performs ensemble inference on a list of geojson Features to eliminate overlapping features based on a non-maximum suppression approach using IoU and inclusion thresholds. Features with fewer overlaps than a specified threshold are also discarded.
 
         Parameters:
         - feature_list: A list of geojson Features.
-        - poly_nms_thresh: The threshold for the Dice coefficient above which one of the overlapping features is removed.
+        - poly_nms_thresh: The threshold for the IoU above which one of the overlapping features is removed.
         - min_overlaps_to_keep: The minimum number of overlaps a feature must have to be retained.
         - in_class_only: Determines whether the NMS should only apply to like-classed instances, or classes should supress each other
 
@@ -155,70 +155,69 @@ class BaseModel:
             isinstance(f, geojson.FeatureCollection) for f in features
         ):
             feature_list.extend([f for fc in features for f in fc["features"]])
+        if not feature_list:
+            return geojson.FeatureCollection([])
 
         # Initialize a set for efficient tracking of features to be removed
-        feats_to_remove = set()
+        feats_to_remove = []
 
         # Precompute the areas of all features to optimize geometry operations
-        feature_areas = [shape(feat["geometry"]).area for feat in feature_list]
+        gdf = gpd.GeoDataFrame(
+            [feature["properties"] for feature in feature_list],
+            geometry=[shape(feature["geometry"]) for feature in feature_list],
+            crs="4326",
+        )
+        gdf = reproject_to_utm(gdf)
+        gdf["area"] = gdf.area
 
         # Loop through each feature in the list to determine overlaps
-        for i, current_feat in enumerate(feature_list):
+        for i, feat_i in gdf.iterrows():
             # Skip processing for features already marked for removal
             if i in feats_to_remove:
                 continue
 
             # Initialize overlap counter for the current feature
             num_overlaps = 0
-            geom1 = shape(current_feat["geometry"])
-            geom1_area = feature_areas[i]
 
             # Compare the current feature against all subsequent features
-            for j, comparison_feat in enumerate(feature_list[i + 1 :], start=i + 1):
+            for j, feat_j in gdf.iterrows():
+                if j <= i:
+                    # Skip rows until you reach i + 1
+                    continue
+
                 if j in feats_to_remove:
+                    # Skip rows that have already been eliminated
                     continue
 
-                if in_class_only and (
-                    current_feat["properties"]["inf_idx"]
-                    != comparison_feat["properties"]["inf_idx"]
-                ):
+                if in_class_only and (feat_i["inf_idx"] != feat_j["inf_idx"]):
+                    # Skip pairs that don't have matching classes
                     continue
 
-                geom2 = shape(comparison_feat["geometry"])
-                geom2_area = feature_areas[j]
-
-                # Compute intersection and union areas for Dice coefficient
-                intersection_area = geom1.intersection(geom2).area
-                union_area = geom1_area + geom2_area - intersection_area
-
-                # Calculate Dice coefficient
-                dice = (
-                    2 * intersection_area / union_area if union_area > 0 else 0
-                )  # Ensure no division by zero
+                # Compute intersection and union areas for IoU
+                intersection = feat_i.geometry.intersection(feat_j.geometry).area
+                union = feat_i["area"] + feat_j["area"] - intersection
 
                 # Count this feature as an overlap if there's any intersection
-                if dice > 0:
+                if intersection:
                     num_overlaps += 1
 
-                # Decide which feature to remove based on the Dice coefficient threshold
-                if dice > self.model_dict["thresholds"]["poly_nms_thresh"]:
+                # Decide which feature to remove based on the IoU threshold
+                iou = intersection / union
+                if iou > self.model_dict["thresholds"]["poly_nms_thresh"]:
                     # Choose to remove the feature with lower confidence
-                    if (
-                        current_feat["properties"]["machine_confidence"]
-                        <= comparison_feat["properties"]["machine_confidence"]
-                    ):
-                        feats_to_remove.add(i)
+                    if feat_i["machine_confidence"] <= feat_j["machine_confidence"]:
+                        feats_to_remove.append(i)
                     else:
-                        feats_to_remove.add(j)
+                        feats_to_remove.append(j)
                 # Check for substantial inclusion and remove the encompassed feature
-                elif intersection_area > 0.9 * geom1_area:
-                    feats_to_remove.add(i)
-                elif intersection_area > 0.9 * geom2_area:
-                    feats_to_remove.add(j)
+                elif intersection > 0.95 * feat_i["area"]:
+                    feats_to_remove.append(i)
+                elif intersection > 0.95 * feat_j["area"]:
+                    feats_to_remove.append(j)
 
             # If the feature has fewer overlaps than required, mark it for removal
             if num_overlaps < min_overlaps_to_keep:
-                feats_to_remove.add(i)
+                feats_to_remove.append(i)
 
         # Collect features that are not marked for removal
         retained_features = [
@@ -458,7 +457,7 @@ class MASKRCNNModel(BaseModel):
         del final_gdf
         del joined
 
-        return result.__geo_interface__
+        return geojson.FeatureCollection(features=result.__geo_interface__)
 
     def reduce_preds(
         self,
@@ -932,26 +931,6 @@ class FASTAIUNETModel(BaseModel):
                 )
 
         return features
-
-    def calculate_dice_coefficient_geojson(self, geojson1, geojson2):
-        """
-        Takes two GeoJSON feature dictionaries and calculates how similar they are to each other.
-        Returns a value between 0 (no overlap) and 1 (identical).
-        Utilizes an intersection over union (IoU) style construction.
-        """
-        # Convert GeoJSON features to Shapely polygons
-        polygon1 = shape(geojson1["geometry"])
-        polygon2 = shape(geojson2["geometry"])
-
-        # Calculate the intersection and union of both polygons
-        intersection = polygon1.intersection(polygon2)
-        union = polygon1.union(polygon2)
-
-        # Calculate Dice Coefficient using the area of the intersection and union
-        if union.area == 0:
-            return 0
-        dice_coefficient = 2 * intersection.area / (polygon1.area + polygon2.area)
-        return dice_coefficient
 
 
 def get_model(
