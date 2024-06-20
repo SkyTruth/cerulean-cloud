@@ -208,6 +208,9 @@ async def _orchestrate(
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
 
+    base_tiles_bounds = offset_bounds_from_base_tiles(
+        base_tiles, offset_amount=0.0
+    )
     offset_1_tiles_bounds = offset_bounds_from_base_tiles(
         base_tiles, offset_amount=0.33
     )
@@ -225,12 +228,12 @@ async def _orchestrate(
     # Filter out land tiles
     # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
     # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
-    base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
 
+    base_tiles_bounds = [b for b in base_tiles_bounds if is_tile_over_water(b)]
     offset_1_tiles_bounds = [b for b in offset_1_tiles_bounds if is_tile_over_water(b)]
     offset_2_tiles_bounds = [b for b in offset_2_tiles_bounds if is_tile_over_water(b)]
 
-    ntiles = len(base_tiles)
+    ntiles = len(base_tiles_bounds)
     noffsettiles = len(offset_1_tiles_bounds)
     print(f"{start_time}: Preparing {ntiles} base tiles (no land).")
     print(f"{start_time}: Preparing {noffsettiles} offset tiles (no land).")
@@ -300,14 +303,14 @@ async def _orchestrate(
 
                 # Prepare the tasks grouped by tileset
                 tileset_tasks_list = [
-                    [{"tile": tile} for tile in base_tiles],
+                    [{"bounds": bounds} for bounds in base_tiles_bounds],
                     [{"bounds": bounds} for bounds in offset_1_tiles_bounds],
                     [{"bounds": bounds} for bounds in offset_2_tiles_bounds],
                 ]
                 # TODO could refactor into a new class, that you specify on creation about whether it is tile-based or bounds-based
 
                 tileset_bounds_list = [
-                    [list(TMS.bounds(tile)) for tile in base_tiles],
+                    base_tiles_bounds,
                     offset_1_tiles_bounds,
                     offset_2_tiles_bounds,
                 ]
