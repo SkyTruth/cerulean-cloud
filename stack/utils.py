@@ -1,4 +1,5 @@
 """utils for stack building"""
+
 import base64
 import hashlib
 import os
@@ -54,6 +55,7 @@ def create_package(code_dir: str) -> str:
         path=code_dir,
         dockerfile="Dockerfiles/Dockerfile.titiler",
         tag="titiler-lambda:latest",
+        nocache=True,
         rm=True,
     )
 
