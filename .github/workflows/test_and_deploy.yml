@@ -158,6 +158,12 @@ jobs:
           command: up
           stack-name: test
 
+      - name: Prune Docker environment
+        run: |
+          docker container prune -f
+          docker image prune -f
+          docker buildx prune -f
+
       # Copy shared database_client.py files
       - name: Copy Shared File
         run: |
