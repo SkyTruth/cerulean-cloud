@@ -179,19 +179,14 @@ class BaseModel:
 
         # Loop through each feature in the list to determine overlaps
         for i, feat_i in gdf.iterrows():
-
-            # Skip processing for features already marked for removal
-            if i in feats_to_remove:
-                continue
-
             # Compare the current feature against all subsequent features
             for j, feat_j in gdf.iterrows():
                 if j <= i:
                     # Skip rows until you reach i + 1
                     continue
 
-                if j in feats_to_remove:
-                    # Skip rows that have already been eliminated
+                if j in feats_to_remove or i in feats_to_remove:
+                    # Skip processing for features already marked for removal
                     continue
 
                 if in_class_only and (feat_i["inf_idx"] != feat_j["inf_idx"]):
@@ -370,7 +365,7 @@ class MASKRCNNModel(BaseModel):
         self,
         scene_polys: List[geojson.Feature],
         proximity_meters: int = 1000,  # group nearby polygons
-        closing_meters: int = 1000,  # fill gaps between very close polygons
+        closing_meters: int = 500,  # fill gaps between very close polygons
         opening_meters: int = 0,
     ):
         """
