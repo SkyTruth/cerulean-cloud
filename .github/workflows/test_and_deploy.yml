@@ -99,7 +99,7 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           command: preview
           stack-name: test
 
@@ -153,7 +153,7 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           work-dir: images/
           command: up
           stack-name: test
@@ -165,30 +165,30 @@ jobs:
           cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
           cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
-      
+
       - uses: pulumi/actions@v3
         id: pulumi-refresh
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           command: refresh
           stack-name: test
-      
+
       - uses: pulumi/actions@v3
         id: pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           command: up
           stack-name: test
 
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
           instance: ${{ steps.pulumi.outputs.database_instance_name }}
-      
+
       - name: Run database migrations
         env:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
@@ -227,7 +227,7 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           work-dir: images/
           command: up
           stack-name: staging
@@ -239,31 +239,31 @@ jobs:
           cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
           cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
-      
+
       - uses: pulumi/actions@v3
         id: pulumi-refresh
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           command: refresh
           stack-name: staging
 
       - uses: pulumi/actions@v3
         id: pulumi
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           command: up
           stack-name: staging
 
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
-      
+
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
           instance: ${{ steps.pulumi.outputs.database_instance_name }}
-      
+
       - name: Run database migrations
         env:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
@@ -302,7 +302,7 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           work-dir: images/
           command: up
           stack-name: production
@@ -314,20 +314,20 @@ jobs:
           cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
           cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
-      
+
       - uses: pulumi/actions@v3
         id: pulumi-refresh
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           command: refresh
           stack-name: production
 
       - uses: pulumi/actions@v3
         id: pulumi
         with:
-          pulumi-version: '3.113.3'
+          pulumi-version: '3.120.0'
           command: up
           stack-name: production
 
@@ -338,7 +338,7 @@ jobs:
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
           instance: ${{ steps.pulumi.outputs.database_instance_name }}
-      
+
       - name: Run database migrations
         env:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
