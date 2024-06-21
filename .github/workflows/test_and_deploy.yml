@@ -158,7 +158,7 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
-          pulumi-version: '3.120.0'
+          pulumi-version: '3.113.3'
           work-dir: images/
           command: up
           stack-name: test
@@ -185,7 +185,7 @@ jobs:
           PULUMI_DEBUG_COMMANDS: true
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
-          pulumi-version: '3.120.0'
+          pulumi-version: '3.113.3'
           command: up
           stack-name: test
           refresh: true
