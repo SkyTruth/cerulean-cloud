@@ -159,17 +159,26 @@ class BaseModel:
         if not feature_list:
             return geojson.FeatureCollection([])
 
-        # Initialize a set for efficient tracking of features to be removed
-        feats_to_remove = []
+        # Filter out features with None geometry before processing
+        feature_list = [
+            feature for feature in feature_list if feature["geometry"] is not None
+        ]
 
         # Precompute the areas of all features to optimize geometry operations
         gdf = gpd.GeoDataFrame(
             [feature["properties"] for feature in feature_list],
-            geometry=[shape(feature["geometry"]) for feature in feature_list],
-            crs="4326",
+            geometry=[
+                shape(feature["geometry"])
+                for feature in feature_list
+                if feature["geometry"] is not None
+            ],
+            crs="EPSG:4326",
         )
         gdf = reproject_to_utm(gdf)
         gdf["area"] = gdf.area
+
+        # Initialize a set for efficient tracking of features to be removed
+        feats_to_remove = []
 
         # If the feature has fewer overlaps than required, mark it for removal
         gdf["overlaps"] = gdf.apply(
@@ -177,14 +186,9 @@ class BaseModel:
         )
         feats_to_remove.extend(gdf[gdf["overlaps"] < min_overlaps_to_keep].index)
 
-        # Loop through each feature in the list to determine overlaps
         for i, feat_i in gdf.iterrows():
             # Compare the current feature against all subsequent features
-            for j, feat_j in gdf.iterrows():
-                if j <= i:
-                    # Skip rows until you reach i + 1
-                    continue
-
+            for j, feat_j in gdf.iloc[i + 1 :].iterrows():
                 if j in feats_to_remove or i in feats_to_remove:
                     # Skip processing for features already marked for removal
                     continue

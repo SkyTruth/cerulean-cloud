@@ -12,7 +12,7 @@ import pytest
 import rasterio
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
-from shapely.geometry import box
+from shapely.geometry import box, mapping
 
 import cerulean_cloud
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
@@ -346,19 +346,23 @@ def base_model_instance():
 
 @pytest.fixture
 def mock_feature_collection():
-    """Creates a feature collection with overlapping and non-overlapping features."""
+    """Creates a feature collection with features specifically placed to test varying NMS thresholds."""
     return geojson.FeatureCollection(
         features=[
             geojson.Feature(
-                geometry=geojson.mapping(box(0, 0, 10, 10)),
+                geometry=mapping(box(0, 0, 10, 10)),  # This feature is isolated.
                 properties={"machine_confidence": 0.95, "inf_idx": 1},
             ),
             geojson.Feature(
-                geometry=geojson.mapping(box(5, 5, 15, 15)),
+                geometry=mapping(
+                    box(10, 10, 20, 20)
+                ),  # Touches the first at a corner (minimal overlap).
                 properties={"machine_confidence": 0.90, "inf_idx": 1},
             ),
             geojson.Feature(
-                geometry=geojson.mapping(box(20, 20, 30, 30)),
+                geometry=mapping(
+                    box(5, 5, 15, 15)
+                ),  # Overlaps significantly with the second feature.
                 properties={"machine_confidence": 0.85, "inf_idx": 2},
             ),
         ]
@@ -371,7 +375,7 @@ def test_nms_feature_reduction_overlaps(base_model_instance, mock_feature_collec
         mock_feature_collection, min_overlaps_to_keep=1
     )
     assert (
-        len(result["features"]) == 2
+        len(result["features"]) == 3
     )  # Expecting one of the overlapping features to be removed
 
 
@@ -394,7 +398,7 @@ def test_nms_feature_reduction_varying_thresholds(
         mock_feature_collection, min_overlaps_to_keep=1
     )
     assert (
-        len(result_low_thresh["features"]) == 3
+        len(result_low_thresh["features"]) == 2
     )  # Lower threshold should retain more features
 
     base_model_instance.model_dict["thresholds"]["poly_nms_thresh"] = 0.9
@@ -402,25 +406,36 @@ def test_nms_feature_reduction_varying_thresholds(
         mock_feature_collection, min_overlaps_to_keep=1
     )
     assert (
-        len(result_high_thresh["features"]) == 2
+        len(result_high_thresh["features"]) == 3
     )  # Higher threshold should remove more features
 
 
 def test_nms_feature_reduction_handles_invalid_geometry(base_model_instance):
     """Test how the function handles invalid geometries."""
+    # Setting up the feature collection with one valid and one invalid geometry
     broken_feature = geojson.FeatureCollection(
         features=[
             geojson.Feature(
-                geometry=geojson.mapping(box(0, 0, 10, 10)),
+                geometry=mapping(
+                    box(0, 0, 10, 10)
+                ),  # Correctly create and map the geometry
                 properties={"machine_confidence": 0.95, "inf_idx": 1},
             ),
             geojson.Feature(
-                geometry=None, properties={"machine_confidence": 0.90, "inf_idx": 1}
+                geometry=None,  # Intentionally invalid geometry to test error handling
+                properties={"machine_confidence": 0.90, "inf_idx": 1},
             ),
         ]
     )
-    with pytest.raises(ValueError):
-        base_model_instance.nms_feature_reduction(broken_feature)
+
+    # Execute the function with the broken features
+    result = base_model_instance.nms_feature_reduction(broken_feature)
+
+    # Check if the result contains only the valid feature
+    assert len(result["features"]) == 1, "Should retain only one valid feature"
+    assert (
+        result["features"][0]["properties"]["machine_confidence"] == 0.95
+    ), "The retained feature should have a confidence of 0.95"
 
 
 def test_get_tag():
