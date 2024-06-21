@@ -72,7 +72,7 @@ class CloudRunInferenceClient:
         self.model_dict = model_dict
 
     async def fetch_and_process_image(
-        self, tile=None, bounds=None, rescale=(0, 255), num_channels=1
+        self, bounds=None, rescale=(0, 255), num_channels=1
     ):
         """
         Asynchronously fetches and processes an image tile either by specifying the tile coordinates or geographic bounds.
@@ -90,20 +90,16 @@ class CloudRunInferenceClient:
         Raises:
         - Exception: If neither tile nor bounds are provided.
         """
-        if tile:
-            img_array = await self.titiler_client.get_base_tile(
-                sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
-            )
-        else:
-            hw = self.scale * 256
-            img_array = await self.titiler_client.get_offset_tile(
-                self.sceneid,
-                *bounds,
-                width=hw,
-                height=hw,
-                scale=self.scale,
-                rescale=rescale,
-            )
+
+        hw = self.scale * 256
+        img_array = await self.titiler_client.get_offset_tile(
+            self.sceneid,
+            *bounds,
+            width=hw,
+            height=hw,
+            scale=self.scale,
+            rescale=rescale,
+        )
 
         img_array = reshape_as_raster(img_array)
         img_array = img_array[0:num_channels, :, :]
@@ -163,7 +159,7 @@ class CloudRunInferenceClient:
             )
 
     async def get_tile_inference(
-        self, http_client, tile=None, bounds=None, rescale=(0, 255)
+        self, http_client, bounds=None, rescale=(0, 255)
     ):
         """
         Orchestrates the complete process of fetching an image tile, processing it, enriching it with auxiliary datasets, and sending it for inference.
@@ -184,13 +180,8 @@ class CloudRunInferenceClient:
         - This function integrates several steps: fetching the image, processing it, adding auxiliary data, and sending it for inference. It also includes a check to optionally skip empty tiles.
         """
 
-        if bool(tile) == bool(bounds):  # XOR
-            raise Exception(
-                f"Inference requires (tile XOR bounds). Found {'neither' if not tile else 'both'}."
-            )
-        bounds = bounds or list(TMS.bounds(tile))
         img_array = await self.fetch_and_process_image(
-            tile=tile, bounds=bounds, rescale=rescale
+            bounds=bounds, rescale=rescale
         )
         if not np.any(img_array):
             return InferenceResultStack(stack=[])
