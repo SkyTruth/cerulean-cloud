@@ -128,7 +128,7 @@ def main(request):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     logs_url = make_cloud_function_logs_url(
-        os.getenv("FUNCTION_NAME"), start_time, os.getenv("GCP_PROJECT")
+        os.getenv("FUNCTIONNAME"), start_time, os.getenv("GCPPROJECT")
     )
     print(logs_url)
     row = loop.run_until_complete(
@@ -196,7 +196,7 @@ def handler_queue(filtered_scenes, trigger_id):
     # Create a client.
     client = tasks_v2.CloudTasksClient()
 
-    project = os.getenv("GCP_PROJECT")
+    project = os.getenv("GCPPROJECT")
     queue = os.getenv("QUEUE")
     location = os.getenv("GCP_REGION")
     url = os.getenv("ORCHESTRATOR_URL")

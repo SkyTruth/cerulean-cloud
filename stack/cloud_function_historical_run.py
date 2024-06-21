@@ -15,11 +15,11 @@ stack = pulumi.get_stack()
 function_name = construct_name("cloud-function-historical-run")
 config_values = {
     "DB_URL": database.sql_instance_url,
-    "GCP_PROJECT": pulumi.Config("gcp").require("project"),
+    "GCPPROJECT": pulumi.Config("gcp").require("project"),
     "GCP_REGION": pulumi.Config("gcp").require("region"),
     "QUEUE": cloud_function_scene_relevancy.queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
-    "FUNCTION_NAME": function_name,
+    "FUNCTIONNAME": function_name,
     "SCIHUB_USERNAME": pulumi.Config("scihub").require("username"),
     "SCIHUB_PASSWORD": pulumi.Config("scihub").require("password"),
     "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_historical"),

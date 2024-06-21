@@ -40,11 +40,11 @@ queue = cloudtasks.Queue(
 function_name = construct_name("cloud-function-sr")
 config_values = {
     "DB_URL": database.sql_instance_url,
-    "GCP_PROJECT": pulumi.Config("gcp").require("project"),
+    "GCPPROJECT": pulumi.Config("gcp").require("project"),
     "GCP_REGION": pulumi.Config("gcp").require("region"),
     "QUEUE": queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
-    "FUNCTION_NAME": function_name,
+    "FUNCTIONNAME": function_name,
     "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_relevancy"),
 }
 
