@@ -182,6 +182,7 @@ jobs:
         id: pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
+          PULUMI_DEBUG_COMMANDS: true
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
           pulumi-version: '3.120.0'
