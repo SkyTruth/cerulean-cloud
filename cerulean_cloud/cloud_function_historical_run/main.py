@@ -7,6 +7,7 @@ import json
 import os
 import urllib.parse as urlparse
 from datetime import datetime, timedelta
+from typing import Optional
 
 import asyncpg
 import geojson
@@ -19,8 +20,14 @@ from shapely.geometry import MultiPolygon, shape
 setup_logging(2)
 
 
-def load_ocean_poly(file_path="OceanGeoJSON_lowres.geojson"):
+def load_ocean_poly(file_path: Optional[str] = None):
     """load ocean boundary polygon"""
+
+    if not file_path:
+        file_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "OceanGeoJSON_lowres.geojson"
+        )
+
     with open(file_path) as f:
         ocean_features = json.load(f)["features"]
     geom = sh.GeometryCollection(
@@ -232,4 +239,4 @@ def handler_queue(filtered_scenes, trigger_id):
         # Use the client to build and send the task.
         response = client.create_task(request={"parent": parent, "task": task})
 
-        print("Created task {}".format(response.name))
+        print(f"Created task {response.name}")

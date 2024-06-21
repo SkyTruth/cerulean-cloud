@@ -1,11 +1,13 @@
 """cloud function scene relevancy handler
 inspired by https://github.com/jonaraphael/ceruleanserver/tree/master/lambda/Machinable
 """
+
 import asyncio
 import json
 import os
 import urllib.parse as urlparse
 from datetime import datetime, timedelta
+from typing import Optional
 
 import asyncpg
 import shapely.geometry as sh  # https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
@@ -13,8 +15,14 @@ from flask import abort
 from google.cloud import tasks_v2
 
 
-def load_ocean_poly(file_path="OceanGeoJSON_lowres.geojson"):
+def load_ocean_poly(file_path: Optional[str] = None):
     """load ocean boundary polygon"""
+
+    if not file_path:
+        file_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "OceanGeoJSON_lowres.geojson"
+        )
+
     with open(file_path) as f:
         ocean_features = json.load(f)["features"]
     geom = sh.GeometryCollection(
@@ -135,9 +143,9 @@ def handle_notification(request_json, ocean_poly):
         msg = json.loads(sns["Message"])
         scene_poly = sh.polygon.Polygon(msg["footprint"]["coordinates"][0][0])
 
-        is_highdef = "H" == msg["id"][10]
+        is_highdef = msg["id"][10] == "H"
         is_vv = (
-            "V" == msg["id"][15]
+            msg["id"][15] == "V"
         )  # we don't want to process any polarization other than vv XXX This is hardcoded in the server, where we look for a vv.grd file
         is_oceanic = scene_poly.intersects(ocean_poly)
         print(is_highdef, is_vv, is_oceanic)
@@ -194,4 +202,4 @@ def handler_queue(filtered_scenes, trigger_id):
         # Use the client to build and send the task.
         response = client.create_task(request={"parent": parent, "task": task})
 
-        print("Created task {}".format(response.name))
+        print(f"Created task {response.name}")
