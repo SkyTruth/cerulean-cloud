@@ -113,8 +113,11 @@ jobs:
     needs: [tests]
     if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
         with:
           python-version: 3.9
 
@@ -148,7 +151,9 @@ jobs:
         run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v5
+
+      - name: Build Container Images
+        uses: pulumi/actions@v5
         id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
@@ -172,16 +177,8 @@ jobs:
           cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
 
-      - uses: pulumi/actions@v5
-        id: pulumi-refresh
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "test"
-        with:
-          pulumi-version: '3.120.0'
-          command: refresh
-          stack-name: test
-
-      - uses: pulumi/actions@v5
+      - name: Deploy Infrastructure
+        uses: pulumi/actions@v5
         id: pulumi
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
@@ -190,8 +187,13 @@ jobs:
           pulumi-version: '3.120.0'
           command: up
           stack-name: test
+          refresh: true
+          diff: true
+          parallel: 1
+          comment-on-summary: true
 
-      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
+      - name: Start Google Cloud SQL Proxy
+        uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
           instance: ${{ steps.pulumi.outputs.database_instance_name }}
 
