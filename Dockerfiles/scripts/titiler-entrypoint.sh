@@ -34,10 +34,6 @@ find . -type d -a -name '__pycache__' -print0 | xargs -0 rm -rf || (
   echo "[ERR] Failed ..."
   exit 1
 )
-find . -type f -a -name '*.py' -print0 | xargs -0 rm -f || (
-  echo "[ERR] Failed ..."
-  exit 1
-)
 find /var/task -type d -a -name 'tests' -print0 | xargs -0 rm -rf || (
   echo "[ERR] Failed ..."
   exit 1
