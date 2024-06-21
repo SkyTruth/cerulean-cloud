@@ -301,14 +301,6 @@ async def _orchestrate(
                     model_dict=model_dict,
                 )
 
-                # Prepare the tasks grouped by tileset
-                tileset_tasks_list = [
-                    [{"bounds": bounds} for bounds in base_tiles_bounds],
-                    [{"bounds": bounds} for bounds in offset_1_tiles_bounds],
-                    [{"bounds": bounds} for bounds in offset_2_tiles_bounds],
-                ]
-                # TODO could refactor into a new class, that you specify on creation about whether it is tile-based or bounds-based
-
                 tileset_bounds_list = [
                     base_tiles_bounds,
                     offset_1_tiles_bounds,
@@ -319,7 +311,7 @@ async def _orchestrate(
                 print(f"Inference starting: {start_time}")
                 tileset_results_list = [
                     await cloud_run_inference.run_parallel_inference(tileset)
-                    for tileset in tileset_tasks_list
+                    for tileset in tileset_bounds_list
                 ]
 
                 # Stitch inferences
