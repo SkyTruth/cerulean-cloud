@@ -1,6 +1,7 @@
 """infra for cloud run function for orchestration
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
+
 import os
 
 import cloud_function_ais_analysis
@@ -120,7 +121,7 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("gcp").require("project"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="GCP_REGION",
+                            name="GCPREGION",
                             value=pulumi.Config("gcp").require("region"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
