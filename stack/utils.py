@@ -67,7 +67,7 @@ def create_package(code_dir: str) -> str:
     print(f"Sucessfully built container image with id {image.id}")
 
     print("Creating installation package.zip ...")
-    output = client.containers.run(
+    _ = client.containers.run(
         image="titiler-lambda:latest",
         remove=True,
         volumes={
@@ -78,12 +78,11 @@ def create_package(code_dir: str) -> str:
         },
         user=0,
     )
-    if output:
-        print(f"Running the container created the following output: {output!s}")
 
     result = os.path.join(code_dir, "package.zip")
     if not os.path.isfile(result):
         raise RuntimeError(f"Failed to create package.zip at {result}")
+    print(f"Sucessfully created package.zip at {result}")
     return result
 
 
