@@ -1,4 +1,5 @@
 """cloud function to select appropriate scenes (over water and IW) from SNS notification"""
+
 import os
 import time
 
@@ -57,7 +58,7 @@ fxn = cloudfunctions.Function(
     entry_point="main",
     environment_variables=config_values,
     region=pulumi.Config("gcp").require("region"),
-    runtime="python38",
+    runtime="python39",
     source_archive_bucket=cloud_function_scene_relevancy.bucket.name,
     source_archive_object=source_archive_object.name,
     trigger_http=True,

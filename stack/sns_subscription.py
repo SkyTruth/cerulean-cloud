@@ -1,4 +1,5 @@
 """Subscription to SNS topic"""
+
 import cloud_function_scene_relevancy
 import pulumi
 import pulumi_aws as aws
@@ -30,7 +31,7 @@ iam_for_lambda = aws.iam.Role(
 
 lambda_sentinel1_topic = aws.lambda_.Function(
     resource_name=construct_name("lambda-sentinel1-subscription"),
-    runtime="python3.8",
+    runtime="python3.9",
     code=pulumi.AssetArchive(
         {
             ".": pulumi.FileArchive("../cerulean_cloud/lambda_sentinel1_subscription"),

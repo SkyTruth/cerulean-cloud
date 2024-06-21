@@ -1,4 +1,5 @@
 """cloud function to find slick culprits from AIS tracks"""
+
 import time
 
 import database
@@ -91,7 +92,7 @@ fxn = cloudfunctions.Function(
     entry_point="main",
     environment_variables=config_values,
     region=pulumi.Config("gcp").require("region"),
-    runtime="python38",
+    runtime="python39",
     source_archive_bucket=bucket.name,
     source_archive_object=source_archive_object.name,
     trigger_http=True,
