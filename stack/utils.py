@@ -47,26 +47,44 @@ def filebase64sha256(filename):
 # Build image
 def create_package(code_dir: str) -> str:
     """Build docker image and create package."""
-    print("Creating lambda package [running in Docker]...")
-    client = docker.from_env()
 
-    print("Building docker image...")
-    client.images.build(
+    code_dir = os.path.abspath(code_dir)
+    assert code_dir
+    print(f"Creating lambda package in [{code_dir}] [running in Docker]...")
+
+    client = docker.from_env()
+    print("Checking Docker is available...")
+    client.ping()
+
+    print("Building container image...")
+    image, _ = client.images.build(
         path=code_dir,
         dockerfile="Dockerfiles/Dockerfile.titiler",
         tag="titiler-lambda:latest",
         nocache=True,
         rm=True,
     )
+    print(f"Sucessfully built container image with id {image.id}")
 
     print("Creating installation package.zip ...")
-    client.containers.run(
+    output = client.containers.run(
         image="titiler-lambda:latest",
         remove=True,
-        volumes={os.path.abspath(code_dir): {"bind": "/local/", "mode": "rw"}},
+        volumes={
+            code_dir: {
+                "bind": "/local/",
+                "mode": "rw",
+            },
+        },
         user=0,
     )
-    return f"{code_dir}package.zip"
+    if output:
+        print(f"Running the container created the following output: {output!s}")
+
+    result = os.path.join(code_dir, "package.zip")
+    if not os.path.isfile(result):
+        raise RuntimeError(f"Failed to create package.zip at {result}")
+    return result
 
 
 def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset:
