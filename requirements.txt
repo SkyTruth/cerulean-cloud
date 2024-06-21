@@ -5,7 +5,7 @@ pulumi-command
 pulumi-docker==3.2.0
 docker
 morecantile
-numpy==1.21
+numpy<2.0.0
 supermercado
 httpx==0.22.*
 protobuf==3.20.*

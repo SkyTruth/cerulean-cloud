@@ -5,7 +5,7 @@ sqlalchemy==1.4.32
 centerline==1.0.1
 geopandas==0.12.2
 movingpandas==0.15rc1
-numpy==1.21.5
+numpy<2.0.0
 scipy==1.8.0
 shapely==2.0.1
 Flask>=1.0,<3.0
