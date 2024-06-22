@@ -8,11 +8,9 @@ morecantile
 numpy<2.0.0
 supermercado
 httpx==0.22.*
-protobuf==3.20.*
 geojson
 shapely==2.0.1
 google-cloud-storage
-grpcio<=1.43.0
 alembic
 asyncpg
 GeoAlchemy2
@@ -27,7 +25,6 @@ eodag-sentinelsat==0.4.1
 geopandas
 libpysal
 pygeos
-asyncio==3.4.3
 pandas_gbq==0.17.6
 sqlalchemy==1.4.32
 centerline==1.0.1
