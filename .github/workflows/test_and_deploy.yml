@@ -166,9 +166,11 @@ jobs:
       - name: Prune Docker environment
         run: |
           docker container prune -f
-          docker image prune -f
+          docker image prune -a -f
           docker buildx prune -f
+          docker images
           df -H
+          mount
 
       # Copy shared database_client.py files
       - name: Copy Shared File
