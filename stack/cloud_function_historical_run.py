@@ -66,7 +66,8 @@ fxn = cloudfunctions.Function(
     timeout=500,
     secret_environment_variables=[apikey],
     opts=pulumi.ResourceOptions(
-        depends_on=[cloud_function_scene_relevancy.cloud_function_service_account_iam]
+        depends_on=[cloud_function_scene_relevancy.cloud_function_service_account_iam],
+        replace_on_changes=True,
     ),
 )
 

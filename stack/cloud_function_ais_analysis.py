@@ -100,7 +100,10 @@ fxn = cloudfunctions.Function(
     available_memory_mb=4096,
     timeout=540,
     secret_environment_variables=[gfw_credentials, api_key],
-    opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account_iam]),
+    opts=pulumi.ResourceOptions(
+        depends_on=[cloud_function_service_account_iam],
+        replace_on_changes=True,
+    ),
 )
 
 invoker = cloudfunctions.FunctionIamMember(
