@@ -1,8 +1,11 @@
 """utils for stack building"""
 
 import base64
+import fnmatch
 import hashlib
 import os
+import zipfile
+from typing import List, Optional
 
 import docker
 import pulumi
@@ -104,3 +107,33 @@ def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset
     # Download the file to a destination
     blob.download_to_filename(out_path)
     return pulumi.FileAsset(out_path)
+
+
+def create_zip(
+    zip_filepath: str,
+    dir_to_zip: str,
+    ignore_globs: Optional[List[str]] = None,
+    compression: int = zipfile.ZIP_DEFLATED,
+) -> None:
+    """
+    Creates a zip file containing the contents of a specified directory. Files matching any of the provided glob patterns will be ignored.
+
+    :param zip_filepath: The path where the output zip file will be created.
+    :param dir_to_zip: The directory to recursively add to the zip file.
+    :param ignore_globs: A list of glob patterns specifying which files to ignore.
+    :param compression: The compression type to use for the zip file (default is ZIP_DEFLATED)
+    """
+    with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for root, _, files in os.walk(dir_to_zip):
+            for file in files:
+                full_path = os.path.join(root, file)
+                relative_path = os.path.relpath(full_path, dir_to_zip)
+                if not any(
+                    fnmatch.fnmatch(relative_path, pattern)
+                    for pattern in ignore_globs or []
+                ):
+                    # Store the file relative to the directory specified
+                    archive_name = os.path.relpath(
+                        full_path, os.path.dirname(dir_to_zip)
+                    )
+                    zipf.write(full_path, archive_name)
