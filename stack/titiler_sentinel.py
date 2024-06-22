@@ -1,4 +1,7 @@
 """titiler sentinel infra module"""
+
+import asyncio
+
 import pulumi
 import pulumi_aws as aws
 import pulumi_gcp as gcp
@@ -13,8 +16,8 @@ titiler_api_key = gcp.secretmanager.get_secret_version_output(
 
 s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
 
-lambda_package_path = create_package("../")
-lambda_package_archive = pulumi.FileArchive(lambda_package_path)
+lambda_package_path = pulumi.Output.from_input(asyncio.to_thread(create_package, "../"))
+lambda_package_archive = lambda_package_path.apply(lambda x: pulumi.FileArchive(x))
 
 lambda_obj = aws.s3.BucketObject(
     construct_name("titiler-lambda-archive"),
