@@ -18,6 +18,7 @@ s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
 
 lambda_package_path = pulumi.Output.from_input(asyncio.to_thread(create_package, "../"))
 lambda_package_archive = lambda_package_path.apply(lambda x: pulumi.FileArchive(x))
+lambda_package_hash = lambda_package_path.apply(lambda x: filebase64sha256(x))
 
 lambda_obj = aws.s3.BucketObject(
     construct_name("titiler-lambda-archive"),
@@ -49,7 +50,7 @@ lambda_titiler_sentinel = aws.lambda_.Function(
     resource_name=construct_name("lambda-titiler-sentinel"),
     s3_bucket=s3_bucket.id,
     s3_key=lambda_obj.key,
-    source_code_hash=filebase64sha256(lambda_package_path),
+    source_code_hash=lambda_package_hash,
     runtime="python3.9",
     role=iam_for_lambda.arn,
     memory_size=3008,
@@ -88,12 +89,13 @@ lambda_s3_policy = aws.iam.Policy(
     }
   ]}""",
 )
-aws.iam.RolePolicyAttachment(
+
+_ = aws.iam.RolePolicyAttachment(
     construct_name("lambda-titiler-attachment"),
     policy_arn=lambda_s3_policy.arn,
     role=iam_for_lambda.name,
 )
-aws.iam.RolePolicyAttachment(
+_ = aws.iam.RolePolicyAttachment(
     construct_name("lambda-titiler-attachment2"),
     policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
     role=iam_for_lambda.name,
