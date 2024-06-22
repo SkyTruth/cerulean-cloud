@@ -11,3 +11,4 @@ fastapi-utils
 geojson
 shapely==2.0.1
 scipy
+geopandas
