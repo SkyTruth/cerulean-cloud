@@ -1,10 +1,5 @@
 # Stage 1
-FROM python:3.9-slim as builder
-
-RUN apt-get -y update &&  \
-    apt-get install --no-install-recommends  \
-    -y zip \
-    && rm -rf /var/lib/apt/lists/*
+FROM public.ecr.aws/sam/build-python3.9
 
 WORKDIR /var/task
 
