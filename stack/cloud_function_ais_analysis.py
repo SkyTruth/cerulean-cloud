@@ -5,7 +5,7 @@ import time
 import database
 import pulumi
 from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
-from utils import construct_name
+from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
@@ -44,13 +44,17 @@ config_values = {
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_ais_analysis"
-archive = pulumi.FileArchive(PATH_TO_SOURCE_CODE)
+package = pulumi_create_zip(
+    dir_to_zip=PATH_TO_SOURCE_CODE,
+    ignore_globs=["*.csv"],
+)
+archive = package.apply(lambda x: pulumi.FileAsset(x))
 
 # Create the single Cloud Storage object, which contains all of the function's
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cloud-function-ais"),
-    name="handler.py-%f" % time.time(),
+    name=f"handler.py-{time.time():f}",
     bucket=bucket.name,
     source=archive,
 )
