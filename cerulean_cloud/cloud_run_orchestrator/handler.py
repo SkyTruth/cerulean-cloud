@@ -207,33 +207,27 @@ async def _orchestrate(
     print(f"{start_time}: scene_info: {scene_info}")
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
+    n_basetiles = len(base_tiles)
 
-    offset_1_tiles_bounds = offset_bounds_from_base_tiles(
-        base_tiles, offset_amount=0.33
-    )
-    offset_2_tiles_bounds = offset_bounds_from_base_tiles(
-        base_tiles, offset_amount=0.66
-    )
+    offset_amounts = [0.0, 0.33, 0.66]
+    tileset_list = [
+        offset_bounds_from_base_tiles(base_tiles, offset_amount=o_a)
+        for o_a in offset_amounts
+    ]
 
-    offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
-    offset_1_group_bounds = group_bounds_from_list_of_bounds(offset_1_tiles_bounds)
-
-    print(
-        f"{start_time}: Original tiles are {len(base_tiles)}, {len(offset_1_tiles_bounds)}, {len(offset_2_tiles_bounds)}"
-    )
+    n_offsettiles = len(tileset_list[0])
+    tileset_hw_pixels = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
+    tileset_envelope_bounds = group_bounds_from_list_of_bounds(tileset_list[0])
 
     # Filter out land tiles
     # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
     # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
-    base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
 
-    offset_1_tiles_bounds = [b for b in offset_1_tiles_bounds if is_tile_over_water(b)]
-    offset_2_tiles_bounds = [b for b in offset_2_tiles_bounds if is_tile_over_water(b)]
-
-    ntiles = len(base_tiles)
-    noffsettiles = len(offset_1_tiles_bounds)
-    print(f"{start_time}: Preparing {ntiles} base tiles (no land).")
-    print(f"{start_time}: Preparing {noffsettiles} offset tiles (no land).")
+    print(f"{start_time}: Tileset contains before landfilter: {n_offsettiles} tiles")
+    tileset_list = [
+        [b for b in tileset if is_tile_over_water(b)] for tileset in tileset_list
+    ]
+    print(f"{start_time}: Tileset contains after landfilter: ~{n_offsettiles} tiles")
 
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
@@ -264,8 +258,8 @@ async def _orchestrate(
                     orchestrator_run = await db_client.add_orchestrator(
                         start_time,
                         start_time,
-                        ntiles,
-                        noffsettiles,
+                        n_basetiles,
+                        n_offsettiles,
                         os.getenv("GIT_HASH"),
                         os.getenv("GIT_TAG"),
                         make_cloud_log_url(
@@ -291,32 +285,18 @@ async def _orchestrate(
                     url=os.getenv("INFERENCE_URL"),
                     titiler_client=titiler_client,
                     sceneid=payload.sceneid,
-                    offset_bounds=offset_1_group_bounds,
-                    offset_image_shape=offset_group_shape,
+                    tileset_envelope_bounds=tileset_envelope_bounds,
+                    image_hw_pixels=tileset_hw_pixels,
                     layers=layers,
                     scale=scale,
                     model_dict=model_dict,
                 )
 
-                # Prepare the tasks grouped by tileset
-                tileset_tasks_list = [
-                    [{"tile": tile} for tile in base_tiles],
-                    [{"bounds": bounds} for bounds in offset_1_tiles_bounds],
-                    [{"bounds": bounds} for bounds in offset_2_tiles_bounds],
-                ]
-                # TODO could refactor into a new class, that you specify on creation about whether it is tile-based or bounds-based
-
-                tileset_bounds_list = [
-                    [list(TMS.bounds(tile)) for tile in base_tiles],
-                    offset_1_tiles_bounds,
-                    offset_2_tiles_bounds,
-                ]
-
                 # Perform inferences
                 print(f"Inference starting: {start_time}")
                 tileset_results_list = [
                     await cloud_run_inference.run_parallel_inference(tileset)
-                    for tileset in tileset_tasks_list
+                    for tileset in tileset_list
                 ]
 
                 # Stitch inferences
@@ -325,7 +305,7 @@ async def _orchestrate(
                 tileset_fc_list = [
                     model.postprocess_tileset(tileset_results, tileset_bounds)
                     for (tileset_results, tileset_bounds) in zip(
-                        tileset_results_list, tileset_bounds_list
+                        tileset_results_list, tileset_list
                     )
                 ]
 
