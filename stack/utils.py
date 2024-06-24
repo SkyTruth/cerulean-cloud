@@ -1,10 +1,12 @@
 """utils for stack building"""
 
+import asyncio
 import base64
 import fnmatch
 import hashlib
 import os
 import zipfile
+from tempfile import mkstemp
 from typing import List, Optional
 
 import docker
@@ -110,11 +112,11 @@ def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset
 
 
 def create_zip(
-    zip_filepath: str,
     dir_to_zip: str,
+    zip_filepath: Optional[str] = None,
     ignore_globs: Optional[List[str]] = None,
     compression: int = zipfile.ZIP_DEFLATED,
-) -> None:
+) -> str:
     """
     Creates a zip file containing the contents of a specified directory. Files matching any of the provided glob patterns will be ignored.
 
@@ -123,6 +125,10 @@ def create_zip(
     :param ignore_globs: A list of glob patterns specifying which files to ignore.
     :param compression: The compression type to use for the zip file (default is ZIP_DEFLATED)
     """
+    if not zip_filepath:
+        _, zip_filepath = mkstemp(
+            suffix=".zip",
+        )
     with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, _, files in os.walk(dir_to_zip):
             for file in files:
@@ -137,3 +143,28 @@ def create_zip(
                         full_path, os.path.dirname(dir_to_zip)
                     )
                     zipf.write(full_path, archive_name)
+    return zip_filepath
+
+
+def pulumi_create_zip(
+    dir_to_zip: str,
+    zip_filepath: Optional[str] = None,
+    ignore_globs: Optional[List[str]] = None,
+    compression: int = zipfile.ZIP_DEFLATED,
+) -> pulumi.Output[str]:
+    """
+    Creates a zip file containing the contents of a specified directory. Files matching any of the provided glob patterns will be ignored.
+
+    :param zip_filepath: The path where the output zip file will be created.
+    :param dir_to_zip: The directory to recursively add to the zip file.
+    :param ignore_globs: A list of glob patterns specifying which files to ignore.
+    :param compression: The compression type to use for the zip file (default is ZIP_DEFLATED)
+    """
+    coro = asyncio.to_thread(
+        create_zip,
+        zip_filepath,
+        dir_to_zip,
+        ignore_globs,
+        compression,
+    )
+    return pulumi.Output.from_input(coro)
