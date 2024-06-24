@@ -1,4 +1,4 @@
-pulumi==3.113.3
+pulumi==3.114.0
 pulumi-gcp==7.2.1
 pulumi-aws==6.37.1
 pulumi-docker==3.2.0
