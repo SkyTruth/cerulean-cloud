@@ -5,7 +5,7 @@ import asyncio
 import pulumi
 import pulumi_aws as aws
 import pulumi_gcp as gcp
-from utils import construct_name, create_package
+from utils import construct_name, create_package, filebase64sha256
 
 titiler_keyname = pulumi.Config("cerulean-cloud").require("titiler_keyname")
 secret = gcp.secretmanager.get_secret(secret_id=titiler_keyname)
@@ -18,7 +18,7 @@ s3_bucket = aws.s3.Bucket(construct_name("titiler-lambda-archive"))
 
 lambda_package_path = pulumi.Output.from_input(asyncio.to_thread(create_package, "../"))
 lambda_package_archive = lambda_package_path.apply(lambda x: pulumi.FileArchive(x))
-# lambda_package_hash = lambda_package_path.apply(lambda x: filebase64sha256(x))
+lambda_package_hash = lambda_package_path.apply(lambda x: filebase64sha256(x))
 
 lambda_obj = aws.s3.BucketObject(
     construct_name("titiler-lambda-archive"),
@@ -50,7 +50,7 @@ lambda_titiler_sentinel = aws.lambda_.Function(
     resource_name=construct_name("lambda-titiler-sentinel"),
     s3_bucket=s3_bucket.id,
     s3_key=lambda_obj.key,
-    # source_code_hash=lambda_package_hash,
+    source_code_hash=lambda_package_hash,
     runtime="python3.9",
     role=iam_for_lambda.arn,
     memory_size=3008,
@@ -73,7 +73,6 @@ lambda_titiler_sentinel = aws.lambda_.Function(
             "RIO_TILER_MAX_THREADS": "1",
         },
     ),
-    opts=pulumi.ResourceOptions(depends_on=[lambda_obj]),
 )
 
 lambda_s3_policy = aws.iam.Policy(
