@@ -214,6 +214,7 @@ async def _orchestrate(
         offset_bounds_from_base_tiles(base_tiles, offset_amount=o_a)
         for o_a in offset_amounts
     ]
+    print(f"XXX {start_time}: tileset_list: {tileset_list}")
 
     n_offsettiles = len(tileset_list[0])
     tileset_hw_pixels = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
@@ -337,7 +338,7 @@ async def _orchestrate(
                             predicate="intersects",
                         )
                         if not intersecting_land.empty:
-                            feat["properties"]["inf_idx"] = 0
+                            feat["properties"]["inf_idx"] = model.background_class_idx
                     # Removed all preprocessing of features from within the
                     # database session to avoid holidng locks on the
                     # table while performing un-related calculations.

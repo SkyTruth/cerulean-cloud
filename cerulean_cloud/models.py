@@ -156,6 +156,8 @@ class BaseModel:
         ):
             feature_list.extend([f for fc in features for f in fc["features"]])
 
+        print("XXX len(feature_list)", len(feature_list))
+
         if not feature_list:
             return geojson.FeatureCollection([])
 
@@ -219,6 +221,7 @@ class BaseModel:
         retained_features = [
             f for i, f in enumerate(feature_list) if i not in feats_to_remove
         ]
+        print("XXX len(retained_features)", len(retained_features))
 
         # Return a new geojson FeatureCollection containing only the retained features
         return geojson.FeatureCollection(retained_features)
