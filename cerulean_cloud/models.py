@@ -323,9 +323,13 @@ class MASKRCNNModel(BaseModel):
         Returns:
             geojson.FeatureCollection: A geojson feature collection representing the processed and combined geographical data.
         """
+        print("XXX len(tileset_bounds)", len(tileset_bounds))
+        print("XXX len(tileset_results)", len(tileset_results))
+        print("XXX tileset_bounds", tileset_bounds)
 
         logging.info("Reducing feature count on tiles")
         scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
+        print("XXX len(scene_polys)", len(scene_polys))
         logging.info("Stitching tiles into scene")
         feature_collection = self.stitch(scene_polys)
         logging.info("Reducing feature count on scene")
@@ -352,9 +356,15 @@ class MASKRCNNModel(BaseModel):
             for inference_result_stack in tileset_results
             for inference_result in inference_result_stack.stack
         ]
+        print("XXX len(pred_list)", len(pred_list))
+        print("XXX pred_list[0].get('scores')", pred_list[0].get("scores"))
 
         reduced_pred_list = self.reduce_preds(
             pred_list, **self.model_dict["thresholds"]
+        )
+        print("XXX len(reduced_pred_list)", len(reduced_pred_list))
+        print(
+            "XXX reduced_pred_list[0].get('scores')", reduced_pred_list[0].get("scores")
         )
 
         scene_polys = []
@@ -402,6 +412,7 @@ class MASKRCNNModel(BaseModel):
         # have little or no impact on comparison to the original image.
         gdf = gpd.GeoDataFrame.from_features(scene_polys, crs="4326")
         gdf = reproject_to_utm(gdf)
+        print("XXX len(gdf)", len(gdf))
         final_gdf = gdf.copy()
 
         # Expand the geometry of each feature to connect with neighboring instances
@@ -410,6 +421,7 @@ class MASKRCNNModel(BaseModel):
         # Ensure the 'inf_idx' is the same before joining
         joined = gpd.sjoin(gdf, gdf, predicate="intersects")
         joined = joined[joined["inf_idx_left"] == joined["inf_idx_right"]].reset_index()
+        print("XXX len(joined)", len(joined))
 
         # Create a graph where each node represents a feature and edges represent overlaps/intersections
         G = nx.from_pandas_edgelist(joined, "index", "index_right")
@@ -426,6 +438,7 @@ class MASKRCNNModel(BaseModel):
         final_gdf["mean_conf"] = final_gdf["median_conf"] = final_gdf[
             "max_conf"
         ] = final_gdf["machine_confidence"]
+        print("XXX len(final_gdf)", len(final_gdf))
 
         # Dissolve overlapping features into one based on their group index and calculate the median confidence and maximum inference index
         dissolved_gdf = final_gdf.dissolve(
@@ -438,6 +451,7 @@ class MASKRCNNModel(BaseModel):
                 "max_conf": "max",
             },
         )
+        print("XXX len(dissolved_gdf)", len(dissolved_gdf))
 
         # If set, apply a morphological 'closing' operation to the geometries
         if closing_meters is not None:
