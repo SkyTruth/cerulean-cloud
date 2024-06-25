@@ -83,11 +83,15 @@ class BaseModel:
             inf_stack: The input data stack for inference.
         """
         logging.info(f"Stack has {len(inf_stack)} images")
-
+        print("XXX starting predict")
         self.load()  # Load model into memory
+        print("XXX model loaded")
         preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
+        print("XXX tiles preprocessed")
         raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
+        print("XXX inference run")
         inference_results = self.postprocess_tiles(raw_preds)  # Postprocess inference
+        print("XXX results postprocessed")
         return InferenceResultStack(stack=inference_results)
 
     def preprocess_tiles(self, inf_stack):
