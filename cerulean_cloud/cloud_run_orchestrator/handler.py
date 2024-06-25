@@ -299,14 +299,20 @@ async def _orchestrate(
                     await cloud_run_inference.run_parallel_inference(tileset)
                     for tileset in tileset_list
                 ]
-                print("XXX len(tileset_results_list)", len(tileset_results_list))
-                print("XXX len(tileset_results_list[0])", len(tileset_results_list[0]))
+                print(
+                    f"XXX {start_time}: len(tileset_results_list)",
+                    len(tileset_results_list),
+                )
+                print(
+                    f"XXX {start_time}: len(tileset_results_list[0])",
+                    len(tileset_results_list[0]),
+                )
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
                 model = get_model(model_dict)
-                print("XXX type(model).__name__", type(model).__name__)
-                print("XXX model.model_dict", model.model_dict)
+                print(f"XXX {start_time}: type(model).__name__", type(model).__name__)
+                print(f"XXX {start_time}: model.model_dict", model.model_dict)
                 tileset_fc_list = [
                     model.postprocess_tileset(tileset_results, tileset_bounds)
                     for (tileset_results, tileset_bounds) in zip(
