@@ -267,6 +267,7 @@ class MASKRCNNModel(BaseModel):
         Args:
             raw_preds: The results to be processed and stacked.
         """
+        print("XXX pred['scores'] in tile", [pred["scores"] for pred in raw_preds])
         inference_results = [
             InferenceResult(json_data=self.serialize(pred)) for pred in raw_preds
         ]
@@ -354,6 +355,14 @@ class MASKRCNNModel(BaseModel):
         Returns:
             List[geojson.Feature]: A list of geojson features representing the reduced set of features per tile.
         """
+        print(
+            "XXX inference_result.json_data[:30]",
+            [
+                inference_result.json_data[:30]
+                for inference_result_stack in tileset_results
+                for inference_result in inference_result_stack.stack
+            ],
+        )
 
         pred_list = [
             self.deserialize(inference_result.json_data)
@@ -361,7 +370,10 @@ class MASKRCNNModel(BaseModel):
             for inference_result in inference_result_stack.stack
         ]
         print("XXX len(pred_list)", len(pred_list))
-        print("XXX pred_list[0].get('scores')", pred_list[0].get("scores"))
+        print(
+            "XXX pred_list[i].get('scores')",
+            [pred.get("scores") for pred in pred_list],
+        )
 
         reduced_pred_list = self.reduce_preds(
             pred_list, **self.model_dict["thresholds"]
