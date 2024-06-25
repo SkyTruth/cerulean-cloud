@@ -197,7 +197,11 @@ class CloudRunInferenceClient:
                 )
                 for tile_bounds in tileset
             ]
-            inferences = await asyncio.gather(*tasks, return_exceptions=False)
+            inferences = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in inferences:
+                if isinstance(result, Exception):
+                    print(f"XXX Error during processing: {result}")
+
             # False means this process will error out if any subtask errors out
             # True means this process will return a list including errors if any subtask errors out
         return inferences
