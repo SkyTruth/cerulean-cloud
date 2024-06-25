@@ -140,6 +140,7 @@ class CloudRunInferenceClient:
         """
 
         encoded = img_array_to_b64_image(img_array)
+        print("XXX encoded[:30]", encoded[:30])
         inf_stack = [InferenceInput(image=encoded)]
         payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
         res = await http_client.post(
@@ -168,8 +169,10 @@ class CloudRunInferenceClient:
         Note:
         - This function integrates several steps: fetching the image, processing it, adding auxiliary data, and sending it for inference. It also includes a check to optionally skip empty tiles.
         """
-
+        print("XXX tile_bounds get_tile_inference()", tile_bounds)
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
+        print("XXX img_array.shape get_tile_inference()", img_array.shape)
+        print("XXX img_array get_tile_inference()", img_array)
         if not np.any(img_array):
             return InferenceResultStack(stack=[])
         if self.aux_datasets:
