@@ -148,6 +148,10 @@ class BaseModel:
         Returns:
         - A geojson FeatureCollection containing the retained features.
         """
+        print(
+            "XXX inside nms_feature_reduction, min_overlaps_to_keep=",
+            min_overlaps_to_keep,
+        )
         feature_list = []
         if isinstance(features, geojson.FeatureCollection):
             feature_list.extend(features["features"])
