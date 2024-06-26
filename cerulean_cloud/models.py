@@ -246,10 +246,22 @@ class MASKRCNNModel(BaseModel):
         Converts a list of InferenceInput objects into a processed tensor batch for model prediction.
         Processes image data contained in InferenceInput and prepares them for MASKRCNN model inference.
         """
+        print("XXX len(inf_stack)", len(inf_stack))
+        print("XXX inf_stack[0].image[:30]", inf_stack[0].image[:30])
         stack_tensors = [
             b64_image_to_array(record.image, tensor=True, to_float=True)
             for record in inf_stack
         ]
+        print(
+            "XXX torch.unique(stack_tensors[0][0])", torch.unique(stack_tensors[0][0])
+        )
+        print(
+            "XXX torch.unique(stack_tensors[0][1])", torch.unique(stack_tensors[0][1])
+        )
+        print(
+            "XXX torch.unique(stack_tensors[0][2])", torch.unique(stack_tensors[0][2])
+        )
+
         logging.info(f"Images have shape {stack_tensors[0].shape}")
         return stack_tensors
 
