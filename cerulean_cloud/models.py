@@ -392,11 +392,6 @@ class MASKRCNNModel(BaseModel):
         print("XXX len(tileset_bounds)", len(tileset_bounds))
         print("XXX len(bounds_list)", len(bounds_list))
 
-        print(
-            "XXX reduced_pred_list[0].get('scores')",
-            reduced_pred_list[0].get("scores"),
-        )
-
         scene_polys = []
         for pred_dict, bounds in zip(reduced_pred_list, bounds_list):
             # generate vectorized polygons from predictions
@@ -465,9 +460,9 @@ class MASKRCNNModel(BaseModel):
 
         # Map the group indices and counts back to the GeoDataFrame
         final_gdf["group_index"] = final_gdf.index.map(group_mapping)
-        final_gdf["mean_conf"] = final_gdf["median_conf"] = final_gdf["max_conf"] = (
-            final_gdf["machine_confidence"]
-        )
+        final_gdf["mean_conf"] = final_gdf["median_conf"] = final_gdf[
+            "max_conf"
+        ] = final_gdf["machine_confidence"]
         print("XXX len(final_gdf)", len(final_gdf))
 
         # Dissolve overlapping features into one based on their group index and calculate the median confidence and maximum inference index
