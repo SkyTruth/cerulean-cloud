@@ -355,20 +355,18 @@ class MASKRCNNModel(BaseModel):
         Returns:
             List[geojson.Feature]: A list of geojson features representing the reduced set of features per tile.
         """
-        print(
-            "XXX inference_result.json_data[:30]",
-            [
-                inference_result.json_data[:30]
-                for inference_result_stack in tileset_results
-                for inference_result in inference_result_stack.stack
-            ],
-        )
 
-        pred_list = [
-            self.deserialize(inference_result.json_data)
-            for inference_result_stack in tileset_results
-            for inference_result in inference_result_stack.stack
-        ]
+        bounds_list = []
+        pred_list = []
+        for i, inf_result_stack in enumerate(tileset_results):
+            if inf_result_stack.stack:
+                pred = [
+                    self.deserialize(inference_result.json_data)
+                    for inference_result in inf_result_stack.stack
+                ]
+                pred_list.extend(pred)
+                bounds_list.append(tileset_bounds[i])
+
         print("XXX len(pred_list)", len(pred_list))
         print(
             "XXX pred_list[i].get('scores')",
@@ -379,12 +377,16 @@ class MASKRCNNModel(BaseModel):
             pred_list, **self.model_dict["thresholds"]
         )
         print("XXX len(reduced_pred_list)", len(reduced_pred_list))
+        print("XXX len(tileset_bounds)", len(tileset_bounds))
+        print("XXX len(bounds_list)", len(bounds_list))
+
         print(
-            "XXX reduced_pred_list[0].get('scores')", reduced_pred_list[0].get("scores")
+            "XXX reduced_pred_list[0].get('scores')",
+            reduced_pred_list[0].get("scores"),
         )
 
         scene_polys = []
-        for pred_dict, bounds in zip(reduced_pred_list, tileset_bounds):
+        for pred_dict, bounds in zip(reduced_pred_list, bounds_list):
             # generate vectorized polygons from predictions
             # adds "polys" to pred_dict
             if self.model_dict["thresholds"]["poly_score_thresh"] is not None:
@@ -451,9 +453,9 @@ class MASKRCNNModel(BaseModel):
 
         # Map the group indices and counts back to the GeoDataFrame
         final_gdf["group_index"] = final_gdf.index.map(group_mapping)
-        final_gdf["mean_conf"] = final_gdf["median_conf"] = final_gdf[
-            "max_conf"
-        ] = final_gdf["machine_confidence"]
+        final_gdf["mean_conf"] = final_gdf["median_conf"] = final_gdf["max_conf"] = (
+            final_gdf["machine_confidence"]
+        )
         print("XXX len(final_gdf)", len(final_gdf))
 
         # Dissolve overlapping features into one based on their group index and calculate the median confidence and maximum inference index
@@ -843,16 +845,22 @@ class FASTAIUNETModel(BaseModel):
         Returns:
             tuple: A tuple containing the merged numpy array and the bounds (min_x, min_y, max_x, max_y) of the merged area.
         """
-        tile_probs_by_class = [
-            self.deserialize(inf.json_data).detach().numpy()
-            for inference_result_stack in tileset_results
-            for inf in inference_result_stack.stack
-        ]
+        bounds_list = []
+        tile_probs_by_class = []
+        for i, inf_result_stack in enumerate(tileset_results):
+            if inf_result_stack.stack:
+                probabilities = [
+                    self.deserialize(inference_result.json_data).detach().numpy()
+                    for inference_result in inf_result_stack.stack
+                ]
+                tile_probs_by_class.extend(probabilities)
+                bounds_list.append(tileset_bounds[i])
+
         ds_tiles = []
         try:
             ds_tiles = [
                 memfile_gtiff(nparray=tile_probs, bounds=bounds).open()
-                for tile_probs, bounds in zip(tile_probs_by_class, tileset_bounds)
+                for tile_probs, bounds in zip(tile_probs_by_class, bounds_list)
             ]
 
             logging.info("Stitching tile probabilites together!")
