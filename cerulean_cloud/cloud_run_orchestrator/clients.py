@@ -139,7 +139,7 @@ class CloudRunInferenceClient:
         - This function constructs the inference payload by encoding the image and specifying the geographic bounds and any additional inference parameters through `self.model_dict`.
         """
 
-        encoded = img_array_to_b64_image(img_array)
+        encoded = img_array_to_b64_image(img_array, to_uint8=True)
         print("XXX encoded[:30]", encoded[:30])
         inf_stack = [InferenceInput(image=encoded)]
         payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
