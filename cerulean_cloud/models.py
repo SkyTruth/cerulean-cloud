@@ -207,6 +207,9 @@ class BaseModel:
                     # Skip pairs that don't have matching classes
                     continue
 
+                if not feat_i.geometry.intersects(feat_j.geometry):
+                    continue
+
                 # Compute intersection and union areas for IoU
                 intersection = feat_i.geometry.intersection(feat_j.geometry).area
                 union = feat_i["area"] + feat_j["area"] - intersection
