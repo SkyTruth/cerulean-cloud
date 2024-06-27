@@ -32,6 +32,7 @@ def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
             f"WARNING: changing from dtype {img_array.dtype} to uint8 without scaling!"
         )
         img_array = img_array.astype("uint8")
+    print("img_array_to_b64_image img_array.dtype", img_array.dtype)
     with MemoryFile() as memfile:
         with memfile.open(
             driver="GTiff",
@@ -95,6 +96,7 @@ class CloudRunInferenceClient:
             scale=self.scale,
             rescale=rescale,
         )
+        print("fetch and process img_array.dtype", img_array.dtype)
 
         img_array = reshape_as_raster(img_array)
         img_array = img_array[0:num_channels, :, :]
@@ -140,7 +142,6 @@ class CloudRunInferenceClient:
         """
 
         encoded = img_array_to_b64_image(img_array, to_uint8=True)
-        print("XXX encoded[:30]", encoded[:30])
         inf_stack = [InferenceInput(image=encoded)]
         payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
         res = await http_client.post(
@@ -169,14 +170,14 @@ class CloudRunInferenceClient:
         Note:
         - This function integrates several steps: fetching the image, processing it, adding auxiliary data, and sending it for inference. It also includes a check to optionally skip empty tiles.
         """
-        print("XXX tile_bounds get_tile_inference()", tile_bounds)
+
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
-        print("XXX img_array.shape get_tile_inference()", img_array.shape)
-        print("XXX img_array get_tile_inference()", img_array)
+        print("get_tile_inference img_array.dtype", img_array.dtype)
         if not np.any(img_array):
             return InferenceResultStack(stack=[])
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
+            print("auxdatasets img_array.dtype", img_array.dtype)
         return await self.send_inference_request_and_handle_response(
             http_client, img_array
         )
@@ -200,11 +201,7 @@ class CloudRunInferenceClient:
                 )
                 for tile_bounds in tileset
             ]
-            inferences = await asyncio.gather(*tasks, return_exceptions=True)
-            for result in inferences:
-                if isinstance(result, Exception):
-                    print(f"XXX Error during processing: {result}")
-
+            inferences = await asyncio.gather(*tasks, return_exceptions=False)
             # False means this process will error out if any subtask errors out
             # True means this process will return a list including errors if any subtask errors out
         return inferences

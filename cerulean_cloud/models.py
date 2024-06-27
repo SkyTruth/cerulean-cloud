@@ -83,15 +83,11 @@ class BaseModel:
             inf_stack: The input data stack for inference.
         """
         logging.info(f"Stack has {len(inf_stack)} images")
-        print("XXX starting predict")
+
         self.load()  # Load model into memory
-        print("XXX model loaded")
         preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
-        print("XXX tiles preprocessed")
         raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
-        print("XXX inference run")
         inference_results = self.postprocess_tiles(raw_preds)  # Postprocess inference
-        print("XXX results postprocessed")
         return InferenceResultStack(stack=inference_results)
 
     def preprocess_tiles(self, inf_stack):
@@ -152,10 +148,6 @@ class BaseModel:
         Returns:
         - A geojson FeatureCollection containing the retained features.
         """
-        print(
-            "XXX inside nms_feature_reduction, min_overlaps_to_keep=",
-            min_overlaps_to_keep,
-        )
         feature_list = []
         if isinstance(features, geojson.FeatureCollection):
             feature_list.extend(features["features"])
@@ -163,8 +155,6 @@ class BaseModel:
             isinstance(f, geojson.FeatureCollection) for f in features
         ):
             feature_list.extend([f for fc in features for f in fc["features"]])
-
-        print("XXX len(feature_list)", len(feature_list))
 
         if not feature_list:
             return geojson.FeatureCollection([])
@@ -232,7 +222,6 @@ class BaseModel:
         retained_features = [
             f for i, f in enumerate(feature_list) if i not in feats_to_remove
         ]
-        print("XXX len(retained_features)", len(retained_features))
 
         # Return a new geojson FeatureCollection containing only the retained features
         return geojson.FeatureCollection(retained_features)
@@ -249,22 +238,10 @@ class MASKRCNNModel(BaseModel):
         Converts a list of InferenceInput objects into a processed tensor batch for model prediction.
         Processes image data contained in InferenceInput and prepares them for MASKRCNN model inference.
         """
-        print("XXX len(inf_stack)", len(inf_stack))
-        print("XXX inf_stack[0].image[:30]", inf_stack[0].image[:30])
         stack_tensors = [
             b64_image_to_array(record.image, tensor=True, to_float=True)
             for record in inf_stack
         ]
-        print(
-            "XXX torch.unique(stack_tensors[0][0])", torch.unique(stack_tensors[0][0])
-        )
-        print(
-            "XXX torch.unique(stack_tensors[0][1])", torch.unique(stack_tensors[0][1])
-        )
-        print(
-            "XXX torch.unique(stack_tensors[0][2])", torch.unique(stack_tensors[0][2])
-        )
-
         logging.info(f"Images have shape {stack_tensors[0].shape}")
         return stack_tensors
 
@@ -282,7 +259,6 @@ class MASKRCNNModel(BaseModel):
         Args:
             raw_preds: The results to be processed and stacked.
         """
-        print("XXX pred['scores'] in tile", [pred["scores"] for pred in raw_preds])
         inference_results = [
             InferenceResult(json_data=self.serialize(pred)) for pred in raw_preds
         ]
@@ -343,13 +319,9 @@ class MASKRCNNModel(BaseModel):
         Returns:
             geojson.FeatureCollection: A geojson feature collection representing the processed and combined geographical data.
         """
-        print("XXX len(tileset_bounds)", len(tileset_bounds))
-        print("XXX len(tileset_results)", len(tileset_results))
-        print("XXX tileset_bounds", tileset_bounds)
 
         logging.info("Reducing feature count on tiles")
         scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
-        print("XXX len(scene_polys)", len(scene_polys))
         logging.info("Stitching tiles into scene")
         feature_collection = self.stitch(scene_polys)
         logging.info("Reducing feature count on scene")
@@ -382,18 +354,9 @@ class MASKRCNNModel(BaseModel):
                 pred_list.extend(pred)
                 bounds_list.append(tileset_bounds[i])
 
-        print("XXX len(pred_list)", len(pred_list))
-        print(
-            "XXX pred_list[i].get('scores')",
-            [pred.get("scores") for pred in pred_list],
-        )
-
         reduced_pred_list = self.reduce_preds(
             pred_list, **self.model_dict["thresholds"]
         )
-        print("XXX len(reduced_pred_list)", len(reduced_pred_list))
-        print("XXX len(tileset_bounds)", len(tileset_bounds))
-        print("XXX len(bounds_list)", len(bounds_list))
 
         scene_polys = []
         for pred_dict, bounds in zip(reduced_pred_list, bounds_list):
@@ -440,7 +403,6 @@ class MASKRCNNModel(BaseModel):
         # have little or no impact on comparison to the original image.
         gdf = gpd.GeoDataFrame.from_features(scene_polys, crs="4326")
         gdf = reproject_to_utm(gdf)
-        print("XXX len(gdf)", len(gdf))
         final_gdf = gdf.copy()
 
         # Expand the geometry of each feature to connect with neighboring instances
@@ -449,7 +411,6 @@ class MASKRCNNModel(BaseModel):
         # Ensure the 'inf_idx' is the same before joining
         joined = gpd.sjoin(gdf, gdf, predicate="intersects")
         joined = joined[joined["inf_idx_left"] == joined["inf_idx_right"]].reset_index()
-        print("XXX len(joined)", len(joined))
 
         # Create a graph where each node represents a feature and edges represent overlaps/intersections
         G = nx.from_pandas_edgelist(joined, "index", "index_right")
@@ -466,7 +427,6 @@ class MASKRCNNModel(BaseModel):
         final_gdf["mean_conf"] = final_gdf["median_conf"] = final_gdf[
             "max_conf"
         ] = final_gdf["machine_confidence"]
-        print("XXX len(final_gdf)", len(final_gdf))
 
         # Dissolve overlapping features into one based on their group index and calculate the median confidence and maximum inference index
         dissolved_gdf = final_gdf.dissolve(
@@ -479,7 +439,6 @@ class MASKRCNNModel(BaseModel):
                 "max_conf": "max",
             },
         )
-        print("XXX len(dissolved_gdf)", len(dissolved_gdf))
 
         # If set, apply a morphological 'closing' operation to the geometries
         if closing_meters is not None:

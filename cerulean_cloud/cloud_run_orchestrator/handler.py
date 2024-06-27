@@ -214,7 +214,6 @@ async def _orchestrate(
         offset_bounds_from_base_tiles(base_tiles, offset_amount=o_a)
         for o_a in offset_amounts
     ]
-    print(f"XXX {start_time}: tileset_list: {tileset_list}")
 
     n_offsettiles = len(tileset_list[0])
     tileset_hw_pixels = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
@@ -299,20 +298,10 @@ async def _orchestrate(
                     await cloud_run_inference.run_parallel_inference(tileset)
                     for tileset in tileset_list
                 ]
-                print(
-                    f"XXX {start_time}: len(tileset_results_list)",
-                    len(tileset_results_list),
-                )
-                print(
-                    f"XXX {start_time}: len(tileset_results_list[0])",
-                    len(tileset_results_list[0]),
-                )
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
                 model = get_model(model_dict)
-                print(f"XXX {start_time}: type(model).__name__", type(model).__name__)
-                print(f"XXX {start_time}: model.model_dict", model.model_dict)
                 tileset_fc_list = [
                     model.postprocess_tileset(tileset_results, tileset_bounds)
                     for (tileset_results, tileset_bounds) in zip(
