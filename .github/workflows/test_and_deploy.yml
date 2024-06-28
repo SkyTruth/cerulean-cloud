@@ -152,10 +152,6 @@ jobs:
 
       - run: pip install -r requirements-pulumi.txt
 
-      - name: Clean all existing Docker images
-        run: |
-          docker image prune -a -f
-
       - name: Build Container Images
         uses: pulumi/actions@v5
         id: pulumi-images
@@ -172,8 +168,6 @@ jobs:
           docker container prune -f
           docker buildx prune -f
           docker images
-          df -H
-          mount
 
       # Copy shared database_client.py files
       - name: Copy Shared File
