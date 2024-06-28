@@ -10,10 +10,6 @@ inputs:
     description: |-
       Which Python version to use
     default: '3.9'
-  python-pip-cache-dir:
-    description: |-
-      Where to cache Python packages
-    required: true
   pulumi-version:
     description: |-
       Which Pulumi version to use
@@ -40,7 +36,7 @@ runs:
     - name: Cache pip
       uses: actions/cache@v4
       with:
-        path: ${{ inputs.python-pip-cache-dir }}
+        path: ${{ env.PIP_CACHE_DIR }}
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
         restore-keys: |
           ${{ runner.os }}-pip-

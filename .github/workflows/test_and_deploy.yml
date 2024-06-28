@@ -120,7 +120,6 @@ jobs:
         uses: ./.github/actions/deploy_infrastructure
         with:
           environment: test
-          python-pip-cache-dir: ${{ env.PIP_CACHE_DIR }}
           pulumi-version: 3.121.0
           pulumi-stack-passphrase: test
 
