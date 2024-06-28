@@ -129,6 +129,9 @@ def create_zip(
         _, zip_filepath = mkstemp(
             suffix=".zip",
         )
+    else:
+        zip_filepath = os.path.abspath(zip_filepath)
+
     with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zipf:
         for root, _, files in os.walk(dir_to_zip):
             for file in files:
