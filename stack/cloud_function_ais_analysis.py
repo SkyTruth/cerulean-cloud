@@ -46,7 +46,6 @@ config_values = {
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_ais_analysis"
 package = pulumi_create_zip(
     dir_to_zip=PATH_TO_SOURCE_CODE,
-    ignore_globs=["*.csv"],
 )
 archive = package.apply(lambda x: pulumi.FileAsset(x))
 

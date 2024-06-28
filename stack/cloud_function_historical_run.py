@@ -1,6 +1,5 @@
 """cloud function to select appropriate scenes (over water and IW) from SNS notification"""
 
-import os
 import time
 
 import cloud_function_scene_relevancy
@@ -8,7 +7,7 @@ import cloud_run_orchestrator
 import database
 import pulumi
 from pulumi_gcp import cloudfunctions, storage
-from utils import construct_name
+from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
 
@@ -28,13 +27,10 @@ config_values = {
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_historical_run"
-assets = {}
-for file in os.listdir(PATH_TO_SOURCE_CODE):
-    location = os.path.join(PATH_TO_SOURCE_CODE, file)
-    asset = pulumi.FileAsset(path=location)
-    assets[file] = asset
-
-archive = pulumi.AssetArchive(assets=assets)
+package = pulumi_create_zip(
+    dir_to_zip=PATH_TO_SOURCE_CODE,
+)
+archive = package.apply(lambda x: pulumi.FileAsset(x))
 
 # Create the single Cloud Storage object, which contains all of the function's
 # source code. ("main.py" and "requirements.txt".)
