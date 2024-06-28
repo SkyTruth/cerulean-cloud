@@ -29,6 +29,7 @@ config_values = {
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_historical_run"
 package = pulumi_create_zip(
     dir_to_zip=PATH_TO_SOURCE_CODE,
+    zip_filepath="../cloud_function_historical_run.zip",
 )
 archive = package.apply(lambda x: pulumi.FileAsset(x))
 
@@ -36,7 +37,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cloud-function-historical-run"),
-    name="handler.py-%f" % time.time(),
+    name=f"handler.py-{time.time():f}",
     bucket=cloud_function_scene_relevancy.bucket.name,
     source=archive,
 )

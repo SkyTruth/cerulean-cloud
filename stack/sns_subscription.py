@@ -34,6 +34,7 @@ iam_for_lambda = aws.iam.Role(
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/lambda_sentinel1_subscription"
 lambda_package_path = pulumi_create_zip(
     dir_to_zip=PATH_TO_SOURCE_CODE,
+    zip_filepath="../lambda_sentinel1_subscription.zip",
 )
 lambda_package_archive = lambda_package_path.apply(lambda x: pulumi.FileArchive(x))
 
