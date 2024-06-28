@@ -117,6 +117,7 @@ jobs:
         uses: actions/checkout@v4
 
       - id: deploy-infrastructure-test
+        name: Deploy Infratructure
         uses: ./.github/actions/deploy_infrastructure
         with:
           environment: test
