@@ -113,8 +113,11 @@ jobs:
     needs: [tests]
     if: github.event_name == 'workflow_dispatch'
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - id: deploy-infrastructure-test
-        uses: .github/actions/deploy_infrastructure_action.yml
+        uses: ./.github/actions/deploy_infrastructure
         with:
           environment: test
           python-pip-cache-dir: ${{ env.PIP_CACHE_DIR }}
