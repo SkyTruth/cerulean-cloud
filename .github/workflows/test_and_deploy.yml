@@ -150,7 +150,7 @@ jobs:
       - name: Configure docker
         run: gcloud auth configure-docker -q
 
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-pulumi.txt
 
       - name: Clean all existing Docker images
         run: |
@@ -162,7 +162,7 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
         with:
-          pulumi-version: '3.114.0'
+          pulumi-version: '3.121.0'
           work-dir: images/
           command: up
           stack-name: test
@@ -190,7 +190,7 @@ jobs:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
-          pulumi-version: '3.114.0'
+          pulumi-version: '3.121.0'
           command: up
           stack-name: test
           refresh: true
