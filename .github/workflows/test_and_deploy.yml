@@ -196,7 +196,6 @@ jobs:
           refresh: true
           diff: true
           comment-on-summary: true
-          parallel: 1
 
       - name: Start Google Cloud SQL Proxy
         uses: wagnerpereira/gce-cloudsql-proxy-action@v2
@@ -206,7 +205,8 @@ jobs:
       - name: Run database migrations
         env:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
-        run: alembic upgrade head
+        run: |
+          pip install -r requirements.txt && alembic upgrade head
 
   deploy-staging:
     name: Deploy [STAGING]
