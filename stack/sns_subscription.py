@@ -4,7 +4,7 @@ import cloud_function_scene_relevancy
 import pulumi
 import pulumi_aws as aws
 import pulumi_gcp as gcp
-from utils import construct_name
+from utils import construct_name, pulumi_create_zip
 
 keyname = pulumi.Config("cerulean-cloud").require("keyname")
 secret = gcp.secretmanager.get_secret(secret_id=keyname)
@@ -29,14 +29,18 @@ iam_for_lambda = aws.iam.Role(
 """,
 )
 
+# The Cloud Function source code itself needs to be zipped up into an
+# archive, which we create using the pulumi.AssetArchive primitive.
+PATH_TO_SOURCE_CODE = "../cerulean_cloud/lambda_sentinel1_subscription"
+lambda_package_path = pulumi_create_zip(
+    dir_to_zip=PATH_TO_SOURCE_CODE,
+)
+lambda_package_archive = lambda_package_path.apply(lambda x: pulumi.FileArchive(x))
+
 lambda_sentinel1_topic = aws.lambda_.Function(
     resource_name=construct_name("lambda-sentinel1-subscription"),
     runtime="python3.9",
-    code=pulumi.AssetArchive(
-        {
-            ".": pulumi.FileArchive("../cerulean_cloud/lambda_sentinel1_subscription"),
-        }
-    ),
+    code=lambda_package_path,
     handler="handler.lambda_handler",
     role=iam_for_lambda.arn,
     environment=aws.lambda_.FunctionEnvironmentArgs(
