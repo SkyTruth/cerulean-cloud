@@ -9,7 +9,7 @@ inputs:
   python-version:
     description: |-
       Which Python version to use
-    default: 3.9
+    default: '3.9'
   python-pip-cache-dir:
     description: |-
       Where to cache Python packages
@@ -32,6 +32,7 @@ runs:
 
     - name: Get pip cache dir
       id: pip-cache
+      shell: bash
       run: |
         python -m pip install pip --upgrade
         echo "PIP_CACHE_DIR=$(python -m pip cache dir)" >> $GITHUB_ENV
@@ -57,9 +58,14 @@ runs:
         aws-region: eu-central-1
 
     - name: Configure docker
-      run: gcloud auth configure-docker -q
+      shell: bash
+      run: |
+        gcloud auth configure-docker -q
 
-    - run: pip install -r requirements-pulumi.txt
+    - name: Install Pulumi requirements
+      shell: bash
+      run: |
+        pip install -r requirements-pulumi.txt
 
     - name: Build Container Images
       uses: pulumi/actions@v5
@@ -73,6 +79,7 @@ runs:
         stack-name: ${{ inputs.environment }}
 
     - name: Prune Docker environment
+      shell: bash
       run: |
         docker container prune -f
         docker buildx prune -f
@@ -80,6 +87,7 @@ runs:
 
     # Copy shared database_client.py files
     - name: Copy Shared File
+      shell: bash
       run: |
         mkdir -p cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/
         cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
@@ -106,6 +114,7 @@ runs:
         instance: ${{ steps.pulumi.outputs.database_instance_name }}
 
     - name: Run database migrations
+      shell: bash
       env:
         DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
       run: |
