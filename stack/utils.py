@@ -133,15 +133,12 @@ def create_zip(
         for root, _, files in os.walk(dir_to_zip):
             for file in files:
                 full_path = os.path.join(root, file)
-                relative_path = os.path.relpath(full_path, dir_to_zip)
                 if not any(
-                    fnmatch.fnmatch(relative_path, pattern)
+                    fnmatch.fnmatch(full_path, pattern)
                     for pattern in ignore_globs or []
                 ):
                     # Store the file relative to the directory specified
-                    archive_name = os.path.relpath(
-                        full_path, os.path.dirname(dir_to_zip)
-                    )
+                    archive_name = os.path.relpath(full_path, dir_to_zip)
                     zipf.write(full_path, archive_name)
     return zip_filepath
 
