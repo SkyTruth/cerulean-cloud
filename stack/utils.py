@@ -162,8 +162,8 @@ def pulumi_create_zip(
     """
     coro = asyncio.to_thread(
         create_zip,
-        zip_filepath,
         dir_to_zip,
+        zip_filepath,
         ignore_globs,
         compression,
     )
