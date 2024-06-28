@@ -1,21 +1,14 @@
-pulumi==3.114.0
-pulumi-gcp==7.2.1
-pulumi-aws==6.37.1
-pulumi-docker==3.2.0
-pulumi-command==0.11.1
-docker
+-r requirements-pulumi.txt
 morecantile
 numpy<2.0.0
 supermercado
 httpx==0.22.*
 geojson
 shapely==2.0.1
-google-cloud-storage
 alembic
 asyncpg
 GeoAlchemy2
 alembic_utils
-GitPython
 sqlacodegen
 psycopg2-binary
 python-dateutil
