@@ -32,7 +32,6 @@ def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
             f"WARNING: changing from dtype {img_array.dtype} to uint8 without scaling!"
         )
         img_array = img_array.astype("uint8")
-    print("img_array_to_b64_image img_array.dtype", img_array.dtype)
     with MemoryFile() as memfile:
         with memfile.open(
             driver="GTiff",
@@ -96,7 +95,6 @@ class CloudRunInferenceClient:
             scale=self.scale,
             rescale=rescale,
         )
-        print("fetch and process img_array.dtype", img_array.dtype)
 
         img_array = reshape_as_raster(img_array)
         img_array = img_array[0:num_channels, :, :]
@@ -172,12 +170,11 @@ class CloudRunInferenceClient:
         """
 
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
-        print("get_tile_inference img_array.dtype", img_array.dtype)
         if not np.any(img_array):
             return InferenceResultStack(stack=[])
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
-            print("auxdatasets img_array.dtype", img_array.dtype)
+            print([np.unique(im) for im in img_array])
         return await self.send_inference_request_and_handle_response(
             http_client, img_array
         )
@@ -363,9 +360,9 @@ def handle_aux_datasets(
                     tileset_envelope_bounds, image_hw_pixels, layer.source_url
                 )
             elif layer.short_name == "ALL_255":
-                ar = 255 * np.ones(shape=image_hw_pixels)
+                ar = 255 * np.ones(shape=image_hw_pixels, dtype="uint8")
             elif layer.short_name == "ALL_ZEROS":
-                ar = np.zeros(shape=image_hw_pixels)
+                ar = np.zeros(shape=image_hw_pixels, dtype="uint8")
             else:
                 raise NotImplementedError(f"Unrecognized layer: {layer.short_name}")
 
