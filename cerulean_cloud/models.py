@@ -259,8 +259,12 @@ class MASKRCNNModel(BaseModel):
         Args:
             raw_preds: The results to be processed and stacked.
         """
+        reduced_preds = self.reduce_preds(
+            raw_preds,
+            bbox_score_thresh=self.model_dict["thresholds"]["bbox_score_thresh"],
+        )  # If we don't reduce here, the cloud_run crashes on preds with more than ~8 bboxes
         inference_results = [
-            InferenceResult(json_data=self.serialize(pred)) for pred in raw_preds
+            InferenceResult(json_data=self.serialize(pred)) for pred in reduced_preds
         ]
         return inference_results
 

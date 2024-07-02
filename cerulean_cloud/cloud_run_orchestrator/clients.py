@@ -174,7 +174,6 @@ class CloudRunInferenceClient:
             return InferenceResultStack(stack=[])
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
-            print([np.unique(im) for im in img_array])
         return await self.send_inference_request_and_handle_response(
             http_client, img_array
         )
