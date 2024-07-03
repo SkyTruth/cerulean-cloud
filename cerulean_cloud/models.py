@@ -289,7 +289,6 @@ class MASKRCNNModel(BaseModel):
         for key in ["boxes", "labels", "scores"]:
             pred[key] = pred[key].tolist()  # Tensors are not json serializable
         pred["masks_b64"] = [tensor_to_base64(mask) for mask in pred.pop("masks")]
-        print("XXX len(pred['masks']) after reduction", len(pred["masks"]))
         print("XXX len(pred['masks_b64']) after reduction", len(pred["masks_b64"]))
         print("XXX mask lengths", [len(m) for m in pred["masks_b64"]])
         json_string = json.dumps(pred)
