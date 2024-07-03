@@ -19,11 +19,11 @@ jobs:
     name: Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Set up Python 3.8
-        uses: actions/setup-python@v2
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.9
 
       - name: Get pip cache dir
         id: pip-cache
@@ -32,7 +32,7 @@ jobs:
           echo "PIP_CACHE_DIR=$(python -m pip cache dir)" >> $GITHUB_ENV
 
       - name: Cache pip
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ${{ env.PIP_CACHE_DIR }}
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
@@ -62,19 +62,19 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref != 'refs/heads/main' && github.event_name != 'workflow_dispatch' && startsWith(github.event.ref, 'refs/tags') != true
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions/setup-python@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.9
 
       - name: Configure GCP Credentials
-        uses: "google-github-actions/auth@v0"
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: "projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider"
           service_account: "git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com"
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
@@ -83,7 +83,7 @@ jobs:
         run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v5
         id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
@@ -95,7 +95,7 @@ jobs:
           comment-on-pr: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v5
         env:
           PULUMI_CONFIG_PASSPHRASE: "test"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
@@ -114,127 +114,16 @@ jobs:
     needs: [tests]
     if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v2
-      
-      - name: Free up Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
-            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          fi
-      
-      - uses: actions/setup-python@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - id: deploy-infrastructure-test
+        name: Deploy Infratructure
+        uses: ./.github/actions/deploy_infrastructure
         with:
-          python-version: 3.8
-
-      - name: Get pip cache dir
-        id: pip-cache
-        run: |
-          python -m pip install pip --upgrade
-          echo "PIP_CACHE_DIR=$(python -m pip cache dir)" >> $GITHUB_ENV
-
-      - name: Cache pip
-        uses: actions/cache@v2
-        with:
-          path: ${{ env.PIP_CACHE_DIR }}
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
-      - name: Configure GCP Credentials
-        uses: "google-github-actions/auth@v0"
-        with:
-          workload_identity_provider: "projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider"
-          service_account: "git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
-          aws-region: eu-central-1
-
-      - name: Configure docker
-        run: gcloud auth configure-docker -q
-
-      - run: pip install -r requirements.txt
-
-      - name: Log system information before Pulumi
-        run: |
-          echo "Disk space:"
-          df -h
-          echo "Memory usage:"
-          free -m  
-
-      - uses: pulumi/actions@v3
-        id: pulumi-images
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "test"
-          PULUMI_LOG_LEVEL: debug
-        with:
-          pulumi-version: '3.113.3'
-          work-dir: images/
-          command: up
-          stack-name: test
-          
-      - name: Log system information after Pulumi
-        run: |
-          echo "Disk space:"
-          df -h
-          echo "Memory usage:"
-          free -m
-
-      # Copy shared database_client.py files
-      - name: Copy Shared File
-        run: |
-          mkdir -p cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/
-          cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
-          cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
-          cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
-      
-      - uses: pulumi/actions@v3
-        id: pulumi-refresh
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "test"
-        with:
-          pulumi-version: '3.113.3'
-          command: refresh
-          stack-name: test
-      
-      - name: Log system information before Pulumi
-        run: |
-          echo "Disk space:"
-          df -h
-          echo "Memory usage:"
-          free -m  
-
-      - uses: pulumi/actions@v3
-        id: pulumi
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "test"
-          MODEL: ${{ steps.pulumi-images.outputs.model }}
-          PULUMI_LOG_LEVEL: debug
-        with:
-          pulumi-version: '3.113.3'
-          command: up
-          stack-name: test
-
-      - name: Log system information after Pulumi
-        run: |
-          echo "Disk space:"
-          df -h
-          echo "Memory usage:"
-          free -m
-
-      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
-        with:
-          instance: ${{ steps.pulumi.outputs.database_instance_name }}
-      
-      - name: Run database migrations
-        env:
-          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
-        run: alembic upgrade head
+          environment: test
+          pulumi-version: 3.121.0
+          pulumi-stack-passphrase: test
 
   deploy-staging:
     name: Deploy [STAGING]
@@ -243,35 +132,19 @@ jobs:
     environment: staging
     if: github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v2
-      
-      - name: Free up Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
-            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          fi
-
-      - name: Docker Cleanup
-        run: |
-          docker system prune -af
-          echo "Disk space after cleanup:"
-          df -h
-      
-      - uses: actions/setup-python@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.9
 
       - name: Configure GCP Credentials
-        uses: "google-github-actions/auth@v0"
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: "projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider"
           service_account: "git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com"
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
@@ -280,7 +153,7 @@ jobs:
         run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v5
         id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
@@ -297,8 +170,8 @@ jobs:
           cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
           cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
-      
-      - uses: pulumi/actions@v3
+
+      - uses: pulumi/actions@v5
         id: pulumi-refresh
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
@@ -307,7 +180,7 @@ jobs:
           command: refresh
           stack-name: staging
 
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v5
         id: pulumi
         with:
           pulumi-version: '3.113.3'
@@ -317,11 +190,11 @@ jobs:
         env:
           PULUMI_CONFIG_PASSPHRASE: "staging"
           MODEL: ${{ steps.pulumi-images.outputs.model }}
-      
+
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
           instance: ${{ steps.pulumi.outputs.database_instance_name }}
-      
+
       - name: Run database migrations
         env:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
@@ -334,35 +207,19 @@ jobs:
     environment: production
     if: startsWith(github.event.ref, 'refs/tags')
     steps:
-      - uses: actions/checkout@v2
-      
-      - name: Free up Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
-          if [ -n "$AGENT_TOOLSDIRECTORY" ]; then
-            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          fi
-
-      - name: Docker Cleanup
-        run: |
-          docker system prune -af
-          echo "Disk space after cleanup:"
-          df -h
-      
-      - uses: actions/setup-python@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: 3.8
+          python-version: 3.9
 
       - name: Configure GCP Credentials
-        uses: "google-github-actions/auth@v0"
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: "projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider"
           service_account: "git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com"
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
           aws-region: eu-central-1
@@ -371,7 +228,7 @@ jobs:
         run: gcloud auth configure-docker -q
 
       - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v5
         id: pulumi-images
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
@@ -388,8 +245,8 @@ jobs:
           cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
           cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
           cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
-      
-      - uses: pulumi/actions@v3
+
+      - uses: pulumi/actions@v5
         id: pulumi-refresh
         env:
           PULUMI_CONFIG_PASSPHRASE: "production"
@@ -398,7 +255,7 @@ jobs:
           command: refresh
           stack-name: production
 
-      - uses: pulumi/actions@v3
+      - uses: pulumi/actions@v5
         id: pulumi
         with:
           pulumi-version: '3.113.3'
@@ -412,7 +269,7 @@ jobs:
       - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
         with:
           instance: ${{ steps.pulumi.outputs.database_instance_name }}
-      
+
       - name: Run database migrations
         env:
           DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
