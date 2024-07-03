@@ -259,17 +259,8 @@ class MASKRCNNModel(BaseModel):
         Args:
             raw_preds: The results to be processed and stacked.
         """
-        print("XXX pred counts before reduction", [len(p["scores"]) for p in raw_preds])
-        reduced_preds = self.reduce_preds(
-            raw_preds,
-            bbox_score_thresh=self.model_dict["thresholds"]["bbox_score_thresh"],
-        )  # If we don't reduce here, the cloud_run crashes on preds with more than ~8 bboxes
-        print(
-            "XXX pred counts after reduction", [len(p["scores"]) for p in reduced_preds]
-        )
-        print("XXX pred scores after reduction", [p["scores"] for p in reduced_preds])
         inference_results = [
-            InferenceResult(json_data=self.serialize(pred)) for pred in reduced_preds
+            InferenceResult(json_data=self.serialize(pred)) for pred in raw_preds
         ]
         return inference_results
 
@@ -285,14 +276,10 @@ class MASKRCNNModel(BaseModel):
         Returns:
         - str: A JSON string with the 'masks' converted to base64-encoded strings.
         """
-        print("XXX len(pred['masks']) before reduction", len(pred["masks"]))
         for key in ["boxes", "labels", "scores"]:
             pred[key] = pred[key].tolist()  # Tensors are not json serializable
         pred["masks_b64"] = [tensor_to_base64(mask) for mask in pred.pop("masks")]
-        print("XXX len(pred['masks_b64']) after reduction", len(pred["masks_b64"]))
-        print("XXX mask lengths", [len(m) for m in pred["masks_b64"]])
         json_string = json.dumps(pred)
-        print("XXX len(json_string)", len(json_string))
         return json_string
 
     def deserialize(self, json_string):
@@ -1128,6 +1115,7 @@ def tensor_to_base64(tensor):
         str: A base64 encoded string of the tensor.
     """
     buffer = BytesIO()
-    torch.save(tensor, buffer)
+    torch.save(tensor.clone(), buffer)
+    # PYTHON BUG If you don't clone() the tensor, then the (1, 512, 512) tensor will be recorded in N times the amount of memory, where N is the number of output predictions this tensor was extracted from?!? This causes N predictions to be require NxN (N^2) data for storing!
     buffer.seek(0)
     return b64encode(buffer.read()).decode("utf-8")
