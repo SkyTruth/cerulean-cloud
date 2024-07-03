@@ -1,5 +1,4 @@
-"""images for cloud run
-"""
+"""images for cloud run"""
 
 import pulumi
 import pulumi_docker as docker
@@ -66,7 +65,14 @@ cloud_run_offset_tile_image = docker.Image(
     build=docker.DockerBuild(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_offset",
-        extra_options=["--no-cache", "--quiet"],
+        env={
+            "DOCKER_BUILDKIT": "1",
+        },
+        extra_options=[
+            "--no-cache",
+            "--quiet",
+        ],
+        target="final",
     ),
     image_name=cloud_run_offset_tile_image_url,
     registry=registry_info,
@@ -76,8 +82,15 @@ cloud_run_orchestrator_image = docker.Image(
     build=docker.DockerBuild(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_orchestrator",
-        extra_options=["--no-cache", "--quiet"],
-        env={"MODEL": weights_name},
+        env={
+            "MODEL": weights_name,
+            "DOCKER_BUILDKIT": "1",
+        },
+        extra_options=[
+            "--no-cache",
+            "--quiet",
+        ],
+        target="final",
     ),
     image_name=cloud_run_orchestrator_image_url,
     registry=registry_info,
@@ -87,7 +100,14 @@ cloud_run_tipg_image = docker.Image(
     build=docker.DockerBuild(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_tipg",
-        extra_options=["--no-cache", "--quiet"],
+        env={
+            "DOCKER_BUILDKIT": "1",
+        },
+        extra_options=[
+            "--no-cache",
+            "--quiet",
+        ],
+        target="final",
     ),
     image_name=cloud_run_tipg_image_url,
     registry=registry_info,

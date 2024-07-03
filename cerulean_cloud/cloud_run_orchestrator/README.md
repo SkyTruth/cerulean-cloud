@@ -1,10 +1,22 @@
 # M1 MacBooks
 set `DOCKER_DEFAULT_PLATFORM=linux/amd64` in M1 macbooks
 
+# Build image
+
+```shell
+docker build -f Dockerfiles/Dockerfile.cloud_run_orchestrator -t gcr.io/cerulean-338116/cloud-run-orchestrator-image .
+```
+
 # Debug image
 
+```shell
+PORT=8080 && docker run --rm -p 8080:${PORT} -e UVICORN_PORT=${PORT} --name cloud_run_orchestrator gcr.io/cerulean-338116/cloud-run-orchestrator-image
 ```
-cd stack/
-docker build -f ../Dockerfiles/Dockerfile.cloud_run_orchestrator -t gcr.io/cerulean-338116/cloud-run-orchestrator-image ../ --no-cache
-PORT=8080 && docker run -p 8080:${PORT} -e PORT=${PORT} gcr.io/cerulean-338116/cloud-run-orchestrator-image
+
+# Extract the SBOM
+
+Start the container as described in [Debug image](#debug-image) and in another shell execute
+
+```shell
+docker cp cloud_run_orchestrator:/app/sbom.xml .
 ```

@@ -30,7 +30,7 @@ def add_to_aaa_queue(scene_id):
     client = tasks_v2.CloudTasksClient()
 
     project = os.getenv("PROJECT_ID")
-    location = os.getenv("GCP_REGION")
+    location = os.getenv("GCPREGION")
     queue = os.getenv("AAA_QUEUE")
     url = os.getenv("FUNCTION_URL")
     dry_run = os.getenv("AIS_IS_DRY_RUN", "").lower() == "true"
@@ -69,5 +69,5 @@ def add_to_aaa_queue(scene_id):
         # Use the client to build and send the task.
         response = client.create_task(request={"parent": parent, "task": task})
 
-        print("Created task {}".format(response.name))
+        print(f"Created task {response.name}")
     return response
