@@ -370,7 +370,7 @@ async def _orchestrate(
                 orchestrator_run.success = success
                 orchestrator_run.inference_end_time = end_time
                 print(f"{start_time}: End time: {end_time}")
-                print(f"{start_time}: Orchestration succes: {success}")
+                print(f"{start_time}: Orchestration success: {success}")
             if success is False:
                 raise exc
 
