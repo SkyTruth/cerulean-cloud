@@ -142,16 +142,32 @@ class CloudRunInferenceClient:
         encoded = img_array_to_b64_image(img_array, to_uint8=True)
         inf_stack = [InferenceInput(image=encoded)]
         payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
-        res = await http_client.post(
-            self.url + "/predict", json=payload.dict(), timeout=None
+
+        max_retries = 2  # Total attempts including the first try
+        retry_delay = 5  # Delay in seconds between retries
+
+        for attempt in range(max_retries):
+            try:
+                res = await http_client.post(
+                    self.url + "/predict", json=payload.dict(), timeout=None
+                )
+                if res.status_code == 200:
+                    return InferenceResultStack(**res.json())
+                else:
+                    print(
+                        f"Attempt {attempt + 1}: Failed with status code {res.status_code}. Retrying..."
+                    )
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay)  # Wait before retrying
+            except Exception as e:
+                print(f"Attempt {attempt + 1}: Exception occurred: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)  # Wait before retrying
+
+        # If all attempts fail, raise an exception
+        raise Exception(
+            f"All attempts failed after {max_retries} retries. Last known error: {res.content}"
         )
-        if res.status_code == 200:
-            return InferenceResultStack(**res.json())
-        else:
-            print(f"XXX Issue was found in: {self.sceneid}")
-            raise Exception(
-                f"Received unexpected status code: {res.status_code} {res.content}"
-            )
 
     async def get_tile_inference(self, http_client, tile_bounds, rescale=(0, 255)):
         """
