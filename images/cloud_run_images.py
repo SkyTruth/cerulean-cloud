@@ -70,7 +70,6 @@ cloud_run_offset_tile_image = docker.Image(
         },
         extra_options=[
             "--no-cache",
-            "--quiet",
         ],
         target="final",
     ),
@@ -88,7 +87,6 @@ cloud_run_orchestrator_image = docker.Image(
         },
         extra_options=[
             "--no-cache",
-            "--quiet",
         ],
         target="final",
     ),
@@ -105,7 +103,6 @@ cloud_run_tipg_image = docker.Image(
         },
         extra_options=[
             "--no-cache",
-            "--quiet",
         ],
         target="final",
     ),
