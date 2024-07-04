@@ -4,7 +4,7 @@ description: |-
 inputs:
   environment:
     description: |-
-      Target of infrastructure deployment
+      Target environment of infrastructure deployment
     required: true
   python-version:
     description: |-
