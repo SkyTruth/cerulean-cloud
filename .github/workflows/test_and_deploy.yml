@@ -109,7 +109,7 @@ jobs:
 
   deploy-test:
     name: Deploy [TEST]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     environment: test
     needs: [tests]
     if: github.event_name == 'workflow_dispatch'
