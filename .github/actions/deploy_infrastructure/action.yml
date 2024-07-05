@@ -21,6 +21,13 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Clean all existing Docker images
+      id: prune-docker
+      shell: bash
+      run: |
+        docker image prune -a -f
+        df -H
+
     - name: Install Python
       uses: actions/setup-python@v5
       with:
