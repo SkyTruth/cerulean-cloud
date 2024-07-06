@@ -1,5 +1,5 @@
-"""images for cloud run
-"""
+"""images for cloud run"""
+
 import pulumi
 import pulumi_docker as docker
 import pulumi_gcp as gcp
@@ -20,21 +20,27 @@ gcr_docker_provider = docker.Provider(
 
 cloud_run_offset_tile_registry_image = docker.get_registry_image(
     name=gcp.container.get_registry_image(
-        name=construct_name_images("cloud-run-offset-tile-image:latest")
+        name=construct_name_images("cloud-run-offset-tile-image:latest"),
     ).image_url,
-    opts=pulumi.ResourceOptions(provider=gcr_docker_provider),
+    opts=pulumi.InvokeOptions(
+        provider=gcr_docker_provider,
+    ),
 )
 cloud_run_orchestrator_registry_image = docker.get_registry_image(
     name=gcp.container.get_registry_image(
-        name=construct_name_images("cloud-run-orchestrator-image:latest")
+        name=construct_name_images("cloud-run-orchestrator-image:latest"),
     ).image_url,
-    opts=pulumi.ResourceOptions(provider=gcr_docker_provider),
+    opts=pulumi.InvokeOptions(
+        provider=gcr_docker_provider,
+    ),
 )
 cloud_run_tipg_registry_image = docker.get_registry_image(
     name=gcp.container.get_registry_image(
-        name=construct_name_images("cloud-run-tipg-image:latest")
+        name=construct_name_images("cloud-run-tipg-image:latest"),
     ).image_url,
-    opts=pulumi.ResourceOptions(provider=gcr_docker_provider),
+    opts=pulumi.InvokeOptions(
+        provider=gcr_docker_provider,
+    ),
 )
 
 
