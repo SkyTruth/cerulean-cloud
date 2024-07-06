@@ -60,6 +60,9 @@ cloud_run_offset_tile_image = docker.RemoteImage(
     pull_triggers=[
         cloud_run_offset_tile_registry_image.sha256_digest,
     ],
+    opts=pulumi.ResourceOptions(
+        provider=gcr_docker_provider,
+    ),
 )
 
 
@@ -69,6 +72,9 @@ cloud_run_orchestrator_image = docker.RemoteImage(
     pull_triggers=[
         cloud_run_orchestrator_registry_image.sha256_digest,
     ],
+    opts=pulumi.ResourceOptions(
+        provider=gcr_docker_provider,
+    ),
 )
 
 cloud_run_tipg_image = docker.RemoteImage(
@@ -77,6 +83,9 @@ cloud_run_tipg_image = docker.RemoteImage(
     pull_triggers=[
         cloud_run_tipg_registry_image.sha256_digest,
     ],
+    opts=pulumi.ResourceOptions(
+        provider=gcr_docker_provider,
+    ),
 )
 
 
