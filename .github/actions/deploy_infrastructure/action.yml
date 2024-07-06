@@ -1,6 +1,7 @@
 name: Deploy Cerulean Infratructure
 description: |-
   This action deploys the Cerulean infrastructure
+
 inputs:
   environment:
     description: |-
@@ -18,16 +19,10 @@ inputs:
     description: |-
       The passphrahse to encrypt secrets in the Pulumi stack
     required: true
+
 runs:
   using: "composite"
   steps:
-    - name: Clean all existing Docker images
-      id: prune-docker
-      shell: bash
-      run: |
-        docker image prune -a -f
-        df -H
-
     - name: Install Python
       uses: actions/setup-python@v5
       with:
@@ -80,13 +75,6 @@ runs:
         work-dir: images/
         command: up
         stack-name: ${{ inputs.environment }}
-
-    - name: Prune Docker environment
-      shell: bash
-      run: |
-        docker container prune -f
-        docker buildx prune -f
-        docker images
 
     # Copy shared database_client.py files
     - name: Copy Shared File
