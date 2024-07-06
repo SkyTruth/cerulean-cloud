@@ -117,6 +117,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - id: configure-docker
+        name: Configure Docker
+        uses: ./.github/actions/configure-docker
+
       - id: deploy-infrastructure-test
         name: Deploy Infrastructure
         uses: ./.github/actions/deploy_infrastructure
