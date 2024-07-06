@@ -29,6 +29,13 @@ iam_for_lambda = aws.iam.Role(
 """,
 )
 
+# Attach AWSLambdaBasicExecutionRole policy to the IAM role
+basic_execution_policy_attachment = aws.iam.RolePolicyAttachment(
+    construct_name("lambda-sentinel1-basic-execution"),
+    role=iam_for_lambda.name,
+    policy_arn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+)
+
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/lambda_sentinel1_subscription"
