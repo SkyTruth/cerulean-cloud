@@ -80,7 +80,6 @@ runs:
         work-dir: images/
         command: up
         stack-name: ${{ inputs.environment }}
-        parallel: 1
 
     - name: Prune Docker environment
       shell: bash
