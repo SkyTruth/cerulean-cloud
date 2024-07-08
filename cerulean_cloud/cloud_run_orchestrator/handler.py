@@ -337,7 +337,7 @@ async def _orchestrate(
                             predicate="intersects",
                         )
                         if not intersecting_land.empty:
-                            feat["properties"]["inf_idx"] = 0
+                            feat["properties"]["inf_idx"] = model.background_class_idx
                     # Removed all preprocessing of features from within the
                     # database session to avoid holidng locks on the
                     # table while performing un-related calculations.
@@ -370,7 +370,7 @@ async def _orchestrate(
                 orchestrator_run.success = success
                 orchestrator_run.inference_end_time = end_time
                 print(f"{start_time}: End time: {end_time}")
-                print(f"{start_time}: Orchestration succes: {success}")
+                print(f"{start_time}: Orchestration success: {success}")
             if success is False:
                 raise exc
 

@@ -1,6 +1,7 @@
 """cloud function scene relevancy handler
 inspired by https://github.com/jonaraphael/ceruleanserver/tree/master/lambda/Machinable
 """
+
 import asyncio
 import json
 import os
@@ -155,7 +156,7 @@ def handler_queue(filtered_scenes, trigger_id):
     queue = os.getenv("QUEUE")
     location = os.getenv("GCP_REGION")
     url = os.getenv("ORCHESTRATOR_URL")
-    dry_run = bool(os.getenv("IS_DRY_RUN"))
+    dry_run = os.getenv("IS_DRY_RUN", "").lower() == "true"
 
     # Construct the fully qualified queue name.
     parent = client.queue_path(project, location, queue)

@@ -197,6 +197,9 @@ class BaseModel:
                     # Skip pairs that don't have matching classes
                     continue
 
+                if not feat_i.geometry.intersects(feat_j.geometry):
+                    continue
+
                 # Compute intersection and union areas for IoU
                 intersection = feat_i.geometry.intersection(feat_j.geometry).area
                 union = feat_i["area"] + feat_j["area"] - intersection
@@ -256,8 +259,12 @@ class MASKRCNNModel(BaseModel):
         Args:
             raw_preds: The results to be processed and stacked.
         """
+        reduced_preds = self.reduce_preds(
+            raw_preds,
+            bbox_score_thresh=self.model_dict["thresholds"]["bbox_score_thresh"],
+        )  # If we don't reduce here, the cloud_run crashes on preds with more than ~8 bboxes
         inference_results = [
-            InferenceResult(json_data=self.serialize(pred)) for pred in raw_preds
+            InferenceResult(json_data=self.serialize(pred)) for pred in reduced_preds
         ]
         return inference_results
 
@@ -340,18 +347,23 @@ class MASKRCNNModel(BaseModel):
             List[geojson.Feature]: A list of geojson features representing the reduced set of features per tile.
         """
 
-        pred_list = [
-            self.deserialize(inference_result.json_data)
-            for inference_result_stack in tileset_results
-            for inference_result in inference_result_stack.stack
-        ]
+        bounds_list = []
+        pred_list = []
+        for i, inf_result_stack in enumerate(tileset_results):
+            if inf_result_stack.stack:
+                pred = [
+                    self.deserialize(inference_result.json_data)
+                    for inference_result in inf_result_stack.stack
+                ]
+                pred_list.extend(pred)
+                bounds_list.append(tileset_bounds[i])
 
         reduced_pred_list = self.reduce_preds(
             pred_list, **self.model_dict["thresholds"]
         )
 
         scene_polys = []
-        for pred_dict, bounds in zip(reduced_pred_list, tileset_bounds):
+        for pred_dict, bounds in zip(reduced_pred_list, bounds_list):
             # generate vectorized polygons from predictions
             # adds "polys" to pred_dict
             if self.model_dict["thresholds"]["poly_score_thresh"] is not None:
@@ -806,16 +818,22 @@ class FASTAIUNETModel(BaseModel):
         Returns:
             tuple: A tuple containing the merged numpy array and the bounds (min_x, min_y, max_x, max_y) of the merged area.
         """
-        tile_probs_by_class = [
-            self.deserialize(inf.json_data).detach().numpy()
-            for inference_result_stack in tileset_results
-            for inf in inference_result_stack.stack
-        ]
+        bounds_list = []
+        tile_probs_by_class = []
+        for i, inf_result_stack in enumerate(tileset_results):
+            if inf_result_stack.stack:
+                probabilities = [
+                    self.deserialize(inference_result.json_data).detach().numpy()
+                    for inference_result in inf_result_stack.stack
+                ]
+                tile_probs_by_class.extend(probabilities)
+                bounds_list.append(tileset_bounds[i])
+
         ds_tiles = []
         try:
             ds_tiles = [
                 memfile_gtiff(nparray=tile_probs, bounds=bounds).open()
-                for tile_probs, bounds in zip(tile_probs_by_class, tileset_bounds)
+                for tile_probs, bounds in zip(tile_probs_by_class, bounds_list)
             ]
 
             logging.info("Stitching tile probabilites together!")
@@ -1101,6 +1119,7 @@ def tensor_to_base64(tensor):
         str: A base64 encoded string of the tensor.
     """
     buffer = BytesIO()
-    torch.save(tensor, buffer)
+    torch.save(tensor.clone(), buffer)
+    # PYTHON BUG If you don't clone() the tensor, then the (1, 512, 512) tensor will be recorded in N times the amount of memory, where N is the number of output predictions this tensor was extracted from?!? This causes N predictions to be require NxN (N^2) data for storing!
     buffer.seek(0)
     return b64encode(buffer.read()).decode("utf-8")
