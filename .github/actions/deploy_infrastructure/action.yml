@@ -1,4 +1,4 @@
-name: Deploy Cerulean Infratructure
+name: Deploy Cerulean Infrastructure
 description: |-
   This action deploys the Cerulean infrastructure
 
@@ -10,14 +10,14 @@ inputs:
   python-version:
     description: |-
       Which Python version to use
-    default: '3.9'
+    default: "3.9"
   pulumi-version:
     description: |-
       Which Pulumi version to use
     required: true
   pulumi-stack-passphrase:
     description: |-
-      The passphrahse to encrypt secrets in the Pulumi stack
+      The passphrase to encrypt secrets in the Pulumi stack
     required: true
 
 runs:
@@ -85,6 +85,7 @@ runs:
         cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
         cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
 
+    # THIS IS THE SLOW STEP
     - name: Deploy Infrastructure
       uses: pulumi/actions@v5
       id: pulumi
