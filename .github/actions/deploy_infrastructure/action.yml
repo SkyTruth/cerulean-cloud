@@ -96,7 +96,7 @@ runs:
         pulumi-version: ${{ inputs.pulumi-version }}
         command: up
         stack-name: ${{ inputs.environment }}
-        # refresh: true
+        refresh: true
         diff: true
         comment-on-summary: true
 
