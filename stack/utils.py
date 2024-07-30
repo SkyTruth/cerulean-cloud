@@ -34,6 +34,7 @@ def sha256sum(filename):
     with open(filename, "rb", buffering=0) as f:
         for n in iter(lambda: f.readinto(mv), 0):
             h.update(mv[:n])
+    print(f"{filename=} {h.hexdigest()=}")
     return h.digest()
 
 
