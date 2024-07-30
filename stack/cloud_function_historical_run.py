@@ -7,7 +7,7 @@ import cloud_run_orchestrator
 import database
 import pulumi
 from pulumi_gcp import cloudfunctions, storage
-from utils import construct_name, pulumi_create_zip
+from utils import construct_name, pulumi_create_zip, sha256sum
 
 stack = pulumi.get_stack()
 
@@ -32,6 +32,8 @@ package = pulumi_create_zip(
     zip_filepath="../cloud_function_historical_run.zip",
 )
 archive = package.apply(lambda x: pulumi.FileAsset(x))
+package_hash = package.apply(sha256sum)
+package_hash.apply(lambda x: pulumi.log.info(f"Archive hash: {x}"))
 
 # Create the single Cloud Storage object, which contains all of the function's
 # source code. ("main.py" and "requirements.txt".)
