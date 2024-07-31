@@ -113,6 +113,10 @@ jobs:
     environment: test
     needs: [tests]
     if: github.event_name == 'workflow_dispatch'
+    concurrency:
+      group: test
+      cancel-in-progress: false
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
