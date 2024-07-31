@@ -10,7 +10,7 @@ inputs:
   python-version:
     description: |-
       Which Python version to use
-    default: '3.9'
+    default: "3.9"
   pulumi-version:
     description: |-
       Which Pulumi version to use
@@ -101,9 +101,10 @@ runs:
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
+      if: always()
       with:
-        name: cloud_function_ais_analysis
-        path: /home/runner/work/cerulean-cloud/cerulean-cloud/cloud_function_ais_analysis.zip
+        name: functions
+        path: *.zip
 
     - name: Start Google Cloud SQL Proxy
       uses: wagnerpereira/gce-cloudsql-proxy-action@v2
