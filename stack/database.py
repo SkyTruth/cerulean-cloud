@@ -10,7 +10,7 @@ instance = gcp.sql.DatabaseInstance(
     construct_name("database-instance"),
     region=pulumi.Config("gcp").require("region"),
     database_version="POSTGRES_14",
-    settings=gcp.sql.DatabaseInstanceSettingsArgs(
+    settings=dict(
         tier=pulumi.Config("db").require("db-instance"),
         backup_configuration=dict(enabled=True),
         # Postgres tuning values ref: https://github.com/developmentseed/how/tree/main/dev/postgresql
