@@ -99,6 +99,12 @@ runs:
         diff: true
         comment-on-summary: true
 
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: cloud_function_ais_analysis
+        path: /home/runner/work/cerulean-cloud/cerulean-cloud/cloud_function_ais_analysis.zip
+
     - name: Start Google Cloud SQL Proxy
       uses: wagnerpereira/gce-cloudsql-proxy-action@v2
       with:
