@@ -1,8 +1,8 @@
 """database configurations
 """
 
-import json
 import hashlib
+import json
 
 import pulumi
 import pulumi_gcp as gcp
