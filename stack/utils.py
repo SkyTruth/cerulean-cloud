@@ -143,6 +143,10 @@ def create_zip(
                     # Store the file relative to the directory specified
                     archive_name = os.path.relpath(full_path, dir_to_zip)
                     zipf.write(full_path, archive_name)
+
+                    # Blank out metadata to make zip builds deterministic
+                    zinfo = zipf.getinfo(archive_name)
+                    zinfo.date_time = (1980, 1, 1, 0, 0, 0)
     return zip_filepath
 
 
