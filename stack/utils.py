@@ -132,7 +132,7 @@ def create_zip(
     else:
         zip_filepath = os.path.abspath(zip_filepath)
 
-    with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zipf:
+    with zipfile.ZipFile(zip_filepath, "w", compression) as zipf:
         for root, _, files in os.walk(dir_to_zip):
             for file in files:
                 full_path = os.path.join(root, file)
