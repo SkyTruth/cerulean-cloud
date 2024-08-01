@@ -39,7 +39,7 @@ package_hash.apply(lambda x: pulumi.log.info(f"Archive hash: {x}"))
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cloud-function-historical-run"),
-    name=f"handler.py-{time.time():f}",
+    name="handler.py",
     bucket=cloud_function_scene_relevancy.bucket.name,
     source=archive,
 )
