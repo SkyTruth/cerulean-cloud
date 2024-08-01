@@ -5,7 +5,7 @@ import cloud_run_orchestrator
 import database
 import pulumi
 from pulumi_gcp import cloudfunctions, storage
-from utils import construct_name, pulumi_create_zip, sha256sum
+from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
 
