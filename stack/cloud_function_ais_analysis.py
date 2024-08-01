@@ -1,7 +1,5 @@
 """cloud function to find slick culprits from AIS tracks"""
 
-import time
-
 import database
 import pulumi
 from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage

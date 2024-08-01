@@ -1,7 +1,5 @@
 """cloud function to select appropriate scenes (over water and IW) from SNS notification"""
 
-import time
-
 import cloud_function_scene_relevancy
 import cloud_run_orchestrator
 import database
