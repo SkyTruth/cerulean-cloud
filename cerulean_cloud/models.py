@@ -436,7 +436,7 @@ class MASKRCNNModel(BaseModel):
         dissolved_gdf = final_gdf.dissolve(
             by="group_index",
             aggfunc={
-                "machine_confidence": "max",
+                "machine_confidence": "median",
                 "inf_idx": lambda x: int(x.mode()[0]),
                 "mean_conf": "mean",
                 "median_conf": "median",
@@ -938,7 +938,7 @@ class FASTAIUNETModel(BaseModel):
                             "mean_conf": float(np.mean(masked_raster)),
                             "median_conf": float(np.median(masked_raster)),
                             "max_conf": float(np.max(masked_raster)),
-                            "machine_confidence": float(np.max(masked_raster)),
+                            "machine_confidence": float(np.median(masked_raster)),
                             **addl_props,
                         },
                     )
