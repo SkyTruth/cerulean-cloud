@@ -823,6 +823,19 @@ class FASTAIUNETModel(BaseModel):
                     tile_probs_by_class.append(
                         self.deserialize(inference_result.json_data).detach().numpy()
                     )
+                    print(
+                        "len(tileset_bounds) (i)",
+                        len(tileset_bounds),
+                        "len(tileset_results) (i)",
+                        len(tileset_results),
+                        "len(tileset_bounds[i]) (j)",
+                        len(tileset_bounds[i]),
+                        "len(tileset_results[i].stack) (j)",
+                        len(tileset_results[i].stack),
+                        "i,j",
+                        i,
+                        j,
+                    )
                     bounds_list.append(tileset_bounds[i][j])
 
         ds_tiles = []
