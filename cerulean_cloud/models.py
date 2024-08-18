@@ -826,12 +826,20 @@ class FASTAIUNETModel(BaseModel):
                     print(
                         "len(tileset_bounds) (i)",
                         len(tileset_bounds),
+                    )
+                    print(
                         "len(tileset_results) (i)",
                         len(tileset_results),
+                    )
+                    print(
                         "len(tileset_bounds[i]) (j)",
                         len(tileset_bounds[i]),
+                    )
+                    print(
                         "len(tileset_results[i].stack) (j)",
                         len(tileset_results[i].stack),
+                    )
+                    print(
                         "i,j",
                         i,
                         j,
