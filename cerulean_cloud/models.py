@@ -120,7 +120,7 @@ class BaseModel:
     def postprocess_tileset(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ) -> geojson.FeatureCollection:
         """
         Process the InferenceResultStack into a scene and then return a FC. This method should be implemented by subclasses.
@@ -310,7 +310,7 @@ class MASKRCNNModel(BaseModel):
     def postprocess_tileset(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ) -> geojson.FeatureCollection:
         """
         Post-process a list of tileset results to create a unified geojson feature collection.
@@ -335,7 +335,7 @@ class MASKRCNNModel(BaseModel):
     def reduce_tile_features(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ):
         """
         Reduces the number of prediction features within each tile by applying thresholds and generating polygons.
@@ -351,12 +351,9 @@ class MASKRCNNModel(BaseModel):
         pred_list = []
         for i, inf_result_stack in enumerate(tileset_results):
             if inf_result_stack.stack:
-                pred = [
-                    self.deserialize(inference_result.json_data)
-                    for inference_result in inf_result_stack.stack
-                ]
-                pred_list.extend(pred)
-                bounds_list.append(tileset_bounds[i])
+                for j, inference_result in enumerate(inf_result_stack.stack):
+                    pred_list.append(self.deserialize(inference_result.json_data))
+                    bounds_list.append(tileset_bounds[i][j])
 
         reduced_pred_list = self.reduce_preds(
             pred_list, **self.model_dict["thresholds"]
@@ -789,7 +786,7 @@ class FASTAIUNETModel(BaseModel):
     def postprocess_tileset(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ) -> geojson.FeatureCollection:
         """
         Stitches together multiple InferenceResultStacks from the FASTAIUNET model.
@@ -808,7 +805,7 @@ class FASTAIUNETModel(BaseModel):
     def stitch(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ):
         """Merge arrays based on their geographical bounds and return the merged array and its bounds.
 
@@ -820,13 +817,13 @@ class FASTAIUNETModel(BaseModel):
         """
         bounds_list = []
         tile_probs_by_class = []
-        for inf_result_stack in tileset_results:
+        for i, inf_result_stack in enumerate(tileset_results):
             if inf_result_stack.stack:
-                for i, inference_result in enumerate(inf_result_stack.stack):
+                for j, inference_result in enumerate(inf_result_stack.stack):
                     tile_probs_by_class.append(
                         self.deserialize(inference_result.json_data).detach().numpy()
                     )
-                    bounds_list.append(tileset_bounds[i])
+                    bounds_list.append(tileset_bounds[i][j])
 
         ds_tiles = []
         try:

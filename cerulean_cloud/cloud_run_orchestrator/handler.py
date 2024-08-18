@@ -303,7 +303,9 @@ async def _orchestrate(
                 print(f"Stitching results: {start_time}")
                 model = get_model(model_dict)
                 tileset_fc_list = [
-                    model.postprocess_tileset(tileset_results, tileset_bounds)
+                    model.postprocess_tileset(
+                        tileset_results, [tileset_bounds]
+                    )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
                     for (tileset_results, tileset_bounds) in zip(
                         tileset_results_list, tileset_list
                     )
