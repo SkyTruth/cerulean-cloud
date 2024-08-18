@@ -213,9 +213,9 @@ class BaseModel:
                     else:
                         feats_to_remove.append(j)
                 # Check for substantial inclusion and remove the encompassed feature
-                elif intersection > 0.9 * feat_i["area"]:
+                elif intersection > 0.5 * feat_i["area"]:
                     feats_to_remove.append(i)
-                elif intersection > 0.9 * feat_j["area"]:
+                elif intersection > 0.5 * feat_j["area"]:
                     feats_to_remove.append(j)
 
         # Collect features that are not marked for removal
@@ -820,14 +820,13 @@ class FASTAIUNETModel(BaseModel):
         """
         bounds_list = []
         tile_probs_by_class = []
-        for i, inf_result_stack in enumerate(tileset_results):
+        for inf_result_stack in tileset_results:
             if inf_result_stack.stack:
-                probabilities = [
-                    self.deserialize(inference_result.json_data).detach().numpy()
-                    for inference_result in inf_result_stack.stack
-                ]
-                tile_probs_by_class.extend(probabilities)
-                bounds_list.append(tileset_bounds[i])
+                for i, inference_result in enumerate(inf_result_stack.stack):
+                    tile_probs_by_class.append(
+                        self.deserialize(inference_result.json_data).detach().numpy()
+                    )
+                    bounds_list.append(tileset_bounds[i])
 
         ds_tiles = []
         try:
