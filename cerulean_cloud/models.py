@@ -425,9 +425,9 @@ class MASKRCNNModel(BaseModel):
 
         # Map the group indices and counts back to the GeoDataFrame
         final_gdf["group_index"] = final_gdf.index.map(group_mapping)
-        final_gdf["mean_conf"] = final_gdf["median_conf"] = final_gdf[
-            "max_conf"
-        ] = final_gdf["machine_confidence"]
+        final_gdf["mean_conf"] = final_gdf["machine_confidence"]
+        final_gdf["median_conf"] = final_gdf["machine_confidence"]
+        final_gdf["max_conf"] = final_gdf["machine_confidence"]
 
         # Dissolve overlapping features into one based on their group index and calculate the median confidence and maximum inference index
         dissolved_gdf = final_gdf.dissolve(

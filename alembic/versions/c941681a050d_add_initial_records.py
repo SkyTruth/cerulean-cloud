@@ -101,31 +101,28 @@ def upgrade() -> None:
             ),
             database_schema.Model(
                 type="FASTAIUNET",
-                file_path="experiments/2024_03_06_18_14_31_7cls_rn101_pr256_z9_fastai_baseline_noamb/tracing_cpu_model.pt",
+                file_path="experiments/2024_08_18_06_27_25_4cls_resnet34_pr512_px1024_500epochs_unet/tracing_cpu_model.pt",
                 layers=["VV"],
                 cls_map={
                     0: "BACKGROUND",
                     1: "INFRA",
                     2: "NATURAL",
-                    3: "COIN_VESSEL",
-                    4: "REC_VESSEL",
-                    5: "OLD_VESSEL",
-                    6: "BACKGROUND",  # HITL AMBIGUOUS, should never be output by inference_idx
+                    3: "VESSEL",
                 },  # inference_idx maps to class table
-                name="ResNet101 Baseline Noamb",
+                name="ResNet34 41%",
                 tile_width_m=40844,  # Used to calculate zoom
-                tile_width_px=256,  # Used to calculate scale
-                epochs=80,
+                tile_width_px=512,  # Used to calculate scale
+                epochs=500,
                 thresholds={
                     "poly_nms_thresh": 0.2,
-                    "pixel_nms_thresh": 0.4,
-                    "bbox_score_thresh": 0.05,
-                    "poly_score_thresh": 0.1,
-                    "pixel_score_thresh": 0.3,
+                    "pixel_nms_thresh": 0.0,  # NOT USED IN UNETS
+                    "bbox_score_thresh": 0.01,
+                    "poly_score_thresh": 0.3,
+                    "pixel_score_thresh": 0.8,
                     "groundtruth_dice_thresh": 0.0,
                 },
-                backbone_size=101,
-                # pixel_f1=0.0, # TODO CALCULATE
+                backbone_size=34,
+                pixel_f1=0.536,
                 # instance_f1=0.0, # TODO CALCULATE
             ),
         ]

@@ -131,150 +131,44 @@ jobs:
 
   deploy-staging:
     name: Deploy [STAGING]
-    needs: [tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     environment: staging
-    if: github.ref == 'refs/heads/main'
+    needs: [tests]
+    if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - id: configure-docker
+        name: Configure Docker
+        uses: ./.github/actions/configure-docker
+
+      - id: deploy-infrastructure-staging
+        name: Deploy Infrastructure
+        uses: ./.github/actions/deploy_infrastructure
         with:
-          python-version: 3.9
-
-      - name: Configure GCP Credentials
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: "projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider"
-          service_account: "git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
-          aws-region: eu-central-1
-
-      - name: Configure docker
-        run: gcloud auth configure-docker -q
-
-      - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v5
-        id: pulumi-images
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "staging"
-        with:
-          pulumi-version: '3.113.3'
-          work-dir: images/
-          command: up
-          stack-name: staging
-
-      # Copy shared database_client.py files
-      - name: Copy Shared File
-        run: |
-          mkdir -p cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/
-          cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
-          cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
-          cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
-
-      - uses: pulumi/actions@v5
-        id: pulumi-refresh
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "staging"
-        with:
-          pulumi-version: '3.113.3'
-          command: refresh
-          stack-name: staging
-
-      - uses: pulumi/actions@v5
-        id: pulumi
-        with:
-          pulumi-version: '3.113.3'
-          command: up
-          stack-name: staging
-
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "staging"
-          MODEL: ${{ steps.pulumi-images.outputs.model }}
-
-      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
-        with:
-          instance: ${{ steps.pulumi.outputs.database_instance_name }}
-
-      - name: Run database migrations
-        env:
-          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
-        run: alembic upgrade head
+          environment: staging
+          pulumi-version: 3.121.0
+          pulumi-stack-passphrase: staging
 
   deploy-production:
     name: Deploy [PRODUCTION]
-    needs: [tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     environment: production
-    if: startsWith(github.event.ref, 'refs/tags')
+    needs: [tests]
+    if: github.event_name == 'workflow_dispatch'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - id: configure-docker
+        name: Configure Docker
+        uses: ./.github/actions/configure-docker
+
+      - id: deploy-infrastructure-production
+        name: Deploy Infrastructure
+        uses: ./.github/actions/deploy_infrastructure
         with:
-          python-version: 3.9
-
-      - name: Configure GCP Credentials
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: "projects/734798842681/locations/global/workloadIdentityPools/my-pool/providers/gh-provider"
-          service_account: "git-cerulean-cloud@cerulean-338116.iam.gserviceaccount.com"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::162277344632:role/CeruleanCloudDeploy
-          aws-region: eu-central-1
-
-      - name: Configure docker
-        run: gcloud auth configure-docker -q
-
-      - run: pip install -r requirements.txt
-      - uses: pulumi/actions@v5
-        id: pulumi-images
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "production"
-        with:
-          pulumi-version: '3.113.3'
-          work-dir: images/
-          command: up
-          stack-name: production
-
-      # Copy shared database_client.py files
-      - name: Copy Shared File
-        run: |
-          mkdir -p cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/
-          cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
-          cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
-          cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
-
-      - uses: pulumi/actions@v5
-        id: pulumi-refresh
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "production"
-        with:
-          pulumi-version: '3.113.3'
-          command: refresh
-          stack-name: production
-
-      - uses: pulumi/actions@v5
-        id: pulumi
-        with:
-          pulumi-version: '3.113.3'
-          command: up
-          stack-name: production
-
-        env:
-          PULUMI_CONFIG_PASSPHRASE: "production"
-          MODEL: ${{ steps.pulumi-images.outputs.model }}
-
-      - uses: wagnerpereira/gce-cloudsql-proxy-action@v2
-        with:
-          instance: ${{ steps.pulumi.outputs.database_instance_name }}
-
-      - name: Run database migrations
-        env:
-          DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
-        run: alembic upgrade head
+          environment: production
+          pulumi-version: 3.121.0
+          pulumi-stack-passphrase: production
