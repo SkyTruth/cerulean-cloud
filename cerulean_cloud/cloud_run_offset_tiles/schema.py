@@ -1,9 +1,8 @@
 """schema for inference enpoint"""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
-import geojson
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class InferenceInput(BaseModel):
@@ -12,7 +11,6 @@ class InferenceInput(BaseModel):
     """
 
     image: str
-    bounds: Optional[List[float]]
 
 
 class PredictPayload(BaseModel):
@@ -21,7 +19,7 @@ class PredictPayload(BaseModel):
     """
 
     inf_stack: List[InferenceInput]
-    inf_parms: Dict[str, Any]
+    model_dict: Dict[str, Any]
 
 
 class InferenceResult(BaseModel):
@@ -29,19 +27,7 @@ class InferenceResult(BaseModel):
     Inference result from the model
     """
 
-    classes: Optional[str] = Field(default=None)
-    confidence: Optional[str] = Field(default=None)
-    bounds: Optional[List[float]] = None
-    features: Optional[List[geojson.Feature]] = None
-
-    class Config:
-        """
-        This tells Pydantic to allow arbitrary types, like geojson.Feature,
-        within this model without trying to validate them based on Pydantic's
-        internal schema constraints.
-        """
-
-        arbitrary_types_allowed = True  # Allow geojson.Feature
+    json_data: str
 
 
 class InferenceResultStack(BaseModel):

@@ -59,13 +59,13 @@ def fixture_cloud_inference_tile(httpx_mock):
         url="http://inferenceurl.com",
         titiler_client=titiler_client,
         sceneid="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
-        offset_bounds=[
+        tileset_envelope_bounds=[
             55.69982872351191,
             24.566447533809654,
             58.53597315567021,
             26.496758065384803,
         ],
-        offset_image_shape=(4181, 6458),
+        image_hw_pixels=(4181, 6458),
         layers=[
             get_mock_layer("VV"),
             get_mock_layer("VESSEL"),
@@ -74,16 +74,6 @@ def fixture_cloud_inference_tile(httpx_mock):
             ),
         ],
         scale=1,
-        inference_parms={
-            "model_type": "MASKRCNN",
-            "thresholds": {
-                "pixel_nms_thresh": 0.4,
-                "bbox_score_thresh": 0.2,
-                "poly_score_thresh": 0.2,
-                "pixel_score_thresh": 0.2,
-                "groundtruth_dice_thresh": 0.0,
-            },
-        },
     )
 
 
@@ -95,11 +85,12 @@ def fixture_cloud_inference_tile(httpx_mock):
 async def test_get_tile_inference(fixture_cloud_inference_tile, httpx_mock):
     payload = {
         "inference_input": InferenceResultStack(
-            stack=[InferenceResult(classes="", confidence="", bounds=[1, 2, 3, 4])]
+            stack=[InferenceResult(tile_probs_b64="", bounds=[1, 2, 3, 4])]
         ).dict(),
-        "inference_parms": {
+        "model_dict": {
             "model_type": "MASKRCNN",
             "thresholds": {
+                "poly_nms_thresh": 0.4,
                 "pixel_nms_thresh": 0.4,
                 "bbox_score_thresh": 0.2,
                 "poly_score_thresh": 0.2,
@@ -178,13 +169,13 @@ def test_handle_aux_datasets(httpx_mock):
             ),
         ],
         scene_id="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
-        bounds=[
+        tileset_envelope_bounds=[
             55.69982872351191,
             24.566447533809654,
             58.53597315567021,
             26.496758065384803,
         ],
-        image_shape=(4181, 6458),
+        image_hw_pixels=(4181, 6458),
     )
     with ar_mem_file.open() as src:
         ar = src.read()
@@ -205,13 +196,13 @@ def test_handle_aux_datasets(httpx_mock):
             ),
         ],
         scene_id="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
-        bounds=[
+        tileset_envelope_bounds=[
             55.69982872351191,
             24.566447533809654,
             58.53597315567021,
             26.496758065384803,
         ],
-        image_shape=(4181, 6458),
+        image_hw_pixels=(4181, 6458),
     )
     with ar_mem_file.open() as src:
         ar = src.read()

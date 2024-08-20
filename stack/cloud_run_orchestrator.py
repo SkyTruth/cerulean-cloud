@@ -1,6 +1,7 @@
 """infra for cloud run function for orchestration
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
+
 import os
 
 import cloud_function_ais_analysis
@@ -80,6 +81,10 @@ default = gcp.cloudrun.Service(
                     image=cloud_run_images.cloud_run_orchestrator_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="UVICORN_PORT",
+                            value="8080",
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="DB_URL",
                             value=sql_instance_url_with_asyncpg,
                         ),
@@ -116,7 +121,7 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("gcp").require("project"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="GCP_REGION",
+                            name="GCPREGION",
                             value=pulumi.Config("gcp").require("region"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
@@ -154,7 +159,7 @@ default = gcp.cloudrun.Service(
                             value=cloud_function_ais_analysis.fxn.https_trigger_url,
                         ),
                     ],
-                    resources=dict(limits=dict(memory="4Gi", cpu="1000m")),
+                    resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
                 ),
             ],
             timeout_seconds=3540,

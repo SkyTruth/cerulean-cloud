@@ -1,10 +1,11 @@
 """cloud function to find slick culprits from AIS tracks"""
+
 import time
 
 import database
 import pulumi
 from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
-from utils import construct_name
+from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
@@ -43,13 +44,17 @@ config_values = {
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_ais_analysis"
-archive = pulumi.FileArchive(PATH_TO_SOURCE_CODE)
+package = pulumi_create_zip(
+    dir_to_zip=PATH_TO_SOURCE_CODE,
+    zip_filepath="../cloud_function_ais_analysis.zip",
+)
+archive = package.apply(lambda x: pulumi.FileAsset(x))
 
 # Create the single Cloud Storage object, which contains all of the function's
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cloud-function-ais"),
-    name="handler.py-%f" % time.time(),
+    name=f"handler.py-{time.time():f}",
     bucket=bucket.name,
     source=archive,
 )
@@ -91,7 +96,7 @@ fxn = cloudfunctions.Function(
     entry_point="main",
     environment_variables=config_values,
     region=pulumi.Config("gcp").require("region"),
-    runtime="python38",
+    runtime="python39",
     source_archive_bucket=bucket.name,
     source_archive_object=source_archive_object.name,
     trigger_http=True,
@@ -99,7 +104,9 @@ fxn = cloudfunctions.Function(
     available_memory_mb=4096,
     timeout=540,
     secret_environment_variables=[gfw_credentials, api_key],
-    opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account_iam]),
+    opts=pulumi.ResourceOptions(
+        depends_on=[cloud_function_service_account_iam],
+    ),
 )
 
 invoker = cloudfunctions.FunctionIamMember(

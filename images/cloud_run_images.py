@@ -1,5 +1,4 @@
-"""images for cloud run
-"""
+"""images for cloud run"""
 
 import pulumi
 import pulumi_docker as docker
@@ -63,31 +62,30 @@ model_weights = get_file_from_gcs(
 )
 cloud_run_offset_tile_image = docker.Image(
     construct_name("cloud-run-offset-tile-image"),
-    build=docker.DockerBuild(
+    build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_offset",
-        extra_options=["--no-cache", "--quiet"],
+        target="final",
     ),
     image_name=cloud_run_offset_tile_image_url,
     registry=registry_info,
 )
 cloud_run_orchestrator_image = docker.Image(
     construct_name("cloud-run-orchestrator-image"),
-    build=docker.DockerBuild(
+    build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_orchestrator",
-        extra_options=["--no-cache", "--quiet"],
-        env={"MODEL": weights_name},
+        target="final",
     ),
     image_name=cloud_run_orchestrator_image_url,
     registry=registry_info,
 )
 cloud_run_tipg_image = docker.Image(
     construct_name("cloud-run-tipg-image"),
-    build=docker.DockerBuild(
+    build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_tipg",
-        extra_options=["--no-cache", "--quiet"],
+        target="final",
     ),
     image_name=cloud_run_tipg_image_url,
     registry=registry_info,

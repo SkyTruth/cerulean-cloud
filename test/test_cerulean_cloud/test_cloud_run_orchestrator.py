@@ -12,7 +12,7 @@ import pytest
 import rasterio
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
-from shapely.geometry import box
+from shapely.geometry import box, mapping
 
 import cerulean_cloud
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
@@ -27,9 +27,8 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     make_cloud_log_url,
     offset_group_shape_from_base_tiles,
 )
-from cerulean_cloud.cloud_run_orchestrator.merging import ensemble_inferences
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
-from cerulean_cloud.models import b64_image_to_array, flatten_feature_list
+from cerulean_cloud.models import BaseModel, b64_image_to_array
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
@@ -116,16 +115,15 @@ def fixture_roda_sentinelhub_client():
 async def mock_get_tile_inference(
     http_client, tile=None, bounds=None, rescale=(0, 255)
 ):
-    with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
-        enc_classes = src.read()
+    # with open("test/test_cerulean_cloud/fixtures/enc_classes_512_512.txt") as src:
+    #     enc_classes = src.read()
 
     with open("test/test_cerulean_cloud/fixtures/enc_confidence_512_512.txt") as src:
         enc_confidence = src.read()
     return InferenceResultStack(
         stack=[
             InferenceResult(
-                classes=enc_classes,
-                confidence=enc_confidence,
+                tile_probs_b64=enc_confidence,
                 bounds=list(TMS.bounds(tile)) if tile else bounds,
             )
         ]
@@ -264,9 +262,7 @@ def test_is_tile_over_water():
 
 def custom_response(url, data, timeout):
     data = json.loads(data)
-    r = InferenceResult(
-        classes=data["image"], confidence=data["image"], bounds=data["bounds"]
-    )
+    r = InferenceResult(tile_probs_b64=data["image"], bounds=data["bounds"])
     return httpx.Response(status_code=200, json=r.dict())
 
 
@@ -336,122 +332,110 @@ def test_make_cloud_log_url():
     )
 
 
-def test_flatten_result():
-    result_stack = InferenceResultStack(
-        stack=[
-            InferenceResult(
-                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
-                bounds=[1, 2, 3, 4],
+class TestableBaseModel(BaseModel):
+    # Assuming BaseModel can be instantiated or mocked as needed
+    pass
+
+
+@pytest.fixture
+def base_model_instance():
+    return TestableBaseModel(
+        model_dict={"cls_map": {}, "thresholds": {"poly_nms_thresh": 0.5}}
+    )
+
+
+@pytest.fixture
+def mock_feature_collection():
+    """Creates a feature collection with features specifically placed to test varying NMS thresholds."""
+    return geojson.FeatureCollection(
+        features=[
+            geojson.Feature(
+                geometry=mapping(box(0, 0, 10, 10)),  # This feature is isolated.
+                properties={"machine_confidence": 0.95, "inf_idx": 1},
             ),
-            InferenceResult(
-                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
-                bounds=[1, 2, 3, 4],
+            geojson.Feature(
+                geometry=mapping(
+                    box(10, 10, 20, 20)
+                ),  # Touches the first at a corner (minimal overlap).
+                properties={"machine_confidence": 0.90, "inf_idx": 1},
+            ),
+            geojson.Feature(
+                geometry=mapping(
+                    box(5, 5, 15, 15)
+                ),  # Overlaps significantly with the second feature.
+                properties={"machine_confidence": 0.85, "inf_idx": 2},
             ),
         ]
     )
-    res = [result_stack, result_stack]
 
-    flat_list = flatten_feature_list(res)
 
-    assert len(flat_list) == 4
-    assert isinstance(flat_list[0], geojson.Feature)
+def test_nms_feature_reduction_overlaps(base_model_instance, mock_feature_collection):
+    """Test to ensure correct reduction of overlapping features with same inf_idx."""
+    result = base_model_instance.nms_feature_reduction(
+        mock_feature_collection, min_overlaps_to_keep=1
+    )
+    assert (
+        len(result["features"]) == 3
+    )  # Expecting one of the overlapping features to be removed
 
-    result_stack = InferenceResultStack(
-        stack=[
-            InferenceResult(
-                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
-                bounds=[1, 2, 3, 4],
+
+def test_nms_feature_reduction_no_overlap_retention(
+    base_model_instance, mock_feature_collection
+):
+    """Test to ensure all non-overlapping features are retained."""
+    result = base_model_instance.nms_feature_reduction(
+        mock_feature_collection, min_overlaps_to_keep=0
+    )
+    assert len(result["features"]) == 3  # No overlaps, all should be retained
+
+
+def test_nms_feature_reduction_varying_thresholds(
+    base_model_instance, mock_feature_collection
+):
+    """Vary the NMS threshold to see effects on feature retention."""
+    base_model_instance.model_dict["thresholds"]["poly_nms_thresh"] = 0.1
+    result_low_thresh = base_model_instance.nms_feature_reduction(
+        mock_feature_collection, min_overlaps_to_keep=1
+    )
+    assert (
+        len(result_low_thresh["features"]) == 2
+    )  # Lower threshold should retain more features
+
+    base_model_instance.model_dict["thresholds"]["poly_nms_thresh"] = 0.9
+    result_high_thresh = base_model_instance.nms_feature_reduction(
+        mock_feature_collection, min_overlaps_to_keep=1
+    )
+    assert (
+        len(result_high_thresh["features"]) == 3
+    )  # Higher threshold should remove more features
+
+
+def test_nms_feature_reduction_handles_invalid_geometry(base_model_instance):
+    """Test how the function handles invalid geometries."""
+    # Setting up the feature collection with one valid and one invalid geometry
+    broken_feature = geojson.FeatureCollection(
+        features=[
+            geojson.Feature(
+                geometry=mapping(
+                    box(0, 0, 10, 10)
+                ),  # Correctly create and map the geometry
+                properties={"machine_confidence": 0.95, "inf_idx": 1},
             ),
-            InferenceResult(
-                features=[geojson.Feature(geometry=box(1, 2, 3, 4))],
-                bounds=[1, 2, 3, 4],
+            geojson.Feature(
+                geometry=None,  # Intentionally invalid geometry to test error handling
+                properties={"machine_confidence": 0.90, "inf_idx": 1},
             ),
         ]
     )
-    res = [
-        result_stack,
-        InferenceResultStack(
-            stack=[
-                InferenceResult(
-                    features=[
-                        geojson.Feature(geometry=box(1, 2, 3, 4)),
-                        geojson.Feature(geometry=box(1, 2, 3, 4)),
-                        geojson.Feature(geometry=box(1, 2, 3, 4)),
-                    ],
-                    bounds=[1, 2, 3, 4],
-                ),
-                InferenceResult(
-                    features=[],
-                    bounds=[1, 2, 3, 4],
-                ),
-            ]
-        ),
-    ]
 
-    flat_list = flatten_feature_list(res)
+    # Execute the function with the broken features
+    result = base_model_instance.nms_feature_reduction(broken_feature)
 
-    assert len(flat_list) == 5
-    assert isinstance(flat_list[0], geojson.Feature)
-
-    res = [result_stack, InferenceResultStack(stack=[])]
-
-    flat_list = flatten_feature_list(res)
-
-    assert len(flat_list) == 2
-    assert isinstance(flat_list[0], geojson.Feature)
-
-
-def test_func_merge_inferences():
-    with open("test/test_cerulean_cloud/fixtures/base.geojson") as src:
-        base_tile_fc = dict(geojson.load(src))
-
-    with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
-        offset_tile_fc = dict(geojson.load(src))
-
-    merged = ensemble_inferences(
-        [base_tile_fc, offset_tile_fc],
-        proximity_meters=500,
-        closing_meters=100,
-        opening_meters=100,
-    )
-    with open("test/test_cerulean_cloud/fixtures/merge.geojson", "w") as outfile:
-        json.dump(merged, outfile)
-    assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 14
-
-    for f in merged["features"]:
-        print(f)
-        assert f["geometry"]
-        assert f["geometry"]["type"] in ["Polygon", "MultiPolygon"]
-        assert f["properties"]
-        assert f["properties"]["machine_confidence"]
-        assert f["properties"]["inf_idx"]
-
-
-def test_func_merge_inferences_empty():
-    with open("test/test_cerulean_cloud/fixtures/offset.geojson") as src:
-        offset_tile_fc = dict(geojson.load(src))
-
-    merged = ensemble_inferences(
-        [geojson.FeatureCollection(features=[]), offset_tile_fc]
-    )
-    assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 5
-
-    merged = ensemble_inferences(
-        [offset_tile_fc, geojson.FeatureCollection(features=[])]
-    )
-    assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 5
-
-    merged = ensemble_inferences(
-        [
-            geojson.FeatureCollection(features=[]),
-            geojson.FeatureCollection(features=[]),
-        ],
-    )
-    assert merged["type"] == "FeatureCollection"
-    assert len(merged["features"]) == 0
+    # Check if the result contains only the valid feature
+    assert len(result["features"]) == 1, "Should retain only one valid feature"
+    assert (
+        result["features"][0]["properties"]["machine_confidence"] == 0.95
+    ), "The retained feature should have a confidence of 0.95"
 
 
 def test_get_tag():

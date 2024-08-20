@@ -14,22 +14,18 @@ import urllib.parse as urlparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
-import geojson
 import geopandas as gpd
 import morecantile
 import numpy as np
-import rasterio
 import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
-from rasterio.io import MemoryFile
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_aaa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
-from cerulean_cloud.cloud_run_orchestrator.merging import ensemble_inferences
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
@@ -116,29 +112,6 @@ def group_bounds_from_list_of_bounds(bounds: List[List[float]]) -> List[float]:
     return list((minx, miny, maxx, maxy))
 
 
-def get_fc_from_raster(raster: MemoryFile) -> geojson.FeatureCollection:
-    """create a geojson from an input raster with classification
-
-    Args:
-        raster (MemoryFile): input raster
-
-    Returns:
-        geojson.FeatureCollection: output feature collection
-    """
-    with raster.open() as dataset:
-        shapes = rasterio.features.shapes(
-            dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
-        )
-    out_fc = geojson.FeatureCollection(
-        features=[
-            geojson.Feature(geometry=geom, properties=dict(inf_idx=inf_idx))
-            for geom, inf_idx in shapes
-            if int(inf_idx) != 0  # XXX HACK This assumes background index is 0
-        ]
-    )
-    return out_fc
-
-
 def get_tiler():
     """get tiler"""
     return TMS
@@ -200,19 +173,27 @@ async def _orchestrate(
 
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
-            model = await db_client.get_model(os.getenv("MODEL"))
-    zoom = payload.zoom or model.zoom_level
-    scale = payload.scale or model.scale
+            db_model = await db_client.get_db_model(os.getenv("MODEL"))
+            model_dict = {
+                column.name: (
+                    getattr(db_model, column.name).isoformat()
+                    if isinstance(getattr(db_model, column.name), datetime)
+                    else getattr(db_model, column.name)
+                )
+                for column in db_model.__table__.columns
+            }
+    zoom = payload.zoom or model_dict["zoom_level"]
+    scale = payload.scale or model_dict["scale"]
     print(f"{start_time}: zoom: {zoom}")
     print(f"{start_time}: scale: {scale}")
 
-    if model.zoom_level != zoom:
+    if model_dict["zoom_level"] != zoom:
         print(
-            f"{start_time}: WARNING: Model was trained on zoom level {model.zoom_level} but is being run on {zoom}"
+            f"{start_time}: WARNING: Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}"
         )
-    if model.tile_width_px != scale * 256:
+    if model_dict["tile_width_px"] != scale * 256:
         print(
-            f"{start_time}: WARNING: Model was trained on image tile of resolution {model.tile_width_px} but is being run on {scale*256}"
+            f"{start_time}: WARNING: Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}"
         )
 
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
@@ -226,31 +207,27 @@ async def _orchestrate(
     print(f"{start_time}: scene_info: {scene_info}")
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
+    n_basetiles = len(base_tiles)
 
-    offset_tiles_bounds = offset_bounds_from_base_tiles(base_tiles, offset_amount=0.33)
-    offset_2_tiles_bounds = offset_bounds_from_base_tiles(
-        base_tiles, offset_amount=0.66
-    )
+    offset_amounts = [0.0, 0.33, 0.66]
+    tileset_list = [
+        offset_bounds_from_base_tiles(base_tiles, offset_amount=o_a)
+        for o_a in offset_amounts
+    ]
 
-    offset_group_shape = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
-    offset_group_bounds = group_bounds_from_list_of_bounds(offset_tiles_bounds)
-
-    print(
-        f"{start_time}: Original tiles are {len(base_tiles)}, {len(offset_tiles_bounds)}, {len(offset_2_tiles_bounds)}"
-    )
+    n_offsettiles = len(tileset_list[0])
+    tileset_hw_pixels = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
+    tileset_envelope_bounds = group_bounds_from_list_of_bounds(tileset_list[0])
 
     # Filter out land tiles
     # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
     # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
-    base_tiles = [t for t in base_tiles if is_tile_over_water(tiler.bounds(t))]
 
-    offset_tiles_bounds = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
-    offset_2_tiles_bounds = [b for b in offset_2_tiles_bounds if is_tile_over_water(b)]
-
-    ntiles = len(base_tiles)
-    noffsettiles = len(offset_tiles_bounds)
-    print(f"{start_time}: Preparing {ntiles} base tiles (no land).")
-    print(f"{start_time}: Preparing {noffsettiles} offset tiles (no land).")
+    print(f"{start_time}: Tileset contains before landfilter: {n_offsettiles} tiles")
+    tileset_list = [
+        [b for b in tileset if is_tile_over_water(b)] for tileset in tileset_list
+    ]
+    print(f"{start_time}: Tileset contains after landfilter: ~{n_offsettiles} tiles")
 
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
@@ -259,7 +236,8 @@ async def _orchestrate(
                 async with db_client.session.begin():
                     trigger = await db_client.get_trigger(trigger=payload.trigger)
                     layers = [
-                        await db_client.get_layer(layer) for layer in model.layers
+                        await db_client.get_layer(layer)
+                        for layer in model_dict["layers"]
                     ]
                     sentinel1_grd = await db_client.get_sentinel1_grd(
                         payload.sceneid,
@@ -280,8 +258,8 @@ async def _orchestrate(
                     orchestrator_run = await db_client.add_orchestrator(
                         start_time,
                         start_time,
-                        ntiles,
-                        noffsettiles,
+                        n_basetiles,
+                        n_offsettiles,
                         os.getenv("GIT_HASH"),
                         os.getenv("GIT_TAG"),
                         make_cloud_log_url(
@@ -293,17 +271,12 @@ async def _orchestrate(
                         scale,
                         scene_bounds,
                         trigger,
-                        model,
+                        db_model,
                         sentinel1_grd,
                     )
             except:  # noqa: E722
                 await db_client.session.close()
                 raise
-
-            inference_parms = {
-                "model_type": model.type,
-                "thresholds": model.thresholds,
-            }
 
             success = True
             try:
@@ -312,41 +285,36 @@ async def _orchestrate(
                     url=os.getenv("INFERENCE_URL"),
                     titiler_client=titiler_client,
                     sceneid=payload.sceneid,
-                    offset_bounds=offset_group_bounds,
-                    offset_image_shape=offset_group_shape,
+                    tileset_envelope_bounds=tileset_envelope_bounds,
+                    image_hw_pixels=tileset_hw_pixels,
                     layers=layers,
                     scale=scale,
-                    inference_parms=inference_parms,
+                    model_dict=model_dict,
                 )
-
-                # Prepare the inference group tasks
-                inference_group_tasks = [
-                    [{"tile": tile} for tile in base_tiles],
-                    [{"bounds": bounds} for bounds in offset_tiles_bounds],
-                    [{"bounds": bounds} for bounds in offset_2_tiles_bounds],
-                ]
 
                 # Perform inferences
                 print(f"Inference starting: {start_time}")
-                inference_group_results = [
-                    await cloud_run_inference.run_parallel_inference(igt)
-                    for igt in inference_group_tasks
+                tileset_results_list = [
+                    await cloud_run_inference.run_parallel_inference(tileset)
+                    for tileset in tileset_list
                 ]
 
                 # Stitch inferences
                 print(f"Stitching results: {start_time}")
-                model = get_model(inference_parms)
-                feature_collections = [
-                    model.stitch(results) for results in inference_group_results
+                model = get_model(model_dict)
+                tileset_fc_list = [
+                    model.postprocess_tileset(
+                        tileset_results, [[b] for b in tileset_bounds]
+                    )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+                    for (tileset_results, tileset_bounds) in zip(
+                        tileset_results_list, tileset_list
+                    )
                 ]
 
                 # Ensemble inferences
                 print(f"Ensembling results: {start_time}")
-                final_ensemble = ensemble_inferences(
-                    feature_collections=feature_collections,
-                    proximity_meters=None,
-                    closing_meters=None,
-                    opening_meters=None,
+                final_ensemble = model.nms_feature_reduction(
+                    features=tileset_fc_list, min_overlaps_to_keep=1
                 )
 
                 if final_ensemble.get("features"):
@@ -371,7 +339,7 @@ async def _orchestrate(
                             predicate="intersects",
                         )
                         if not intersecting_land.empty:
-                            feat["properties"]["inf_idx"] = 0
+                            feat["properties"]["inf_idx"] = model.background_class_idx
                     # Removed all preprocessing of features from within the
                     # database session to avoid holidng locks on the
                     # table while performing un-related calculations.
@@ -404,7 +372,7 @@ async def _orchestrate(
                 orchestrator_run.success = success
                 orchestrator_run.inference_end_time = end_time
                 print(f"{start_time}: End time: {end_time}")
-                print(f"{start_time}: Orchestration succes: {success}")
+                print(f"{start_time}: Orchestration success: {success}")
             if success is False:
                 raise exc
 

@@ -365,6 +365,7 @@ def upgrade() -> None:
         sa.Column("hitl_confidence", sa.Float),
         sa.Column("hitl_user", sa.BigInteger, sa.ForeignKey("users.id")),
         sa.Column("hitl_time", sa.DateTime),
+        sa.Column("hitl_notes", sa.Text),
     )
 
     op.create_table(

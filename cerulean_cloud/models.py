@@ -5,21 +5,34 @@ These classes are designed to load models, make predictions, stack results,
 and stitch together inference outputs for geospatial analysis.
 """
 
+import json
+import logging
+import os
 from base64 import b64decode, b64encode
-from typing import List, Tuple, Union
+from io import BytesIO
+from typing import List, Union
 
 import geojson
+import geopandas as gpd
+import networkx as nx
 import numpy as np
 import rasterio
 import torch
 import torchvision  # noqa
 from rasterio.features import shapes
 from rasterio.io import MemoryFile
+from rasterio.merge import merge as rio_merge
+from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
+    InferenceInput,
     InferenceResult,
     InferenceResultStack,
+)
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 
 
@@ -29,53 +42,189 @@ class BaseModel:
     making predictions, stacking results, and stitching outputs.
     """
 
-    def __init__(self, model_path=None, inf_parms=None):
+    def __init__(self, model_dict=None, model_path_local=None):
         """
         Initializes the BaseModel with a model path and inference parameters.
 
         Args:
-            model_path (str, optional): The path to the model file.
-            inf_parms (dict, optional): A dictionary of inference parameters.
+            model_path_local (str, optional): The path to the model file.
+            model_dict (dict, optional): A dictionary of inference parameters.
         """
         self.model = None
-        self.model_path = model_path
-        self.inf_parms = inf_parms
+        self.model_dict = model_dict
+        self.model_path_local = model_path_local
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.background_class_idx = next(
+            (
+                int(key)
+                for key, value in model_dict["cls_map"].items()
+                if value == "BACKGROUND"
+            ),
+            None,
+        )
 
     def load(self):
         """
-        Loads the model from the given path. This method should be implemented by subclasses.
+        Loads the model from the given path.
+        """
+        try:
+            if self.model is None:
+                self.model = torch.jit.load(self.model_path_local, map_location="cpu")
+                self.model.eval()
+        except Exception as e:
+            logging.error("Error loading model: %s", e, exc_info=True)
+            raise
+
+    def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
+        """
+        Makes predictions on the given input stack. The submethods should be implemented by subclasses.
 
         Args:
-            model_path (str): The path to the model file.
+            inf_stack: The input data stack for inference.
         """
-        raise NotImplementedError("Subclasses should implement this method")
+        logging.info(f"Stack has {len(inf_stack)} images")
 
-    def predict(self, inf_stack):
+        self.load()  # Load model into memory
+        preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
+        raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
+        inference_results = self.postprocess_tiles(raw_preds)  # Postprocess inference
+        return InferenceResultStack(stack=inference_results)
+
+    def preprocess_tiles(self, inf_stack):
         """
-        Makes predictions on the given input stack. This method should be implemented by subclasses.
+        Prepares inf_stack for inference.
 
         Args:
             inf_stack: The input data stack for inference.
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def stack(self, results):
+    def process_tiles(self, inf_stack: List[InferenceInput]):
         """
-        Stacks the results of predictions. This method should be implemented by subclasses.
+        Runs inf_stack through inference.
 
         Args:
-            results: The results to be stacked.
+            inf_stack: The input data stack for inference.
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def stitch(self, inference_lists):
+    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
         """
-        Stitches together inference results. This method should be implemented by subclasses.
+        Process and stack the raw_preds of predictions. This method should be implemented by subclasses.
 
         Args:
-            inference_lists: The list of inference results to stitch together.
+            raw_preds: The results to be processed and stacked.
         """
         raise NotImplementedError("Subclasses should implement this method")
+
+    def postprocess_tileset(
+        self,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[List[float]]],
+    ) -> geojson.FeatureCollection:
+        """
+        Process the InferenceResultStack into a scene and then return a FC. This method should be implemented by subclasses.
+
+        Args:
+            tileset_results: The input data stack for inference.
+        """
+        raise NotImplementedError("Subclasses should implement this method")
+
+    def nms_feature_reduction(
+        self,
+        features: Union[geojson.FeatureCollection, List[geojson.FeatureCollection]],
+        min_overlaps_to_keep: int = 0,
+        in_class_only: bool = False,
+    ) -> geojson.FeatureCollection:
+        """
+        Performs ensemble inference on a list of geojson Features to eliminate overlapping features based on a non-maximum suppression approach using IoU and inclusion thresholds. Features with fewer overlaps than a specified threshold are also discarded.
+
+        Parameters:
+        - feature_list: A list of geojson Features.
+        - poly_nms_thresh: The threshold for the IoU above which one of the overlapping features is removed.
+        - min_overlaps_to_keep: The minimum number of overlaps a feature must have to be retained.
+        - in_class_only: Determines whether the NMS should only apply to like-classed instances, or classes should supress each other
+
+        Returns:
+        - A geojson FeatureCollection containing the retained features.
+        """
+        feature_list = []
+        if isinstance(features, geojson.FeatureCollection):
+            feature_list.extend(features["features"])
+        elif isinstance(features, list) and all(
+            isinstance(f, geojson.FeatureCollection) for f in features
+        ):
+            feature_list.extend([f for fc in features for f in fc["features"]])
+
+        if not feature_list:
+            return geojson.FeatureCollection([])
+
+        # Filter out features with None geometry before processing
+        feature_list = [
+            feature for feature in feature_list if feature["geometry"] is not None
+        ]
+
+        # Precompute the areas of all features to optimize geometry operations
+        gdf = gpd.GeoDataFrame(
+            [feature["properties"] for feature in feature_list],
+            geometry=[
+                shape(feature["geometry"])
+                for feature in feature_list
+                if feature["geometry"] is not None
+            ],
+            crs="EPSG:4326",
+        )
+        gdf = reproject_to_utm(gdf)
+        gdf["area"] = gdf.area
+
+        # Initialize a set for efficient tracking of features to be removed
+        feats_to_remove = []
+
+        # If the feature has fewer overlaps than required, mark it for removal
+        gdf["overlaps"] = gdf.apply(
+            lambda x: sum(x.geometry.intersects(y) for y in gdf.geometry) - 1, axis=1
+        )
+        feats_to_remove.extend(gdf[gdf["overlaps"] < min_overlaps_to_keep].index)
+
+        for i, feat_i in gdf.iterrows():
+            # Compare the current feature against all subsequent features
+            for j, feat_j in gdf.iloc[i + 1 :].iterrows():
+                if j in feats_to_remove or i in feats_to_remove:
+                    # Skip processing for features already marked for removal
+                    continue
+
+                if in_class_only and (feat_i["inf_idx"] != feat_j["inf_idx"]):
+                    # Skip pairs that don't have matching classes
+                    continue
+
+                if not feat_i.geometry.intersects(feat_j.geometry):
+                    continue
+
+                # Compute intersection and union areas for IoU
+                intersection = feat_i.geometry.intersection(feat_j.geometry).area
+                union = feat_i["area"] + feat_j["area"] - intersection
+
+                # Decide which feature to remove based on the IoU threshold
+                iou = intersection / union
+                if iou > self.model_dict["thresholds"]["poly_nms_thresh"]:
+                    # Choose to remove the feature with lower confidence
+                    if feat_i["machine_confidence"] <= feat_j["machine_confidence"]:
+                        feats_to_remove.append(i)
+                    else:
+                        feats_to_remove.append(j)
+                # Check for substantial inclusion and remove the encompassed feature
+                elif intersection > 0.5 * feat_i["area"]:
+                    feats_to_remove.append(i)
+                elif intersection > 0.5 * feat_j["area"]:
+                    feats_to_remove.append(j)
+
+        # Collect features that are not marked for removal
+        retained_features = [
+            f for i, f in enumerate(feature_list) if i not in feats_to_remove
+        ]
+
+        # Return a new geojson FeatureCollection containing only the retained features
+        return geojson.FeatureCollection(retained_features)
 
 
 class MASKRCNNModel(BaseModel):
@@ -84,85 +233,468 @@ class MASKRCNNModel(BaseModel):
     stacking results, and stitching outputs for geospatial analysis.
     """
 
-    def load(self):
+    def preprocess_tiles(self, inf_stack: List[InferenceInput]):
         """
-        Loads the MASKRCNN model
-
-        Args:
-            model_path (str): The path to the model file.
+        Converts a list of InferenceInput objects into a processed tensor batch for model prediction.
+        Processes image data contained in InferenceInput and prepares them for MASKRCNN model inference.
         """
-        if self.model is None:
-            self.model = torch.jit.load(self.model_path, map_location="cpu")
-
-    def predict(
-        self,
-        inf_stack,
-    ) -> List[
-        Union[
-            Tuple[np.ndarray, np.ndarray, List[float]],
-            Tuple[List[geojson.Feature], List[float]],
-        ]
-    ]:
-        """
-        Predicts using the MASKRCNN model on the given input stack.
-
-        Args:
-            inf_stack: The input data stack for inference.
-
-        Returns:
-            A list of prediction results including geometries and their associated scores.
-        """
-        print("Initiating cloud_run_offset_tiles/_predict()")
-        print(f"Stack has {len(inf_stack)} images")
-
-        self.load()
-
         stack_tensors = [
-            b64_image_to_tensor(record.image) / 255 for record in inf_stack
+            b64_image_to_array(record.image, tensor=True, to_float=True)
+            for record in inf_stack
         ]
-        bounds = [record.bounds for record in inf_stack]
+        logging.info(f"Images have shape {stack_tensors[0].shape}")
+        return stack_tensors
 
-        print(f"Images have shape {stack_tensors[0].shape}")
+    def process_tiles(self, stack_tensors):
+        """
+        Run inference on the loaded model
+        """
 
-        raw_preds = self.model(stack_tensors)[1]
-        print("Finished inference, applying post-process, thresholding")
+        return self.model(stack_tensors)[1]
 
-        reduced_preds = reduce_preds(
+    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
+        """
+        Process and stack the raw_preds of MASKRCNN predictions.
+
+        Args:
+            raw_preds: The results to be processed and stacked.
+        """
+        reduced_preds = self.reduce_preds(
             raw_preds,
-            **self.inf_parms["thresholds"],
-            bounds=bounds,
+            bbox_score_thresh=self.model_dict["thresholds"]["bbox_score_thresh"],
+        )  # If we don't reduce here, the cloud_run crashes on preds with more than ~8 bboxes
+        inference_results = [
+            InferenceResult(json_data=self.serialize(pred)) for pred in reduced_preds
+        ]
+        return inference_results
+
+    def serialize(self, pred):
+        """
+        Serializes a prediction dictionary by encoding its 'masks' (PyTorch tensors) using torch.save
+        to base64 strings. All other elements in the dictionary are left as-is, and the entire
+        dictionary is converted to a JSON string.
+
+        Parameters:
+        - pred (dict): The prediction data containing 'masks' and potentially other items.
+
+        Returns:
+        - str: A JSON string with the 'masks' converted to base64-encoded strings.
+        """
+        for key in ["boxes", "labels", "scores"]:
+            pred[key] = pred[key].tolist()  # Tensors are not json serializable
+        pred["masks_b64"] = [tensor_to_base64(mask) for mask in pred.pop("masks")]
+        json_string = json.dumps(pred)
+        return json_string
+
+    def deserialize(self, json_string):
+        """
+        Deserializes a JSON string into a prediction dictionary, decoding 'masks' from base64 strings
+        back to PyTorch tensors using torch.load, and converting 'boxes', 'labels', and 'scores' back to tensors
+
+        Parameters:
+        - json_string (str): The JSON string containing the serialized prediction data.
+
+        Returns:
+        - dict: The original prediction dictionary with 'masks' restored as PyTorch tensors and
+                'boxes', 'labels', 'scores' converted back to tensors if they were originally tensors.
+        """
+        pred = json.loads(json_string)
+        pred["masks"] = [
+            torch.load(BytesIO(b64decode(b64_str))) for b64_str in pred.pop("masks_b64")
+        ]
+        for key in ["boxes", "labels", "scores"]:
+            pred[key] = torch.tensor(pred[key])
+
+        return pred
+
+    def postprocess_tileset(
+        self,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[List[float]]],
+    ) -> geojson.FeatureCollection:
+        """
+        Post-process a list of tileset results to create a unified geojson feature collection.
+        This includes reducing the number of features per tile, stitching tiles into a single scene,
+        and further reducing the number of features in the scene.
+
+        Args:
+            tileset_results (List[InferenceResultStack]): A list of inference results for each tile.
+
+        Returns:
+            geojson.FeatureCollection: A geojson feature collection representing the processed and combined geographical data.
+        """
+
+        logging.info("Reducing feature count on tiles")
+        scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
+        logging.info("Stitching tiles into scene")
+        feature_collection = self.stitch(scene_polys)
+        logging.info("Reducing feature count on scene")
+        reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        return reduced_feature_collection
+
+    def reduce_tile_features(
+        self,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[List[float]]],
+    ):
+        """
+        Reduces the number of prediction features within each tile by applying thresholds and generating polygons.
+
+        Args:
+            tileset_results (List[InferenceResultStack]): A list containing stacks of inference results for tiles.
+
+        Returns:
+            List[geojson.Feature]: A list of geojson features representing the reduced set of features per tile.
+        """
+
+        bounds_list = []
+        pred_list = []
+        for i, inf_result_stack in enumerate(tileset_results):
+            if inf_result_stack.stack:
+                for j, inference_result in enumerate(inf_result_stack.stack):
+                    pred_list.append(self.deserialize(inference_result.json_data))
+                    bounds_list.append(tileset_bounds[i][j])
+
+        reduced_pred_list = self.reduce_preds(
+            pred_list, **self.model_dict["thresholds"]
         )
-        # returns List[Tuple[List[geojson.Feature], List[float]]]
-        return [(inf["polys"], bounds[i]) for i, inf in enumerate(reduced_preds)]
 
-    def stack(self, results):
+        scene_polys = []
+        for pred_dict, bounds in zip(reduced_pred_list, bounds_list):
+            # generate vectorized polygons from predictions
+            # adds "polys" to pred_dict
+            if self.model_dict["thresholds"]["poly_score_thresh"] is not None:
+                pred_dict, keep = self.polygonize_pixel_segmentations(
+                    pred_dict,
+                    self.model_dict["thresholds"]["poly_score_thresh"],
+                    bounds,
+                )
+                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
+            scene_polys.extend(pred_dict["polys"])
+
+        return scene_polys
+
+    def stitch(
+        self,
+        scene_polys: List[geojson.Feature],
+        proximity_meters: int = 1000,  # group nearby polygons
+        closing_meters: int = 500,  # fill gaps between very close polygons
+        opening_meters: int = 0,
+    ):
         """
-        Stacks the results of MASKRCNN predictions into a structured format.
+        Stitches together multiple geojson features into a single feature collection, optionally applying spatial operations
+        like buffering to connect close polygons and filling gaps.
 
         Args:
-            results: The prediction results to be stacked.
+            scene_polys (List[geojson.Feature]): List of geojson features to be stitched.
+            proximity_meters (int, optional): Buffer radius to apply for connecting nearby polygons. Default is 0.
+            closing_meters (int, optional): Buffer radius to apply for closing gaps between polygons. Default is 0.
+            opening_meters (int, optional): Buffer radius to apply for opening inside the polygons. Default is 0.
 
         Returns:
-            A list of structured stack results.
+            Dict: A geojson-compatible dictionary representing the stitched and optionally modified features.
         """
-        inference_result_stack = []
-        for feats, bounds in results:
-            inference_result_stack.append(
-                InferenceResult(features=feats, bounds=bounds)
+
+        if len(scene_polys) == 0:
+            # No inferences found
+            return geojson.FeatureCollection(features=[])
+
+        # We reproject to UTM for processing. This assumes that all offset images will either be in the same UTM zone as
+        # the input image chip, or that the difference that arise from an offset crossing into a second UTM zone will
+        # have little or no impact on comparison to the original image.
+        gdf = gpd.GeoDataFrame.from_features(scene_polys, crs="4326")
+        gdf = reproject_to_utm(gdf)
+        final_gdf = gdf.copy()
+
+        # Expand the geometry of each feature to connect with neighboring instances
+        gdf["geometry"] = gdf.buffer(proximity_meters)
+
+        # Ensure the 'inf_idx' is the same before joining
+        joined = gpd.sjoin(gdf, gdf, predicate="intersects")
+        joined = joined[joined["inf_idx_left"] == joined["inf_idx_right"]].reset_index()
+
+        # Create a graph where each node represents a feature and edges represent overlaps/intersections
+        G = nx.from_pandas_edgelist(joined, "index", "index_right")
+
+        # For each connected component in the graph, assign a group index and count its features
+        group_mapping = {
+            feature: group
+            for group, component in enumerate(nx.connected_components(G))
+            for feature in component
+        }
+
+        # Map the group indices and counts back to the GeoDataFrame
+        final_gdf["group_index"] = final_gdf.index.map(group_mapping)
+        final_gdf["mean_conf"] = final_gdf["machine_confidence"]
+        final_gdf["median_conf"] = final_gdf["machine_confidence"]
+        final_gdf["max_conf"] = final_gdf["machine_confidence"]
+
+        # Dissolve overlapping features into one based on their group index and calculate the median confidence and maximum inference index
+        dissolved_gdf = final_gdf.dissolve(
+            by="group_index",
+            aggfunc={
+                "machine_confidence": "median",
+                "inf_idx": lambda x: int(x.mode()[0]),
+                "mean_conf": "mean",
+                "median_conf": "median",
+                "max_conf": "max",
+            },
+        )
+
+        # If set, apply a morphological 'closing' operation to the geometries
+        if closing_meters is not None:
+            dissolved_gdf["geometry"] = dissolved_gdf.buffer(closing_meters).buffer(
+                -closing_meters
             )
-        return inference_result_stack
 
-    def stitch(self, inference_list):
+        # If set, apply a morphological 'opening' operation to the geometries
+        if opening_meters is not None:
+            dissolved_gdf["geometry"] = dissolved_gdf.buffer(-opening_meters).buffer(
+                opening_meters
+            )
+
+        # Reproject the GeoDataFrame back to WGS 84 CRS
+        result = dissolved_gdf.to_crs(crs="4326")
+
+        # Clean up potentially memory heavy assets
+        del dissolved_gdf
+        del gdf
+        del final_gdf
+        del joined
+
+        return geojson.FeatureCollection(features=result.__geo_interface__)
+
+    def reduce_preds(
+        self,
+        pred_list,
+        bbox_score_thresh=None,
+        pixel_score_thresh=None,
+        pixel_nms_thresh=None,
+        **kwargs,
+    ):
         """
-        Stitches together inference results from the MASKRCNN model into a geojson feature collection.
+        Apply various post-processing steps to the predictions from an object detection model.
+
+        The post-processing includes:
+        1. Removal of instances with bounding boxes below a certain confidence score.
+        2. Removal of instances with pixel scores below a certain threshold.
+        3. Application of non-maximum suppression at the pixel level.
+        4. Generation of vectorized polygons from the remaining predictions.
 
         Args:
-            inference_list: The list of inference results to stitch together.
+            pred_list: A list of prediction dictionaries from the model.
+            bbox_score_thresh (Optional[float]): Threshold for bounding box scores.
+            pixel_score_thresh (Optional[float]): Threshold for pixel scores.
+            pixel_nms_thresh (Optional[float]): Threshold for pixel-level NMS.
 
         Returns:
-            A geojson.FeatureCollection of stitched inference results.
+            A list of reduced and processed prediction dictionaries.
         """
-        return geojson.FeatureCollection(features=flatten_feature_list(inference_list))
+        reduced_preds = []
+        for pred_dict in pred_list:
+            # remove instances with low scoring boxes
+            if bbox_score_thresh is not None:
+                keep = self.keep_by_bbox_score(pred_dict, bbox_score_thresh)
+                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
+
+            # remove instances with low scoring pixels
+            if pixel_score_thresh is not None:
+                keep = self.keep_by_pixel_score(pred_dict, pixel_score_thresh)
+                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
+
+            # non-maximum suppression, in-class, using pixels rather than bboxes
+            if pixel_nms_thresh is not None:
+                keep = self.keep_by_pixel_nms(
+                    pred_dict, pixel_nms_thresh, in_class_only=True
+                )
+                pred_dict = self.keep_boxes_by_idx(pred_dict, keep)
+            reduced_preds.extend([pred_dict])
+        return reduced_preds
+
+    def keep_boxes_by_idx(self, pred_dict, keep_idxs):
+        """
+        Filters the prediction dictionary to keep only the indices specified in keep_idxs.
+
+        Args:
+        pred_dict (dict): The prediction dictionary to be filtered.
+        keep_idxs (list or torch.Tensor): A list or a tensor of indices to keep.
+
+        Returns:
+        dict: A new dictionary with the same keys as pred_dict, but with values filtered to include only those at the indices specified by keep_idxs.
+        """
+        if not len(keep_idxs):  # if keep_idxs is empty
+            return {
+                key: [] if isinstance(val, list) else torch.tensor([])
+                for key, val in pred_dict.items()
+            }
+        else:
+            keep_idxs = (
+                torch.tensor(keep_idxs) if isinstance(keep_idxs, list) else keep_idxs
+            )
+            return {
+                key: (
+                    [val[i] for i in keep_idxs]
+                    if isinstance(val, list)
+                    else torch.index_select(val, 0, keep_idxs)
+                )
+                for key, val in pred_dict.items()
+            }
+
+    def keep_by_bbox_score(self, pred_dict, bbox_score_thresh):
+        """
+        Finds the indices of bounding box predictions that have a score greater than bbox_score_thresh.
+
+        Args:
+        pred_dict (dict): The prediction dictionary to be filtered.
+        bbox_score_thresh (float): The minimum score for a bounding box prediction to be kept.
+
+        Returns:
+        torch.Tensor: A tensor of indices for bounding box predictions that meet the score threshold.
+        """
+        return torch.where(pred_dict["scores"] > bbox_score_thresh)[0]
+
+    def keep_by_pixel_score(self, pred_dict, pixel_score_thresh):
+        """
+        Given a dictionary of predictions and a pixel score threshold, returns the indices
+        of those predictions that exceed the threshold.
+
+        Args:
+            pred_dict (dict): Dictionary of prediction data.
+            pixel_score_thresh (float): Threshold for pixel scores.
+
+        Returns:
+            torch.Tensor: Indices of predictions exceeding the threshold.
+
+        """
+        mask_maxes = (
+            torch.stack([m.max() for m in pred_dict["masks"]])
+            if len(pred_dict["masks"])
+            else torch.tensor([])
+        )
+        return torch.where(mask_maxes > pixel_score_thresh)[0]
+
+    def keep_by_pixel_nms(self, pred_dict, pixel_nms_thresh, in_class_only):
+        """
+        Applies non-maximum suppression (NMS) based on the Dice coefficient between pixel masks to filter out overlapping masks.
+        This function iteratively compares each mask against others and removes those with a high degree of overlap
+        based on a defined threshold, optionally considering only masks within the same class.
+
+        Args:
+            pred_dict (dict): A dictionary containing 'masks' and 'labels'. 'masks' is a list of masks,
+                            and 'labels' is a list of class labels corresponding to each mask.
+            pixel_nms_thresh (float): The Dice coefficient threshold above which masks are considered overlapping and
+                                    hence one of them is removed.
+            in_class_only (bool): If True, NMS is applied only to masks within the same class.
+
+        Returns:
+            List[int]: A list of indices of masks that remain after applying pixel NMS.
+        """
+
+        masks = pred_dict["masks"]
+        masks_to_remove = []
+
+        for i, current_mask in enumerate(masks):  # Loop through all masks
+            # Skip if the mask is already marked for removal
+            if i in masks_to_remove:
+                continue
+
+            # Check similarity against all subsequent masks
+            for j, comparison_mask in enumerate(masks[i + 1 :], start=i + 1):
+                # Skip if the mask is already marked for removal
+                if j in masks_to_remove:
+                    continue
+                if in_class_only and (pred_dict["labels"][i] != pred_dict["labels"][j]):
+                    continue
+
+                # Calculate Dice Coefficient; if the similarity is too high, mark mask for removal
+                if (
+                    self.calculate_dice_coefficient_pixel(
+                        current_mask.squeeze(), comparison_mask.squeeze()
+                    )
+                    > pixel_nms_thresh
+                ):
+                    masks_to_remove.append(j)
+
+        # Return a list of mask indices that are not marked for removal
+        return [i for i in range(len(masks)) if i not in masks_to_remove]
+
+    def polygonize_pixel_segmentations(self, pred_dict, poly_score_thresh, bounds):
+        """
+        Given a dictionary of predictions, a polygon score threshold, and bounding coordinates,
+        transforms pixel segmentations into polygons and updates the prediction dictionary
+        to include these polygons.
+
+        Args:
+            pred_dict (dict): Dictionary of prediction data.
+            poly_score_thresh (float): Threshold for polygon scores.
+            bounds (tuple): Bounding coordinates.
+
+        Returns:
+            tuple: Updated prediction dictionary and indices of polygons.
+
+        """
+        high_conf_classes = [
+            torch.where(mask > poly_score_thresh, pred_dict["labels"][i], 0)
+            .squeeze()
+            .long()
+            for i, mask in enumerate(pred_dict["masks"])
+        ]
+        transform = (
+            rasterio.transform.from_bounds(*bounds, *high_conf_classes[0].shape[:2])
+            if high_conf_classes
+            else None
+        )
+        pred_dict["polys"] = [
+            self.vectorize_mask_instance(
+                c, pred_dict["scores"][i].detach().item(), transform
+            )
+            for i, c in enumerate(high_conf_classes)
+        ]
+        keep_masks = [i for i, poly in enumerate(pred_dict["polys"]) if poly]
+        return pred_dict, keep_masks
+
+    def vectorize_mask_instance(
+        self, high_conf_mask: torch.Tensor, machine_confidence, transform
+    ):
+        """
+        From a high confidence mask, generate a GeoJSON feature collection.
+
+        Args:
+            high_conf_mask (torch.Tensor): A tensor representing the high confidence mask.
+            transform: A transformation to apply to the mask.
+
+        Returns:
+            geojson.Feature: A GeoJSON feature object.
+        """
+        shps = shapes(
+            high_conf_mask.detach().numpy().astype("int16"),
+            connectivity=8,
+            transform=transform,
+        )
+        shps = [s for s in shps]
+        if len(shps) == 1:  # Only the background class was observed
+            return geojson.Feature([])
+        geoms, inf_idxs = zip(*[s for s in shps if s[1] != self.background_class_idx])
+        multipoly, inf_idx = MultiPolygon([shape(g) for g in geoms]), (
+            inf_idxs[0] if inf_idxs else 0
+        )
+        return (
+            geojson.Feature(
+                geometry=multipoly,
+                properties=dict(machine_confidence=machine_confidence, inf_idx=inf_idx),
+            )
+            if multipoly
+            else None
+        )
+
+    def calculate_dice_coefficient_pixel(self, u, v):
+        """
+        Takes two pixel-confidence masks, and calculates how similar they are to each other
+        Returns a value between 0 (no overlap) and 1 (identical)
+        Utilizes an IoU style construction
+        Can be used as NMS across classes for mutually-exclusive classifications
+        """
+        return 2 * torch.sum(torch.sqrt(torch.mul(u, v))) / (torch.sum(u + v))
 
 
 class FASTAIUNETModel(BaseModel):
@@ -171,539 +703,419 @@ class FASTAIUNETModel(BaseModel):
     result stacking, and output stitching.
     """
 
-    def load(self):
+    def preprocess_tiles(self, inf_stack: List[InferenceInput]):
         """
-        Loads the FASTAIUNET model.
+        Converts a list of InferenceInput objects into a processed tensor batch for model prediction.
+        Processes image data contained in InferenceInput and prepares them for FASTAIUNET model inference.
+        """
+        # Pre-calculated statistics from training dataset
+        # SAR_stats = [0.2087162, 0.13736105]
+
+        try:
+            stack_tensors = [
+                b64_image_to_array(record.image, tensor=True, to_float=True).unsqueeze(
+                    0
+                )
+                # normalize_and_clamp(
+                #    b64_image_to_array(record.image, tensor=True, to_float=True),
+                #    mean=SAR_stats[0],
+                #    std=SAR_stats[1],
+                #    device=self.device,
+                # ).unsqueeze(0)
+                for record in inf_stack
+            ]
+            batch_tensor = torch.cat(stack_tensors, dim=0).to(self.device)
+            logging.info(f"Batch tensor shape: {batch_tensor.shape}")
+            return batch_tensor  # Only the tensor batch is needed for the model
+        except Exception as e:
+            logging.error("Error in preprocessing: %s", e, exc_info=True)
+            raise
+
+    def process_tiles(self, preprocessed_tensors):
+        """
+        Run inference on the loaded model
+        """
+        return self.model(preprocessed_tensors)
+
+    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
+        """
+        Applies a softmax function to the raw predictions from FASTAIUNET, serializes them,
+        and returns a list of InferenceResults with serialized data.
 
         Args:
-            model_path (str): The path to the model file.
-        """
-        # if self.model is None:
-        #     self.model = torch.jit.load(self.model_path, map_location="cpu")
-        raise NotImplementedError("FASTAIUNET pathway isn't well defined")
+            raw_preds (List[torch.Tensor]): A list of 4D tensors representing predictions
+                                            [batch_size, num_classes, height, width].
 
-    def predict(self, inf_stack):
+        Returns:
+            List[InferenceResult]: A list of InferenceResults with serialized prediction data.
         """
-        Predicts using the FASTAIUNET model on the given input stack.
+        processed_preds = [
+            torch.nn.functional.softmax(pred, dim=0) for pred in raw_preds
+        ]
+
+        inference_results = [
+            InferenceResult(json_data=self.serialize(pred)) for pred in processed_preds
+        ]
+        return inference_results
+
+    def serialize(self, pred):
+        """
+        Serializes a PyTorch tensor using base64 encoding after converting it with tensor_to_base64.
 
         Args:
-            inf_stack: The input data stack for inference.
+            pred (torch.Tensor): The tensor to be serialized.
+
+        Returns:
+            str: A JSON string containing the base64 encoded tensor.
         """
-        # self.load()
+        return json.dumps(tensor_to_base64(pred))
 
-        # out_batch_logits = model(tensor)
-        # print("Finished inference, applying softmax")
-
-        # res: Tuple[np.ndarray, np.ndarray, List[float]] = []
-        # for i, inference_input in enumerate(inf_stack):
-        #     conf, _classes = logits_to_classes(out_batch_logits[i, :, :, :])
-        #     classes = apply_conf_threshold(conf, _classes, confidence_threshold)
-        #     print(f"Output classes array is {classes.shape}")
-        #     res.append(
-        #         (
-        #             conf.detach().numpy(),
-        #             classes.detach().numpy(),
-        #             inference_input.bounds,
-        #         )
-        #     )
-        raise NotImplementedError("FASTAIUNET pathway isn't well defined")
-
-    def stack(self, results):
+    def deserialize(self, json_string):
         """
-        Stacks the results of FASTAIUNET predictions.
+        Deserializes a JSON string into a PyTorch tensor by decoding the base64 string within it and loading it as a tensor.
 
         Args:
-            results: The prediction results to be stacked.
+            json_string (str): The JSON string containing the serialized tensor data.
+
+        Returns:
+            torch.Tensor: The deserialized PyTorch tensor.
         """
-        inference_result_stack = []
-        for conf, classes, bounds in results:
-            enc_classes = array_to_b64_image(classes)
-            enc_conf = array_to_b64_image(conf)
-            inference_result_stack.append(
-                InferenceResult(classes=enc_classes, confidence=enc_conf, bounds=bounds)
+        base64_string = json.loads(json_string)
+        return torch.load(BytesIO(b64decode(base64_string)))
+
+    def postprocess_tileset(
+        self,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[List[float]]],
+    ) -> geojson.FeatureCollection:
+        """
+        Stitches together multiple InferenceResultStacks from the FASTAIUNET model.
+
+        Args:
+            tileset_results: The list of InferenceResultStacks to stitch together.
+        """
+        logging.info("Stitching tiles into scene")
+        scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
+        logging.info("Finding instances in scene")
+        feature_collection = self.instantiate(scene_array_probs, transform)
+        logging.info("Reducing feature count on scene")
+        reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        return reduced_feature_collection
+
+    def stitch(
+        self,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[List[float]]],
+    ):
+        """Merge arrays based on their geographical bounds and return the merged array and its bounds.
+
+        Args:
+            tileset_results:
+
+        Returns:
+            tuple: A tuple containing the merged numpy array and the bounds (min_x, min_y, max_x, max_y) of the merged area.
+        """
+        bounds_list = []
+        tile_probs_by_class = []
+        for i, inf_result_stack in enumerate(tileset_results):
+            if inf_result_stack.stack:
+                for j, inference_result in enumerate(inf_result_stack.stack):
+                    tile_probs_by_class.append(
+                        self.deserialize(inference_result.json_data).detach().numpy()
+                    )
+                    bounds_list.append(tileset_bounds[i][j])
+
+        ds_tiles = []
+        try:
+            ds_tiles = [
+                memfile_gtiff(nparray=tile_probs, bounds=bounds).open()
+                for tile_probs, bounds in zip(tile_probs_by_class, bounds_list)
+            ]
+
+            logging.info("Stitching tile probabilites together!")
+            scene_array, transform = rio_merge(ds_tiles)
+            return scene_array, transform
+        finally:
+            for ds in ds_tiles:
+                ds.close()
+
+    def instantiate(self, scene_array_probs, transform):
+        """
+        Converts scene probability arrays into a GeoJSON FeatureCollection of detected instances, excluding the background class. It processes each class's probability, transforms them to features, and applies specified thresholds from the model's dictionary.
+
+        Parameters:
+        - scene_array_probs (np.ndarray or torch.Tensor): Array containing per-class instance probabilities.
+        - transform: A transformation function or operation to apply to each instance feature.
+
+        Returns:
+        - geojson.FeatureCollection: A collection of geojson features representing detected instances.
+        """
+        # Convert numpy.ndarray to PyTorch tensor if necessary
+        if isinstance(scene_array_probs, np.ndarray):
+            scene_array_probs = torch.tensor(scene_array_probs)
+
+        features = []
+        for inf_idx, cls_probs in enumerate(scene_array_probs):
+            if inf_idx != self.background_class_idx:
+                features.extend(
+                    self.instances_from_probs(
+                        cls_probs,
+                        p1=self.model_dict["thresholds"]["bbox_score_thresh"],
+                        p2=self.model_dict["thresholds"]["poly_score_thresh"],
+                        p3=self.model_dict["thresholds"]["pixel_score_thresh"],
+                        transform=transform,
+                        addl_props={"inf_idx": inf_idx},
+                    )
+                )
+
+        return geojson.FeatureCollection(features=features)
+
+    def instances_from_probs(
+        self,
+        raster,
+        p1,
+        p2,
+        p3,
+        transform,
+        addl_props={},
+    ):
+        """
+        Converts raster predictions to GeoJSON based on probability thresholds.
+        Effectively performs grouping, filtering, and trimming of a probability raster, to produce independent features.
+
+        Args:
+            raster (np.array): The input raster array to be processed.
+            p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. lower value = fewer groups
+            p2 (float): The middle probability, used to trim the final polygons size. lower value = coarser polygons
+            p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. higher value = more restrictive
+            Sample values: p1, p2, p3 = 0.1, 0.5, 0.95
+            Analogous to bbox_score_thresh, poly_score_thresh, pixel_score_thresh
+        Returns:
+            GeoJSON: A GeoJSON feature collection of the processed predictions.
+        """
+
+        raster = raster.float().detach().numpy()
+
+        # Label components based on p3 to find peaks
+        p1_islands, p1_island_count = label(raster >= p1)
+        # logging.info(f"p1_island_count: {p1_island_count}")
+        p3_islands, p3_island_count = label(raster >= p3)
+        # logging.info(f"p3_island_count: {p3_island_count}")
+
+        # Initialize an empty set for unique p1 labels corresponding to p3 components
+        reduced_labels = set()
+
+        # Iterate over each p3 component
+        for i in range(1, p3_island_count + 1):
+            p3_island_mask = p3_islands == i
+            p1_label_at_p3 = p1_islands[p3_island_mask].flat[
+                0
+            ]  # Take the first pixel's p1 label
+            reduced_labels.add(p1_label_at_p3)
+        # logging.info(f"reduced_labels: {len(reduced_labels)}")
+
+        features = []
+        # Process into feature collections based on unique p1 labels
+        for p1_label in reduced_labels:
+            mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
+            masked_raster = raster[mask]
+            shapes = rasterio.features.shapes(
+                mask.astype(np.uint8), mask=mask, transform=transform
             )
-        return inference_result_stack
+            polygons = [shape(geom) for geom, value in shapes if value == 1]
 
-    def stitch(self, inference_list):
-        """
-        Stitches together inference results from the FASTAIUNET model.
+            # Ensure there are polygons left after trimming to process into a MultiPolygon
+            if polygons:
+                multipolygon = MultiPolygon(polygons)
+                features.append(
+                    geojson.Feature(
+                        geometry=multipolygon,
+                        properties={
+                            "mean_conf": float(np.mean(masked_raster)),
+                            "median_conf": float(np.median(masked_raster)),
+                            "max_conf": float(np.max(masked_raster)),
+                            "machine_confidence": float(np.median(masked_raster)),
+                            **addl_props,
+                        },
+                    )
+                )
 
-        Args:
-            inference_list: The list of inference results to stitch together.
-        """
-        # print("Loading all tiles into memory for stitch!")
-        # ds_base_tiles = []
-        # for base_tile_inference in base_tiles_inference:
-        #     ds_base_tiles.append(
-        #         *[
-        #             create_dataset_from_inference_result(b)
-        #             for b in base_tile_inference.stack
-        #         ]
-        #     )
-
-        # ds_offset_tiles = []
-        # for offset_tile_inference in offset_tiles_inference:
-        #     ds_offset_tiles.append(
-        #         *[
-        #             create_dataset_from_inference_result(b)
-        #             for b in offset_tile_inference.stack
-        #         ]
-        #     )
-
-        # print("Merging base tiles!")
-        # base_tile_inference_file = MemoryFile()
-        # ar, transform = merge(ds_base_tiles)
-        # with base_tile_inference_file.open(
-        #     driver="GTiff",
-        #     height=ar.shape[1],
-        #     width=ar.shape[2],
-        #     count=ar.shape[0],
-        #     dtype=ar.dtype,
-        #     transform=transform,
-        #     crs="EPSG:4326",
-        # ) as dst:
-        #     dst.write(ar)
-
-        # out_fc = get_fc_from_raster(base_tile_inference_file)
-
-        # print("Merging offset tiles!")
-        # offset_tile_inference_file = MemoryFile()
-        # ar, transform = merge(ds_offset_tiles)
-        # with offset_tile_inference_file.open(
-        #     driver="GTiff",
-        #     height=ar.shape[1],
-        #     width=ar.shape[2],
-        #     count=ar.shape[0],
-        #     dtype=ar.dtype,
-        #     transform=transform,
-        #     crs="EPSG:4326",
-        # ) as dst:
-        #     dst.write(ar)
-
-        # out_fc_offset = get_fc_from_raster(offset_tile_inference_file)
-        raise NotImplementedError("FASTAIUNET pathway isn't well defined")
+        return features
 
 
 def get_model(
-    inf_parms,
-    model_path="cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
+    model_dict,
+    model_path_local=os.getenv("MODEL_PATH_LOCAL"),
 ):
     """
     Factory function to get the appropriate model instance based on inference parameters.
 
     Args:
-        inf_parms (dict): Inference parameters including the model type.
+        model_dict (dict): Inference parameters including the model type.
         model_path (str, optional): Path to the model file.
 
     Returns:
         An instance of the appropriate model class.
     """
-    model_type = inf_parms["model_type"]
-    print(f"Model type is {model_type}")
+    model_type = model_dict["type"]
+    logging.info(f"Model type is {model_type}")
 
     if model_type == "MASKRCNN":
-        return MASKRCNNModel(model_path, inf_parms)
+        return MASKRCNNModel(model_dict, model_path_local)
     elif model_type == "FASTAIUNET":
-        return FASTAIUNETModel(model_path, inf_parms)
+        return FASTAIUNETModel(model_dict, model_path_local)
     else:
         raise ValueError("Unsupported model type")
 
 
-def reduce_preds(
-    pred_list,
-    bbox_score_thresh=None,
-    pixel_score_thresh=None,
-    pixel_nms_thresh=None,
-    poly_score_thresh=None,
-    bounds=[],
-    **kwargs,
-):
+def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
     """
-    Apply various post-processing steps to the predictions from an object detection model.
-
-    The post-processing includes:
-    1. Removal of instances with bounding boxes below a certain confidence score.
-    2. Removal of instances with pixel scores below a certain threshold.
-    3. Application of non-maximum suppression at the pixel level.
-    4. Generation of vectorized polygons from the remaining predictions.
-
-    Args:
-        pred_list: A list of prediction dictionaries from the model.
-        bbox_score_thresh (Optional[float]): Threshold for bounding box scores.
-        pixel_score_thresh (Optional[float]): Threshold for pixel scores.
-        pixel_nms_thresh (Optional[float]): Threshold for pixel-level NMS.
-        poly_score_thresh (Optional[float]): Threshold for polygon scores.
-        bounds (List): Geographic bounds for the predictions.
-
-    Returns:
-        A list of reduced and processed prediction dictionaries.
+    Creates a raster in memory from an array and optionally returns it as a base64 encoded string.
+    If encode is False, returns a numpy array of the raster data.
     """
-    bounds = bounds or [[0, -1, 1, 0]] * len(pred_list)
-    reduced_preds = []
-    for i, pred_dict in enumerate(pred_list):
-        # remove instances with low scoring boxes
-        if bbox_score_thresh is not None:
-            keep = keep_by_bbox_score(pred_dict, bbox_score_thresh)
-            pred_dict = keep_boxes_by_idx(pred_dict, keep)
-
-        # remove instances with low scoring pixels
-        if pixel_score_thresh is not None:
-            keep = keep_by_pixel_score(pred_dict, pixel_score_thresh)
-            pred_dict = keep_boxes_by_idx(pred_dict, keep)
-
-        # non-maximum suppression, done globally, across classes, using pixels rather than bboxes
-        if pixel_nms_thresh is not None:
-            keep = keep_by_global_pixel_nms(pred_dict, pixel_nms_thresh)
-            pred_dict = keep_boxes_by_idx(pred_dict, keep)
-
-        # generate vectorized polygons from predictions
-        # adds "polys" to pred_dict
-        if poly_score_thresh is not None:
-            pred_dict, keep = polygonize_pixel_segmentations(
-                pred_dict, poly_score_thresh, bounds[i]
-            )
-            pred_dict = keep_boxes_by_idx(pred_dict, keep)
-
-        reduced_preds.extend([pred_dict])
-    return reduced_preds
-
-
-def keep_boxes_by_idx(pred_dict, keep_idxs):
-    """
-    Filters the prediction dictionary to keep only the indices specified in keep_idxs.
-
-    Args:
-    pred_dict (dict): The prediction dictionary to be filtered.
-    keep_idxs (list or torch.Tensor): A list or a tensor of indices to keep.
-
-    Returns:
-    dict: A new dictionary with the same keys as pred_dict, but with values filtered to include only those at the indices specified by keep_idxs.
-    """
-    if not len(keep_idxs):  # if keep_idxs is empty
-        return {
-            key: [] if isinstance(val, list) else torch.tensor([])
-            for key, val in pred_dict.items()
-        }
-    else:
-        keep_idxs = (
-            torch.tensor(keep_idxs) if isinstance(keep_idxs, list) else keep_idxs
+    nparray = nparray[np.newaxis, :, :] if nparray.ndim == 2 else nparray
+    transform = transform or (
+        rasterio.transform.from_bounds(
+            *bounds, width=nparray.shape[2], height=nparray.shape[1]
         )
-        return {
-            key: (
-                [val[i] for i in keep_idxs]
-                if isinstance(val, list)
-                else torch.index_select(val, 0, keep_idxs)
-            )
-            for key, val in pred_dict.items()
-        }
-
-
-def keep_by_bbox_score(pred_dict, bbox_score_thresh):
-    """
-    Finds the indices of bounding box predictions that have a score greater than bbox_score_thresh.
-
-    Args:
-    pred_dict (dict): The prediction dictionary to be filtered.
-    bbox_score_thresh (float): The minimum score for a bounding box prediction to be kept.
-
-    Returns:
-    torch.Tensor: A tensor of indices for bounding box predictions that meet the score threshold.
-    """
-    return torch.where(pred_dict["scores"] > bbox_score_thresh)[0]
-
-
-def keep_by_pixel_score(pred_dict, pixel_score_thresh):
-    """
-    Given a dictionary of predictions and a pixel score threshold, returns the indices
-    of those predictions that exceed the threshold.
-
-    Args:
-        pred_dict (dict): Dictionary of prediction data.
-        pixel_score_thresh (float): Threshold for pixel scores.
-
-    Returns:
-        torch.Tensor: Indices of predictions exceeding the threshold.
-
-    """
-    mask_maxes = (
-        torch.stack([m.max() for m in pred_dict["masks"]])
-        if len(pred_dict["masks"])
-        else torch.tensor([])
+        if bounds
+        else rasterio.transform.from_origin(0, 0, 1, 1)
     )
-    return torch.where(mask_maxes > pixel_score_thresh)[0]
-
-
-def keep_by_global_pixel_nms(pred_dict, pixel_nms_thresh):
-    """
-    Apply non-maximum suppression (NMS) to a dictionary of predictions.
-
-    This function iterates over a dictionary of predicted masks and calculates
-    the Dice Coefficient to measure similarity between each pair of masks.
-    If the coefficient exceeds a certain threshold, the mask is marked for removal.
-
-    Args:
-        pred_dict (dict): Dictionary with key "masks" containing a list of predicted masks.
-        pixel_nms_thresh (float): The threshold above which two predictions are considered overlapping.
-
-    Returns:
-        list: List of indices of masks to keep.
-    """
-    masks = pred_dict["masks"]
-    masks_to_remove = []
-
-    for i, current_mask in enumerate(masks):  # Loop through all masks
-        # Skip if the mask is already marked for removal
-        if i in masks_to_remove:
-            continue
-
-        # Check similarity against all subsequent masks
-        for j, comparison_mask in enumerate(masks[i + 1 :], start=i + 1):
-            # Skip if the mask is already marked for removal
-            if j in masks_to_remove:
-                continue
-
-            # Calculate Dice Coefficient; if the similarity is too high, mark mask for removal
-            if (
-                calculate_dice_coefficient(
-                    current_mask.squeeze(), comparison_mask.squeeze()
-                )
-                > pixel_nms_thresh
-            ):
-                masks_to_remove.append(j)
-
-    # Return a list of mask indices that are not marked for removal
-    return [i for i in range(len(masks)) if i not in masks_to_remove]
-
-
-def calculate_dice_coefficient(u, v):
-    """
-    Takes two pixel-confidence masks, and calculates how similar they are to each other
-    Returns a value between 0 (no overlap) and 1 (identical)
-    Utilizes an IoU style construction
-    Can be used as NMS across classes for mutually-exclusive classifications
-    """
-    return 2 * torch.sum(torch.sqrt(torch.mul(u, v))) / (torch.sum(u + v))
-
-
-def polygonize_pixel_segmentations(pred_dict, poly_score_thresh, bounds):
-    """
-    Given a dictionary of predictions, a polygon score threshold, and bounding coordinates,
-    transforms pixel segmentations into polygons and updates the prediction dictionary
-    to include these polygons.
-
-    Args:
-        pred_dict (dict): Dictionary of prediction data.
-        poly_score_thresh (float): Threshold for polygon scores.
-        bounds (tuple): Bounding coordinates.
-
-    Returns:
-        tuple: Updated prediction dictionary and indices of polygons.
-
-    """
-    high_conf_classes = [
-        torch.where(mask > poly_score_thresh, pred_dict["labels"][i], 0)
-        .squeeze()
-        .long()
-        for i, mask in enumerate(pred_dict["masks"])
-    ]
-    transform = (
-        rasterio.transform.from_bounds(*bounds, *high_conf_classes[0].shape[:2])
-        if high_conf_classes
-        else None
-    )
-    pred_dict["polys"] = [
-        vectorize_mask_instance(c, pred_dict["scores"][i].detach().item(), transform)
-        for i, c in enumerate(high_conf_classes)
-    ]
-    keep_masks = [i for i, poly in enumerate(pred_dict["polys"]) if poly]
-    return pred_dict, keep_masks
-
-
-def extract_geometry(dataset):
-    """Extracts the geometries from a raster dataset."""
-
-    shps = shapes(
-        dataset.read(1).astype("uint8"), connectivity=8, transform=dataset.transform
-    )
-    geoms, inf_idxs = zip(
-        *[s for s in shps if s[1] != 0]  # XXX HACK assumes inf_idx=0 is background
-    )
-    return MultiPolygon([shape(g) for g in geoms]), inf_idxs[0] if inf_idxs else 0
-
-
-def vectorize_mask_instance(
-    high_conf_mask: torch.Tensor, machine_confidence, transform
-):
-    """
-    From a high confidence mask, generate a GeoJSON feature collection.
-
-    Args:
-        high_conf_mask (torch.Tensor): A tensor representing the high confidence mask.
-        transform: A transformation to apply to the mask.
-
-    Returns:
-        geojson.Feature: A GeoJSON feature object.
-    """
-
-    memfile = create_memfile(high_conf_mask, transform)
-
-    with memfile.open() as dataset:
-        multipoly, inf_idx = extract_geometry(dataset)
-
-    return (
-        geojson.Feature(
-            geometry=multipoly,
-            properties=dict(machine_confidence=machine_confidence, inf_idx=inf_idx),
-        )
-        if multipoly
-        else None
-    )
-
-
-def create_memfile(high_conf_mask, transform):
-    """Creates a raster in memory from a mask tensor."""
 
     memfile = MemoryFile()
-    high_conf_mask = high_conf_mask.detach().numpy().astype("int16")
-
     with memfile.open(
         driver="GTiff",
-        height=high_conf_mask.shape[0],
-        width=high_conf_mask.shape[1],
-        count=1,
-        dtype=high_conf_mask.dtype,
+        count=nparray.shape[0],  # number of bands
+        height=nparray.shape[1],
+        width=nparray.shape[2],
+        dtype=nparray.dtype,
         transform=transform,
         crs="EPSG:4326",
     ) as dataset:
-        dataset.write(high_conf_mask, 1)
+        dataset.write(nparray)
 
+    memfile.seek(0)
+    if encode:
+        encoded = b64encode(memfile.read()).decode("ascii")
+        return encoded
     return memfile
 
 
-def logits_to_classes(out_batch_logits):
-    """returns the confidence scores of the max confident classes
-    and an array of max confident class ids for a single tile of shape [classes, H, W].
+def b64_image_to_array(image: str, tensor: bool = False, to_float=False):
     """
-    probs = torch.nn.functional.softmax(out_batch_logits, dim=0)
-    conf, classes = torch.max(probs, 0)
-    return (conf, classes)
-
-
-def apply_conf_threshold(conf, classes, conf_threshold):
-    """Apply a confidence threshold to the output of logits_to_classes for a tile.
-
-    Args:
-        conf (np.ndarray): an array of shape [H, W] of max confidence scores for each pixel
-        classes (np.ndarray): an array of shape [H, W] of class integers for the max confidence scores for each pixel
-        conf_threshold (float): the threshold to use to determine whether a pixel is background or maximally confident category
-
-    Returns:
-        torch.Tensor: An array of shape [H,W] with the class ids that satisfy the confidence threshold. This can be vectorized.
-    """
-    high_conf_mask = torch.any(torch.where(conf > conf_threshold, 1, 0), axis=0)
-    return torch.where(high_conf_mask, classes, 0)
-
-
-def flatten_feature_list(
-    stack_list: List[InferenceResultStack],
-) -> List[geojson.Feature]:
-    """
-    Flattens a list of InferenceResultStack objects into a list of GeoJSON features.
-
-    Args:
-        stack_list (List[InferenceResultStack]): List of InferenceResultStack objects.
-
-    Returns:
-        List[geojson.Feature]: A list of GeoJSON features.
-    """
-    flat_list: List[geojson.Feature] = []
-    for r in stack_list:
-        for i in r.stack:
-            for f in i.features:
-                flat_list.append(f)
-    return flat_list
-
-
-def create_dataset_from_inference_result(
-    inference_output: InferenceResult,
-) -> rasterio.io.DatasetReader:
-    """From inference result create a open rasterio dataset for merge"""
-    classes_array = b64_image_to_array(inference_output.classes)
-    conf_array = b64_image_to_array(inference_output.confidence)
-    ar = np.concatenate([classes_array, conf_array])
-
-    transform = rasterio.transform.from_bounds(
-        *inference_output.bounds, width=ar.shape[1], height=ar.shape[2]
-    )
-
-    memfile = MemoryFile()
-    with memfile.open(
-        driver="GTiff",
-        height=ar.shape[1],
-        width=ar.shape[2],
-        count=ar.shape[0],
-        dtype=ar.dtype,
-        transform=transform,
-        crs="EPSG:4326",
-    ) as dst:
-        dst.write(ar)
-    return memfile.open()
-
-
-def b64_image_to_array(image: str) -> np.ndarray:
-    """convert input b64image to torch tensor"""
-    # handle image
-    img_bytes = b64decode(image)
-
-    with MemoryFile(img_bytes) as memfile:
-        with memfile.open() as dataset:
-            np_img = dataset.read()
-
-    return np_img
-
-
-def b64_image_to_tensor(image: str) -> torch.Tensor:
-    """
-    Converts a base64-encoded image string into a PyTorch tensor.
+    Converts a base64-encoded image string into a np.array or torch.tensor.
 
     Args:
         image (str): A base64-encoded image string.
+        tensor (bool, optional): Whether to return a PyTorch tensor. Defaults to False.
 
     Returns:
-        torch.Tensor: A tensor representation of the decoded image.
+        np.ndarray or torch.Tensor: A numpy array or torch tensor representation of the decoded image.
     """
-    """convert input b64image to torch tensor"""
-    img_bytes = b64decode(image)
+    try:
+        img_bytes = b64decode(image)
 
-    with MemoryFile(img_bytes) as memfile:
-        with memfile.open() as dataset:
-            np_img = dataset.read()
+        with MemoryFile(img_bytes) as memfile:
+            with memfile.open() as dataset:
+                np_img = dataset.read()
 
-    return torch.tensor(np_img)
+        if to_float:
+            np_img = dtype_to_float(np_img)
+        return torch.tensor(np_img) if tensor else np_img
+    except Exception as e:
+        logging.error(f"Failed to convert base64 image to array: {e}")
+        raise
 
 
-def array_to_b64_image(np_array: np.ndarray) -> str:
+def normalize_and_clamp(x, mean, std, min_val=-3, max_val=3, device="cpu"):
     """
-    Encodes a numpy array into a base64-encoded image string.
+    Normalizes and clamps a tensor using specified mean and standard deviation,
+    and clamps the resulting values to a specified range.
 
     Args:
-        np_array (np.ndarray): The numpy array to encode.
+        x (Tensor): The input tensor to be normalized and clamped.
+        mean (float or list): The mean used for normalization, can be a single float
+                              or a list of floats matching the tensor dimensions.
+        std (float or list): The standard deviation used for normalization, can be a
+                             single float or a list of floats matching the tensor dimensions.
+        min_val (float, optional): The minimum value to clamp the tensor to. Defaults to -3.
+        max_val (float, optional): The maximum value to clamp the tensor to. Defaults to 3.
+        device (str, optional): The device to perform the operations on (e.g., 'cpu' or 'cuda').
 
     Returns:
-        str: A base64-encoded image string.
+        Tensor: The normalized and clamped tensor.
     """
-    np_array = np_array.astype("int8")
-    if len(np_array.shape) == 2:
-        np_array = np.expand_dims(np_array, 0)
-    with MemoryFile() as memfile:
-        with memfile.open(
-            driver="GTiff",
-            count=np_array.shape[0],
-            dtype=np_array.dtype,
-            width=np_array.shape[1],
-            height=np_array.shape[2],
-        ) as dataset:
-            dataset.write(np_array)
-        img_bytes = memfile.read()
 
-    return b64encode(img_bytes).decode("ascii")
+    mean = torch.tensor(mean, device=device)
+    std = torch.tensor(std, device=device)
+    x = (x - mean) / std
+    x = x.clamp(min=min_val, max=max_val)
+    return x
+
+
+def dtype_to_float(data, dtype=np.float32):
+    """
+    Convert numerical data to a specified floating-point type and normalize if data type is uint8.
+
+    This function supports inputs that are either numpy arrays or PyTorch tensors. If the input data type
+    is uint8, the function normalizes the data by dividing by 255.0, which is common practice for image data.
+    Otherwise, it simply converts the data to the specified floating-point type.
+
+    Parameters:
+    data (Union[np.ndarray, torch.Tensor]): The data to convert. Must be either a numpy array or a PyTorch tensor.
+    dtype (data-type, optional): The target data type for the conversion, defaults to np.float32. The dtype
+                                 should be a floating-point type as defined by numpy or torch.
+
+    Returns:
+    Union[np.ndarray, torch.Tensor]: The converted and potentially normalized data as a numpy array or a PyTorch tensor.
+
+    Raises:
+    TypeError: If `data` is neither a numpy array nor a PyTorch tensor.
+
+    Examples:
+    >>> import numpy as np
+    >>> import torch
+    >>> array = np.array([0, 128, 255], dtype=np.uint8)
+    >>> print(dtype_to_float(array))
+    [0. , 0.50196078, 1. ]
+
+    >>> tensor = torch.tensor([0, 128, 255], dtype=torch.uint8)
+    >>> print(dtype_to_float(tensor))
+    tensor([0.0000, 0.5020, 1.0000])
+    """
+
+    if isinstance(data, np.ndarray):
+        if data.dtype == np.uint8:
+            return (data.astype(dtype) / 255.0).astype(dtype)
+        else:
+            return data.astype(dtype)
+    elif isinstance(data, torch.Tensor):
+        if data.dtype == torch.uint8:
+            return (data.to(dtype) / 255.0).to(dtype)
+        else:
+            return data.to(dtype)
+    else:
+        raise TypeError("Input must be a numpy array or a torch tensor")
+
+
+def reproject_to_utm(gdf_wgs84):
+    """Finds utm projection for a WGS84 gdf"""
+    utm_crs = gdf_wgs84.estimate_utm_crs(datum_name="WGS 84")
+    return gdf_wgs84.to_crs(utm_crs)
+
+
+def tensor_to_base64(tensor):
+    """
+    Convert a PyTorch tensor to a base64 string by first saving it to a BytesIO buffer using torch.save, then encoding the buffer contents.
+
+    Args:
+        tensor (torch.Tensor): The tensor to be converted.
+
+    Returns:
+        str: A base64 encoded string of the tensor.
+    """
+    buffer = BytesIO()
+    torch.save(tensor.clone(), buffer)
+    # PYTHON BUG If you don't clone() the tensor, then the (1, 512, 512) tensor will be recorded in N times the amount of memory, where N is the number of output predictions this tensor was extracted from?!? This causes N predictions to be require NxN (N^2) data for storing!
+    buffer.seek(0)
+    return b64encode(buffer.read()).decode("utf-8")

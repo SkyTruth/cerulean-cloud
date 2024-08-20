@@ -1,6 +1,7 @@
 """infra for cloud run function to perform inference on offset tiles
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
+
 import cloud_run_images
 import pulumi
 import pulumi_gcp as gcp
@@ -58,8 +59,16 @@ default = gcp.cloudrun.Service(
                     image=cloud_run_images.cloud_run_offset_tile_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="UVICORN_PORT",
+                            value="8080",
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SOURCE",
                             value="remote",
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="MODEL_PATH_LOCAL",
+                            value="cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="API_KEY",
