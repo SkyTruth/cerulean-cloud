@@ -159,7 +159,7 @@ default = gcp.cloudrun.Service(
                             value=cloud_function_ais_analysis.fxn.https_trigger_url,
                         ),
                     ],
-                    resources=dict(limits=dict(memory="8Gi", cpu="s000m")),
+                    resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
                 ),
             ],
             timeout_seconds=3540,
