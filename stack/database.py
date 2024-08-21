@@ -22,7 +22,7 @@ instance = gcp.sql.DatabaseInstance(
             dict(name="shared_buffers", value=pulumi.Config("db").require("db-mem")),
             # Should be slightly higher than expected number of simultaneous connections
             # max_connections: Original value 500, compliant with Google Cloud
-            dict(name="max_connections", value="500"),
+            dict(name="max_connections", value="200"),
             # Use for sorting and joining operations. work_mem * max_connections
             # should be less than shared buffers. However, this is the case if
             # we expect `max_connection` to relate to the number of users querying
