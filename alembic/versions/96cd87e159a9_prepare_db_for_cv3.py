@@ -37,8 +37,9 @@ def upgrade() -> None:
     """
 
     # Drop the old foreign key constraints
-    op.drop_constraint("fk_subscription_user_id", "subscription", type_="foreignkey")
-    op.drop_constraint("fk_aoi_user_user_id", "aoi_user", type_="foreignkey")
+    op.drop_constraint("subscription_user_fkey", "subscription", type_="foreignkey")
+    op.drop_constraint("aoi_user_user_fkey", "aoi_user", type_="foreignkey")
+    op.drop_constraint("magic_link_user_fkey", "magic_link", type_="foreignkey")
 
     # Alter user table and create new structure as 'users'
     op.rename_table("user", "users")
@@ -46,11 +47,12 @@ def upgrade() -> None:
     op.add_column("users", sa.Column("emailVerified", sa.DateTime))
     op.add_column("users", sa.Column("image", sa.Text))
     op.add_column("users", sa.Column("role", sa.Text))
-    op.alter_column(
-        "users", "email", new_column_name="email", type_=sa.Text, nullable=True
-    )
-    op.create_foreign_key(None, "subscription", "users", ["user"], ["id"])
+    op.alter_column("users", "email", nullable=True)
     op.drop_column("users", "create_time")
+
+    op.create_foreign_key(None, "subscription", "users", ["user"], ["id"])
+    op.create_foreign_key(None, "aoi_user", "users", ["user"], ["id"])
+    op.create_foreign_key(None, "magic_link", "users", ["user"], ["id"])
 
     # Remove hitl_confirmed column
     op.drop_column("slick_to_source", "hitl_confirmed")
@@ -85,6 +87,7 @@ def upgrade() -> None:
     op.add_column(
         "verification_token", sa.Column("expires", sa.DateTime, nullable=False)
     )
+    op.drop_constraint("magic_link_pkey", "verification_token", type_="primary")
     op.create_primary_key(
         "verification_token_pk", "verification_token", ["identifier", "token"]
     )
@@ -248,9 +251,7 @@ def downgrade() -> None:
     op.drop_column("users", "emailVerified")
     op.drop_column("users", "image")
     op.drop_column("users", "role")
-    op.alter_column(
-        "users", "email", new_column_name="email", type_=sa.String(255), nullable=False
-    )
+    op.alter_column("users", "email", nullable=False)
     op.rename_table("users", "user")
 
     # Recreate foreign key constraints

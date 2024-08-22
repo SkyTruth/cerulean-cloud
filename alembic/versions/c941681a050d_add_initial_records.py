@@ -65,10 +65,6 @@ def upgrade() -> None:
                 long_name="Vessel, coincident",
                 supercls=7,
             ),
-            database_schema.Cls(
-                short_name="AMBIGUOUS",
-                long_name="Ambiguous",
-            ),
         ]
         session.add_all(clses)
 
@@ -76,7 +72,7 @@ def upgrade() -> None:
             database_schema.Model(
                 type="MASKRCNN",
                 file_path="experiments/2023_10_05_02_22_46_4cls_rnxt101_pr512_px1024_680min_maskrcnn_wd01/scripting_cpu_model.pt",
-                layers=["VV", "ALL_255", "VESSEL"],
+                layers=["VV", "INFRA", "VESSEL"],
                 cls_map={
                     0: "BACKGROUND",
                     1: "INFRA",
@@ -88,42 +84,15 @@ def upgrade() -> None:
                 tile_width_px=512,
                 epochs=122,
                 thresholds={
-                    "poly_nms_thresh": 0.2,
                     "pixel_nms_thresh": 0.4,
-                    "bbox_score_thresh": 0.3,
-                    "poly_score_thresh": 0.1,
-                    "pixel_score_thresh": 0.5,
+                    "bbox_score_thresh": 0.2,
+                    "poly_score_thresh": 0.2,
+                    "pixel_score_thresh": 0.2,
                     "groundtruth_dice_thresh": 0.0,
                 },
                 backbone_size=101,
                 pixel_f1=0.461,
                 instance_f1=0.47,
-            ),
-            database_schema.Model(
-                type="FASTAIUNET",
-                file_path="experiments/2024_08_18_06_27_25_4cls_resnet34_pr512_px1024_500epochs_unet/tracing_cpu_model.pt",
-                layers=["VV"],
-                cls_map={
-                    0: "BACKGROUND",
-                    1: "INFRA",
-                    2: "NATURAL",
-                    3: "VESSEL",
-                },  # inference_idx maps to class table
-                name="ResNet34 41%",
-                tile_width_m=40844,  # Used to calculate zoom
-                tile_width_px=512,  # Used to calculate scale
-                epochs=500,
-                thresholds={
-                    "poly_nms_thresh": 0.2,
-                    "pixel_nms_thresh": 0.0,  # NOT USED IN UNETS
-                    "bbox_score_thresh": 0.01,
-                    "poly_score_thresh": 0.3,
-                    "pixel_score_thresh": 0.8,
-                    "groundtruth_dice_thresh": 0.0,
-                },
-                backbone_size=34,
-                pixel_f1=0.536,
-                # instance_f1=0.0, # TODO CALCULATE
             ),
         ]
         session.add_all(models)
@@ -147,20 +116,6 @@ def upgrade() -> None:
                 citation="Global Maritime Traffic Density Service (GTMDS) retrieved from GlobalMaritimeTraffic.org, a service of MapLarge 2021",
                 source_url="https://gmtds.maplarge.com/public/ext/GMTDS/Main",
                 notes="Typically uses the previous month's density map. If unavailable will default to previous year.",
-            ),
-            database_schema.Layer(
-                short_name="ALL_255",  # TODO Rename to something liketo avoid conflict with PIXEL CLASS
-                long_name="All Pixels Value=255",
-                citation="",
-                source_url="",
-                notes="Can be used for ablation or to replace unwanted layers.",
-            ),
-            database_schema.Layer(
-                short_name="ALL_ZEROS",  # TODO Rename to something liketo avoid conflict with PIXEL CLASS
-                long_name="All Pixels Value=0",
-                citation="",
-                source_url="",
-                notes="Can be used for ablation or to replace unwanted layers.",
             ),
         ]
         session.add_all(layers)
@@ -248,11 +203,7 @@ def downgrade() -> None:
 
         layers = (
             session.query(database_schema.Layer)
-            .filter(
-                database_schema.Layer.short_name.in_(
-                    ["VV", "INFRA", "VESSEL", "ALL_255", "ALL_ZEROS"]
-                )
-            )
+            .filter(database_schema.Layer.short_name.in_(["VV", "INFRA", "VESSEL"]))
             .all()
         )
         for layer in layers:
@@ -301,7 +252,6 @@ def downgrade() -> None:
                         "OLD_VESSEL",
                         "REC_VESSEL",
                         "COIN_VESSEL",
-                        "AMBIGUOUS",
                     ]
                 )
             )
