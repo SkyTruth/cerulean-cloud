@@ -24,7 +24,12 @@ registries = [
 
 gcr_docker_provider = docker.Provider(
     construct_name_images("gcr"),
-    registry_auth=[{"address": a} for a in registries],
+    registry_auth=[
+        docker.ProviderRegistryAuthArgs(
+            address=a,
+        )
+        for a in registries
+    ],
 )
 
 
