@@ -87,7 +87,7 @@ runs:
 
     - name: Deploy Infrastructure
       uses: pulumi/actions@v5
-      id: pulumi
+      id: pulumi-deploy
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ inputs.pulumi-stack-passphrase }}
         MODEL: ${{ steps.pulumi-images.outputs.model }}
@@ -95,7 +95,6 @@ runs:
         pulumi-version: ${{ inputs.pulumi-version }}
         command: up
         stack-name: ${{ inputs.environment }}
-        refresh: true
         diff: true
         comment-on-summary: true
 
