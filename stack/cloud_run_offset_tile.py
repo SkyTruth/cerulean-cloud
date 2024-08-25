@@ -89,7 +89,9 @@ default = gcp.cloudrun.Service(
             container_concurrency=1,
         ),
         metadata=dict(
-            name=service_name + "-" + cloud_run_images.cloud_run_offset_tile_sha,
+            name=cloud_run_images.cloud_run_offset_tile_sha.apply(
+                lambda sha: f"{service_name}-{sha}"
+            ),
             annotations={
                 "autoscaling.knative.dev/maxScale": "2000",
             },
