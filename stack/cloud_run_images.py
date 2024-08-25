@@ -32,8 +32,7 @@ gcr_docker_provider = docker.Provider(
     ],
 )
 
-
-cloud_run_offset_tile_registry_image = docker.get_registry_image(
+cloud_run_offset_tile_registry_image = docker.get_registry_image_output(
     name=gcp.container.get_registry_image(
         name=construct_name_images("cloud-run-offset-tile-image:latest"),
     ).image_url,
@@ -41,7 +40,10 @@ cloud_run_offset_tile_registry_image = docker.get_registry_image(
         provider=gcr_docker_provider,
     ),
 )
-cloud_run_orchestrator_registry_image = docker.get_registry_image(
+# create alias so that other parts of the code must not be changed
+cloud_run_offset_tile_image = cloud_run_offset_tile_registry_image
+
+cloud_run_orchestrator_registry_image = docker.get_registry_image_output(
     name=gcp.container.get_registry_image(
         name=construct_name_images("cloud-run-orchestrator-image:latest"),
     ).image_url,
@@ -49,7 +51,9 @@ cloud_run_orchestrator_registry_image = docker.get_registry_image(
         provider=gcr_docker_provider,
     ),
 )
-cloud_run_tipg_registry_image = docker.get_registry_image(
+cloud_run_orchestrator_image = cloud_run_orchestrator_registry_image
+
+cloud_run_tipg_registry_image = docker.get_registry_image_output(
     name=gcp.container.get_registry_image(
         name=construct_name_images("cloud-run-tipg-image:latest"),
     ).image_url,
@@ -57,42 +61,7 @@ cloud_run_tipg_registry_image = docker.get_registry_image(
         provider=gcr_docker_provider,
     ),
 )
-
-
-cloud_run_offset_tile_image = docker.RemoteImage(
-    construct_name_images("remote-offset"),
-    name=cloud_run_offset_tile_registry_image.name,
-    pull_triggers=[
-        cloud_run_offset_tile_registry_image.sha256_digest,
-    ],
-    opts=pulumi.ResourceOptions(
-        provider=gcr_docker_provider,
-    ),
-)
-
-
-cloud_run_orchestrator_image = docker.RemoteImage(
-    construct_name_images("remote-orchestrator"),
-    name=cloud_run_orchestrator_registry_image.name,
-    pull_triggers=[
-        cloud_run_orchestrator_registry_image.sha256_digest,
-    ],
-    opts=pulumi.ResourceOptions(
-        provider=gcr_docker_provider,
-    ),
-)
-
-cloud_run_tipg_image = docker.RemoteImage(
-    construct_name_images("remote-tipg"),
-    name=cloud_run_tipg_registry_image.name,
-    pull_triggers=[
-        cloud_run_tipg_registry_image.sha256_digest,
-    ],
-    opts=pulumi.ResourceOptions(
-        provider=gcr_docker_provider,
-    ),
-)
-
+cloud_run_tipg_image = cloud_run_tipg_registry_image
 
 cloud_run_offset_tile_sha = cloud_run_offset_tile_registry_image.sha256_digest[8:20]
 cloud_run_orchestrator_sha = cloud_run_orchestrator_registry_image.sha256_digest[8:20]
