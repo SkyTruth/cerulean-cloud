@@ -178,8 +178,7 @@ jobs:
     runs-on: ubuntu-20.04
     environment: prod_20240903
     needs: [tests]
-    if: github.ref == 'refs/heads/feat/new-prod'
-    # if: startsWith(github.event.ref, 'refs/tags')
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/new-prod'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
