@@ -176,7 +176,7 @@ jobs:
   deploy-new-production:
     name: Deploy New [PRODUCTION]
     runs-on: ubuntu-20.04
-    environment: prod_20240903
+    environment: prod20240903
     needs: [tests]
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat/new-prod'
     steps:
@@ -187,10 +187,10 @@ jobs:
         name: Configure Docker
         uses: ./.github/actions/configure-docker
 
-      - id: deploy-infrastructure-prod_20240903
+      - id: deploy-infrastructure-prod20240903
         name: Deploy Infrastructure
         uses: ./.github/actions/deploy_infrastructure
         with:
-          environment: prod_20240903
+          environment: prod20240903
           pulumi-version: 3.121.0
-          pulumi-stack-passphrase: prod_20240903
+          pulumi-stack-passphrase: prod20240903
