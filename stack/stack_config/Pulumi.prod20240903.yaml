@@ -1,4 +1,4 @@
-encryptionsalt: v1:8NHXNCU35Bc=:v1:4bsOFIqi1CpnI5+u:KTrqZhaEN7o/LZGzSj7NIGLOywvakw==
+encryptionsalt: v1:V3gLkKKDlLY=:v1:yl0xUbSsXG2H1Jzn:TDGUP1OhDOJ3r729bRYL9YZOiK8Xyg==
 config:
   ais:credentials: world-fishing-827-service-account-json
   aws:region: eu-central-1
@@ -10,11 +10,11 @@ config:
   db:db-instance: db-custom-4-15360
   db:db-mem: "599040"
   db:db-password:
-    secure: v1:P86mR1TKulFrkN88:WABsuMisrOoTiHT726UdWtTNByRJHcYcksOcf/cB4tMqiJQH4r8uzfmceRuFIw9/wW2xvJPBmCp1nhw=
+    secure: v1:3nTUb1x6XlmRI8nM:RMYJGPzPvDJi/aqmD1V8AhR3Nsr3P5Jv8TZ2wZFwFU1EftjdqSw7cRCDf4YYu//EudcJTuW5aty+9eM=
   db:deletion-protection: "false"
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
   scihub:password:
-    secure: v1:lMmCM6isSHEsaXiQ:sRKnjTL/ES1YGtupAoIMH7n7BTncHaS7
+    secure: v1:77jKwh6VgMHCJGRK:WQTJnlF47AhaDzGmE5BCC1XA+LIGR+Ht
   scihub:username: rodrigo1234

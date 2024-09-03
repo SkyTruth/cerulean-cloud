@@ -1,4 +1,4 @@
-encryptionsalt: v1:aEPwGHiTTc0=:v1:0rS0IWU/OdTsm6J/:e5v2f+KnlqbECEKTeLhNvdJ8mXyq3A==
+encryptionsalt: v1:R2sLsAf/bQc=:v1:hBVgdX8qN8+5MyEa:oJlozt2wlaT51vy2RpgoKZG/PVUuqQ==
 config:
   aws:region: eu-central-1
   cerulean-cloud-images:weights_bucket: ceruleanml
