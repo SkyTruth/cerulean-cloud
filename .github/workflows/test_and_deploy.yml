@@ -154,7 +154,7 @@ jobs:
   deploy-production:
     name: Deploy [PRODUCTION]
     runs-on: ubuntu-20.04
-    environment: production
+    environment: prod_20240903
     needs: [tests]
     if: startsWith(github.event.ref, 'refs/tags')
     steps:
@@ -169,6 +169,6 @@ jobs:
         name: Deploy Infrastructure
         uses: ./.github/actions/deploy_infrastructure
         with:
-          environment: production
+          environment: prod_20240903
           pulumi-version: 3.121.0
-          pulumi-stack-passphrase: production
+          pulumi-stack-passphrase: prod_20240903
