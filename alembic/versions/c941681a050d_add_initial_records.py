@@ -101,7 +101,7 @@ def upgrade() -> None:
             ),
             database_schema.Model(
                 type="FASTAIUNET",
-                file_path="experiments/2024_08_18_06_27_25_4cls_resnet34_pr512_px1024_500epochs_unet/tracing_cpu_model.pt",
+                file_path="experiments/2024_08_17_11_03_50_4cls_resnet34_pr512_px1024_100epochs_unet/tracing_cpu_model.pt",
                 layers=["VV"],
                 cls_map={
                     0: "BACKGROUND",
@@ -109,7 +109,7 @@ def upgrade() -> None:
                     2: "NATURAL",
                     3: "VESSEL",
                 },  # inference_idx maps to class table
-                name="ResNet34 41%",
+                name="ResNet34 44.5%",
                 tile_width_m=40844,  # Used to calculate zoom
                 tile_width_px=512,  # Used to calculate scale
                 epochs=500,
@@ -122,7 +122,7 @@ def upgrade() -> None:
                     "groundtruth_dice_thresh": 0.0,
                 },
                 backbone_size=34,
-                pixel_f1=0.536,
+                pixel_f1=0.495,
                 # instance_f1=0.0, # TODO CALCULATE
             ),
         ]
