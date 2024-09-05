@@ -24,13 +24,13 @@ git_tag = next((tag.name for tag in repo.tags if tag.commit == repo.head.commit)
 
 # Assign access to cloud SQL
 cloud_function_service_account = gcp.serviceaccount.Account(
-    construct_name("cloud-run-orchestrator"),
+    construct_name("cr-orchestrator"),
     account_id=f"{stack}-cr-orch",
     display_name="Service Account for cloud run.",
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cloud-run-orchestrator-cloudTasksEnqueuer"),
+    construct_name("cr-orchestrator-cloudTasksEnqueuer"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/cloudtasks.enqueuer",
     member=cloud_function_service_account.email.apply(
@@ -39,7 +39,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cloud-run-orchestrator-cloudSqlClient"),
+    construct_name("cr-orchestrator-cloudSqlClient"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/cloudsql.client",
     member=cloud_function_service_account.email.apply(
@@ -48,7 +48,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cloud-run-orchestrator-secretmanagerSecretAccessor"),
+    construct_name("cr-orchestrator-secretmanagerSecretAccessor"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/secretmanager.secretAccessor",
     member=cloud_function_service_account.email.apply(
@@ -58,7 +58,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 
 # IAM Binding for Secret Manager access
 secret_accessor_binding = gcp.secretmanager.SecretIamMember(
-    construct_name("cloud-run-orchestrator-secret-accessor-binding"),
+    construct_name("cr-orchestrator-secret-accessor-binding"),
     secret_id=pulumi.Config("cerulean-cloud").require("keyname"),
     role="roles/secretmanager.secretAccessor",
     member=pulumi.Output.concat(
@@ -68,7 +68,7 @@ secret_accessor_binding = gcp.secretmanager.SecretIamMember(
 )
 
 
-service_name = construct_name("cloud-run-orchestrator")
+service_name = construct_name("cr-orchestrator")
 default = gcp.cloudrun.Service(
     service_name,
     name=service_name,
@@ -193,7 +193,7 @@ default = gcp.cloudrun.Service(
     ),
 )
 noauth_iam_policy = gcp.cloudrun.IamPolicy(
-    construct_name("cloud-run-noauth-iam-policy-orchestrator"),
+    construct_name("cr-noauth-iam-policy-orchestrator"),
     location=default.location,
     project=default.project,
     service=default.name,

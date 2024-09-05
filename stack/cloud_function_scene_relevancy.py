@@ -18,7 +18,7 @@ bucket = storage.Bucket(
 
 # Create the Queue for tasks
 queue = cloudtasks.Queue(
-    construct_name("queue-cloud-run-orchestrator"),
+    construct_name("queue-cr-orchestrator"),
     location=pulumi.Config("gcp").require("region"),
     rate_limits=cloudtasks.QueueRateLimitsArgs(
         max_concurrent_dispatches=50,

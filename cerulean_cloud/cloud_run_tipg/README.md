@@ -5,13 +5,13 @@ set `DOCKER_DEFAULT_PLATFORM=linux/amd64` in M1 macbooks
 # Build image
 
 ```shell
-docker build -f Dockerfiles/Dockerfile.cloud_run_tipg -t gcr.io/cerulean-338116/cloud-run-tipg .
+docker build -f Dockerfiles/Dockerfile.cloud_run_tipg -t gcr.io/cerulean-338116/cr-tipg .
 ```
 
 # Debug image
 
 ```shell
-PORT=8080 && docker run --rm -p 8080:${PORT} -e UVICORN_PORT=${PORT} -e DATABASE_URL=${DB_URL} --name cloud_run_tipg gcr.io/cerulean-338116/cloud-run-tipg
+PORT=8080 && docker run --rm -p 8080:${PORT} -e UVICORN_PORT=${PORT} -e DATABASE_URL=${DB_URL} --name cloud_run_tipg gcr.io/cerulean-338116/cr-tipg
 ```
 
 # Extract the SBOM
