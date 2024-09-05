@@ -2,7 +2,7 @@ encryptionsalt: v1:5bZrZv+vt08=:v1:2g/MGwZygH99RO1o:/SYBjfvFWKhefeTSbupB2bXA3G8w
 config:
   aws:region: eu-central-1
   cerulean-cloud-images:weights_bucket: ceruleanml
-  cerulean-cloud-images:weights_name: experiments/2024_08_17_11_03_50_4cls_resnet34_pr512_px1024_100epochs_unet/tracing_cpu_model.pt
+  cerulean-cloud-images:weights_name: experiments/2024_09_04_21_34_24_4cls_resnet34_pr512_px1024_100epochs_unet/tracing_cpu_model.pt
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
