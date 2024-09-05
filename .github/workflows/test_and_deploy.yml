@@ -112,7 +112,7 @@ jobs:
     runs-on: ubuntu-20.04
     environment: test
     needs: [tests]
-    if: github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/feat/new-prod'    
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
