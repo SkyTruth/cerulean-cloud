@@ -11,7 +11,7 @@ from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
 
-function_name = construct_name("cloud-function-historical-run")
+function_name = construct_name("cf-historical-run")
 config_values = {
     "DB_URL": database.sql_instance_url,
     "GCPPROJECT": pulumi.Config("gcp").require("project"),
@@ -36,7 +36,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # Create the single Cloud Storage object, which contains all of the function's
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
-    construct_name("source-cloud-function-historical-run"),
+    construct_name("source-cf-historical-run"),
     name=f"handler.py-{time.time():f}",
     bucket=cloud_function_scene_relevancy.bucket.name,
     source=archive,
@@ -68,7 +68,7 @@ fxn = cloudfunctions.Function(
 )
 
 invoker = cloudfunctions.FunctionIamMember(
-    construct_name("cloud-function-historical-run-invoker"),
+    construct_name("cf-historical-run-invoker"),
     project=fxn.project,
     region=fxn.region,
     cloud_function=fxn.name,
