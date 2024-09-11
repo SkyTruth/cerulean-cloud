@@ -19,9 +19,10 @@ import numpy as np
 import rasterio
 import torch
 import torchvision  # noqa
-from rasterio.features import shapes
+from rasterio.features import geometry_mask, shapes
 from rasterio.io import MemoryFile
 from rasterio.merge import merge as rio_merge
+from rasterio.transform import Affine
 from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
 
@@ -854,19 +855,38 @@ class FASTAIUNETModel(BaseModel):
         if isinstance(scene_array_probs, np.ndarray):
             scene_array_probs = torch.tensor(scene_array_probs)
 
-        features = []
-        for inf_idx, cls_probs in enumerate(scene_array_probs):
-            if inf_idx != self.background_class_idx:
-                features.extend(
-                    self.instances_from_probs(
-                        cls_probs,
-                        p1=self.model_dict["thresholds"]["bbox_score_thresh"],
-                        p2=self.model_dict["thresholds"]["poly_score_thresh"],
-                        p3=self.model_dict["thresholds"]["pixel_score_thresh"],
-                        transform=transform,
-                        addl_props={"inf_idx": inf_idx},
-                    )
-                )
+        # features = []
+        # for inf_idx, cls_probs in enumerate(scene_array_probs):
+        #     if inf_idx != self.background_class_idx:
+        #         features.extend(
+        #             self.instances_from_probs(
+        #                 cls_probs,
+        #                 p1=self.model_dict["thresholds"]["bbox_score_thresh"],
+        #                 p2=self.model_dict["thresholds"]["poly_score_thresh"],
+        #                 p3=self.model_dict["thresholds"]["pixel_score_thresh"],
+        #                 transform=transform,
+        #                 addl_props={"inf_idx": inf_idx},
+        #             )
+        #         )
+        scene_oil_probs = scene_array_probs[[1, 2, 3]].sum(0)
+        features = self.instances_from_probs(
+            scene_oil_probs,
+            p1=self.model_dict["thresholds"]["bbox_score_thresh"],
+            p2=self.model_dict["thresholds"]["poly_score_thresh"],
+            p3=self.model_dict["thresholds"]["pixel_score_thresh"],
+            transform=transform,
+        )
+        for feat in features:
+            mask = geometry_mask(
+                [shape(feat["geometry"])],
+                out_shape=scene_oil_probs.shape,
+                transform=transform,
+                invert=True,
+            )
+            cls_sums = [
+                cls_probs[mask].detach().sum() for cls_probs in scene_array_probs
+            ]
+            feat["properties"]["inf_idx"] = cls_sums.index(max(cls_sums))
 
         return geojson.FeatureCollection(features=features)
 
@@ -876,7 +896,7 @@ class FASTAIUNETModel(BaseModel):
         p1,
         p2,
         p3,
-        transform,
+        transform=Affine.identity(),
         addl_props={},
     ):
         """
