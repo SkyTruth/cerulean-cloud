@@ -868,7 +868,8 @@ class FASTAIUNETModel(BaseModel):
         #                 addl_props={"inf_idx": inf_idx},
         #             )
         #         )
-        scene_oil_probs = scene_array_probs[[1, 2, 3]].sum(0)
+        classes_to_consider = [1, 2, 3]
+        scene_oil_probs = scene_array_probs[classes_to_consider].sum(0)
         features = self.instances_from_probs(
             scene_oil_probs,
             p1=self.model_dict["thresholds"]["bbox_score_thresh"],
@@ -884,9 +885,12 @@ class FASTAIUNETModel(BaseModel):
                 invert=True,
             )
             cls_sums = [
-                cls_probs[mask].detach().sum() for cls_probs in scene_array_probs
+                cls_probs[mask].detach().sum()
+                for cls_probs in scene_array_probs[classes_to_consider]
             ]
-            feat["properties"]["inf_idx"] = cls_sums.index(max(cls_sums))
+            feat["properties"]["inf_idx"] = classes_to_consider[
+                cls_sums.index(max(cls_sums))
+            ]
 
         return geojson.FeatureCollection(features=features)
 
