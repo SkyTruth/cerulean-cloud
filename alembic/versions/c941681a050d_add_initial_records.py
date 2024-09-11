@@ -114,11 +114,11 @@ def upgrade() -> None:
                 tile_width_px=512,  # Used to calculate scale
                 epochs=500,
                 thresholds={
-                    "poly_nms_thresh": 0.2,
+                    "poly_nms_thresh": 0.2,  # Minimum IoU between instances that will keep the higher scoring multipolygon
                     "pixel_nms_thresh": 0.0,  # NOT USED IN UNETS
-                    "bbox_score_thresh": 0.01,
-                    "poly_score_thresh": 0.3,
-                    "pixel_score_thresh": 0.8,
+                    "bbox_score_thresh": 0.0001,  # Smallest bridge value that will connect polygons into a multipolygon
+                    "poly_score_thresh": 0.5,  # Determines the size of the outline of any given polygon
+                    "pixel_score_thresh": 0.9,  # Minimum pixel score that will be required to keep a multipolygon
                     "groundtruth_dice_thresh": 0.0,
                 },
                 backbone_size=34,
