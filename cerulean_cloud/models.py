@@ -836,6 +836,13 @@ class FASTAIUNETModel(BaseModel):
             logging.info("Stitching tile probabilites together!")
             scene_array, transform = rio_merge(ds_tiles)
             return scene_array, transform
+        except Exception as e:
+            print("len(ds_tiles)", len(ds_tiles))
+            print("len(tile_probs_by_class)", len(tile_probs_by_class))
+            print("len(tileset_results)", len(tileset_results))
+            print("len(bounds_list)", len(bounds_list))
+            print("len(tileset_bounds)", len(tileset_bounds))
+            raise e
         finally:
             for ds in ds_tiles:
                 ds.close()
