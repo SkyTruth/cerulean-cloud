@@ -378,6 +378,7 @@ def upgrade() -> None:
         sa.Column(
             "update_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
+        sa.Column("is_duplicate", sa.Boolean),
     )
 
 

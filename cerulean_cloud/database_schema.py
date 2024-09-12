@@ -483,6 +483,7 @@ class HitlSlick(Base):  # noqa
     cls = Column(ForeignKey("cls.id"), nullable=False)
     confidence = Column(Float(53))
     update_time = Column(DateTime, nullable=False, server_default=text("now()"))
+    is_duplicate = Column(Boolean)
 
     cls1 = relationship("Cls")
     slick1 = relationship("Slick")
