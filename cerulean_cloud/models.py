@@ -837,11 +837,11 @@ class FASTAIUNETModel(BaseModel):
             scene_array, transform = rio_merge(ds_tiles)
             return scene_array, transform
         except Exception as e:
-            print("len(ds_tiles)", len(ds_tiles))
-            print("len(tile_probs_by_class)", len(tile_probs_by_class))
-            print("len(tileset_results)", len(tileset_results))
-            print("len(bounds_list)", len(bounds_list))
-            print("len(tileset_bounds)", len(tileset_bounds))
+            # XXX BUG Not sure why, but on certain scenes rio_merge(ds_tiles) errors out.
+            # Notably, tileset_bounds and tileset_results are both empty...???
+            # e.g. S1A_IW_GRDH_1SDV_20240802T025056_20240802T025125_055028_06B441_281B and S1A_IW_GRDH_1SDV_20240728T024243_20240728T024312_054955_06B1BC_0458
+            # Note: might be related to the is_tile_over_water() function NOT thinking that the Caspian Sea is water,
+            # and therefore returning an empty list. If this is the case, then it's unclear why it's not throwing IndexError
             raise e
         finally:
             for ds in ds_tiles:
@@ -862,19 +862,6 @@ class FASTAIUNETModel(BaseModel):
         if isinstance(scene_array_probs, np.ndarray):
             scene_array_probs = torch.tensor(scene_array_probs)
 
-        # features = []
-        # for inf_idx, cls_probs in enumerate(scene_array_probs):
-        #     if inf_idx != self.background_class_idx:
-        #         features.extend(
-        #             self.instances_from_probs(
-        #                 cls_probs,
-        #                 p1=self.model_dict["thresholds"]["bbox_score_thresh"],
-        #                 p2=self.model_dict["thresholds"]["poly_score_thresh"],
-        #                 p3=self.model_dict["thresholds"]["pixel_score_thresh"],
-        #                 transform=transform,
-        #                 addl_props={"inf_idx": inf_idx},
-        #             )
-        #         )
         classes_to_consider = [1, 2, 3]
         scene_oil_probs = scene_array_probs[classes_to_consider].sum(0)
         features = self.instances_from_probs(
