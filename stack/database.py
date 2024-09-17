@@ -73,10 +73,10 @@ sql_instance_url_with_asyncpg = pulumi.Output.concat(
     db_name,
     ":",
     pulumi.Config("db").require_secret("db-password"),
-    "@/",
-    db_name,
-    "?host=/cloudsql/",
+    "@",
     instance.connection_name,
+    "/",
+    db_name,
 )
 sql_instance_url = pulumi.Output.concat(
     "postgresql://",
