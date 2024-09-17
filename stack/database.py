@@ -74,7 +74,7 @@ sql_instance_url_with_asyncpg = pulumi.Output.concat(
     ":",
     pulumi.Config("db").require_secret("db-password"),
     "@",
-    instance.connection_name,
+    instance.first_ip_address,
     "/",
     db_name,
 )
@@ -84,7 +84,7 @@ sql_instance_url = pulumi.Output.concat(
     ":",
     pulumi.Config("db").require_secret("db-password"),
     "@",
-    instance.connection_name,
+    instance.first_ip_address,
     "/",
     db_name,
 )
