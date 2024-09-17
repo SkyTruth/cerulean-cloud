@@ -220,162 +220,174 @@ async def _orchestrate(
     tileset_envelope_bounds = group_bounds_from_list_of_bounds(tileset_list[0])
 
     # Filter out land tiles
-    # XXXBUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
-    # XXXBUG is_tile_over_water throws IndexError if the scene touches the Caspian sea (globe says it is NOT ocean, whereas our cloud_function_scene_relevancy says it is). Example: S1A_IW_GRDH_1SDV_20230727T025332_20230727T025357_049603_05F6F2_AF3E
-
     print(f"{start_time}: Tileset contains before landfilter: {n_offsettiles} tiles")
-    tileset_list = [
-        [b for b in tileset if is_tile_over_water(b)] for tileset in tileset_list
-    ]
+    try:
+        tileset_list = [
+            [b for b in tileset if is_tile_over_water(b)] for tileset in tileset_list
+        ]
+    except ValueError as e:
+        # XXX BUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
+        print(
+            f"{start_time}: WARNING: FAILURE {payload.sceneid} touches antimeridian, and is_tile_over_water() failed!"
+        )
+        return OrchestratorResult(status=str(e))
+
     print(f"{start_time}: Tileset contains after landfilter: ~{n_offsettiles} tiles")
+
+    if len(tileset_list) == 0:
+        # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
+        # WARNING this will return success, but there will be not trace in the DB of your request (i.e. in S1 or Orchestrator tables)
+        # XXX TODO
+        print(f"{start_time}: No tiles to be processed over water {payload.sceneid}")
+        return OrchestratorResult(status="Success (no oceanic tiles)")
+
+    if payload.dry_run:
+        # Only tests code above this point, without actually adding any new data to the database, or running inference.
+        print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
+        return OrchestratorResult(status="Success (dry run)")
 
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
-        if not payload.dry_run:
-            try:
-                async with db_client.session.begin():
-                    trigger = await db_client.get_trigger(trigger=payload.trigger)
-                    layers = [
-                        await db_client.get_layer(layer)
-                        for layer in model_dict["layers"]
-                    ]
-                    sentinel1_grd = await db_client.get_sentinel1_grd(
-                        payload.sceneid,
-                        scene_info,
-                        titiler_client.get_base_tile_url(
-                            payload.sceneid,
-                            rescale=(0, 255),
-                        ),
-                    )
-                    stale_slick_count = (
-                        await db_client.deactivate_stale_slicks_from_scene_id(
-                            payload.sceneid
-                        )
-                    )
-                    print(
-                        f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
-                    )
-                    orchestrator_run = await db_client.add_orchestrator(
-                        start_time,
-                        start_time,
-                        n_basetiles,
-                        n_offsettiles,
-                        os.getenv("GIT_HASH"),
-                        os.getenv("GIT_TAG"),
-                        make_cloud_log_url(
-                            os.getenv("CLOUD_RUN_NAME"),
-                            start_time,
-                            os.getenv("PROJECT_ID"),
-                        ),
-                        zoom,
-                        scale,
-                        scene_bounds,
-                        trigger,
-                        db_model,
-                        sentinel1_grd,
-                    )
-            except:  # noqa: E722
-                await db_client.session.close()
-                raise
-
-            success = True
-            try:
-                print(f"{start_time}: Instantiating inference client.")
-                cloud_run_inference = CloudRunInferenceClient(
-                    url=os.getenv("INFERENCE_URL"),
-                    titiler_client=titiler_client,
-                    sceneid=payload.sceneid,
-                    tileset_envelope_bounds=tileset_envelope_bounds,
-                    image_hw_pixels=tileset_hw_pixels,
-                    layers=layers,
-                    scale=scale,
-                    model_dict=model_dict,
-                )
-
-                # Perform inferences
-                print(f"Inference starting: {start_time}")
-                tileset_results_list = [
-                    await cloud_run_inference.run_parallel_inference(tileset)
-                    for tileset in tileset_list
-                ]
-
-                # Stitch inferences
-                print(f"Stitching results: {start_time}")
-                model = get_model(model_dict)
-                tileset_fc_list = [
-                    model.postprocess_tileset(
-                        tileset_results, [[b] for b in tileset_bounds]
-                    )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
-                    for (tileset_results, tileset_bounds) in zip(
-                        tileset_results_list, tileset_list
-                    )
-                ]
-
-                # Ensemble inferences
-                print(f"Ensembling results: {start_time}")
-                final_ensemble = model.nms_feature_reduction(
-                    features=tileset_fc_list, min_overlaps_to_keep=1
-                )
-
-                if final_ensemble.get("features"):
-                    LAND_MASK_BUFFER_M = 1000
-                    print(
-                        f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
-                    )
-                    for feat in final_ensemble.get("features"):
-                        buffered_gdf = gpd.GeoDataFrame(
-                            geometry=[shape(feat["geometry"])], crs="4326"
-                        )
-                        crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
-                        buffered_gdf["geometry"] = (
-                            buffered_gdf.to_crs(crs_meters)
-                            .buffer(LAND_MASK_BUFFER_M)
-                            .to_crs("4326")
-                        )
-                        intersecting_land = gpd.sjoin(
-                            get_landmask_gdf(),
-                            buffered_gdf,
-                            how="inner",
-                            predicate="intersects",
-                        )
-                        if not intersecting_land.empty:
-                            feat["properties"]["inf_idx"] = model.background_class_idx
-                    # Removed all preprocessing of features from within the
-                    # database session to avoid holidng locks on the
-                    # table while performing un-related calculations.
-                    async with db_client.session.begin():
-                        for feat in final_ensemble.get("features"):
-                            slick = await db_client.add_slick(
-                                orchestrator_run,
-                                sentinel1_grd.start_time,
-                                feat.get("geometry"),
-                                feat.get("properties").get("inf_idx"),
-                                feat.get("properties").get("machine_confidence"),
-                            )
-                            print(f"{start_time}: Added slick: {slick}")
-
-                    AAA_CONFIDENCE_THRESHOLD = 0.5
-                    if any(
-                        feat.get("properties").get("machine_confidence")
-                        > AAA_CONFIDENCE_THRESHOLD
-                        for feat in final_ensemble.get("features")
-                    ):
-                        print(f"{start_time}: Queueing up Automatic AIS Analysis")
-                        add_to_aaa_queue(sentinel1_grd.scene_id)
-
-            except Exception as e:
-                success = False
-                exc = e
-                print(f"{start_time}: {e}")
+        try:
             async with db_client.session.begin():
-                end_time = datetime.now()
-                orchestrator_run.success = success
-                orchestrator_run.inference_end_time = end_time
-                print(f"{start_time}: End time: {end_time}")
-                print(f"{start_time}: Orchestration success: {success}")
-            if success is False:
-                raise exc
+                trigger = await db_client.get_trigger(trigger=payload.trigger)
+                layers = [
+                    await db_client.get_layer(layer) for layer in model_dict["layers"]
+                ]
+                sentinel1_grd = await db_client.get_sentinel1_grd(
+                    payload.sceneid,
+                    scene_info,
+                    titiler_client.get_base_tile_url(
+                        payload.sceneid,
+                        rescale=(0, 255),
+                    ),
+                )
+                stale_slick_count = (
+                    await db_client.deactivate_stale_slicks_from_scene_id(
+                        payload.sceneid
+                    )
+                )
+                print(
+                    f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
+                )
+                orchestrator_run = await db_client.add_orchestrator(
+                    start_time,
+                    start_time,
+                    n_basetiles,
+                    n_offsettiles,
+                    os.getenv("GIT_HASH"),
+                    os.getenv("GIT_TAG"),
+                    make_cloud_log_url(
+                        os.getenv("CLOUD_RUN_NAME"),
+                        start_time,
+                        os.getenv("PROJECT_ID"),
+                    ),
+                    zoom,
+                    scale,
+                    scene_bounds,
+                    trigger,
+                    db_model,
+                    sentinel1_grd,
+                )
+        except:  # noqa: E722
+            await db_client.session.close()
+            raise
 
-        else:
-            print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
+        success = True
+        try:
+            print(f"{start_time}: Instantiating inference client.")
+            cloud_run_inference = CloudRunInferenceClient(
+                url=os.getenv("INFERENCE_URL"),
+                titiler_client=titiler_client,
+                sceneid=payload.sceneid,
+                tileset_envelope_bounds=tileset_envelope_bounds,
+                image_hw_pixels=tileset_hw_pixels,
+                layers=layers,
+                scale=scale,
+                model_dict=model_dict,
+            )
+
+            # Perform inferences
+            print(f"Inference starting: {start_time}")
+            tileset_results_list = [
+                await cloud_run_inference.run_parallel_inference(tileset)
+                for tileset in tileset_list
+            ]
+
+            # Stitch inferences
+            print(f"Stitching results: {start_time}")
+            model = get_model(model_dict)
+            tileset_fc_list = [
+                model.postprocess_tileset(
+                    tileset_results, [[b] for b in tileset_bounds]
+                )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+                for (tileset_results, tileset_bounds) in zip(
+                    tileset_results_list, tileset_list
+                )
+            ]
+
+            # Ensemble inferences
+            print(f"Ensembling results: {start_time}")
+            final_ensemble = model.nms_feature_reduction(
+                features=tileset_fc_list, min_overlaps_to_keep=1
+            )
+
+            if final_ensemble.get("features"):
+                LAND_MASK_BUFFER_M = 1000
+                print(
+                    f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
+                )
+                for feat in final_ensemble.get("features"):
+                    buffered_gdf = gpd.GeoDataFrame(
+                        geometry=[shape(feat["geometry"])], crs="4326"
+                    )
+                    crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
+                    buffered_gdf["geometry"] = (
+                        buffered_gdf.to_crs(crs_meters)
+                        .buffer(LAND_MASK_BUFFER_M)
+                        .to_crs("4326")
+                    )
+                    intersecting_land = gpd.sjoin(
+                        get_landmask_gdf(),
+                        buffered_gdf,
+                        how="inner",
+                        predicate="intersects",
+                    )
+                    if not intersecting_land.empty:
+                        feat["properties"]["inf_idx"] = model.background_class_idx
+                # Removed all preprocessing of features from within the
+                # database session to avoid holidng locks on the
+                # table while performing un-related calculations.
+                async with db_client.session.begin():
+                    for feat in final_ensemble.get("features"):
+                        slick = await db_client.add_slick(
+                            orchestrator_run,
+                            sentinel1_grd.start_time,
+                            feat.get("geometry"),
+                            feat.get("properties").get("inf_idx"),
+                            feat.get("properties").get("machine_confidence"),
+                        )
+                        print(f"{start_time}: Added slick: {slick}")
+
+                AAA_CONFIDENCE_THRESHOLD = 0.5
+                if any(
+                    feat.get("properties").get("machine_confidence")
+                    > AAA_CONFIDENCE_THRESHOLD
+                    for feat in final_ensemble.get("features")
+                ):
+                    print(f"{start_time}: Queueing up Automatic AIS Analysis")
+                    add_to_aaa_queue(sentinel1_grd.scene_id)
+
+        except Exception as e:
+            success = False
+            exc = e
+            print(f"{start_time}: {e}")
+        async with db_client.session.begin():
+            end_time = datetime.now()
+            orchestrator_run.success = success
+            orchestrator_run.inference_end_time = end_time
+            print(f"{start_time}: End time: {end_time}")
+            print(f"{start_time}: Orchestration success: {success}")
+        if success is False:
+            raise exc
     return OrchestratorResult(status="Success")
