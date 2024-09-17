@@ -75,7 +75,7 @@ sql_instance_url_with_asyncpg = pulumi.Output.all(
     db_password,
     instance.ip_addresses,
 ).apply(
-    lambda args: f"postgresql+asyncpg://{args[0]}:{args[1]}@{args[2][0].ip_address}/{args[0]}"
+    lambda args: f"postgresql+asyncpg://{args[0]}:{args[1]}@{args[2][0]['ip_address']}/{args[0]}"
 )
 
 sql_instance_url = pulumi.Output.all(
@@ -83,7 +83,7 @@ sql_instance_url = pulumi.Output.all(
     db_password,
     instance.ip_addresses,
 ).apply(
-    lambda args: f"postgresql://{args[0]}:{args[1]}@{args[2][0].ip_address}/{args[0]}"
+    lambda args: f"postgresql://{args[0]}:{args[1]}@{args[2][0]['ip_address']}/{args[0]}"
 )
 
 sql_instance_url_alembic = pulumi.Output.concat(
