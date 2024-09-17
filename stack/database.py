@@ -68,20 +68,26 @@ database = gcp.sql.Database(
     opts=pulumi.ResourceOptions(depends_on=[users]),
 )
 
-sql_instance_url_with_asyncpg = pulumi.Output.all(
+sql_instance_url_with_asyncpg = pulumi.Output.concat(
+    "postgresql+asyncpg://",
     db_name,
+    ":",
     pulumi.Config("db").require_secret("db-password"),
-    instance.public_ip_address,
-).apply(
-    lambda args: f"postgresql+asyncpg://{args[0]}:{args[1]}@{args[2]}:5432/{args[0]}"
+    "@",
+    instance.connection_name,
+    "/",
+    db_name,
 )
-
-sql_instance_url = pulumi.Output.all(
+sql_instance_url = pulumi.Output.concat(
+    "postgresql://",
     db_name,
+    ":",
     pulumi.Config("db").require_secret("db-password"),
-    instance.public_ip_address,
-).apply(lambda args: f"postgresql://{args[0]}:{args[1]}@{args[2]}:5432/{args[0]}")
-
+    "@/",
+    db_name,
+    "?host=/cloudsql/",
+    instance.connection_name,
+)
 sql_instance_url_alembic = pulumi.Output.concat(
     "postgresql://",
     db_name,
