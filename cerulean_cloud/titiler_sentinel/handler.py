@@ -110,7 +110,7 @@ def viewer(
 app.include_router(S1Endpoints.router, dependencies=[Depends(api_key_auth)])
 
 
-@app.get("/healthz", description="Health Check", tags=["Health Check"])
+@app.get("/health", description="Health Check", tags=["Health Check"])
 def ping() -> Dict:
     """Health check."""
     return {"ping": "pong!"}
