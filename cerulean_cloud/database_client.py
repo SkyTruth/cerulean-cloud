@@ -32,6 +32,10 @@ def get_engine(db_url: str = os.getenv("DB_URL")):
         echo=False,
         # connect_args={"options": f"-c statement_timeout={1000 * 60}"},
         connect_args={"command_timeout": 60},
+        pool_size=1,  # Default pool size
+        max_overflow=0,  # Default max overflow
+        pool_timeout=300,  # Default pool timeout
+        pool_recycle=600,  # Default pool recycle
     )
 
 
