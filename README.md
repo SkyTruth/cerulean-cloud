@@ -2,7 +2,7 @@
 ## Introduction
 For most users, we recommend using the [Cerulean web application](https://cerulean.skytruth.org), which provides a visual interface for exploring the complete set of Cerulean data layers. For users who want to directly access and download oil slick detection data, we provide programmatic free access to an OGC compliant API ([api.cerulean.skytruth.org](https://api.cerulean.skytruth.org/)). Currently, only oil slick detections can be downloaded. Data used for source identification, including AIS tracks, vessel identities, and offshore oil platform locations, cannot be downloaded and can only be accessed via the Cerulean web application.
 API queries can be made programmatically (e.g. a curl request in Python) for direct data access and download. You can also execute API queries within a browser by pasting an API command into your browser’s address bar, which will then show the results of your query, including a helpful paginated map, or download the data directly.
-Below, we provide some working examples of common data queries from our API. This is only a small sample of the types of queries that are possible. To dig deeper, please see our full API docs and check out the current documentation for [tipg](https://developmentseed.org/tipg/) and [CQL-2](https://cran.r-project.org/web/packages/rstac/vignettes/rstac-02-cql2.html), both of which are used by our API.
+Below, we provide some working examples of common data queries from our API. This is only a small sample of the types of queries that are possible. To dig deeper, please see our full API docs and check out the current documentation for [tipg](https://developmentseed.org/tipg/) and [CQL-2](https://web.archive.org/web/20230326001622/https://cran.r-project.org/web/packages/rstac/vignettes/rstac-02-cql2.html), both of which are used by our API.
 ## Example 1. Query by date and time range
 For our first query, let’s return all slick detection data on December 8, 2023, sorted by `slick_timestamp`. To do this, we specify a sorting function (`?sortby=slick_timestamp`) and provide a start and end datetime: 
 `api.cerulean.skytruth.org/collections/public.slick_plus/items?sortby=slick_timestamp&datetime=2023-12-08T00:00:00Z/2023-12-09T00:00:00Z`
@@ -87,7 +87,7 @@ __Decreasing cold starts for Cloud Run__
 
 In order to decrease response time for Cloud Run (especially in the production services, since for test and staging this will increase costs) you can set the minimal instances to 1 to run at any given moment in time (see [documentation](https://cloud.google.com/run/docs/tips/general#:~:text=Using%20minimum%20instances%20to%20reduce%20cold%20starts,-You%20can%20configure&text=You%20should%20set%20a%20number,for%20longer%20than%2010%20seconds.)). Due to a `pulumi` limitation, when the service is first created this property cannot be set so we advise to set this value manually once the deployment has been completed.
 
-__Metrics__
+<!--- __Metrics__
 
 Google Cloud provides nice dashboards for tracking the stability, response time and resource consumption of the cloud resources. The links below point to the PRODUCTION deployment, but for every stack's components you'll find similar dashboards:
 - [Cloud Run orchestrator metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cr-orchestrator/metrics?project=cerulean-338116)
@@ -96,7 +96,7 @@ Google Cloud provides nice dashboards for tracking the stability, response time 
 - [Cloud Run tipg metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cr-tipg/metrics?project=cerulean-338116)
 - [Cloud Function scene relevancy metrics](https://console.cloud.google.com/functions/details/europe-west1/cerulean-cloud-production-cf-scene-relevancy?env=gen1&project=cerulean-338116)
 - [Cloud Function historical run metrics](https://console.cloud.google.com/functions/details/europe-west1/cerulean-cloud-production-cf-historical-run?env=gen1&project=cerulean-338116)
-
+--->
 ## Development
 
 In order to develop in cerulean-cloud repository we recommend the following system wide requirements (for MacOS), in addition to the python specific requirements listed below:
