@@ -234,7 +234,7 @@ async def _orchestrate(
 
     print(f"{start_time}: Tileset contains after landfilter: ~{n_offsettiles} tiles")
 
-    if len(tileset_list) == 0:
+    if not any(set for set in tileset_list):
         # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
         # WARNING this will return success, but there will be not trace in the DB of your request (i.e. in S1 or Orchestrator tables)
         # XXX TODO
