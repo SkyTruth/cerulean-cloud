@@ -51,6 +51,7 @@ default = gcp.cloudrun.Service(
     opts=pulumi.ResourceOptions(depends_on=[secret_accessor_binding]),
     name=service_name,
     location=pulumi.Config("gcp").require("region"),
+    autogenerate_revision_name=True,
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             service_account_name=cloud_function_service_account.email,
