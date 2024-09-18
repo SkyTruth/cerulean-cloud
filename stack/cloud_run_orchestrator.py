@@ -73,6 +73,7 @@ default = gcp.cloudrun.Service(
     service_name,
     name=service_name,
     location=pulumi.Config("gcp").require("region"),
+    autogenerate_revision_name=True,
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             service_account_name=cloud_function_service_account.email,
@@ -166,7 +167,6 @@ default = gcp.cloudrun.Service(
             container_concurrency=1,
         ),
         metadata=dict(
-            name=service_name + "-" + cloud_run_images.cloud_run_orchestrator_sha,
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
                 "autoscaling.knative.dev/maxScale": "45",
