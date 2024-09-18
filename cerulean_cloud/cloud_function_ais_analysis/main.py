@@ -15,7 +15,7 @@ from utils.associate import (
     slick_to_curves,
 )
 
-from cerulean_cloud.database_client import DatabaseClient, get_engine
+from cerulean_cloud.database_client import DatabaseClient, close_engine, get_engine
 
 
 def verify_api_key(request):
@@ -80,10 +80,14 @@ async def handle_aaa_request(request):
         - It uses the `DatabaseClient` for database operations.
     """
     request_json = request.get_json()
-    if not request_json.get("dry_run"):
+
+    if request_json.get("dry_run"):
+        return "Success!"
+
+    try:
         scene_id = request_json.get("scene_id")
         print(f"Running AAA on scene_id: {scene_id}")
-        db_engine = get_engine(db_url=os.getenv("DB_URL"))
+        db_engine = get_engine()
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
                 s1 = await db_client.get_scene_from_id(scene_id)
@@ -140,6 +144,8 @@ async def handle_aaa_request(request):
                                         geojson_fc=traj["geojson_fc"],
                                         geometry=traj["geometry"],
                                     )
+    finally:
+        await close_engine()  # Ensure resources are cleaned up after request
 
     return "Success!"
 

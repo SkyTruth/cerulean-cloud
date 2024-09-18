@@ -30,7 +30,7 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
 )
-from cerulean_cloud.database_client import DatabaseClient, get_engine
+from cerulean_cloud.database_client import DatabaseClient, close_engine, get_engine
 from cerulean_cloud.models import get_model
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
@@ -129,7 +129,7 @@ def get_roda_sentinelhub_client():
 
 def get_database_engine():
     """get database engine"""
-    return get_engine(db_url=os.getenv("DB_URL"))
+    return get_engine()
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
@@ -385,3 +385,9 @@ async def _orchestrate(
         if success is False:
             raise exc
     return OrchestratorResult(status="Success")
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """Close down the engine"""
+    await close_engine()

@@ -8,7 +8,7 @@ from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
 from sqlalchemy import and_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
 
@@ -19,24 +19,26 @@ class InstanceNotFoundError(Exception):
     pass
 
 
-def get_engine(db_url: str = os.getenv("DB_URL")):
-    """get database engine"""
-    # Connect args ref: https://docs.sqlalchemy.org/en/20/core/engines.html#use-the-connect-args-dictionary-parameter
-    # Note: statement timeout is assumed to be in MILIseconds if no unit is
-    # specified (as is the case here)
-    # Ref: https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-STATEMENT-TIMEOUT
-    # Note: specifying a 1 minute timeout per statement, since each orchestrator
-    # run may attempt to execute many statements
-    return create_async_engine(
-        db_url,
-        echo=False,
-        # connect_args={"options": f"-c statement_timeout={1000 * 60}"},
-        connect_args={"command_timeout": 60},
-        pool_size=1,  # Default pool size
-        max_overflow=0,  # Default max overflow
-        pool_timeout=300,  # Default pool timeout
-        pool_recycle=600,  # Default pool recycle
-    )
+DATABASE_URL = os.getenv("DB_URL")
+engine: AsyncEngine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    connect_args={"command_timeout": 60},
+    pool_size=1,
+    max_overflow=0,
+    pool_timeout=300,
+    pool_recycle=600,
+)
+
+
+def get_engine() -> AsyncEngine:
+    """Provide the singleton database engine."""
+    return engine
+
+
+async def close_engine():
+    """Clean up database engine"""
+    await get_engine().dispose()
 
 
 async def get(sess, kls, error_if_absent=True, **kwargs):
