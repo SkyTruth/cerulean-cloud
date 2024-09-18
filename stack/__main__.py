@@ -22,7 +22,6 @@ pulumi.export(
 pulumi.export("cloud_run_tipg_url", cloud_run_tipg.default.statuses[0].url)
 pulumi.export("database_url", database.sql_instance_url)
 pulumi.export("database_instance_name", database.instance.connection_name)
-pulumi.export("database_instance_public_ip", database.instance.public_ip_address)
 pulumi.export("database_url_alembic", database.sql_instance_url_alembic)
 pulumi.export(
     "scene_relevancy_url", cloud_function_scene_relevancy.fxn.https_trigger_url
