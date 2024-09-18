@@ -287,71 +287,72 @@ async def _orchestrate(
                 sentinel1_grd,
             )
 
-        success = True
-        try:
-            print(f"{start_time}: Instantiating inference client.")
-            cloud_run_inference = CloudRunInferenceClient(
-                url=os.getenv("INFERENCE_URL"),
-                titiler_client=titiler_client,
-                sceneid=payload.sceneid,
-                tileset_envelope_bounds=tileset_envelope_bounds,
-                image_hw_pixels=tileset_hw_pixels,
-                layers=layers,
-                scale=scale,
-                model_dict=model_dict,
+    success = True
+    try:
+        print(f"{start_time}: Instantiating inference client.")
+        cloud_run_inference = CloudRunInferenceClient(
+            url=os.getenv("INFERENCE_URL"),
+            titiler_client=titiler_client,
+            sceneid=payload.sceneid,
+            tileset_envelope_bounds=tileset_envelope_bounds,
+            image_hw_pixels=tileset_hw_pixels,
+            layers=layers,
+            scale=scale,
+            model_dict=model_dict,
+        )
+
+        # Perform inferences
+        print(f"Inference starting: {start_time}")
+        tileset_results_list = [
+            await cloud_run_inference.run_parallel_inference(tileset)
+            for tileset in tileset_list
+        ]
+
+        # Stitch inferences
+        print(f"Stitching results: {start_time}")
+        model = get_model(model_dict)
+        tileset_fc_list = [
+            model.postprocess_tileset(
+                tileset_results, [[b] for b in tileset_bounds]
+            )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+            for (tileset_results, tileset_bounds) in zip(
+                tileset_results_list, tileset_list
             )
+        ]
 
-            # Perform inferences
-            print(f"Inference starting: {start_time}")
-            tileset_results_list = [
-                await cloud_run_inference.run_parallel_inference(tileset)
-                for tileset in tileset_list
-            ]
+        # Ensemble inferences
+        print(f"Ensembling results: {start_time}")
+        final_ensemble = model.nms_feature_reduction(
+            features=tileset_fc_list, min_overlaps_to_keep=1
+        )
 
-            # Stitch inferences
-            print(f"Stitching results: {start_time}")
-            model = get_model(model_dict)
-            tileset_fc_list = [
-                model.postprocess_tileset(
-                    tileset_results, [[b] for b in tileset_bounds]
-                )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
-                for (tileset_results, tileset_bounds) in zip(
-                    tileset_results_list, tileset_list
-                )
-            ]
-
-            # Ensemble inferences
-            print(f"Ensembling results: {start_time}")
-            final_ensemble = model.nms_feature_reduction(
-                features=tileset_fc_list, min_overlaps_to_keep=1
+        if final_ensemble.get("features"):
+            LAND_MASK_BUFFER_M = 1000
+            print(
+                f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
             )
-
-            if final_ensemble.get("features"):
-                LAND_MASK_BUFFER_M = 1000
-                print(
-                    f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
+            for feat in final_ensemble.get("features"):
+                buffered_gdf = gpd.GeoDataFrame(
+                    geometry=[shape(feat["geometry"])], crs="4326"
                 )
-                for feat in final_ensemble.get("features"):
-                    buffered_gdf = gpd.GeoDataFrame(
-                        geometry=[shape(feat["geometry"])], crs="4326"
-                    )
-                    crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
-                    buffered_gdf["geometry"] = (
-                        buffered_gdf.to_crs(crs_meters)
-                        .buffer(LAND_MASK_BUFFER_M)
-                        .to_crs("4326")
-                    )
-                    intersecting_land = gpd.sjoin(
-                        get_landmask_gdf(),
-                        buffered_gdf,
-                        how="inner",
-                        predicate="intersects",
-                    )
-                    if not intersecting_land.empty:
-                        feat["properties"]["inf_idx"] = model.background_class_idx
-                # Removed all preprocessing of features from within the
-                # database session to avoid holidng locks on the
-                # table while performing un-related calculations.
+                crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
+                buffered_gdf["geometry"] = (
+                    buffered_gdf.to_crs(crs_meters)
+                    .buffer(LAND_MASK_BUFFER_M)
+                    .to_crs("4326")
+                )
+                intersecting_land = gpd.sjoin(
+                    get_landmask_gdf(),
+                    buffered_gdf,
+                    how="inner",
+                    predicate="intersects",
+                )
+                if not intersecting_land.empty:
+                    feat["properties"]["inf_idx"] = model.background_class_idx
+            # Removed all preprocessing of features from within the
+            # database session to avoid holidng locks on the
+            # table while performing un-related calculations.
+            async with DatabaseClient(db_engine) as db_client:
                 async with db_client.session.begin():
                     for feat in final_ensemble.get("features"):
                         slick = await db_client.add_slick(
@@ -363,27 +364,28 @@ async def _orchestrate(
                         )
                         print(f"{start_time}: Added slick: {slick}")
 
-                AAA_CONFIDENCE_THRESHOLD = 0.5
-                if any(
-                    feat.get("properties").get("machine_confidence")
-                    > AAA_CONFIDENCE_THRESHOLD
-                    for feat in final_ensemble.get("features")
-                ):
-                    print(f"{start_time}: Queueing up Automatic AIS Analysis")
-                    add_to_aaa_queue(sentinel1_grd.scene_id)
+            AAA_CONFIDENCE_THRESHOLD = 0.5
+            if any(
+                feat.get("properties").get("machine_confidence")
+                > AAA_CONFIDENCE_THRESHOLD
+                for feat in final_ensemble.get("features")
+            ):
+                print(f"{start_time}: Queueing up Automatic AIS Analysis")
+                add_to_aaa_queue(sentinel1_grd.scene_id)
 
-        except Exception as e:
-            success = False
-            exc = e
-            print(f"{start_time}: {e}")
+    except Exception as e:
+        success = False
+        exc = e
+        print(f"{start_time}: {e}")
+    async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
             end_time = datetime.now()
             orchestrator_run.success = success
             orchestrator_run.inference_end_time = end_time
             print(f"{start_time}: End time: {end_time}")
             print(f"{start_time}: Orchestration success: {success}")
-        if success is False:
-            raise exc
+    if success is False:
+        raise exc
     return OrchestratorResult(status="Success")
 
 
