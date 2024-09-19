@@ -19,16 +19,45 @@ class InstanceNotFoundError(Exception):
     pass
 
 
-DATABASE_URL = os.getenv("DB_URL")
-engine: AsyncEngine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    connect_args={"command_timeout": 60},
-    pool_size=1,
-    max_overflow=0,
-    pool_timeout=300,
-    pool_recycle=600,
-)
+def get_database_url() -> str:
+    """
+    Retrieve the database URL from the environment variable.
+
+    Raises:
+        EnvironmentError: If the DB_URL environment variable is not set.
+
+    Returns:
+        str: The database URL.
+    """
+    database_url = os.getenv("DB_URL")
+    if not database_url:
+        raise EnvironmentError("DB_URL environment variable is not set.")
+    return database_url
+
+
+def create_new_engine(db_url: str) -> AsyncEngine:
+    """
+    Create a new AsyncEngine instance.
+
+    Args:
+        db_url (str): The database URL.
+
+    Returns:
+        AsyncEngine: The SQLAlchemy AsyncEngine instance.
+    """
+    return create_async_engine(
+        db_url,
+        echo=False,
+        connect_args={"command_timeout": 60},
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=300,
+        pool_recycle=600,
+    )
+
+
+# Module-level variable to hold the singleton engine instance
+_engine: Optional[AsyncEngine] = None
 
 
 def get_engine(db_url: Optional[str] = None) -> AsyncEngine:
@@ -38,33 +67,28 @@ def get_engine(db_url: Optional[str] = None) -> AsyncEngine:
     Args:
         db_url (Optional[str]): The database URL. If provided, a new engine is created.
 
+    Raises:
+        EnvironmentError: If db_url is not provided and DB_URL is not set.
+
     Returns:
         AsyncEngine: The SQLAlchemy AsyncEngine instance.
     """
-    if db_url:
-        return create_async_engine(
-            db_url,
-            echo=False,
-            connect_args={"command_timeout": 60},
-            pool_size=1,
-            max_overflow=0,
-            pool_timeout=300,
-            pool_recycle=600,
-        )
-    return engine
+    global _engine
+
+    if _engine is None:
+        _engine = create_new_engine(db_url if db_url else get_database_url())
+
+    return _engine
 
 
-async def close_engine(engine_to_close: Optional[AsyncEngine] = None):
+async def close_engine() -> None:
     """
-    Close the provided engine or the singleton engine if none is provided.
-
-    Args:
-        engine_to_close (Optional[AsyncEngine]): The engine to close.
+    Close the singleton database engine.
     """
-    if engine_to_close:
-        await engine_to_close.dispose()
-    else:
-        await engine.dispose()
+    global _engine
+    if _engine:
+        await _engine.dispose()
+        _engine = None
 
 
 async def get(sess, kls, error_if_absent=True, **kwargs):
