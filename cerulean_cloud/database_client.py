@@ -31,14 +31,40 @@ engine: AsyncEngine = create_async_engine(
 )
 
 
-def get_engine() -> AsyncEngine:
-    """Provide the singleton database engine."""
+def get_engine(db_url: Optional[str] = None) -> AsyncEngine:
+    """
+    Provide the singleton database engine or create a new one if db_url is provided.
+
+    Args:
+        db_url (Optional[str]): The database URL. If provided, a new engine is created.
+
+    Returns:
+        AsyncEngine: The SQLAlchemy AsyncEngine instance.
+    """
+    if db_url:
+        return create_async_engine(
+            db_url,
+            echo=False,
+            connect_args={"command_timeout": 60},
+            pool_size=1,
+            max_overflow=0,
+            pool_timeout=300,
+            pool_recycle=600,
+        )
     return engine
 
 
-async def close_engine():
-    """Clean up database engine"""
-    await get_engine().dispose()
+async def close_engine(engine_to_close: Optional[AsyncEngine] = None):
+    """
+    Close the provided engine or the singleton engine if none is provided.
+
+    Args:
+        engine_to_close (Optional[AsyncEngine]): The engine to close.
+    """
+    if engine_to_close:
+        await engine_to_close.dispose()
+    else:
+        await engine.dispose()
 
 
 async def get(sess, kls, error_if_absent=True, **kwargs):
