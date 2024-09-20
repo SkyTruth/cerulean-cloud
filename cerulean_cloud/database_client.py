@@ -81,6 +81,16 @@ def get_engine(db_url: Optional[str] = None) -> AsyncEngine:
     return _engine
 
 
+async def close_engine() -> None:
+    """
+    Close the singleton database engine.
+    """
+    global _engine
+    if _engine:
+        await _engine.dispose()
+        _engine = None
+
+
 async def get(sess, kls, error_if_absent=True, **kwargs):
     """Return instance if exists else None"""
     res = await sess.execute(select(kls).filter_by(**kwargs))
@@ -201,6 +211,19 @@ class DatabaseClient:
             sentinel1_grd1=sentinel1_grd,
         )
         return orchestrator_run
+
+    async def get_orchestrator(self, orchestrator_run_id, error_on_none=True):
+        """Retrieve one or none orchestrator_run objects"""
+        stmt = select(db.OrchestratorRun).where(
+            db.OrchestratorRun.id == orchestrator_run_id
+        )
+        result = await self.session.execute(stmt)
+        res = result.scalar_one_or_none()
+        if error_on_none and res is None:
+            raise OrchestratorRunNotFoundError(
+                f"OrchestratorRun with ID {orchestrator_run_id} not found."
+            )
+        return res
 
     async def add_slick(
         self,
@@ -361,3 +384,9 @@ class DatabaseClient:
         return result.rowcount
 
     # EditTheDatabase
+
+
+class OrchestratorRunNotFoundError(Exception):
+    """Raised when an OrchestratorRun instance is not found in the database."""
+
+    pass

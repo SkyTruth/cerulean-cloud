@@ -30,7 +30,7 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
 )
-from cerulean_cloud.database_client import DatabaseClient, get_engine
+from cerulean_cloud.database_client import DatabaseClient, close_engine, get_engine
 from cerulean_cloud.models import get_model
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
@@ -286,6 +286,7 @@ async def _orchestrate(
                 db_model,
                 sentinel1_grd,
             )
+            orchestrator_run_id = orchestrator_run.id
 
     success = True
     try:
@@ -379,11 +380,19 @@ async def _orchestrate(
         print(f"{start_time}: {e}")
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
+            or_refreshed = await db_client.get_orchestrator(orchestrator_run_id)
+
             end_time = datetime.now()
-            orchestrator_run.success = success
-            orchestrator_run.inference_end_time = end_time
+            or_refreshed.success = success
+            or_refreshed.inference_end_time = end_time
             print(f"{start_time}: End time: {end_time}")
             print(f"{start_time}: Orchestration success: {success}")
     if success is False:
         raise exc
     return OrchestratorResult(status="Success")
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """Close down the engine"""
+    await close_engine()
