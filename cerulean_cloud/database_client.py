@@ -210,20 +210,17 @@ class DatabaseClient:
             model1=model,
             sentinel1_grd1=sentinel1_grd,
         )
+        await self.session.flush()
+        await self.session.refresh(orchestrator_run)
         return orchestrator_run
 
-    async def get_orchestrator(self, orchestrator_run_id, error_on_none=True):
+    async def get_orchestrator(self, orchestrator_run_id):
         """Retrieve one or none orchestrator_run objects"""
-        stmt = select(db.OrchestratorRun).where(
-            db.OrchestratorRun.id == orchestrator_run_id
+        return await get(
+            self.session,
+            db.OrchestratorRun,
+            id=orchestrator_run_id,
         )
-        result = await self.session.execute(stmt)
-        res = result.scalar_one_or_none()
-        if error_on_none and res is None:
-            raise OrchestratorRunNotFoundError(
-                f"OrchestratorRun with ID {orchestrator_run_id} not found."
-            )
-        return res
 
     async def add_slick(
         self,
