@@ -81,16 +81,6 @@ def get_engine(db_url: Optional[str] = None) -> AsyncEngine:
     return _engine
 
 
-async def close_engine() -> None:
-    """
-    Close the singleton database engine.
-    """
-    global _engine
-    if _engine:
-        await _engine.dispose()
-        _engine = None
-
-
 async def get(sess, kls, error_if_absent=True, **kwargs):
     """Return instance if exists else None"""
     res = await sess.execute(select(kls).filter_by(**kwargs))
