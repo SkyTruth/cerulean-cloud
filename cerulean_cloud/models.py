@@ -771,7 +771,7 @@ class FASTAIUNETModel(BaseModel):
         Returns:
             str: A JSON string containing the base64 encoded tensor.
         """
-        return json.dumps(tensor_to_base64(pred))
+        return json.dumps(tensor_to_base64(pred.to("cpu"))) #put tensor on cpu before serializing
 
     def deserialize(self, json_string):
         """
