@@ -71,6 +71,7 @@ class BaseModel:
         try:
             if self.model is None:
                 self.model = torch.jit.load(self.model_path_local, map_location="cpu")
+                self.model.to(self.device)
                 self.model.eval()
         except Exception as e:
             logging.error("Error loading model: %s", e, exc_info=True)
@@ -88,7 +89,7 @@ class BaseModel:
         self.load()  # Load model into memory
         preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
         raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
-        inference_results = self.postprocess_tiles(raw_preds)  # Postprocess inference
+        inference_results = self.postprocess_tiles(raw_preds,preprocessed_tensors)  # Postprocess inference
         return InferenceResultStack(stack=inference_results)
 
     def preprocess_tiles(self, inf_stack):
@@ -109,7 +110,7 @@ class BaseModel:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
+    def postprocess_tiles(self, raw_preds, preprocessed_tensors=None) -> List[InferenceResult]:
         """
         Process and stack the raw_preds of predictions. This method should be implemented by subclasses.
 
@@ -253,7 +254,7 @@ class MASKRCNNModel(BaseModel):
 
         return self.model(stack_tensors)[1]
 
-    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
+    def postprocess_tiles(self, raw_preds, preprocessed_tensors=None) -> List[InferenceResult]:
         """
         Process and stack the raw_preds of MASKRCNN predictions.
 
@@ -738,7 +739,7 @@ class FASTAIUNETModel(BaseModel):
         """
         return self.model(preprocessed_tensors)
 
-    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
+    def postprocess_tiles(self, raw_preds, preprocessed_tensors) -> List[InferenceResult]:
         """
         Applies a softmax function to the raw predictions from FASTAIUNET, serializes them,
         and returns a list of InferenceResults with serialized data.
@@ -750,6 +751,7 @@ class FASTAIUNETModel(BaseModel):
         Returns:
             List[InferenceResult]: A list of InferenceResults with serialized prediction data.
         """
+        print("Tensor of shape",preprocessed_tensors.shape,"is now accessible in postprocess_tiles")
         processed_preds = [
             torch.nn.functional.softmax(pred, dim=0) for pred in raw_preds
         ]
