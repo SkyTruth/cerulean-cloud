@@ -9,8 +9,10 @@ needs env vars:
 - INFERENCE_URL
 """
 
+import logging
 import os
 import urllib.parse as urlparse
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
@@ -18,7 +20,7 @@ import geopandas as gpd
 import morecantile
 import numpy as np
 import supermercado
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
 from shapely.geometry import shape
@@ -36,9 +38,13 @@ from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
-app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
-# Allow CORS for local debugging
-app.add_middleware(CORSMiddleware, allow_origins=["*"])
+# Configure logger
+logger = logging.getLogger("orchestrate")
+handler = logging.StreamHandler()
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 landmask_gdf = None
 
@@ -127,9 +133,23 @@ def get_roda_sentinelhub_client():
     return RodaSentinelHubClient()
 
 
-def get_database_engine():
-    """get database engine"""
-    return get_engine(db_url=os.getenv("DB_URL"))
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """create an engine that persists for the lifetime of the app"""
+    app.state.database_engine = get_engine()
+    try:
+        yield
+    finally:
+        await app.state.database_engine.dispose()
+
+
+app = FastAPI(
+    title="Cloud Run orchestrator",
+    dependencies=[Depends(api_key_auth)],
+    lifespan=lifespan,
+)
+# Allow CORS for local debugging
+app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
@@ -146,15 +166,51 @@ def ping() -> Dict:
 )
 async def orchestrate(
     payload: OrchestratorInput,
+    request: Request,
     tiler=Depends(get_tiler),
     titiler_client=Depends(get_titiler_client),
     roda_sentinelhub_client=Depends(get_roda_sentinelhub_client),
-    db_engine=Depends(get_database_engine),
 ) -> Dict:
     """orchestrate"""
-    return await _orchestrate(
-        payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
-    )
+    db_engine = request.app.state.database_engine
+    try:
+        return await _orchestrate(
+            payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
+        )
+    except DatabaseError as db_err:
+        # Handle database-related errors
+        logger.error(
+            f"Database error during orchestration for sceneid {payload.sceneid}: {db_err}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="A database error occurred while processing your request.",
+        ) from db_err
+    except ValidationError as val_err:
+        # Handle payload validation errors
+        logger.error(f"Validation error for payload {payload}: {val_err}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid input data provided.",
+        ) from val_err
+    except InferenceError as inf_err:
+        # Handle inference-related errors
+        logger.error(
+            f"Inference error during processing sceneid {payload.sceneid}: {inf_err}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="An error occurred during the inference process.",
+        ) from inf_err
+    except Exception as e:
+        # Handle unexpected errors
+        logger.exception(
+            f"Unexpected error during orchestration for sceneid {payload.sceneid}: {e}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred. Please try again later.",
+        ) from e
 
 
 def is_tile_over_water(tile_bounds: List[float]) -> bool:
@@ -286,72 +342,74 @@ async def _orchestrate(
                 db_model,
                 sentinel1_grd,
             )
+            orchestrator_run_id = orchestrator_run.id
 
-        success = True
-        try:
-            print(f"{start_time}: Instantiating inference client.")
-            cloud_run_inference = CloudRunInferenceClient(
-                url=os.getenv("INFERENCE_URL"),
-                titiler_client=titiler_client,
-                sceneid=payload.sceneid,
-                tileset_envelope_bounds=tileset_envelope_bounds,
-                image_hw_pixels=tileset_hw_pixels,
-                layers=layers,
-                scale=scale,
-                model_dict=model_dict,
+    success = True
+    try:
+        print(f"{start_time}: Instantiating inference client.")
+        cloud_run_inference = CloudRunInferenceClient(
+            url=os.getenv("INFERENCE_URL"),
+            titiler_client=titiler_client,
+            sceneid=payload.sceneid,
+            tileset_envelope_bounds=tileset_envelope_bounds,
+            image_hw_pixels=tileset_hw_pixels,
+            layers=layers,
+            scale=scale,
+            model_dict=model_dict,
+        )
+
+        # Perform inferences
+        print(f"Inference starting: {start_time}")
+        tileset_results_list = [
+            await cloud_run_inference.run_parallel_inference(tileset)
+            for tileset in tileset_list
+        ]
+
+        # Stitch inferences
+        print(f"Stitching results: {start_time}")
+        model = get_model(model_dict)
+        tileset_fc_list = [
+            model.postprocess_tileset(
+                tileset_results, [[b] for b in tileset_bounds]
+            )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+            for (tileset_results, tileset_bounds) in zip(
+                tileset_results_list, tileset_list
             )
+        ]
 
-            # Perform inferences
-            print(f"Inference starting: {start_time}")
-            tileset_results_list = [
-                await cloud_run_inference.run_parallel_inference(tileset)
-                for tileset in tileset_list
-            ]
+        # Ensemble inferences
+        print(f"Ensembling results: {start_time}")
+        final_ensemble = model.nms_feature_reduction(
+            features=tileset_fc_list, min_overlaps_to_keep=1
+        )
 
-            # Stitch inferences
-            print(f"Stitching results: {start_time}")
-            model = get_model(model_dict)
-            tileset_fc_list = [
-                model.postprocess_tileset(
-                    tileset_results, [[b] for b in tileset_bounds]
-                )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
-                for (tileset_results, tileset_bounds) in zip(
-                    tileset_results_list, tileset_list
-                )
-            ]
-
-            # Ensemble inferences
-            print(f"Ensembling results: {start_time}")
-            final_ensemble = model.nms_feature_reduction(
-                features=tileset_fc_list, min_overlaps_to_keep=1
+        if final_ensemble.get("features"):
+            LAND_MASK_BUFFER_M = 1000
+            print(
+                f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
             )
-
-            if final_ensemble.get("features"):
-                LAND_MASK_BUFFER_M = 1000
-                print(
-                    f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
+            for feat in final_ensemble.get("features"):
+                buffered_gdf = gpd.GeoDataFrame(
+                    geometry=[shape(feat["geometry"])], crs="4326"
                 )
-                for feat in final_ensemble.get("features"):
-                    buffered_gdf = gpd.GeoDataFrame(
-                        geometry=[shape(feat["geometry"])], crs="4326"
-                    )
-                    crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
-                    buffered_gdf["geometry"] = (
-                        buffered_gdf.to_crs(crs_meters)
-                        .buffer(LAND_MASK_BUFFER_M)
-                        .to_crs("4326")
-                    )
-                    intersecting_land = gpd.sjoin(
-                        get_landmask_gdf(),
-                        buffered_gdf,
-                        how="inner",
-                        predicate="intersects",
-                    )
-                    if not intersecting_land.empty:
-                        feat["properties"]["inf_idx"] = model.background_class_idx
-                # Removed all preprocessing of features from within the
-                # database session to avoid holidng locks on the
-                # table while performing un-related calculations.
+                crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
+                buffered_gdf["geometry"] = (
+                    buffered_gdf.to_crs(crs_meters)
+                    .buffer(LAND_MASK_BUFFER_M)
+                    .to_crs("4326")
+                )
+                intersecting_land = gpd.sjoin(
+                    get_landmask_gdf(),
+                    buffered_gdf,
+                    how="inner",
+                    predicate="intersects",
+                )
+                if not intersecting_land.empty:
+                    feat["properties"]["inf_idx"] = model.background_class_idx
+            # Removed all preprocessing of features from within the
+            # database session to avoid holidng locks on the
+            # table while performing un-related calculations.
+            async with DatabaseClient(db_engine) as db_client:
                 async with db_client.session.begin():
                     for feat in final_ensemble.get("features"):
                         slick = await db_client.add_slick(
@@ -363,25 +421,46 @@ async def _orchestrate(
                         )
                         print(f"{start_time}: Added slick: {slick}")
 
-                AAA_CONFIDENCE_THRESHOLD = 0.5
-                if any(
-                    feat.get("properties").get("machine_confidence")
-                    > AAA_CONFIDENCE_THRESHOLD
-                    for feat in final_ensemble.get("features")
-                ):
-                    print(f"{start_time}: Queueing up Automatic AIS Analysis")
-                    add_to_aaa_queue(sentinel1_grd.scene_id)
+            AAA_CONFIDENCE_THRESHOLD = 0.5
+            if any(
+                feat.get("properties").get("machine_confidence")
+                > AAA_CONFIDENCE_THRESHOLD
+                for feat in final_ensemble.get("features")
+            ):
+                print(f"{start_time}: Queueing up Automatic AIS Analysis")
+                add_to_aaa_queue(sentinel1_grd.scene_id)
 
-        except Exception as e:
-            success = False
-            exc = e
-            print(f"{start_time}: {e}")
+    except Exception as e:
+        success = False
+        exc = e
+        print(f"{start_time}: {e}")
+    async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
+            or_refreshed = await db_client.get_orchestrator(orchestrator_run_id)
+
             end_time = datetime.now()
-            orchestrator_run.success = success
-            orchestrator_run.inference_end_time = end_time
+            or_refreshed.success = success
+            or_refreshed.inference_end_time = end_time
             print(f"{start_time}: End time: {end_time}")
             print(f"{start_time}: Orchestration success: {success}")
-        if success is False:
-            raise exc
+    if success is False:
+        raise exc
     return OrchestratorResult(status="Success")
+
+
+class DatabaseError(Exception):
+    """DatabaseError"""
+
+    pass
+
+
+class ValidationError(Exception):
+    """ValidationError"""
+
+    pass
+
+
+class InferenceError(Exception):
+    """InferenceError"""
+
+    pass

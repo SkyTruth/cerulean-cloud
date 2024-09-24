@@ -8,7 +8,7 @@ from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
 from sqlalchemy import and_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
 
@@ -19,24 +19,58 @@ class InstanceNotFoundError(Exception):
     pass
 
 
-def get_engine(db_url: str = os.getenv("DB_URL")):
-    """get database engine"""
-    # Connect args ref: https://docs.sqlalchemy.org/en/20/core/engines.html#use-the-connect-args-dictionary-parameter
-    # Note: statement timeout is assumed to be in MILIseconds if no unit is
-    # specified (as is the case here)
-    # Ref: https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-STATEMENT-TIMEOUT
-    # Note: specifying a 1 minute timeout per statement, since each orchestrator
-    # run may attempt to execute many statements
+def get_database_url() -> str:
+    """
+    Retrieve the database URL from the environment variable.
+
+    Raises:
+        EnvironmentError: If the DB_URL environment variable is not set.
+
+    Returns:
+        str: The database URL.
+    """
+    database_url = os.getenv("DB_URL")
+    if not database_url:
+        raise EnvironmentError("DB_URL environment variable is not set.")
+    return database_url
+
+
+def create_new_engine(db_url: str) -> AsyncEngine:
+    """
+    Create a new AsyncEngine instance.
+
+    Args:
+        db_url (str): The database URL.
+
+    Returns:
+        AsyncEngine: The SQLAlchemy AsyncEngine instance.
+    """
     return create_async_engine(
         db_url,
         echo=False,
-        # connect_args={"options": f"-c statement_timeout={1000 * 60}"},
         connect_args={"command_timeout": 60},
-        pool_size=1,  # Default pool size
-        max_overflow=0,  # Default max overflow
-        pool_timeout=300,  # Default pool timeout
-        pool_recycle=600,  # Default pool recycle
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=300,
+        pool_recycle=600,
     )
+
+
+def get_engine(db_url: Optional[str] = None) -> AsyncEngine:
+    """
+    Create and return a new database engine.
+
+    Args:
+        db_url (Optional[str]): The database URL. If provided, a new engine is created.
+
+    Raises:
+        EnvironmentError: If db_url is not provided and DB_URL is not set.
+
+    Returns:
+        AsyncEngine: The SQLAlchemy AsyncEngine instance.
+    """
+    db_url = db_url if db_url else get_database_url()
+    return create_new_engine(db_url)
 
 
 async def get(sess, kls, error_if_absent=True, **kwargs):
@@ -158,7 +192,17 @@ class DatabaseClient:
             model1=model,
             sentinel1_grd1=sentinel1_grd,
         )
+        await self.session.flush()
+        await self.session.refresh(orchestrator_run)
         return orchestrator_run
+
+    async def get_orchestrator(self, orchestrator_run_id):
+        """Retrieve one or none orchestrator_run objects"""
+        return await get(
+            self.session,
+            db.OrchestratorRun,
+            id=orchestrator_run_id,
+        )
 
     async def add_slick(
         self,
