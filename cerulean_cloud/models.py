@@ -938,6 +938,14 @@ class FASTAIUNETModel(BaseModel):
         # logging.info(f"reduced_labels: {len(reduced_labels)}")
 
         features = []
+
+        zero_mask = (raster == 0)
+        shapes = rasterio.features.shapes(
+                zero_mask.astype(np.uint8), mask=zero_mask, transform=transform
+        )
+        polygons = [shape(geom) for geom, value in shapes if value == 1]
+        scene_edge = MultiPolygon(polygons).buffer(.01)
+
         # Process into feature collections based on unique p1 labels
         for p1_label in reduced_labels:
             mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
@@ -950,18 +958,19 @@ class FASTAIUNETModel(BaseModel):
             # Ensure there are polygons left after trimming to process into a MultiPolygon
             if polygons:
                 multipolygon = MultiPolygon(polygons)
-                features.append(
-                    geojson.Feature(
-                        geometry=multipolygon,
-                        properties={
-                            "mean_conf": float(np.mean(masked_raster)),
-                            "median_conf": float(np.median(masked_raster)),
-                            "max_conf": float(np.max(masked_raster)),
-                            "machine_confidence": float(np.median(masked_raster)),
-                            **addl_props,
-                        },
+                if not multipolygon.intersects(scene_edge):
+                    features.append(
+                        geojson.Feature(
+                            geometry=multipolygon,
+                            properties={
+                                "mean_conf": float(np.mean(masked_raster)),
+                                "median_conf": float(np.median(masked_raster)),
+                                "max_conf": float(np.max(masked_raster)),
+                                "machine_confidence": float(np.median(masked_raster)),
+                                **addl_props,
+                            },
+                        )
                     )
-                )
 
         return features
 
