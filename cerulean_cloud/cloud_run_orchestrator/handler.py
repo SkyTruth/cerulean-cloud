@@ -9,6 +9,7 @@ needs env vars:
 - INFERENCE_URL
 """
 
+import gc
 import logging
 import os
 import urllib.parse as urlparse
@@ -46,21 +47,15 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-landmask_gdf = None
-
 
 def get_landmask_gdf():
     """
     Retrieves the GeoDataFrame representing the land mask.
-    This function uses lazy initialization to load the land mask data from a .shp file
-    only upon the first call. Subsequent calls return the stored GeoDataFrame.
     Returns:
         GeoDataFrame: The GeoDataFrame object representing the land mask, with CRS set to "EPSG:3857".
     """
-    global landmask_gdf
-    if landmask_gdf is None:
-        mask_path = "/app/cerulean_cloud/cloud_run_orchestrator/gadmLandMask_simplified/gadmLandMask_simplified.shp"
-        landmask_gdf = gpd.read_file(mask_path).set_crs("4326")
+    mask_path = "/app/cerulean_cloud/cloud_run_orchestrator/gadmLandMask_simplified/gadmLandMask_simplified.shp"
+    landmask_gdf = gpd.read_file(mask_path).set_crs("4326")
     return landmask_gdf
 
 
@@ -388,6 +383,7 @@ async def _orchestrate(
             print(
                 f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
             )
+            landmask_gdf = get_landmask_gdf()
             for feat in final_ensemble.get("features"):
                 buffered_gdf = gpd.GeoDataFrame(
                     geometry=[shape(feat["geometry"])], crs="4326"
@@ -399,15 +395,19 @@ async def _orchestrate(
                     .to_crs("4326")
                 )
                 intersecting_land = gpd.sjoin(
-                    get_landmask_gdf(),
+                    landmask_gdf,
                     buffered_gdf,
                     how="inner",
                     predicate="intersects",
                 )
                 if not intersecting_land.empty:
                     feat["properties"]["inf_idx"] = model.background_class_idx
+
+                del buffered_gdf, crs_meters, intersecting_land
+                gc.collect()  # Force garbage collection
+
             # Removed all preprocessing of features from within the
-            # database session to avoid holidng locks on the
+            # database session to avoid holding locks on the
             # table while performing un-related calculations.
             async with DatabaseClient(db_engine) as db_client:
                 async with db_client.session.begin():
@@ -429,6 +429,15 @@ async def _orchestrate(
             ):
                 print(f"{start_time}: Queueing up Automatic AIS Analysis")
                 add_to_aaa_queue(sentinel1_grd.scene_id)
+
+        del (
+            final_ensemble,
+            tileset_fc_list,
+            tileset_results_list,
+            tileset_list,
+            landmask_gdf,
+        )
+        gc.collect()  # Force garbage collection
 
     except Exception as e:
         success = False
