@@ -752,8 +752,11 @@ class FASTAIUNETModel(BaseModel):
             List[InferenceResult]: A list of InferenceResults with serialized prediction data.
         """
         print("Tensor of shape",preprocessed_tensors.shape,"is now accessible in postprocess_tiles")
+        #create a mask of the empty parts of the tile used to adjust probabilities to zero
+        raw_preds_masked = (raw_preds * (preprocessed_tensors!=0).int())
+        
         processed_preds = [
-            torch.nn.functional.softmax(pred, dim=0) for pred in raw_preds
+            torch.nn.functional.softmax(pred, dim=0) for pred in raw_preds_masked
         ]
 
         inference_results = [
