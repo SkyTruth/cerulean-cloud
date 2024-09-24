@@ -756,7 +756,7 @@ class FASTAIUNETModel(BaseModel):
         zeros_mask = (preprocessed_tensors!=0).int()
     
         processed_preds = [
-            torch.nn.functional.softmax(pred, dim=0)*zeros_mask for pred in raw_preds
+            torch.nn.functional.softmax(pred, dim=0)*zeros_mask[i] for i,pred in enumerate(raw_preds)
         ]
 
         inference_results = [
