@@ -15,7 +15,11 @@ from utils.associate import (
     slick_to_curves,
 )
 
-from cerulean_cloud.database_client import DatabaseClient, close_engine, get_engine
+from cerulean_cloud.database_client import DatabaseClient, get_engine
+
+# Initialize the database engine globally to reuse across requests
+# This improves performance by avoiding the overhead of creating a new engine for each request
+DB_ENGINE = get_engine()
 
 
 def verify_api_key(request):
@@ -61,7 +65,10 @@ def main(request):
     verify_api_key(request)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    res = loop.run_until_complete(handle_aaa_request(request))
+    try:
+        res = loop.run_until_complete(handle_aaa_request(request))
+    finally:
+        loop.close()  # Ensure the event loop is properly closed
     return res
 
 
@@ -84,68 +91,69 @@ async def handle_aaa_request(request):
     if request_json.get("dry_run"):
         return "Success!"
 
-    try:
-        scene_id = request_json.get("scene_id")
-        print(f"Running AAA on scene_id: {scene_id}")
-        db_engine = get_engine()
-        async with DatabaseClient(db_engine) as db_client:
-            async with db_client.session.begin():
-                s1 = await db_client.get_scene_from_id(scene_id)
-                AAA_CONFIDENCE_THRESHOLD = 0.5
-                slicks_without_sources = (
-                    await db_client.get_slicks_without_sources_from_scene_id(
-                        scene_id, AAA_CONFIDENCE_THRESHOLD
-                    )
+    scene_id = request_json.get("scene_id")
+    if not scene_id:
+        abort(400, description="Bad Request: 'scene_id' is required.")
+
+    print(f"Running AAA on scene_id: {scene_id}")
+
+    # Use the globally initialized engine
+    async with DatabaseClient(DB_ENGINE) as db_client:
+        async with db_client.session.begin():
+            s1 = await db_client.get_scene_from_id(scene_id)
+            if not s1:
+                abort(404, description=f"Scene with ID {scene_id} not found.")
+            AAA_CONFIDENCE_THRESHOLD = 0.5
+            slicks_without_sources = (
+                await db_client.get_slicks_without_sources_from_scene_id(
+                    scene_id, AAA_CONFIDENCE_THRESHOLD
                 )
-                print(f"# Slicks found: {len(slicks_without_sources)}")
-                if len(slicks_without_sources) > 0:
-                    aisc = AISConstructor(s1)
-                    aisc.retrieve_ais()
-                    print("AIS retrieved")
-                    if not aisc.ais_gdf.empty:
-                        aisc.build_trajectories()
-                        aisc.buffer_trajectories()
-                        # We only load infra AFTER we've confirmed there are AIS points, otherwise get_slicks_without_sources_from_scene_id would prevent AIS tracks from being processed later
-                        aisc.load_infra("20231103_all_infrastructure_v20231103.csv")
-                        for slick in slicks_without_sources:
-                            source_associations = automatic_source_analysis(aisc, slick)
-                            print(
-                                f"{len(source_associations)} found for Slick ID: {slick.id}"
-                            )
-                            if len(source_associations) > 0:
-                                # XXX What to do if len(ais_associations)==0 and no sources are associated?
-                                # Then it will trigger another round of this process later! (unnecessary computation)
-                                RECORD_NUM_SOURCES = 5  # XXX Magic number 5 = number of sources to record for each slick
-                                for idx, traj in source_associations.iloc[
-                                    :RECORD_NUM_SOURCES
-                                ].iterrows():
-                                    source = await db_client.get_source(
-                                        st_name=traj["st_name"]
+            )
+            print(f"# Slicks found: {len(slicks_without_sources)}")
+            if len(slicks_without_sources) > 0:
+                aisc = AISConstructor(s1)
+                aisc.retrieve_ais()
+                print("AIS retrieved")
+                if not aisc.ais_gdf.empty:
+                    aisc.build_trajectories()
+                    aisc.buffer_trajectories()
+                    # We only load infra AFTER we've confirmed there are AIS points, otherwise get_slicks_without_sources_from_scene_id would prevent AIS tracks from being processed later
+                    aisc.load_infra("20231103_all_infrastructure_v20231103.csv")
+                    for slick in slicks_without_sources:
+                        source_associations = automatic_source_analysis(aisc, slick)
+                        print(
+                            f"{len(source_associations)} found for Slick ID: {slick.id}"
+                        )
+                        if len(source_associations) > 0:
+                            # XXX What to do if len(ais_associations)==0 and no sources are associated?
+                            # Then it will trigger another round of this process later! (unnecessary computation)
+                            RECORD_NUM_SOURCES = 5  # XXX Magic number 5 = number of sources to record for each slick
+                            for idx, traj in source_associations.iloc[
+                                :RECORD_NUM_SOURCES
+                            ].iterrows():
+                                source = await db_client.get_source(
+                                    st_name=traj["st_name"]
+                                )
+                                if source is None:
+                                    source = await db_client.insert_source_from_traj(
+                                        traj
                                     )
-                                    if source is None:
-                                        source = (
-                                            await db_client.insert_source_from_traj(
-                                                traj
-                                            )
-                                        )
-                                    await db_client.session.flush()
+                                await db_client.session.flush()
 
-                                    traj["geometry"] = (
-                                        traj["geometry"]
-                                        if isinstance(traj["geometry"], str)
-                                        else traj["geometry"].wkt
-                                    )  # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
+                                traj["geometry"] = (
+                                    traj["geometry"]
+                                    if isinstance(traj["geometry"], str)
+                                    else traj["geometry"].wkt
+                                )  # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
 
-                                    await db_client.insert_slick_to_source(
-                                        source=source.id,
-                                        slick=slick.id,
-                                        coincidence_score=traj["coincidence_score"],
-                                        rank=idx + 1,
-                                        geojson_fc=traj["geojson_fc"],
-                                        geometry=traj["geometry"],
-                                    )
-    finally:
-        await close_engine()  # Ensure resources are cleaned up after request
+                                await db_client.insert_slick_to_source(
+                                    source=source.id,
+                                    slick=slick.id,
+                                    coincidence_score=traj["coincidence_score"],
+                                    rank=idx + 1,
+                                    geojson_fc=traj["geojson_fc"],
+                                    geometry=traj["geometry"],
+                                )
 
     return "Success!"
 
@@ -155,11 +163,11 @@ def automatic_source_analysis(aisc, slick):
     Perform automatic analysis to associate AIS trajectories with slicks.
 
     Parameters:
-        ais (ais_constructor): An instance of the ais_constructor class.
+        aisc (ais_constructor): An instance of the ais_constructor class.
         slick (GeoDataFrame): A GeoDataFrame containing the slick geometries.
 
     Returns:
-        GroupBy object: The AIS-slick associations sorted and grouped by slick index.
+        DataFrame: The AIS-slick associations sorted and grouped by slick index.
     """
     slick_gdf = gpd.GeoDataFrame(
         {"geometry": [wkb.loads(str(slick.geometry)).buffer(0)]}, crs="4326"
