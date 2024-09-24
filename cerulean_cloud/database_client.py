@@ -56,13 +56,9 @@ def create_new_engine(db_url: str) -> AsyncEngine:
     )
 
 
-# Module-level variable to hold the singleton engine instance
-_engine: Optional[AsyncEngine] = None
-
-
 def get_engine(db_url: Optional[str] = None) -> AsyncEngine:
     """
-    Provide the singleton database engine or create a new one if db_url is provided.
+    Create and return a new database engine.
 
     Args:
         db_url (Optional[str]): The database URL. If provided, a new engine is created.
@@ -73,22 +69,8 @@ def get_engine(db_url: Optional[str] = None) -> AsyncEngine:
     Returns:
         AsyncEngine: The SQLAlchemy AsyncEngine instance.
     """
-    global _engine
-
-    if _engine is None:
-        _engine = create_new_engine(db_url if db_url else get_database_url())
-
-    return _engine
-
-
-async def close_engine() -> None:
-    """
-    Close the singleton database engine.
-    """
-    global _engine
-    if _engine:
-        await _engine.dispose()
-        _engine = None
+    db_url = db_url if db_url else get_database_url()
+    return create_new_engine(db_url)
 
 
 async def get(sess, kls, error_if_absent=True, **kwargs):
@@ -381,9 +363,3 @@ class DatabaseClient:
         return result.rowcount
 
     # EditTheDatabase
-
-
-class OrchestratorRunNotFoundError(Exception):
-    """Raised when an OrchestratorRun instance is not found in the database."""
-
-    pass

@@ -9,8 +9,10 @@ needs env vars:
 - INFERENCE_URL
 """
 
+import logging
 import os
 import urllib.parse as urlparse
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
@@ -18,7 +20,7 @@ import geopandas as gpd
 import morecantile
 import numpy as np
 import supermercado
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
 from shapely.geometry import shape
@@ -30,15 +32,19 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
 )
-from cerulean_cloud.database_client import DatabaseClient, close_engine, get_engine
+from cerulean_cloud.database_client import DatabaseClient, get_engine
 from cerulean_cloud.models import get_model
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
-app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
-# Allow CORS for local debugging
-app.add_middleware(CORSMiddleware, allow_origins=["*"])
+# Configure logger
+logger = logging.getLogger("orchestrate")
+handler = logging.StreamHandler()
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 landmask_gdf = None
 
@@ -127,9 +133,23 @@ def get_roda_sentinelhub_client():
     return RodaSentinelHubClient()
 
 
-def get_database_engine():
-    """get database engine"""
-    return get_engine()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """create an engine that persists for the lifetime of the app"""
+    app.state.database_engine = get_engine()
+    try:
+        yield
+    finally:
+        await app.state.database_engine.dispose()
+
+
+app = FastAPI(
+    title="Cloud Run orchestrator",
+    dependencies=[Depends(api_key_auth)],
+    lifespan=lifespan,
+)
+# Allow CORS for local debugging
+app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
@@ -146,15 +166,51 @@ def ping() -> Dict:
 )
 async def orchestrate(
     payload: OrchestratorInput,
+    request: Request,
     tiler=Depends(get_tiler),
     titiler_client=Depends(get_titiler_client),
     roda_sentinelhub_client=Depends(get_roda_sentinelhub_client),
-    db_engine=Depends(get_database_engine),
 ) -> Dict:
     """orchestrate"""
-    return await _orchestrate(
-        payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
-    )
+    db_engine = request.app.state.database_engine
+    try:
+        return await _orchestrate(
+            payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
+        )
+    except DatabaseError as db_err:
+        # Handle database-related errors
+        logger.error(
+            f"Database error during orchestration for sceneid {payload.sceneid}: {db_err}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="A database error occurred while processing your request.",
+        ) from db_err
+    except ValidationError as val_err:
+        # Handle payload validation errors
+        logger.error(f"Validation error for payload {payload}: {val_err}")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid input data provided.",
+        ) from val_err
+    except InferenceError as inf_err:
+        # Handle inference-related errors
+        logger.error(
+            f"Inference error during processing sceneid {payload.sceneid}: {inf_err}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="An error occurred during the inference process.",
+        ) from inf_err
+    except Exception as e:
+        # Handle unexpected errors
+        logger.exception(
+            f"Unexpected error during orchestration for sceneid {payload.sceneid}: {e}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred. Please try again later.",
+        ) from e
 
 
 def is_tile_over_water(tile_bounds: List[float]) -> bool:
@@ -392,7 +448,19 @@ async def _orchestrate(
     return OrchestratorResult(status="Success")
 
 
-@app.on_event("shutdown")
-async def on_shutdown():
-    """Close down the engine"""
-    await close_engine()
+class DatabaseError(Exception):
+    """DatabaseError"""
+
+    pass
+
+
+class ValidationError(Exception):
+    """ValidationError"""
+
+    pass
+
+
+class InferenceError(Exception):
+    """InferenceError"""
+
+    pass
