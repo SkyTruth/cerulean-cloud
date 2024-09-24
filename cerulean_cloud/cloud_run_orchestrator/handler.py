@@ -429,14 +429,9 @@ async def _orchestrate(
             ):
                 print(f"{start_time}: Queueing up Automatic AIS Analysis")
                 add_to_aaa_queue(sentinel1_grd.scene_id)
+            del landmask_gdf
 
-        del (
-            final_ensemble,
-            tileset_fc_list,
-            tileset_results_list,
-            tileset_list,
-            landmask_gdf,
-        )
+        del (final_ensemble, tileset_fc_list, tileset_results_list, tileset_list)
         gc.collect()  # Force garbage collection
 
     except Exception as e:
