@@ -954,23 +954,22 @@ class FASTAIUNETModel(BaseModel):
                 mask.astype(np.uint8), mask=mask, transform=transform
             )
             polygons = [shape(geom) for geom, value in shapes if value == 1]
-
+            polygons = [p for p in polygons if not p.intersects(scene_edge)]
             # Ensure there are polygons left after trimming to process into a MultiPolygon
             if polygons:
                 multipolygon = MultiPolygon(polygons)
-                if not multipolygon.intersects(scene_edge):
-                    features.append(
-                        geojson.Feature(
-                            geometry=multipolygon,
-                            properties={
-                                "mean_conf": float(np.mean(masked_raster)),
-                                "median_conf": float(np.median(masked_raster)),
-                                "max_conf": float(np.max(masked_raster)),
-                                "machine_confidence": float(np.median(masked_raster)),
-                                **addl_props,
-                            },
-                        )
+                features.append(
+                    geojson.Feature(
+                        geometry=multipolygon,
+                        properties={
+                            "mean_conf": float(np.mean(masked_raster)),
+                            "median_conf": float(np.median(masked_raster)),
+                            "max_conf": float(np.max(masked_raster)),
+                            "machine_confidence": float(np.median(masked_raster)),
+                            **addl_props,
+                        },
                     )
+                )
 
         return features
 
