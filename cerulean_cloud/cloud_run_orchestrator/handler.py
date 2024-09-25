@@ -437,7 +437,7 @@ async def _orchestrate(
     except Exception as e:
         success = False
         exc = e
-        print(f"{start_time}: {e}")
+        print(f"{start_time}: Error processing {payload.sceneid}. Details: {e}")
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
             or_refreshed = await db_client.get_orchestrator(orchestrator_run_id)
