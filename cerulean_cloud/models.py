@@ -936,8 +936,10 @@ class FASTAIUNETModel(BaseModel):
             Calculate the percentage of overlap between two polygons.
             This is different from intersection over union, because it is not symmetric.
             """
-            if not a.intersects(b):
+            if not a.intersects(b):  # Avoid unnecessary intersection computation
                 return 0.0
+            elif a.within(b):  # Avoid unnecessary intersection computation
+                return 1.0
             else:
                 return a.intersection(b).area / a.area
 
