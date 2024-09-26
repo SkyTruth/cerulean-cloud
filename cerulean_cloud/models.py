@@ -964,6 +964,7 @@ class FASTAIUNETModel(BaseModel):
         # logging.info(f"reduced_labels: {len(reduced_labels)}")
 
         zero_mask = raster == 0
+        print("zero_mask.sum()", zero_mask.sum())
         shapes = rasterio.features.shapes(
             zero_mask.astype(np.uint8), mask=zero_mask, transform=transform
         )
