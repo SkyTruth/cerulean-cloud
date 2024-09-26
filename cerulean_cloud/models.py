@@ -71,7 +71,6 @@ class BaseModel:
         try:
             if self.model is None:
                 self.model = torch.jit.load(self.model_path_local, map_location="cpu")
-                self.model.to(self.device)
                 self.model.eval()
         except Exception as e:
             logging.error("Error loading model: %s", e, exc_info=True)
@@ -89,7 +88,9 @@ class BaseModel:
         self.load()  # Load model into memory
         preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
         raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
-        inference_results = self.postprocess_tiles(raw_preds,preprocessed_tensors)  # Postprocess inference
+        inference_results = self.postprocess_tiles(
+            raw_preds, preprocessed_tensors
+        )  # Postprocess inference
         return InferenceResultStack(stack=inference_results)
 
     def preprocess_tiles(self, inf_stack):
@@ -110,7 +111,9 @@ class BaseModel:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def postprocess_tiles(self, raw_preds, preprocessed_tensors=None) -> List[InferenceResult]:
+    def postprocess_tiles(
+        self, raw_preds, preprocessed_tensors=None
+    ) -> List[InferenceResult]:
         """
         Process and stack the raw_preds of predictions. This method should be implemented by subclasses.
 
@@ -254,7 +257,9 @@ class MASKRCNNModel(BaseModel):
 
         return self.model(stack_tensors)[1]
 
-    def postprocess_tiles(self, raw_preds, preprocessed_tensors=None) -> List[InferenceResult]:
+    def postprocess_tiles(
+        self, raw_preds, preprocessed_tensors=None
+    ) -> List[InferenceResult]:
         """
         Process and stack the raw_preds of MASKRCNN predictions.
 
@@ -739,7 +744,9 @@ class FASTAIUNETModel(BaseModel):
         """
         return self.model(preprocessed_tensors)
 
-    def postprocess_tiles(self, raw_preds, preprocessed_tensors) -> List[InferenceResult]:
+    def postprocess_tiles(
+        self, raw_preds, preprocessed_tensors=None
+    ) -> List[InferenceResult]:
         """
         Applies a softmax function to the raw predictions from FASTAIUNET, serializes them,
         and returns a list of InferenceResults with serialized data.
@@ -751,13 +758,16 @@ class FASTAIUNETModel(BaseModel):
         Returns:
             List[InferenceResult]: A list of InferenceResults with serialized prediction data.
         """
-        print("Tensor of shape",preprocessed_tensors.shape,"is now accessible in postprocess_tiles")
-        #create a mask of the empty parts of the tile used to adjust probabilities to zero
-        zeros_mask = (preprocessed_tensors!=0).int()
-    
         processed_preds = [
-            torch.nn.functional.softmax(pred, dim=0)*zeros_mask[i] for i,pred in enumerate(raw_preds)
+            torch.nn.functional.softmax(pred, dim=0) for pred in raw_preds
         ]
+
+        if preprocessed_tensors is not None:
+            data_mask = preprocessed_tensors != 0  # Pixels that are not zero
+            for i, probs in enumerate(processed_preds):
+                probs[1:, :, :] = (
+                    probs[1:, :, :] * data_mask[i]
+                )  # Broadcasting applies mask to each channel from index 1 onwards
 
         inference_results = [
             InferenceResult(json_data=self.serialize(pred)) for pred in processed_preds
@@ -774,7 +784,7 @@ class FASTAIUNETModel(BaseModel):
         Returns:
             str: A JSON string containing the base64 encoded tensor.
         """
-        return json.dumps(tensor_to_base64(pred.to("cpu"))) #put tensor on cpu before serializing
+        return json.dumps(tensor_to_base64(pred))
 
     def deserialize(self, json_string):
         """
@@ -901,6 +911,7 @@ class FASTAIUNETModel(BaseModel):
         p3,
         transform=Affine.identity(),
         addl_props={},
+        discard_edge_polygons_buffer=0.005,
     ):
         """
         Converts raster predictions to GeoJSON based on probability thresholds.
@@ -911,11 +922,21 @@ class FASTAIUNETModel(BaseModel):
             p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. lower value = fewer groups
             p2 (float): The middle probability, used to trim the final polygons size. lower value = coarser polygons
             p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. higher value = more restrictive
+            transform (Affine): The transform to apply to the raster.
+            addl_props (dict): Additional properties to add to the features.
+            discard_edge_polygons_buffer (float): The buffer distance to discard polygons that are too close to the edge of the scene.
             Sample values: p1, p2, p3 = 0.1, 0.5, 0.95
             Analogous to bbox_score_thresh, poly_score_thresh, pixel_score_thresh
         Returns:
             GeoJSON: A GeoJSON feature collection of the processed predictions.
         """
+
+        def overlap_percent(a, b):
+            """
+            Calculate the percentage of overlap between two polygons.
+            This is different from intersection over union, because it is not symmetric.
+            """
+            return a.intersection(b).area / a.area
 
         raster = raster.float().detach().numpy()
 
@@ -937,16 +958,15 @@ class FASTAIUNETModel(BaseModel):
             reduced_labels.add(p1_label_at_p3)
         # logging.info(f"reduced_labels: {len(reduced_labels)}")
 
-        features = []
-
-        zero_mask = (raster == 0)
+        zero_mask = raster == 0
         shapes = rasterio.features.shapes(
-                zero_mask.astype(np.uint8), mask=zero_mask, transform=transform
+            zero_mask.astype(np.uint8), mask=zero_mask, transform=transform
         )
         polygons = [shape(geom) for geom, value in shapes if value == 1]
-        scene_edge = MultiPolygon(polygons).buffer(.01)
+        scene_edge = MultiPolygon(polygons).buffer(discard_edge_polygons_buffer)
 
         # Process into feature collections based on unique p1 labels
+        features = []
         for p1_label in reduced_labels:
             mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
             masked_raster = raster[mask]
@@ -954,7 +974,7 @@ class FASTAIUNETModel(BaseModel):
                 mask.astype(np.uint8), mask=mask, transform=transform
             )
             polygons = [shape(geom) for geom, value in shapes if value == 1]
-            polygons = [p for p in polygons if not p.intersects(scene_edge)]
+            polygons = [p for p in polygons if overlap_percent(p, scene_edge) <= 0.5]
             # Ensure there are polygons left after trimming to process into a MultiPolygon
             if polygons:
                 multipolygon = MultiPolygon(polygons)
