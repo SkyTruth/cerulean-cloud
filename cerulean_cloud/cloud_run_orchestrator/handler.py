@@ -246,8 +246,6 @@ async def _orchestrate(
         print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
         return OrchestratorResult(status="Success (dry run)")
 
-    print(f"{start_time}: XXX TRASH PRINT STATEMENT TO FORCE RELOAD")
-
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
