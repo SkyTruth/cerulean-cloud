@@ -41,6 +41,7 @@ def predict(request: Request, payload: PredictPayload) -> InferenceResultStack:
     record_timing(request, note="Started")
 
     model = get_model(payload.model_dict)
+    print("Rebuild container")
     record_timing(request, note="Model loaded")
 
     return model.predict(payload.inf_stack)
