@@ -12,8 +12,10 @@ import time
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+from pyproj import Transformer
 from scipy.spatial import KDTree
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
+from shapely.ops import transform
 
 
 def download_geojson(id, download_path="/Users/jonathanraphael/Downloads"):
@@ -73,7 +75,7 @@ def select_extreme_points(polygon, N, overall_centroid):
     return np.array(selected_points)
 
 
-def read_and_prepare_geojson(geojson_file_path, closing_distance):
+def read_and_prepare_geojson(geojson_file_path, closing_buffer):
     """
     Reads the GeoJSON file, checks and sets the CRS, and applies buffering.
 
@@ -105,13 +107,9 @@ def read_and_prepare_geojson(geojson_file_path, closing_distance):
                 "Current CRS is not in meters. Please choose an appropriate projected CRS."
             )
 
-    # Apply buffer in meters (e.g., 1000 meters)
-    geo_df["geometry"] = geo_df["geometry"].buffer(closing_distance)
-    geo_df["geometry"] = geo_df["geometry"].buffer(-closing_distance)
-
-    # Reproject back to original CRS if it was geographic
-    if original_crs.is_geographic:
-        geo_df = geo_df.to_crs(original_crs)
+    # Apply buffer in meters
+    geo_df["geometry"] = geo_df["geometry"].buffer(closing_buffer)
+    geo_df["geometry"] = geo_df["geometry"].buffer(-closing_buffer)
 
     return geo_df, original_crs
 
@@ -144,7 +142,7 @@ def extract_polygons(combined_geometry):
     return polygons
 
 
-def generate_infrastructure_points(combined_geometry, num_points, expansion_factor=0.5):
+def generate_infrastructure_points(combined_geometry, num_points, expansion_factor=0.2):
     """
     Generates random infrastructure points within an expanded bounding box of the combined geometry.
 
@@ -243,7 +241,7 @@ def compute_confidence_scores(
     all_extremity_points,
     all_weights,
     k,
-    D,
+    radius_of_interest,
     batch_size=10000,
 ):
     """
@@ -269,7 +267,9 @@ def compute_confidence_scores(
         batch_infra = infra_points[start_idx:end_idx]
 
         # Find extremity points within distance D
-        extremity_indices = extremity_tree.query_ball_point(batch_infra, r=D)
+        extremity_indices = extremity_tree.query_ball_point(
+            batch_infra, r=radius_of_interest
+        )
 
         has_neighbors = np.array(
             [len(neighbors) > 0 for neighbors in extremity_indices]
@@ -339,8 +339,8 @@ def plot_confidence(
 
     plt.colorbar(label="Confidence")
     plt.title(f"Slick ID {id}: Max Confidence {round(confidence_scores.max(), 2)}")
-    plt.xlabel("Latitude")
-    plt.ylabel("Longitude")
+    plt.xlabel("Longitude")
+    plt.ylabel("Latitude")
     plt.axis("equal")
     plt.grid(True)
     plt.legend()
@@ -352,10 +352,10 @@ def process_geojson(
     N=3,
     num_infra_points=100000,
     k=0.05,
-    D=50,
+    radius_of_interest=50,
     plot_sample=False,
     id=None,
-    closing_distance=5000,
+    closing_buffer=5000,
 ):
     """
     Main function to process the GeoJSON file and compute confidence scores.
@@ -365,7 +365,7 @@ def process_geojson(
     - N (int): Number of extremity points to select per polygon.
     - num_infra_points (int): Number of infrastructure points to generate.
     - k (float): Decay constant for the confidence function C = e^{-k * d}.
-    - D (float): Maximum distance to consider for infrastructure points near polygons.
+    - D (float): Maximum distance to consider for proximity (in meters).
     - plot_sample (bool): Whether to plot a sample of the data.
     - id (int): Identifier for plotting purposes.
 
@@ -375,7 +375,7 @@ def process_geojson(
     start_time = time.time()
 
     # Step 1: Read and prepare GeoJSON
-    geo_df, original_crs = read_and_prepare_geojson(geojson_file_path, closing_distance)
+    geo_df, original_crs = read_and_prepare_geojson(geojson_file_path, closing_buffer)
 
     # Step 2: Combine all geometries
     combined_geometry = geo_df.unary_union
@@ -407,7 +407,12 @@ def process_geojson(
 
     # Step 10: Compute confidence scores
     confidence_scores = compute_confidence_scores(
-        infra_points, extremity_tree, all_extremity_points, all_weights, k, D
+        infra_points,
+        extremity_tree,
+        all_extremity_points,
+        all_weights,
+        k,
+        radius_of_interest,
     )
 
     end_time = time.time()
@@ -415,11 +420,32 @@ def process_geojson(
 
     # Step 11: Plotting (optional)
     if plot_sample and num_infra_points > 0:
+        # Reproject infra_points and overall_centroid back to geographic CRS
+        projected_crs = geo_df.crs
+        transformer = Transformer.from_crs(projected_crs, original_crs, always_xy=True)
+
+        # Reproject infra_points
+        infra_x, infra_y = infra_points[:, 0], infra_points[:, 1]
+        infra_lon, infra_lat = transformer.transform(infra_x, infra_y)
+        infra_points_lonlat = np.column_stack((infra_lon, infra_lat))
+
+        # Reproject overall_centroid
+        centroid_x, centroid_y = overall_centroid[0], overall_centroid[1]
+        centroid_lon, centroid_lat = transformer.transform(centroid_x, centroid_y)
+        overall_centroid_lonlat = np.array([centroid_lon, centroid_lat])
+
+        # Reproject polygons
+        def reproject_geom(geom):
+            return transform(transformer.transform, geom)
+
+        polygons_lonlat = [reproject_geom(poly) for poly in polygons]
+
+        # Now call plot_confidence with reprojected data
         plot_confidence(
-            infra_points,
+            infra_points_lonlat,
             confidence_scores,
-            polygons,
-            overall_centroid,
+            polygons_lonlat,
+            overall_centroid_lonlat,
             sample_size=50000,
             id=id,
         )
@@ -430,19 +456,29 @@ def process_geojson(
 # %%
 # Usage example
 
-# Parameters
-id = 3032494
+# Sample parameters
+id = 3055322
 geojson_file_path = download_geojson(id)
 
+# Function parameters
+k = 0.001  # Decay constant for the confidence function C = e^{-k * d}
 N = 10  # Number of extremity points per polygon
+closing_buffer = 500  # Closing distance in meters
+radius_of_interest = 5000  # Maximum distance to consider (in meters)
+
+# Plotting parameters
 num_infra_points = 50000  # Number of infrastructure points
-k = 50  # Decay constant for the confidence function C = e^{-k * d}
-D = 1  # Maximum distance to consider before confidence is 0
-closing_distance = 500  # Closing distance in meters
 plot_sample = True
 
 confidence_scores = process_geojson(
-    geojson_file_path, N, num_infra_points, k, D, plot_sample, id, closing_distance
+    geojson_file_path,
+    N,
+    num_infra_points,
+    k,
+    radius_of_interest,
+    plot_sample,
+    id,
+    closing_buffer,
 )
 
 # %%
