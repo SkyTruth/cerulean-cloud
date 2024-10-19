@@ -21,8 +21,8 @@ import torch
 import torchvision  # noqa
 from rasterio.features import geometry_mask, shapes
 from rasterio.io import MemoryFile
-from rasterio.merge import merge as rio_merge
-from rasterio.transform import Affine
+from rasterio.merge import merge
+from rasterio.transform import Affine, from_bounds
 from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
 
@@ -823,44 +823,57 @@ class FASTAIUNETModel(BaseModel):
         tileset_results: List[InferenceResultStack],
         tileset_bounds: List[List[List[float]]],
     ):
-        """Merge arrays based on their geographical bounds and return the merged array and its bounds.
+        """Merge arrays based on their geographical bounds and return the merged array and its transform.
 
         Args:
-            tileset_results:
+            tileset_results: List of InferenceResultStack containing the prediction results.
+            tileset_bounds: List of bounds for each tile in the format [[minx, miny, maxx, maxy], ...].
 
         Returns:
-            tuple: A tuple containing the merged numpy array and the bounds (min_x, min_y, max_x, max_y) of the merged area.
+            tuple: A tuple containing the merged numpy array and the affine transform of the merged area.
         """
-        bounds_list = []
-        tile_probs_by_class = []
+        datasets = []
         for i, inf_result_stack in enumerate(tileset_results):
             if inf_result_stack.stack:
                 for j, inference_result in enumerate(inf_result_stack.stack):
-                    tile_probs_by_class.append(
+                    # Deserialize the prediction data
+                    tile_probs = (
                         self.deserialize(inference_result.json_data).detach().numpy()
                     )
-                    bounds_list.append(tileset_bounds[i][j])
+                    bounds = tileset_bounds[i][j]
+                    transform = from_bounds(
+                        *bounds, width=tile_probs.shape[-1], height=tile_probs.shape[-2]
+                    )
 
-        ds_tiles = []
-        try:
-            ds_tiles = [
-                memfile_gtiff(nparray=tile_probs, bounds=bounds).open()
-                for tile_probs, bounds in zip(tile_probs_by_class, bounds_list)
-            ]
+                    # XXX BUG Not sure why, but on certain scenes rio_merge(ds_tiles) errors out.
+                    # Notably, tileset_bounds and tileset_results are both empty...???
+                    # e.g. S1A_IW_GRDH_1SDV_20240802T025056_20240802T025125_055028_06B441_281B and S1A_IW_GRDH_1SDV_20240728T024243_20240728T024312_054955_06B1BC_0458
+                    # Note: might be related to the is_tile_over_water() function NOT thinking that the Caspian Sea is water,
+                    # and therefore returning an empty list. If this is the case, then it's unclear why it's not throwing IndexError
+                    # Create an in-memory raster dataset
+                    memfile = MemoryFile()
+                    with memfile.open(
+                        driver="GTiff",
+                        height=tile_probs.shape[-2],
+                        width=tile_probs.shape[-1],
+                        count=tile_probs.shape[0],
+                        dtype=tile_probs.dtype,
+                        transform=transform,
+                        crs="EPSG:4326",  # Replace with your CRS
+                    ) as dataset:
+                        dataset.write(tile_probs)
+                    datasets.append(memfile.open())
 
-            logging.info("Stitching tile probabilites together!")
-            scene_array, transform = rio_merge(ds_tiles)
-            return scene_array, transform
-        except Exception as e:
-            # XXX BUG Not sure why, but on certain scenes rio_merge(ds_tiles) errors out.
-            # Notably, tileset_bounds and tileset_results are both empty...???
-            # e.g. S1A_IW_GRDH_1SDV_20240802T025056_20240802T025125_055028_06B441_281B and S1A_IW_GRDH_1SDV_20240728T024243_20240728T024312_054955_06B1BC_0458
-            # Note: might be related to the is_tile_over_water() function NOT thinking that the Caspian Sea is water,
-            # and therefore returning an empty list. If this is the case, then it's unclear why it's not throwing IndexError
-            raise e
-        finally:
-            for ds in ds_tiles:
-                ds.close()
+        logging.info("Stitching tile probabilities together!")
+        merged_array, out_transform = merge(
+            datasets, method="first"
+        )  # You can change the method as needed
+
+        # Close all MemoryFiles to free up resources
+        for dataset in datasets:
+            dataset.close()
+
+        return merged_array, out_transform
 
     def instantiate(self, scene_array_probs, transform):
         """
