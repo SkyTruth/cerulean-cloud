@@ -877,8 +877,8 @@ class FASTAIUNETModel(BaseModel):
         start = time.time()
         # Place each tile into the final array
         for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
-            x_offset = int(np.floor((bounds[0] - min_x) / res_x))
-            y_offset = int(np.floor((max_y - bounds[3]) / res_y))
+            x_offset = int(np.ceil((bounds[0] - min_x) / res_x))
+            y_offset = int(np.ceil((max_y - bounds[3]) / res_y))
 
             tile_height, tile_width = tile_probs.shape[1], tile_probs.shape[2]
 
