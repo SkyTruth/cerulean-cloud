@@ -85,11 +85,9 @@ class BaseModel:
         logging.info(f"Stack has {len(inf_stack)} images")
 
         self.load()  # Load model into memory
-        preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
+        preprocessed_tensors = self.preprocess_tiles(inf_stack)
         raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
-        inference_results = self.postprocess_tiles(
-            raw_preds, preprocessed_tensors
-        )  # Postprocess inference
+        inference_results = self.postprocess_tiles(raw_preds, preprocessed_tensors)
         return InferenceResultStack(stack=inference_results)
 
     def preprocess_tiles(self, inf_stack):
@@ -764,9 +762,8 @@ class FASTAIUNETModel(BaseModel):
         if preprocessed_tensors is not None:
             data_mask = preprocessed_tensors != 0  # Pixels that are not zero
             for i, probs in enumerate(processed_preds):
-                probs[1:, :, :] = (
-                    probs[1:, :, :] * data_mask[i]
-                )  # Broadcasting applies mask to each channel from index 1 onwards
+                probs[1:, :, :] = probs[1:, :, :] * data_mask[i]
+                # Zero out the background class; applied to each channel from index 1 onwards using broadcasting
 
         inference_results = [
             InferenceResult(json_data=self.serialize(pred)) for pred in processed_preds
@@ -824,13 +821,13 @@ class FASTAIUNETModel(BaseModel):
     ):
         """Manually merge arrays based on their geographical bounds.
 
+        Args:
+            tileset_results: The list of InferenceResultStacks to stitch together.
+            tileset_bounds: The list of bounds for each InferenceResultStack.
+
         Returns:
             tuple: A tuple containing the merged numpy array and the transform of the merged area.
         """
-        import time
-
-        start = time.time()
-
         bounds_list = []
         tile_probs_by_class = []
         for i, inf_result_stack in enumerate(tileset_results):
@@ -845,9 +842,6 @@ class FASTAIUNETModel(BaseModel):
             # e.g. S1A_IW_GRDH_1SDV_20240802T025056_20240802T025125_055028_06B441_281B and S1A_IW_GRDH_1SDV_20240728T024243_20240728T024312_054955_06B1BC_0458
             # Note: might be related to the is_tile_over_water() function NOT thinking that the Caspian Sea is water,
             # and therefore returning an empty list. If this is the case, then it's unclear why it's not throwing IndexError
-        end = time.time()
-        logging.info(f"Time to deserialize and append tiles: {end - start}")
-        start = time.time()
         # Determine overall bounds
         min_x = min(b[0] for b in bounds_list)
         min_y = min(b[1] for b in bounds_list)
@@ -872,9 +866,6 @@ class FASTAIUNETModel(BaseModel):
         scene_array_probs = np.zeros(
             (num_classes, final_height, final_width), dtype=sample_tile.dtype
         )
-        end = time.time()
-        logging.info(f"Time to calculate final array dimensions: {end - start}")
-        start = time.time()
         # Place each tile into the final array
         for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
             x_offset = int(np.ceil((bounds[0] - min_x) / res_x))
@@ -886,14 +877,9 @@ class FASTAIUNETModel(BaseModel):
             scene_array_probs[
                 :, y_offset : y_offset + tile_height, x_offset : x_offset + tile_width
             ] = tile_probs
-        end = time.time()
-        logging.info(f"Time to place tiles into final array: {end - start}")
-        start = time.time()
 
         # Create the transform
         transform = Affine.translation(min_x, max_y) * Affine.scale(res_x, -res_y)
-        end = time.time()
-        logging.info(f"Time to create transform: {end - start}")
 
         return scene_array_probs, transform
 
@@ -969,7 +955,7 @@ class FASTAIUNETModel(BaseModel):
         def overlap_percent(a, b):
             """
             Calculate the percentage of overlap between two polygons.
-            This is different from intersection over union, because it is not symmetric.
+            This is different from IoU, because it is not symmetric.
             """
             if not a.intersects(b):  # Avoid unnecessary intersection computation
                 return 0.0
@@ -998,8 +984,7 @@ class FASTAIUNETModel(BaseModel):
             reduced_labels.add(p1_label_at_p3)
         # logging.info(f"reduced_labels: {len(reduced_labels)}")
 
-        zero_mask = raster == 0
-        print("zero_mask.sum()", zero_mask.sum())
+        zero_mask = raster == 0  # Find all pixels that are zero (i.e. nodata value)
         shapes = rasterio.features.shapes(
             zero_mask.astype(np.uint8), mask=zero_mask, transform=transform
         )
