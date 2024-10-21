@@ -3,11 +3,15 @@ Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
 
 import cloud_run_images
+import git
 import pulumi
 import pulumi_gcp as gcp
 from utils import construct_name
 
 stack = pulumi.get_stack()
+
+repo = git.Repo(search_parent_directories=True)
+git_sha = repo.head.object.hexsha
 
 # Assign access to cloud secrets
 cloud_function_service_account = gcp.serviceaccount.Account(
@@ -81,6 +85,10 @@ default = gcp.cloudrun.Service(
                                     key="latest",
                                 )
                             ),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="GIT_HASH",
+                            value=git_sha,
                         ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
