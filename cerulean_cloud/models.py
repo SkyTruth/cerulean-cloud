@@ -819,14 +819,18 @@ class FASTAIUNETModel(BaseModel):
 
     def stitch(
         self,
-        tileset_results,
-        tileset_bounds,
+        tileset_results: List[InferenceResultStack],
+        tileset_bounds: List[List[List[float]]],
     ):
         """Manually merge arrays based on their geographical bounds.
 
         Returns:
             tuple: A tuple containing the merged numpy array and the transform of the merged area.
         """
+        import time
+
+        start = time.time()
+
         bounds_list = []
         tile_probs_by_class = []
         for i, inf_result_stack in enumerate(tileset_results):
@@ -836,7 +840,14 @@ class FASTAIUNETModel(BaseModel):
                         self.deserialize(inference_result.json_data).detach().numpy()
                     )
                     bounds_list.append(tileset_bounds[i][j])
-
+            # XXX BUG Not sure why, but on certain scenes rio_merge(ds_tiles) errors out.
+            # Notably, tileset_bounds and tileset_results are both empty...???
+            # e.g. S1A_IW_GRDH_1SDV_20240802T025056_20240802T025125_055028_06B441_281B and S1A_IW_GRDH_1SDV_20240728T024243_20240728T024312_054955_06B1BC_0458
+            # Note: might be related to the is_tile_over_water() function NOT thinking that the Caspian Sea is water,
+            # and therefore returning an empty list. If this is the case, then it's unclear why it's not throwing IndexError
+        end = time.time()
+        logging.info(f"Time to deserialize and append tiles: {end - start}")
+        start = time.time()
         # Determine overall bounds
         min_x = min(b[0] for b in bounds_list)
         min_y = min(b[1] for b in bounds_list)
@@ -861,7 +872,9 @@ class FASTAIUNETModel(BaseModel):
         scene_array_probs = np.zeros(
             (num_classes, final_height, final_width), dtype=sample_tile.dtype
         )
-
+        end = time.time()
+        logging.info(f"Time to calculate final array dimensions: {end - start}")
+        start = time.time()
         # Place each tile into the final array
         for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
             x_offset = int(np.floor((bounds[0] - min_x) / res_x))
@@ -870,17 +883,17 @@ class FASTAIUNETModel(BaseModel):
             tile_height, tile_width = tile_probs.shape[1], tile_probs.shape[2]
 
             # Handle potential overlaps if necessary here
-            # print(tile_probs.shape)
-            # print(scene_array_probs.shape)
             scene_array_probs[
                 :, y_offset : y_offset + tile_height, x_offset : x_offset + tile_width
             ] = tile_probs
+        end = time.time()
+        logging.info(f"Time to place tiles into final array: {end - start}")
+        start = time.time()
 
         # Create the transform
         transform = Affine.translation(min_x, max_y) * Affine.scale(res_x, -res_y)
-
-        # # Create the transform
-        # transform = from_origin(min_x, max_y, res_x, res_y)
+        end = time.time()
+        logging.info(f"Time to create transform: {end - start}")
 
         return scene_array_probs, transform
 
