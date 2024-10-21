@@ -891,7 +891,9 @@ class FASTAIUNETModel(BaseModel):
         start = time.time()
 
         # Create the transform
-        transform = Affine.translation(min_x, max_y) * Affine.scale(res_x, -res_y)
+        transform = Affine.translation(min_x, max_y - res_y) * Affine.scale(
+            res_x, -res_y
+        )
         end = time.time()
         logging.info(f"Time to create transform: {end - start}")
 
