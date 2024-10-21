@@ -21,8 +21,7 @@ import torch
 import torchvision  # noqa
 from rasterio.features import geometry_mask, shapes
 from rasterio.io import MemoryFile
-from rasterio.merge import merge
-from rasterio.transform import Affine, from_bounds
+from rasterio.transform import Affine
 from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
 
@@ -820,60 +819,70 @@ class FASTAIUNETModel(BaseModel):
 
     def stitch(
         self,
-        tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[List[float]]],
+        tileset_results,
+        tileset_bounds,
     ):
-        """Merge arrays based on their geographical bounds and return the merged array and its transform.
-
-        Args:
-            tileset_results: List of InferenceResultStack containing the prediction results.
-            tileset_bounds: List of bounds for each tile in the format [[minx, miny, maxx, maxy], ...].
+        """Manually merge arrays based on their geographical bounds.
 
         Returns:
-            tuple: A tuple containing the merged numpy array and the affine transform of the merged area.
+            tuple: A tuple containing the merged numpy array and the transform of the merged area.
         """
-        datasets = []
+        bounds_list = []
+        tile_probs_by_class = []
         for i, inf_result_stack in enumerate(tileset_results):
             if inf_result_stack.stack:
                 for j, inference_result in enumerate(inf_result_stack.stack):
-                    # Deserialize the prediction data
-                    tile_probs = (
+                    tile_probs_by_class.append(
                         self.deserialize(inference_result.json_data).detach().numpy()
                     )
-                    bounds = tileset_bounds[i][j]
-                    transform = from_bounds(
-                        *bounds, width=tile_probs.shape[-1], height=tile_probs.shape[-2]
-                    )
+                    bounds_list.append(tileset_bounds[i][j])
 
-                    # XXX BUG Not sure why, but on certain scenes rio_merge(ds_tiles) errors out.
-                    # Notably, tileset_bounds and tileset_results are both empty...???
-                    # e.g. S1A_IW_GRDH_1SDV_20240802T025056_20240802T025125_055028_06B441_281B and S1A_IW_GRDH_1SDV_20240728T024243_20240728T024312_054955_06B1BC_0458
-                    # Note: might be related to the is_tile_over_water() function NOT thinking that the Caspian Sea is water,
-                    # and therefore returning an empty list. If this is the case, then it's unclear why it's not throwing IndexError
-                    # Create an in-memory raster dataset
-                    memfile = MemoryFile()
-                    with memfile.open(
-                        driver="GTiff",
-                        height=tile_probs.shape[-2],
-                        width=tile_probs.shape[-1],
-                        count=tile_probs.shape[0],
-                        dtype=tile_probs.dtype,
-                        transform=transform,
-                        crs="EPSG:4326",  # Replace with your CRS
-                    ) as dataset:
-                        dataset.write(tile_probs)
-                    datasets.append(memfile.open())
+        # Determine overall bounds
+        min_x = min(b[0] for b in bounds_list)
+        min_y = min(b[1] for b in bounds_list)
+        max_x = max(b[2] for b in bounds_list)
+        max_y = max(b[3] for b in bounds_list)
 
-        logging.info("Stitching tile probabilities together!")
-        merged_array, out_transform = merge(
-            datasets, method="first"
-        )  # You can change the method as needed
+        # Get resolution from one tile
+        sample_tile = tile_probs_by_class[0]
+        tile_height, tile_width = sample_tile.shape[1], sample_tile.shape[2]
+        tile_bounds = bounds_list[0]
+        res_x = (tile_bounds[2] - tile_bounds[0]) / tile_width
+        res_y = (
+            tile_bounds[3] - tile_bounds[1]
+        ) / tile_height  # Negative because Y decreases
 
-        # Close all MemoryFiles to free up resources
-        for dataset in datasets:
-            dataset.close()
+        # Calculate final array dimensions
+        final_width = int(np.ceil((max_x - min_x) / res_x))
+        final_height = int(np.ceil((max_y - min_y) / res_y))
+        num_classes = sample_tile.shape[0]
 
-        return merged_array, out_transform
+        # Pre-allocate final array
+        scene_array_probs = np.zeros(
+            (num_classes, final_height, final_width), dtype=sample_tile.dtype
+        )
+
+        # Place each tile into the final array
+        for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
+            x_offset = int(np.floor((bounds[0] - min_x) / res_x))
+            y_offset = int(np.floor((max_y - bounds[3]) / res_y))
+
+            tile_height, tile_width = tile_probs.shape[1], tile_probs.shape[2]
+
+            # Handle potential overlaps if necessary here
+            # print(tile_probs.shape)
+            # print(scene_array_probs.shape)
+            scene_array_probs[
+                :, y_offset : y_offset + tile_height, x_offset : x_offset + tile_width
+            ] = tile_probs
+
+        # Create the transform
+        transform = Affine.translation(min_x, max_y) * Affine.scale(res_x, -res_y)
+
+        # # Create the transform
+        # transform = from_origin(min_x, max_y, res_x, res_y)
+
+        return scene_array_probs, transform
 
     def instantiate(self, scene_array_probs, transform):
         """
