@@ -938,9 +938,9 @@ class FASTAIUNETModel(BaseModel):
 
         Args:
             raster (np.array): The input raster array to be processed.
-            p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. lower value = fewer groups
-            p2 (float): The middle probability, used to trim the final polygons size. lower value = coarser polygons
-            p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. higher value = more restrictive
+            p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. Lower value = fewer groups
+            p2 (float): The middle probability, used to trim the final polygons size. Lower value = coarser polygons
+            p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. Higher value = more restrictive
             transform (Affine): The transform to apply to the raster.
             addl_props (dict): Additional properties to add to the features.
             discard_edge_polygons_buffer (float): The buffer distance to discard polygons that are too close to the edge of the scene.
@@ -966,55 +966,78 @@ class FASTAIUNETModel(BaseModel):
         if isinstance(raster, torch.Tensor):
             raster = raster.detach().cpu().numpy()
 
-        # Label components based on p1
+        raster = raster.astype(np.float32)
+
+        # Generate masks for each threshold
+        nodata_mask = raster == 0
         p1_islands, p1_island_count = label(raster >= p1)
+        p2_mask = raster >= p2
+        p3_mask = raster >= p3
 
-        # Initialize an empty set for unique p1 labels containing pixels >= p3
-        reduced_labels = set()
+        # Extract p1 labels where p3_mask is True
+        p1_p3_labels = np.unique(p1_islands[p3_mask])
 
-        # For each p1_island label, check if it contains any pixels >= p3
-        for label_num in range(1, p1_island_count + 1):
-            island_mask = p1_islands == label_num
-            if np.any(raster[island_mask] >= p3):
-                reduced_labels.add(label_num)
+        # Create mask of all p1_islands that pass p3 criterium
+        p1_p3_mask = np.isin(p1_islands, p1_p3_labels)
 
-        zero_mask = raster == 0  # Find all pixels that are zero (i.e. nodata value)
-        shapes = rasterio.features.shapes(
-            zero_mask.astype(np.uint8), mask=zero_mask, transform=transform
+        # Create mask of all pixels that pass p2 criterium inside p1_islands that pass pass p3 criterium
+        p1_p2_p3_mask = p1_p3_mask & p2_mask
+
+        # Assign distinct labels to the islands that pass p1, p2, and p3 criteria
+        combined_raster = p1_p2_p3_mask * p1_islands
+
+        # Create a buffer around the edge of the scene to discard polygons that are too close to the edge
+        scene_edge = MultiPolygon(
+            shape(geom)
+            for geom, value in shapes(
+                nodata_mask.astype(np.uint8), mask=nodata_mask, transform=transform
+            )
+            if value == 1
+        ).buffer(discard_edge_polygons_buffer)
+
+        # Now, use rasterio.features.shapes to extract polygons and their labels
+        shapes_generator = shapes(
+            combined_raster,
+            mask=combined_raster > 0,  # Only consider pixels with p1_label > 0
+            transform=transform,
         )
-        polygons = [shape(geom) for geom, value in shapes if value == 1]
-        scene_edge = MultiPolygon(polygons).buffer(discard_edge_polygons_buffer)
+
+        # Dictionary to collect geometries per p1_label
+        label_geometries = {}
+        for geom, p1_label in shapes_generator:
+            poly = shape(geom)
+            if overlap_percent(poly, scene_edge) <= 0.5:
+                # Only record polygons that are not overlapping the scene edge
+                if p1_label not in label_geometries:  # Initialize if doesn't exist
+                    label_geometries[p1_label] = []
+                label_geometries[p1_label].append(poly)  # Add polygon to list
 
         features = []
-        # Process into feature collections based on unique p1 labels
-        for p1_label in reduced_labels:
-            mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
-            masked_raster = raster[mask]
+        for p1_label, geometries in label_geometries.items():
+            multipolygon = MultiPolygon(geometries)
 
-            if not np.any(mask):
-                continue  # Skip if mask is empty after trimming
-
-            shapes_generator = rasterio.features.shapes(
-                mask.astype(np.uint8), mask=mask, transform=transform
+            geom_mask = geometry_mask(
+                [multipolygon],
+                out_shape=raster.shape,
+                transform=transform,
+                invert=True,
             )
-            polygons = [shape(geom) for geom, value in shapes_generator if value == 1]
-            polygons = [p for p in polygons if overlap_percent(p, scene_edge) <= 0.5]
 
-            # Ensure there are polygons left after trimming to process into a MultiPolygon
-            if polygons:
-                multipolygon = MultiPolygon(polygons)
-                features.append(
-                    geojson.Feature(
-                        geometry=multipolygon,
-                        properties={
-                            "mean_conf": float(np.mean(masked_raster)),
-                            "median_conf": float(np.median(masked_raster)),
-                            "max_conf": float(np.max(masked_raster)),
-                            "machine_confidence": float(np.median(masked_raster)),
-                            **addl_props,
-                        },
-                    )
+            masked_raster = raster[geom_mask]
+
+            features.append(
+                geojson.Feature(
+                    geometry=multipolygon,
+                    properties={
+                        "mean_conf": float(np.mean(masked_raster)),
+                        "median_conf": float(np.median(masked_raster)),
+                        "max_conf": float(np.max(masked_raster)),
+                        "machine_confidence": float(np.median(masked_raster)),
+                        "p1_label": int(p1_label),
+                        **addl_props,
+                    },
                 )
+            )
 
         return features
 
