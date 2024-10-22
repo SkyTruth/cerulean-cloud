@@ -894,9 +894,9 @@ class FASTAIUNETModel(BaseModel):
         Returns:
         - geojson.FeatureCollection: A collection of geojson features representing detected instances.
         """
-        # Convert numpy.ndarray to PyTorch tensor if necessary
-        if isinstance(scene_array_probs, np.ndarray):
-            scene_array_probs = torch.tensor(scene_array_probs)
+        # Ensure scene_array_probs is a NumPy array
+        if isinstance(scene_array_probs, torch.Tensor):
+            scene_array_probs = scene_array_probs.detach().cpu().numpy()
 
         classes_to_consider = [1, 2, 3]
         scene_oil_probs = scene_array_probs[classes_to_consider].sum(0)
@@ -909,18 +909,16 @@ class FASTAIUNETModel(BaseModel):
         )
         for feat in features:
             mask = geometry_mask(
-                [shape(feat["geometry"])],
+                [feat["geometry"]],
                 out_shape=scene_oil_probs.shape,
                 transform=transform,
                 invert=True,
             )
             cls_sums = [
-                cls_probs[mask].detach().sum()
-                for cls_probs in scene_array_probs[classes_to_consider]
+                scene_array_probs[cls_idx][mask].sum()
+                for cls_idx in classes_to_consider
             ]
-            feat["properties"]["inf_idx"] = classes_to_consider[
-                cls_sums.index(max(cls_sums))
-            ]
+            feat["properties"]["inf_idx"] = classes_to_consider[np.argmax(cls_sums)]
 
         return geojson.FeatureCollection(features=features)
 
@@ -949,7 +947,7 @@ class FASTAIUNETModel(BaseModel):
             Sample values: p1, p2, p3 = 0.1, 0.5, 0.95
             Analogous to bbox_score_thresh, poly_score_thresh, pixel_score_thresh
         Returns:
-            GeoJSON: A GeoJSON feature collection of the processed predictions.
+            List[geojson.Feature]: A list of GeoJSON features of the processed predictions.
         """
 
         def overlap_percent(a, b):
@@ -964,13 +962,20 @@ class FASTAIUNETModel(BaseModel):
             else:
                 return a.intersection(b).area / a.area
 
-        raster = raster.float().detach().numpy()
+        # Ensure raster is a NumPy array
+        if isinstance(raster, torch.Tensor):
+            raster = raster.detach().cpu().numpy()
 
-        reduced_labels = set()  # Initialize an empty set for unique p1 labels
+        # Label components based on p1
         p1_islands, p1_island_count = label(raster >= p1)
+
+        # Initialize an empty set for unique p1 labels containing pixels >= p3
+        reduced_labels = set()
+
+        # For each p1_island label, check if it contains any pixels >= p3
         for label_num in range(1, p1_island_count + 1):
-            p1_label_mask = p1_islands == label_num
-            if np.any(raster[p1_label_mask] >= p3):
+            island_mask = p1_islands == label_num
+            if np.any(raster[island_mask] >= p3):
                 reduced_labels.add(label_num)
 
         zero_mask = raster == 0  # Find all pixels that are zero (i.e. nodata value)
@@ -980,16 +985,21 @@ class FASTAIUNETModel(BaseModel):
         polygons = [shape(geom) for geom, value in shapes if value == 1]
         scene_edge = MultiPolygon(polygons).buffer(discard_edge_polygons_buffer)
 
-        # Process into feature collections based on unique p1 labels
         features = []
+        # Process into feature collections based on unique p1 labels
         for p1_label in reduced_labels:
             mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
             masked_raster = raster[mask]
-            shapes = rasterio.features.shapes(
+
+            if not np.any(mask):
+                continue  # Skip if mask is empty after trimming
+
+            shapes_generator = rasterio.features.shapes(
                 mask.astype(np.uint8), mask=mask, transform=transform
             )
-            polygons = [shape(geom) for geom, value in shapes if value == 1]
+            polygons = [shape(geom) for geom, value in shapes_generator if value == 1]
             polygons = [p for p in polygons if overlap_percent(p, scene_edge) <= 0.5]
+
             # Ensure there are polygons left after trimming to process into a MultiPolygon
             if polygons:
                 multipolygon = MultiPolygon(polygons)
