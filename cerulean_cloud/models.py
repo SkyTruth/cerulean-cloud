@@ -966,23 +966,12 @@ class FASTAIUNETModel(BaseModel):
 
         raster = raster.float().detach().numpy()
 
-        # Label components based on p3 to find peaks
+        reduced_labels = set()  # Initialize an empty set for unique p1 labels
         p1_islands, p1_island_count = label(raster >= p1)
-        # logging.info(f"p1_island_count: {p1_island_count}")
-        p3_islands, p3_island_count = label(raster >= p3)
-        # logging.info(f"p3_island_count: {p3_island_count}")
-
-        # Initialize an empty set for unique p1 labels corresponding to p3 components
-        reduced_labels = set()
-
-        # Iterate over each p3 component
-        for i in range(1, p3_island_count + 1):
-            p3_island_mask = p3_islands == i
-            p1_label_at_p3 = p1_islands[p3_island_mask].flat[
-                0
-            ]  # Take the first pixel's p1 label
-            reduced_labels.add(p1_label_at_p3)
-        # logging.info(f"reduced_labels: {len(reduced_labels)}")
+        for label_num in range(1, p1_island_count + 1):
+            p1_label_mask = p1_islands == label_num
+            if np.any(raster[p1_label_mask] >= p3):
+                reduced_labels.add(label_num)
 
         zero_mask = raster == 0  # Find all pixels that are zero (i.e. nodata value)
         shapes = rasterio.features.shapes(
