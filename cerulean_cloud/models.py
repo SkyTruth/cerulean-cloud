@@ -837,11 +837,7 @@ class FASTAIUNETModel(BaseModel):
                         self.deserialize(inference_result.json_data).detach().numpy()
                     )
                     bounds_list.append(tileset_bounds[i][j])
-            # XXX BUG Not sure why, but on certain scenes rio_merge(ds_tiles) errors out.
-            # Notably, tileset_bounds and tileset_results are both empty...???
-            # e.g. S1A_IW_GRDH_1SDV_20240802T025056_20240802T025125_055028_06B441_281B and S1A_IW_GRDH_1SDV_20240728T024243_20240728T024312_054955_06B1BC_0458
-            # Note: might be related to the is_tile_over_water() function NOT thinking that the Caspian Sea is water,
-            # and therefore returning an empty list. If this is the case, then it's unclear why it's not throwing IndexError
+
         # Determine overall bounds
         min_x = min(b[0] for b in bounds_list)
         min_y = min(b[1] for b in bounds_list)
@@ -894,12 +890,16 @@ class FASTAIUNETModel(BaseModel):
         Returns:
         - geojson.FeatureCollection: A collection of geojson features representing detected instances.
         """
-        # Convert numpy.ndarray to PyTorch tensor if necessary
-        if isinstance(scene_array_probs, np.ndarray):
-            scene_array_probs = torch.tensor(scene_array_probs)
+        # Ensure scene_array_probs is a NumPy array
+        if isinstance(scene_array_probs, torch.Tensor):
+            scene_array_probs = scene_array_probs.detach().cpu().numpy()
 
-        classes_to_consider = [1, 2, 3]
-        scene_oil_probs = scene_array_probs[classes_to_consider].sum(0)
+        oil_classes = [
+            1,
+            2,
+            3,
+        ]  # Classes that are considered to be OIL (including from natural oil seeps) XXX This should not be hardcoded rather be a grabbed from the model inf_idx... OPEN QUESTION
+        scene_oil_probs = scene_array_probs[oil_classes].sum(0)
         features = self.instances_from_probs(
             scene_oil_probs,
             p1=self.model_dict["thresholds"]["bbox_score_thresh"],
@@ -909,18 +909,15 @@ class FASTAIUNETModel(BaseModel):
         )
         for feat in features:
             mask = geometry_mask(
-                [shape(feat["geometry"])],
+                [feat["geometry"]],
                 out_shape=scene_oil_probs.shape,
                 transform=transform,
                 invert=True,
             )
             cls_sums = [
-                cls_probs[mask].detach().sum()
-                for cls_probs in scene_array_probs[classes_to_consider]
+                scene_array_probs[cls_idx][mask].sum() for cls_idx in oil_classes
             ]
-            feat["properties"]["inf_idx"] = classes_to_consider[
-                cls_sums.index(max(cls_sums))
-            ]
+            feat["properties"]["inf_idx"] = oil_classes[np.argmax(cls_sums)]
 
         return geojson.FeatureCollection(features=features)
 
@@ -940,22 +937,23 @@ class FASTAIUNETModel(BaseModel):
 
         Args:
             raster (np.array): The input raster array to be processed.
-            p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. lower value = fewer groups
-            p2 (float): The middle probability, used to trim the final polygons size. lower value = coarser polygons
-            p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. higher value = more restrictive
+            p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. Lower value = fewer groups
+            p2 (float): The middle probability, used to trim the final polygons size. Lower value = coarser polygons
+            p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. Higher value = more restrictive
             transform (Affine): The transform to apply to the raster.
             addl_props (dict): Additional properties to add to the features.
             discard_edge_polygons_buffer (float): The buffer distance to discard polygons that are too close to the edge of the scene.
             Sample values: p1, p2, p3 = 0.1, 0.5, 0.95
             Analogous to bbox_score_thresh, poly_score_thresh, pixel_score_thresh
         Returns:
-            GeoJSON: A GeoJSON feature collection of the processed predictions.
+            List[geojson.Feature]: A list of GeoJSON features of the processed predictions.
         """
 
         def overlap_percent(a, b):
             """
             Calculate the percentage of overlap between two polygons.
             This is different from IoU, because it is not symmetric.
+            Used to discard polygons that are too close to the edge of the scene.
             """
             if not a.intersects(b):  # Avoid unnecessary intersection computation
                 return 0.0
@@ -964,58 +962,75 @@ class FASTAIUNETModel(BaseModel):
             else:
                 return a.intersection(b).area / a.area
 
-        raster = raster.float().detach().numpy()
+        # Generate masks for each threshold
+        nodata_mask = raster == 0
+        p1_islands, _ = label(raster >= p1)
+        p2_mask = raster >= p2
+        p3_mask = raster >= p3
 
-        # Label components based on p3 to find peaks
-        p1_islands, p1_island_count = label(raster >= p1)
-        # logging.info(f"p1_island_count: {p1_island_count}")
-        p3_islands, p3_island_count = label(raster >= p3)
-        # logging.info(f"p3_island_count: {p3_island_count}")
+        # Extract p1 labels where p3_mask is True
+        p1_p3_labels = np.unique(p1_islands[p3_mask])
 
-        # Initialize an empty set for unique p1 labels corresponding to p3 components
-        reduced_labels = set()
+        # Create mask of all p1_islands that pass p3 criterium
+        p1_p3_mask = np.isin(p1_islands, p1_p3_labels)
 
-        # Iterate over each p3 component
-        for i in range(1, p3_island_count + 1):
-            p3_island_mask = p3_islands == i
-            p1_label_at_p3 = p1_islands[p3_island_mask].flat[
-                0
-            ]  # Take the first pixel's p1 label
-            reduced_labels.add(p1_label_at_p3)
-        # logging.info(f"reduced_labels: {len(reduced_labels)}")
+        # Create mask of all pixels that pass p2 criterium inside p1_islands that passed the p3 criterium
+        p1_p2_p3_mask = p1_p3_mask & p2_mask
 
-        zero_mask = raster == 0  # Find all pixels that are zero (i.e. nodata value)
-        shapes = rasterio.features.shapes(
-            zero_mask.astype(np.uint8), mask=zero_mask, transform=transform
-        )
-        polygons = [shape(geom) for geom, value in shapes if value == 1]
-        scene_edge = MultiPolygon(polygons).buffer(discard_edge_polygons_buffer)
+        # Assign distinct labels to the islands that pass p1, p2, and p3 criteria
+        combined_raster = p1_p2_p3_mask * p1_islands
 
-        # Process into feature collections based on unique p1 labels
-        features = []
-        for p1_label in reduced_labels:
-            mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
-            masked_raster = raster[mask]
-            shapes = rasterio.features.shapes(
-                mask.astype(np.uint8), mask=mask, transform=transform
+        # Create a buffer around the edge of the scene to discard polygons that are too close to the edge
+        scene_edge = MultiPolygon(
+            shape(geom)
+            for geom, value in shapes(
+                nodata_mask.astype(np.uint8), mask=nodata_mask, transform=transform
             )
-            polygons = [shape(geom) for geom, value in shapes if value == 1]
-            polygons = [p for p in polygons if overlap_percent(p, scene_edge) <= 0.5]
-            # Ensure there are polygons left after trimming to process into a MultiPolygon
-            if polygons:
-                multipolygon = MultiPolygon(polygons)
-                features.append(
-                    geojson.Feature(
-                        geometry=multipolygon,
-                        properties={
-                            "mean_conf": float(np.mean(masked_raster)),
-                            "median_conf": float(np.median(masked_raster)),
-                            "max_conf": float(np.max(masked_raster)),
-                            "machine_confidence": float(np.median(masked_raster)),
-                            **addl_props,
-                        },
-                    )
+            if value == 1
+        ).buffer(discard_edge_polygons_buffer)
+
+        # Now, use rasterio.features.shapes to extract polygons and their labels
+        shapes_generator = shapes(
+            combined_raster,
+            mask=combined_raster > 0,  # Only consider pixels with p1_label > 0
+            transform=transform,
+        )
+
+        # Dictionary to collect geometries per p1_label
+        label_geometries = {}
+        for geom, p1_label in shapes_generator:
+            poly = shape(geom)
+            if overlap_percent(poly, scene_edge) <= 0.5:
+                # Only record polygons that are not overlapping the scene edge
+                if p1_label not in label_geometries:  # Initialize if doesn't exist
+                    label_geometries[p1_label] = []
+                label_geometries[p1_label].append(poly)  # Add polygon to list
+
+        features = []
+        for _, geometries in label_geometries.items():
+            multipolygon = MultiPolygon(geometries)
+
+            geom_mask = geometry_mask(
+                [multipolygon],
+                out_shape=raster.shape,
+                transform=transform,
+                invert=True,
+            )
+
+            masked_raster = raster[geom_mask]
+
+            features.append(
+                geojson.Feature(
+                    geometry=multipolygon,
+                    properties={
+                        "mean_conf": float(np.mean(masked_raster)),
+                        "median_conf": float(np.median(masked_raster)),
+                        "max_conf": float(np.max(masked_raster)),
+                        "machine_confidence": float(np.median(masked_raster)),
+                        **addl_props,
+                    },
                 )
+            )
 
         return features
 
