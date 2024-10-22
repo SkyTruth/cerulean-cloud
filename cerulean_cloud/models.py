@@ -898,8 +898,12 @@ class FASTAIUNETModel(BaseModel):
         if isinstance(scene_array_probs, torch.Tensor):
             scene_array_probs = scene_array_probs.detach().cpu().numpy()
 
-        classes_to_consider = [1, 2, 3]
-        scene_oil_probs = scene_array_probs[classes_to_consider].sum(0)
+        oil_classes = [
+            1,
+            2,
+            3,
+        ]  # Classes that are considered to be OIL (including from natural oil seeps) XXX This should not be hardcoded rather be a grabbed from the model inf_idx... OPEN QUESTION
+        scene_oil_probs = scene_array_probs[oil_classes].sum(0)
         features = self.instances_from_probs(
             scene_oil_probs,
             p1=self.model_dict["thresholds"]["bbox_score_thresh"],
@@ -915,10 +919,9 @@ class FASTAIUNETModel(BaseModel):
                 invert=True,
             )
             cls_sums = [
-                scene_array_probs[cls_idx][mask].sum()
-                for cls_idx in classes_to_consider
+                scene_array_probs[cls_idx][mask].sum() for cls_idx in oil_classes
             ]
-            feat["properties"]["inf_idx"] = classes_to_consider[np.argmax(cls_sums)]
+            feat["properties"]["inf_idx"] = oil_classes[np.argmax(cls_sums)]
 
         return geojson.FeatureCollection(features=features)
 
@@ -954,6 +957,7 @@ class FASTAIUNETModel(BaseModel):
             """
             Calculate the percentage of overlap between two polygons.
             This is different from IoU, because it is not symmetric.
+            Used to discard polygons that are too close to the edge of the scene.
             """
             if not a.intersects(b):  # Avoid unnecessary intersection computation
                 return 0.0
@@ -962,15 +966,9 @@ class FASTAIUNETModel(BaseModel):
             else:
                 return a.intersection(b).area / a.area
 
-        # Ensure raster is a NumPy array
-        if isinstance(raster, torch.Tensor):
-            raster = raster.detach().cpu().numpy()
-
-        raster = raster.astype(np.float32)
-
         # Generate masks for each threshold
         nodata_mask = raster == 0
-        p1_islands, p1_island_count = label(raster >= p1)
+        p1_islands, _ = label(raster >= p1)
         p2_mask = raster >= p2
         p3_mask = raster >= p3
 
@@ -980,7 +978,7 @@ class FASTAIUNETModel(BaseModel):
         # Create mask of all p1_islands that pass p3 criterium
         p1_p3_mask = np.isin(p1_islands, p1_p3_labels)
 
-        # Create mask of all pixels that pass p2 criterium inside p1_islands that pass pass p3 criterium
+        # Create mask of all pixels that pass p2 criterium inside p1_islands that passed the p3 criterium
         p1_p2_p3_mask = p1_p3_mask & p2_mask
 
         # Assign distinct labels to the islands that pass p1, p2, and p3 criteria
@@ -1013,7 +1011,7 @@ class FASTAIUNETModel(BaseModel):
                 label_geometries[p1_label].append(poly)  # Add polygon to list
 
         features = []
-        for p1_label, geometries in label_geometries.items():
+        for _, geometries in label_geometries.items():
             multipolygon = MultiPolygon(geometries)
 
             geom_mask = geometry_mask(
@@ -1033,7 +1031,6 @@ class FASTAIUNETModel(BaseModel):
                         "median_conf": float(np.median(masked_raster)),
                         "max_conf": float(np.max(masked_raster)),
                         "machine_confidence": float(np.median(masked_raster)),
-                        "p1_label": int(p1_label),
                         **addl_props,
                     },
                 )
