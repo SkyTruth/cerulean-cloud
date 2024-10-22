@@ -311,14 +311,16 @@ async def _orchestrate(
             # Stitch inferences
             print(f"Stitching results: {start_time}")
             model = get_model(model_dict)
-            tileset_fc_list = [
-                model.postprocess_tileset(
-                    tileset_results, [[b] for b in tileset_bounds]
-                )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
-                for (tileset_results, tileset_bounds) in zip(
-                    tileset_results_list, tileset_list
-                )
-            ]
+            tileset_fc_list = []
+
+            for tileset_results, tileset_bounds in zip(
+                tileset_results_list, tileset_list
+            ):
+                if tileset_results and tileset_bounds:
+                    fc = model.postprocess_tileset(
+                        tileset_results, [[b] for b in tileset_bounds]
+                    )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+                    tileset_fc_list.append(fc)
 
             # Ensemble inferences
             print(f"Ensembling results: {start_time}")

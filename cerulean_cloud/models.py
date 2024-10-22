@@ -837,11 +837,7 @@ class FASTAIUNETModel(BaseModel):
                         self.deserialize(inference_result.json_data).detach().numpy()
                     )
                     bounds_list.append(tileset_bounds[i][j])
-            # XXX BUG Not sure why, but on certain scenes rio_merge(ds_tiles) errors out.
-            # Notably, tileset_bounds and tileset_results are both empty...???
-            # e.g. S1A_IW_GRDH_1SDV_20240802T025056_20240802T025125_055028_06B441_281B and S1A_IW_GRDH_1SDV_20240728T024243_20240728T024312_054955_06B1BC_0458
-            # Note: might be related to the is_tile_over_water() function NOT thinking that the Caspian Sea is water,
-            # and therefore returning an empty list. If this is the case, then it's unclear why it's not throwing IndexError
+
         # Determine overall bounds
         min_x = min(b[0] for b in bounds_list)
         min_y = min(b[1] for b in bounds_list)
