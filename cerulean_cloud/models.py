@@ -840,6 +840,8 @@ class FASTAIUNETModel(BaseModel):
 
         # Determine overall bounds
         min_x = min(b[0] for b in bounds_list)
+        min_y = min(b[1] for b in bounds_list)
+        max_x = max(b[2] for b in bounds_list)
         max_y = max(b[3] for b in bounds_list)
 
         # Get resolution from one tile
@@ -847,35 +849,13 @@ class FASTAIUNETModel(BaseModel):
         tile_height, tile_width = sample_tile.shape[1], sample_tile.shape[2]
         tile_bounds = bounds_list[0]
         res_x = (tile_bounds[2] - tile_bounds[0]) / tile_width
-        res_y = (
-            tile_bounds[3] - tile_bounds[1]
-        ) / tile_height  # Negative because Y decreases
+        res_y = (tile_bounds[3] - tile_bounds[1]) / tile_height
 
         num_classes = sample_tile.shape[0]
 
-        # Pre-compute offsets and ends for all tiles
-        x_offsets = []
-        y_offsets = []
-        x_ends = []
-        y_ends = []
-
-        for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
-            x_offset = int(round((bounds[0] - min_x) / res_x))
-            y_offset = int(round((max_y - bounds[3]) / res_y))
-
-            tile_height, tile_width = tile_probs.shape[1], tile_probs.shape[2]
-
-            x_end = x_offset + tile_width
-            y_end = y_offset + tile_height
-
-            x_offsets.append(x_offset)
-            y_offsets.append(y_offset)
-            x_ends.append(x_end)
-            y_ends.append(y_end)
-
-        # Calculate final array dimensions based on maximum extents
-        final_width = max(x_ends)
-        final_height = max(y_ends)
+        # Compute final array dimensions directly
+        final_width = int(round((max_x - min_x) / res_x))
+        final_height = int(round((max_y - min_y) / res_y))
 
         # Pre-allocate final array
         scene_array_probs = np.zeros(
@@ -883,9 +863,10 @@ class FASTAIUNETModel(BaseModel):
         )
 
         # Place each tile into the final array
-        for tile_probs, x_offset, y_offset in zip(
-            tile_probs_by_class, x_offsets, y_offsets
-        ):
+        for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
+            x_offset = int(round((bounds[0] - min_x) / res_x))
+            y_offset = int(round((max_y - bounds[3]) / res_y))
+
             tile_height, tile_width = tile_probs.shape[1], tile_probs.shape[2]
 
             scene_array_probs[
