@@ -858,8 +858,8 @@ class FASTAIUNETModel(BaseModel):
         ) / tile_height  # Negative because Y decreases
 
         # Calculate final array dimensions
-        final_width = int(np.ceil((max_x - min_x) / res_x))
-        final_height = int(np.ceil((max_y - min_y) / res_y))
+        final_width = int(np.ceil((max_x - min_x) / res_x)) + 1
+        final_height = int(np.ceil((max_y - min_y) / res_y)) + 1
         num_classes = sample_tile.shape[0]
 
         # Pre-allocate final array
