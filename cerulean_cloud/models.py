@@ -837,15 +837,9 @@ class FASTAIUNETModel(BaseModel):
                         self.deserialize(inference_result.json_data).detach().numpy()
                     )
                     bounds_list.append(tileset_bounds[i][j])
-            # XXX BUG Not sure why, but on certain scenes rio_merge(ds_tiles) errors out.
-            # Notably, tileset_bounds and tileset_results are both empty...???
-            # e.g. S1A_IW_GRDH_1SDV_20240802T025056_20240802T025125_055028_06B441_281B and S1A_IW_GRDH_1SDV_20240728T024243_20240728T024312_054955_06B1BC_0458
-            # Note: might be related to the is_tile_over_water() function NOT thinking that the Caspian Sea is water,
-            # and therefore returning an empty list. If this is the case, then it's unclear why it's not throwing IndexError
+
         # Determine overall bounds
         min_x = min(b[0] for b in bounds_list)
-        min_y = min(b[1] for b in bounds_list)
-        max_x = max(b[2] for b in bounds_list)
         max_y = max(b[3] for b in bounds_list)
 
         # Get resolution from one tile
@@ -857,23 +851,43 @@ class FASTAIUNETModel(BaseModel):
             tile_bounds[3] - tile_bounds[1]
         ) / tile_height  # Negative because Y decreases
 
-        # Calculate final array dimensions
-        final_width = int(np.ceil((max_x - min_x) / res_x)) + 1
-        final_height = int(np.ceil((max_y - min_y) / res_y)) + 1
         num_classes = sample_tile.shape[0]
+
+        # Pre-compute offsets and ends for all tiles
+        x_offsets = []
+        y_offsets = []
+        x_ends = []
+        y_ends = []
+
+        for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
+            x_offset = int(round((bounds[0] - min_x) / res_x))
+            y_offset = int(round((max_y - bounds[3]) / res_y))
+
+            tile_height, tile_width = tile_probs.shape[1], tile_probs.shape[2]
+
+            x_end = x_offset + tile_width
+            y_end = y_offset + tile_height
+
+            x_offsets.append(x_offset)
+            y_offsets.append(y_offset)
+            x_ends.append(x_end)
+            y_ends.append(y_end)
+
+        # Calculate final array dimensions based on maximum extents
+        final_width = max(x_ends)
+        final_height = max(y_ends)
 
         # Pre-allocate final array
         scene_array_probs = np.zeros(
             (num_classes, final_height, final_width), dtype=sample_tile.dtype
         )
-        # Place each tile into the final array
-        for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
-            x_offset = int(np.ceil((bounds[0] - min_x) / res_x))
-            y_offset = int(np.ceil((max_y - bounds[3]) / res_y))
 
+        # Place each tile into the final array
+        for tile_probs, x_offset, y_offset in zip(
+            tile_probs_by_class, x_offsets, y_offsets
+        ):
             tile_height, tile_width = tile_probs.shape[1], tile_probs.shape[2]
 
-            # Handle potential overlaps if necessary here
             scene_array_probs[
                 :, y_offset : y_offset + tile_height, x_offset : x_offset + tile_width
             ] = tile_probs
