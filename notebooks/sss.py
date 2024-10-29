@@ -14,6 +14,7 @@ import sys
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 # Add the parent directory to sys.path
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -81,25 +82,72 @@ def plot_confidence(
     confidence_scores,
     polygons,
     overall_centroid,
+    id,  # Added 'id' as a parameter
 ):
     """
     Plots a sample of infrastructure points with their confidence scores.
 
     Parameters:
-    - infra_points (np.ndarray): Array of infrastructure points coordinates.
+    - infra_gdf (GeoDataFrame): GeoDataFrame containing infrastructure points.
     - confidence_scores (np.ndarray): Array of confidence scores.
     - polygons (list of Polygon): List of Polygon objects.
     - overall_centroid (np.ndarray): Coordinates of the overall centroid (x, y).
-    - sample_size (int): Number of points to plot.
     - id (int): Identifier for the plot title.
     """
     sample_size = len(infra_gdf)
     plt.figure(figsize=(10, 10))
 
-    # Plot the polygons
+    # Initialize lists to collect all x and y coordinates from polygons
+    all_x = []
+    all_y = []
+
+    # Plot the polygons and collect their coordinates
     for poly in polygons:
         x, y = poly.exterior.xy
+        all_x.extend(x)
+        all_y.extend(y)
         plt.plot(x, y, "r", linewidth=3.0)
+
+    # Calculate plot limits based on polygons
+    min_x, max_x = min(all_x), max(all_x)
+    min_y, max_y = min(all_y), max(all_y)
+
+    # Add padding to the plot limits (e.g., 5% padding)
+    padding_ratio = 0.05  # 5% padding
+    width = max_x - min_x
+    height = max_y - min_y
+
+    padding_x = width * padding_ratio
+    padding_y = height * padding_ratio
+
+    # Apply padding
+    min_x_padded = min_x - padding_x
+    max_x_padded = max_x + padding_x
+    min_y_padded = min_y - padding_y
+    max_y_padded = max_y + padding_y
+
+    # Step 3: Determine the larger dimension
+    width_padded = max_x_padded - min_x_padded
+    height_padded = max_y_padded - min_y_padded
+
+    if width_padded > height_padded:
+        # Width is the larger dimension
+        # Calculate the difference and adjust y-axis limits to match the width
+        extra_height = width_padded - height_padded
+        min_y_final = min_y_padded - extra_height / 2
+        max_y_final = max_y_padded + extra_height / 2
+        min_x_final = min_x_padded
+        max_x_final = max_x_padded
+    else:
+        # Height is the larger dimension
+        # Calculate the difference and adjust x-axis limits to match the height
+        extra_width = height_padded - width_padded
+        min_x_final = min_x_padded - extra_width / 2
+        max_x_final = max_x_padded + extra_width / 2
+        min_y_final = min_y_padded
+        max_y_final = max_y_padded
+    plt.xlim(min_x_final, max_x_final)
+    plt.ylim(min_y_final, max_y_final)
 
     # Plot infrastructure points with confidence scores
     plt.scatter(
@@ -111,6 +159,8 @@ def plot_confidence(
         vmin=0,
         vmax=1,
         alpha=0.6,
+        # edgecolor="black",  # Adds black borders
+        # linewidth=0.5,  # Optional: adjust border thickness
     )
 
     # Plot the centroid
@@ -122,27 +172,64 @@ def plot_confidence(
     plt.title(f"Slick ID {id}: Max Confidence {round(confidence_scores.max(), 2)}")
     plt.xlabel("Longitude")
     plt.ylabel("Latitude")
-    plt.axis("equal")
+
+    # Remove or adjust the aspect ratio
+    # plt.axis("equal")  # Removed to prevent overriding limits
+
     plt.grid(True)
     plt.legend()
     plt.show()
+
+    copy_infra_gdf = infra_gdf.copy()  # To avoid SettingWithCopyWarning
+    copy_infra_gdf["confidence_score"] = confidence_scores
+    copy_infra_gdf = copy_infra_gdf.sort_values(by="confidence_score", ascending=False)
+    copy_infra_gdf.reset_index(drop=True, inplace=True)
+    print(copy_infra_gdf[copy_infra_gdf["confidence_score"] > 0].head())
+
+
+def load_infrastructure_from_csv(csv_path, scene_date, crs="epsg:4326"):
+    """
+    Loads infrastructure points from a CSV file.
+
+    Parameters:
+    - csv_path (str): Path to the CSV file.
+    - crs (str): Coordinate Reference System.
+
+    Returns:
+    - infra_gdf (GeoDataFrame): GeoDataFrame of infrastructure points.
+    """
+    scene_date = pd.to_datetime(scene_date, format="%Y%m%d")
+
+    df = pd.read_csv(csv_path)
+    df["structure_start_date"] = pd.to_datetime(df["structure_start_date"])
+    df["structure_end_date"] = pd.to_datetime(df["structure_end_date"])
+
+    df = df[df["structure_start_date"] < scene_date]
+    df = df[(df["structure_end_date"] > scene_date) | (df["structure_end_date"].isna())]
+
+    return gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.lon, df.lat), crs=crs)
 
 
 # %%
 # Usage example
 
 # Sample parameters
-id = 3342876
+id = 3365756
 geojson_file_path = download_geojson(id)
+csv_path = "/Users/jonathanraphael/Downloads/Filtered_SAR_Fixed_Infrastructure.csv"
 
 # Plotting parameters
 num_infra_points = 50000  # Number of infrastructure points
 plot_sample = True
 
+scene_id = "S1A_IW_GRDH_1SDV_20240705"
+scene_date = scene_id[17:25]
 slick_gdf = gpd.read_file(geojson_file_path)
+
 infra_gdf = generate_infrastructure_points(
     slick_gdf.geometry.values[0], num_infra_points
 )
+infra_gdf = load_infrastructure_from_csv(csv_path, scene_date)
 
 confidence_scores = associate_infra_to_slick(infra_gdf, slick_gdf)
 
@@ -151,5 +238,6 @@ plot_confidence(
     confidence_scores,
     slick_gdf.geometry.iloc[0].geoms,
     slick_gdf.centroid.iloc[0].coords[0],
+    id,
 )
 # %%
