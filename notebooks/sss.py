@@ -51,20 +51,20 @@ def download_geojson(id, download_path="/Users/jonathanraphael/Downloads"):
 
 
 def generate_infrastructure_points(
-    combined_geometry, num_points, expansion_factor=0.2, crs="epsg:4326"
+    slick_gdf, num_points, expansion_factor=0.2, crs="epsg:4326"
 ):
     """
     Generates random infrastructure points within an expanded bounding box of the combined geometry.
 
     Parameters:
-    - combined_geometry (GeometryCollection | MultiPolygon | Polygon): The combined geometry.
+    - slick_gdf (GeoDataFrame): GeoDataFrame containing slick polygons.
     - num_points (int): Number of infrastructure points to generate.
     - expansion_factor (float): Fraction to expand the bounding box.
 
     Returns:
     - infra_gdf (GeoDataFrame): GeoDataFrame of infrastructure points.
     """
-    minx, miny, maxx, maxy = combined_geometry.bounds
+    minx, miny, maxx, maxy = slick_gdf.total_bounds
     width = maxx - minx
     height = maxy - miny
     infra_x = np.random.uniform(
@@ -79,9 +79,8 @@ def generate_infrastructure_points(
 
 def plot_confidence(
     infra_gdf,
+    slick_gdf,
     confidence_scores,
-    polygons,
-    overall_centroid,
     id,  # Added 'id' as a parameter
 ):
     """
@@ -89,31 +88,44 @@ def plot_confidence(
 
     Parameters:
     - infra_gdf (GeoDataFrame): GeoDataFrame containing infrastructure points.
+    - slick_gdf (GeoDataFrame): GeoDataFrame containing slick polygons.
     - confidence_scores (np.ndarray): Array of confidence scores.
-    - polygons (list of Polygon): List of Polygon objects.
-    - overall_centroid (np.ndarray): Coordinates of the overall centroid (x, y).
     - id (int): Identifier for the plot title.
     """
     sample_size = len(infra_gdf)
     plt.figure(figsize=(10, 10))
 
-    # Initialize lists to collect all x and y coordinates from polygons
-    all_x = []
-    all_y = []
+    # Create an axes object
+    ax = plt.gca()
 
-    # Plot the polygons and collect their coordinates
-    for poly in polygons:
-        x, y = poly.exterior.xy
-        all_x.extend(x)
-        all_y.extend(y)
-        plt.plot(x, y, "r", linewidth=3.0)
+    # First plot the infrastructure points
+    scatter = ax.scatter(
+        infra_gdf.geometry.x[:sample_size],
+        infra_gdf.geometry.y[:sample_size],
+        c=confidence_scores[:sample_size],
+        cmap="Blues",
+        s=10,
+        vmin=0,
+        vmax=1,
+        alpha=0.6,
+        # edgecolor="black",  # Adds black borders
+        # linewidth=0.5,  # Optional: adjust border thickness
+        label="Infrastructure Points",
+    )
 
-    # Calculate plot limits based on polygons
-    min_x, max_x = min(all_x), max(all_x)
-    min_y, max_y = min(all_y), max(all_y)
+    # Then plot the slick_gdf polygons on top
+    slick_gdf.plot(
+        edgecolor="red", linewidth=1, color="none", ax=ax, label="Slick Polygons"
+    )
 
-    # Add padding to the plot limits (e.g., 5% padding)
-    padding_ratio = 0.05  # 5% padding
+    # Optionally, plot the centroid on top
+    centroid = slick_gdf.centroid.iloc[0]
+    ax.plot(centroid.x, centroid.y, "k+", markersize=10, label="Centroid")
+
+    # Set plot limits with padding
+    min_x, min_y, max_x, max_y = slick_gdf.total_bounds
+    padding_ratio = 0.1
+
     width = max_x - min_x
     height = max_y - min_y
 
@@ -126,13 +138,12 @@ def plot_confidence(
     min_y_padded = min_y - padding_y
     max_y_padded = max_y + padding_y
 
-    # Step 3: Determine the larger dimension
+    # Determine the larger dimension
     width_padded = max_x_padded - min_x_padded
     height_padded = max_y_padded - min_y_padded
 
     if width_padded > height_padded:
         # Width is the larger dimension
-        # Calculate the difference and adjust y-axis limits to match the width
         extra_height = width_padded - height_padded
         min_y_final = min_y_padded - extra_height / 2
         max_y_final = max_y_padded + extra_height / 2
@@ -140,35 +151,20 @@ def plot_confidence(
         max_x_final = max_x_padded
     else:
         # Height is the larger dimension
-        # Calculate the difference and adjust x-axis limits to match the height
         extra_width = height_padded - width_padded
         min_x_final = min_x_padded - extra_width / 2
         max_x_final = max_x_padded + extra_width / 2
         min_y_final = min_y_padded
         max_y_final = max_y_padded
-    plt.xlim(min_x_final, max_x_final)
-    plt.ylim(min_y_final, max_y_final)
 
-    # Plot infrastructure points with confidence scores
-    plt.scatter(
-        infra_gdf.geometry.x[:sample_size],
-        infra_gdf.geometry.y[:sample_size],
-        c=confidence_scores[:sample_size],
-        cmap="Blues",
-        s=10,
-        vmin=0,
-        vmax=1,
-        alpha=0.6,
-        # edgecolor="black",  # Adds black borders
-        # linewidth=0.5,  # Optional: adjust border thickness
-    )
+    ax.set_xlim(min_x_final, max_x_final)
+    ax.set_ylim(min_y_final, max_y_final)
 
-    # Plot the centroid
-    plt.plot(
-        overall_centroid[0], overall_centroid[1], "k+", markersize=10, label="Centroid"
-    )
+    # Add colorbar
+    cbar = plt.colorbar(scatter, ax=ax)
+    cbar.set_label("Confidence")
 
-    plt.colorbar(label="Confidence")
+    # Set titles and labels
     plt.title(f"Slick ID {id}: Max Confidence {round(confidence_scores.max(), 2)}")
     plt.xlabel("Longitude")
     plt.ylabel("Latitude")
@@ -176,10 +172,18 @@ def plot_confidence(
     # Remove or adjust the aspect ratio
     # plt.axis("equal")  # Removed to prevent overriding limits
 
+    # Add grid
     plt.grid(True)
-    plt.legend()
+
+    # Optionally, add a legend
+    handles, labels = ax.get_legend_handles_labels()
+    if handles:
+        plt.legend(handles=handles, labels=labels)
+
+    # Show the plot
     plt.show()
 
+    # Process and print the infrastructure GeoDataFrame with confidence scores
     copy_infra_gdf = infra_gdf.copy()  # To avoid SettingWithCopyWarning
     copy_infra_gdf["confidence_score"] = confidence_scores
     copy_infra_gdf = copy_infra_gdf.sort_values(by="confidence_score", ascending=False)
@@ -214,30 +218,28 @@ def load_infrastructure_from_csv(csv_path, scene_date, crs="epsg:4326"):
 # Usage example
 
 # Sample parameters
-id = 3365756
+id = 3367598
 geojson_file_path = download_geojson(id)
-csv_path = "/Users/jonathanraphael/Downloads/Filtered_SAR_Fixed_Infrastructure.csv"
+csv_path = "/Users/jonathanraphael/Downloads/nonoise_SAR_Fixed_Infrastructure.csv"
 
 # Plotting parameters
 num_infra_points = 50000  # Number of infrastructure points
 plot_sample = True
 
-scene_id = "S1A_IW_GRDH_1SDV_20240705"
+scene_id = "S1A_IW_GRDH_1SDV_20241018"
 scene_date = scene_id[17:25]
 slick_gdf = gpd.read_file(geojson_file_path)
 
-infra_gdf = generate_infrastructure_points(
-    slick_gdf.geometry.values[0], num_infra_points
-)
+# infra_gdf = generate_infrastructure_points(slick_gdf, num_infra_points)
 infra_gdf = load_infrastructure_from_csv(csv_path, scene_date)
 
 confidence_scores = associate_infra_to_slick(infra_gdf, slick_gdf)
 
 plot_confidence(
     infra_gdf,
+    slick_gdf,
     confidence_scores,
-    slick_gdf.geometry.iloc[0].geoms,
-    slick_gdf.centroid.iloc[0].coords[0],
     id,
 )
+
 # %%
