@@ -231,8 +231,10 @@ async def _orchestrate(
             f"{start_time}: WARNING: FAILURE {payload.sceneid} touches antimeridian, and is_tile_over_water() failed!"
         )
         return OrchestratorResult(status=str(e))
+    
+    n_offsettiles_after = len(tileset_list[0])
 
-    print(f"{start_time}: Tileset contains after landfilter: ~{len(tileset_list[0])} tiles")
+    print(f"{start_time}: Tileset contains after landfilter: ~{n_offsettiles_after} tiles")
 
     if not any(set for set in tileset_list):
         # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
