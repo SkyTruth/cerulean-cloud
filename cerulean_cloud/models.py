@@ -837,9 +837,17 @@ class FASTAIUNETModel(BaseModel):
                         self.deserialize(inference_result.json_data).detach().numpy()
                     )
                     bounds_list.append(tileset_bounds[i][j])
+
         print("DEBUG: len(tileset_results)", len(tileset_results))
         print("DEBUG: len(tileset_bounds)", len(tileset_bounds))
         print("DEBUG: len(bounds_list)", len(bounds_list))
+
+        if len(bounds_list) == 0:
+            print("DEBUG: Zero dimensional zero")
+            # If the only tiles over ocean contain no vv data
+            scene_array_probs = np.zeros((num_classes, 0, 0), dtype=np.float32)
+            return scene_array_probs, Affine.identity()
+
         # Determine overall bounds
         min_x = min(b[0] for b in bounds_list)
         min_y = min(b[1] for b in bounds_list)
