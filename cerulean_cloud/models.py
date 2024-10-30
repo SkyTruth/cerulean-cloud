@@ -845,7 +845,7 @@ class FASTAIUNETModel(BaseModel):
         if len(bounds_list) == 0:
             print("DEBUG: Zero dimensional zero")
             # If the only tiles over ocean contain no vv data
-            scene_array_probs = np.zeros((num_classes, 0, 0), dtype=np.float32)
+            scene_array_probs = np.zeros((0, 0, 0), dtype=np.float32)
             return scene_array_probs, Affine.identity()
 
         # Determine overall bounds
