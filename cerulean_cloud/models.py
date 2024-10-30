@@ -863,7 +863,7 @@ class FASTAIUNETModel(BaseModel):
         scene_array_probs = np.zeros(
             (num_classes, final_height, final_width), dtype=sample_tile.dtype
         )
-
+        print("DEBUG: scene_array_probs.shape", scene_array_probs.shape)
         # Place each tile into the final array
         for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
             x_offset = int(round((bounds[0] - min_x) / res_x))
