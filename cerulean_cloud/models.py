@@ -838,6 +838,10 @@ class FASTAIUNETModel(BaseModel):
                     )
                     bounds_list.append(tileset_bounds[i][j])
 
+        if len(bounds_list) == 0:
+            # If the only tiles over ocean contain no vv data
+            return np.array([]), Affine.identity()
+
         # Determine overall bounds
         min_x = min(b[0] for b in bounds_list)
         min_y = min(b[1] for b in bounds_list)
@@ -849,14 +853,13 @@ class FASTAIUNETModel(BaseModel):
         tile_height, tile_width = sample_tile.shape[1], sample_tile.shape[2]
         tile_bounds = bounds_list[0]
         res_x = (tile_bounds[2] - tile_bounds[0]) / tile_width
-        res_y = (
-            tile_bounds[3] - tile_bounds[1]
-        ) / tile_height  # Negative because Y decreases
+        res_y = (tile_bounds[3] - tile_bounds[1]) / tile_height
 
-        # Calculate final array dimensions
-        final_width = int(np.ceil((max_x - min_x) / res_x))
-        final_height = int(np.ceil((max_y - min_y) / res_y))
         num_classes = sample_tile.shape[0]
+
+        # Compute final array dimensions directly
+        final_width = int(round((max_x - min_x) / res_x))
+        final_height = int(round((max_y - min_y) / res_y))
 
         # Pre-allocate final array
         scene_array_probs = np.zeros(
@@ -864,12 +867,11 @@ class FASTAIUNETModel(BaseModel):
         )
         # Place each tile into the final array
         for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
-            x_offset = int(np.ceil((bounds[0] - min_x) / res_x))
-            y_offset = int(np.ceil((max_y - bounds[3]) / res_y))
+            x_offset = int(round((bounds[0] - min_x) / res_x))
+            y_offset = int(round((max_y - bounds[3]) / res_y))
 
             tile_height, tile_width = tile_probs.shape[1], tile_probs.shape[2]
 
-            # Handle potential overlaps if necessary here
             scene_array_probs[
                 :, y_offset : y_offset + tile_height, x_offset : x_offset + tile_width
             ] = tile_probs
@@ -890,6 +892,11 @@ class FASTAIUNETModel(BaseModel):
         Returns:
         - geojson.FeatureCollection: A collection of geojson features representing detected instances.
         """
+
+        # If there aren't any probability detections in the scene, also catches all-zeros scene_array_probs
+        if not np.any(scene_array_probs):
+            return geojson.FeatureCollection(features=[])
+
         # Ensure scene_array_probs is a NumPy array
         if isinstance(scene_array_probs, torch.Tensor):
             scene_array_probs = scene_array_probs.detach().cpu().numpy()
