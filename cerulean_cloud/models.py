@@ -845,7 +845,7 @@ class FASTAIUNETModel(BaseModel):
         if len(bounds_list) == 0:
             print("DEBUG: Return None, None")
             # If the only tiles over ocean contain no vv data
-            return None, None
+            return np.array([]), Affine.identity()
 
         # Determine overall bounds
         min_x = min(b[0] for b in bounds_list)
@@ -899,8 +899,8 @@ class FASTAIUNETModel(BaseModel):
         - geojson.FeatureCollection: A collection of geojson features representing detected instances.
         """
 
-        # If there aren't any probability detections in the scene
-        if not scene_array_probs or not transform:
+        # If there aren't any probability detections in the scene, also catches all-zeros scene_array_probs
+        if not np.any(scene_array_probs):
             return geojson.FeatureCollection(features=[])
         # Ensure scene_array_probs is a NumPy array
         if isinstance(scene_array_probs, torch.Tensor):
