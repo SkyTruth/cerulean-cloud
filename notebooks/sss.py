@@ -82,6 +82,7 @@ def plot_confidence(
     slick_gdf,
     confidence_scores,
     id,  # Added 'id' as a parameter
+    black=True,
 ):
     """
     Plots a sample of infrastructure points with their confidence scores.
@@ -108,7 +109,7 @@ def plot_confidence(
         vmin=0,
         vmax=1,
         alpha=0.6,
-        # edgecolor="black",  # Adds black borders
+        edgecolor="black" if black else None,  # Adds black borders
         # linewidth=0.5,  # Optional: adjust border thickness
         label="Infrastructure Points",
     )
@@ -124,7 +125,7 @@ def plot_confidence(
 
     # Set plot limits with padding
     min_x, min_y, max_x, max_y = slick_gdf.total_bounds
-    padding_ratio = 0.1
+    padding_ratio = 0.2
 
     width = max_x - min_x
     height = max_y - min_y
@@ -211,6 +212,8 @@ def load_infrastructure_from_csv(csv_path, scene_date, crs="epsg:4326"):
     df = df[df["structure_start_date"] < scene_date]
     df = df[(df["structure_end_date"] > scene_date) | (df["structure_end_date"].isna())]
 
+    df = df.reset_index(drop=True)
+
     return gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.lon, df.lat), crs=crs)
 
 
@@ -218,20 +221,22 @@ def load_infrastructure_from_csv(csv_path, scene_date, crs="epsg:4326"):
 # Usage example
 
 # Sample parameters
-id = 3367598
+id = 3000273
 geojson_file_path = download_geojson(id)
-csv_path = "/Users/jonathanraphael/Downloads/nonoise_SAR_Fixed_Infrastructure.csv"
+csv_path = "/Users/jonathanraphael/Downloads/SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv"
 
 # Plotting parameters
 num_infra_points = 50000  # Number of infrastructure points
 plot_sample = True
 
-scene_id = "S1A_IW_GRDH_1SDV_20241018"
+scene_id = "S1A_IW_GRDH_1SDV_20230612"
 scene_date = scene_id[17:25]
 slick_gdf = gpd.read_file(geojson_file_path)
 
-# infra_gdf = generate_infrastructure_points(slick_gdf, num_infra_points)
+infra_gdf = generate_infrastructure_points(slick_gdf, num_infra_points)
+black = False
 infra_gdf = load_infrastructure_from_csv(csv_path, scene_date)
+black = True
 
 confidence_scores = associate_infra_to_slick(infra_gdf, slick_gdf)
 
@@ -240,6 +245,7 @@ plot_confidence(
     slick_gdf,
     confidence_scores,
     id,
+    black,
 )
 
 # %%

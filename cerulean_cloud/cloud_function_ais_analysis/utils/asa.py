@@ -164,7 +164,7 @@ def compute_confidence_scores(
     extremity_tree: cKDTree,
     all_extremity_points: np.ndarray,
     all_weights: np.ndarray,
-    k: float,
+    decay: float,
     radius_of_interest: float,
 ) -> np.ndarray:
     """
@@ -175,7 +175,7 @@ def compute_confidence_scores(
     - extremity_tree (KDTree): KDTree built from extremity points.
     - all_extremity_points (np.ndarray): Array of extremity points coordinates (shape: [n_extremities, 2]).
     - all_weights (np.ndarray): Array of weights for extremity points (shape: [n_extremities]).
-    - k (float): Decay constant for the confidence function C = e^{-k * d}.
+    - decay (float): Decay constant for the confidence function C = e^{-k * d}.
     - radius_of_interest (float): Maximum distance to consider for proximity.
 
     Returns:
@@ -192,7 +192,11 @@ def compute_confidence_scores(
             neighbor_points = all_extremity_points[neighbors]
             neighbor_weights = all_weights[neighbors]
             dists = np.linalg.norm(neighbor_points - infra_coords[i], axis=1)
-            C_i = neighbor_weights * np.exp(-k * dists)
+            # C_i = neighbor_weights * np.exp(-decay * dists)
+            # C_i = neighbor_weights * (1 - dists / radius_of_interest)
+            # C_i = neighbor_weights - decay * dists
+            # C_i = neighbor_weights * (radius_of_interest - dists) / radius_of_interest
+            C_i = neighbor_weights - dists / radius_of_interest
             confidence_scores[i] = np.clip(C_i.max(), 0, 1)
 
     return confidence_scores
@@ -201,10 +205,10 @@ def compute_confidence_scores(
 def associate_infra_to_slick(
     infra_gdf: gpd.GeoDataFrame,  # GeoDataFrame of infrastructure points
     slick_gdf: gpd.GeoDataFrame,  # GeoDataFrame of slick points
-    k: float = 0.0005,  # Decay constant for the confidence function C = e^{-k * d}
+    decay: float = 0.0003,  # Decay constant for the confidence function C = e^{-k * d}
     N: int = 10,  # Number of extremity points per polygon
     closing_buffer: int = 500,  # Closing distance in meters
-    radius_of_interest: int = 5000,  # Maximum distance to consider (in meters)
+    radius_of_interest: int = 3000,  # Maximum distance to consider (in meters)
 ):
     """
     Main function to compute confidence scores.
@@ -212,7 +216,7 @@ def associate_infra_to_slick(
     Parameters:
     - infra_gdf (GeoDataFrame): GeoDataFrame of infrastructure points.
     - slick_gdf (GeoDataFrame): GeoDataFrame of slick geometries.
-    - k (float): Decay constant for the confidence function C = e^{-k * d}.
+    - decay (float): Decay constant for the confidence function C = e^{-k * d}.
     - N (int): Number of extremity points to select per polygon.
     - closing_buffer (int): Closing buffer distance in meters.
     - radius_of_interest (int): Maximum distance to consider for proximity (in meters).
@@ -270,7 +274,7 @@ def associate_infra_to_slick(
         extremity_tree,
         all_extremity_points,
         all_weights,
-        k,
+        decay,
         radius_of_interest,
     )
 
