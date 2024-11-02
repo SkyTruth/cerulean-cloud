@@ -1,8 +1,8 @@
 # %%
 """
-Slick Plus Infrastructure Confidence Score Calculator
+Slick Plus Infrastructure Coincidence Score Calculator
 
-Processes GeoJSON files to compute confidence scores for infrastructure points based on their proximity to polygon extremity points.
+Processes GeoJSON files to compute coincidence scores for infrastructure points based on their proximity to polygon extremity points.
 Features include projection handling, extremity point selection, efficient scoring algorithms, and optional data visualization.
 """
 # %load_ext autoreload
@@ -14,7 +14,10 @@ import sys
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
+
+from cerulean_cloud.cloud_function_ais_analysis.utils.analyzer import (
+    InfrastructureAnalyzer,
+)
 
 # Add the parent directory to sys.path
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -77,20 +80,20 @@ def generate_infrastructure_points(
     return infra_gdf
 
 
-def plot_confidence(
+def plot_coincidence(
     infra_gdf,
     slick_gdf,
-    confidence_scores,
+    coincidence_scores,
     id,  # Added 'id' as a parameter
     black=True,
 ):
     """
-    Plots a sample of infrastructure points with their confidence scores.
+    Plots a sample of infrastructure points with their coincidence scores.
 
     Parameters:
     - infra_gdf (GeoDataFrame): GeoDataFrame containing infrastructure points.
     - slick_gdf (GeoDataFrame): GeoDataFrame containing slick polygons.
-    - confidence_scores (np.ndarray): Array of confidence scores.
+    - coincidence_scores (np.ndarray): Array of coincidence scores.
     - id (int): Identifier for the plot title.
     """
     sample_size = len(infra_gdf)
@@ -103,7 +106,7 @@ def plot_confidence(
     scatter = ax.scatter(
         infra_gdf.geometry.x[:sample_size],
         infra_gdf.geometry.y[:sample_size],
-        c=confidence_scores[:sample_size],
+        c=coincidence_scores[:sample_size],
         cmap="Blues",
         s=10,
         vmin=0,
@@ -163,10 +166,10 @@ def plot_confidence(
 
     # Add colorbar
     cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label("Confidence")
+    cbar.set_label("Coincidence")
 
     # Set titles and labels
-    plt.title(f"Slick ID {id}: Max Confidence {round(confidence_scores.max(), 2)}")
+    plt.title(f"Slick ID {id}: Max Coincidence {round(coincidence_scores.max(), 2)}")
     plt.xlabel("Longitude")
     plt.ylabel("Latitude")
 
@@ -184,68 +187,30 @@ def plot_confidence(
     # Show the plot
     plt.show()
 
-    # Process and print the infrastructure GeoDataFrame with confidence scores
+    # Process and print the infrastructure GeoDataFrame with coincidence scores
     copy_infra_gdf = infra_gdf.copy()  # To avoid SettingWithCopyWarning
-    copy_infra_gdf["confidence_score"] = confidence_scores
-    copy_infra_gdf = copy_infra_gdf.sort_values(by="confidence_score", ascending=False)
+    copy_infra_gdf["coincidence_score"] = coincidence_scores
+    copy_infra_gdf = copy_infra_gdf.sort_values(by="coincidence_score", ascending=False)
     copy_infra_gdf.reset_index(drop=True, inplace=True)
-    print(copy_infra_gdf[copy_infra_gdf["confidence_score"] > 0].head())
-
-
-def load_infrastructure_from_csv(csv_path, scene_date, crs="epsg:4326"):
-    """
-    Loads infrastructure points from a CSV file.
-
-    Parameters:
-    - csv_path (str): Path to the CSV file.
-    - crs (str): Coordinate Reference System.
-
-    Returns:
-    - infra_gdf (GeoDataFrame): GeoDataFrame of infrastructure points.
-    """
-    scene_date = pd.to_datetime(scene_date, format="%Y%m%d")
-
-    df = pd.read_csv(csv_path)
-    df["structure_start_date"] = pd.to_datetime(df["structure_start_date"])
-    df["structure_end_date"] = pd.to_datetime(df["structure_end_date"])
-
-    df = df[df["structure_start_date"] < scene_date]
-    df = df[(df["structure_end_date"] > scene_date) | (df["structure_end_date"].isna())]
-
-    df = df.reset_index(drop=True)
-
-    return gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df.lon, df.lat), crs=crs)
+    print(copy_infra_gdf[copy_infra_gdf["coincidence_score"] > 0].head())
 
 
 # %%
 # Usage example
 
 # Sample parameters
-id = 3000273
+id = 3115674
 geojson_file_path = download_geojson(id)
-csv_path = "/Users/jonathanraphael/Downloads/SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv"
-
-# Plotting parameters
-num_infra_points = 50000  # Number of infrastructure points
-plot_sample = True
-
-scene_id = "S1A_IW_GRDH_1SDV_20230612"
-scene_date = scene_id[17:25]
 slick_gdf = gpd.read_file(geojson_file_path)
+scene_id = "S1A_IW_GRDH_1SDV_20230612"
 
-infra_gdf = generate_infrastructure_points(slick_gdf, num_infra_points)
-black = False
-infra_gdf = load_infrastructure_from_csv(csv_path, scene_date)
-black = True
+ia = InfrastructureAnalyzer(slick_gdf, scene_id)
+res = ia.associate_sources_to_slicks()
+plot_coincidence(ia.infra_gdf, ia.slick_gdf, ia.coincidence_scores, id)
 
-confidence_scores = associate_infra_to_slick(infra_gdf, slick_gdf)
-
-plot_confidence(
-    infra_gdf,
-    slick_gdf,
-    confidence_scores,
-    id,
-    black,
-)
+# %%
+infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
+coincidence_scores = associate_infra_to_slick(infra_gdf, slick_gdf)
+plot_coincidence(infra_gdf, slick_gdf, coincidence_scores, id, False)
 
 # %%

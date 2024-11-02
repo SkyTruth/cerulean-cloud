@@ -8,7 +8,7 @@ import geopandas as gpd
 import pandas as pd
 from flask import abort
 from shapely import wkb
-from utils.ais import AISConstructor
+from utils.analyzer import AISAnalyzer, InfrastructureAnalyzer
 from utils.associate import (
     associate_ais_to_slick,
     associate_infra_to_slick,
@@ -61,85 +61,111 @@ def main(request):
     verify_api_key(request)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    res = loop.run_until_complete(handle_aaa_request(request))
+    res = loop.run_until_complete(handle_asa_request(request))
     return res
 
 
-async def handle_aaa_request(request):
+async def handle_asa_request(request):
     """
-    Asynchronously handles the main logic of Automatic AIS Analysis (AAA) for a given scene.
+    Asynchronously handles the main logic of Automatic Source Analysis (ASA) for a given scene.
 
     Args:
         request (flask.Request): The incoming HTTP request object containing scene information.
 
     Returns:
         str: A string "Success!" upon successful completion.
-
-    Notes:
-        - The function gets scene information from the request.
-        - It uses the `DatabaseClient` for database operations.
     """
     request_json = request.get_json()
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
-        print(f"Running AAA on scene_id: {scene_id}")
+        run_flags = request_json.get("run_flags", ["ais", "infra", "dark"])
+        overwrite_previous = request_json.get("overwrite_previous", False)
+        print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
         db_engine = get_engine(db_url=os.getenv("DB_URL"))
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
                 s1 = await db_client.get_scene_from_id(scene_id)
-                AAA_CONFIDENCE_THRESHOLD = 0.5
-                slicks_without_sources = (
-                    await db_client.get_slicks_without_sources_from_scene_id(
-                        scene_id, AAA_CONFIDENCE_THRESHOLD
-                    )
+                slicks = await db_client.get_slicks_from_scene_id(
+                    scene_id, with_sources=overwrite_previous
                 )
-                print(f"# Slicks found: {len(slicks_without_sources)}")
-                if len(slicks_without_sources) > 0:
-                    aisc = AISConstructor(s1)
-                    aisc.retrieve_ais()
-                    print("AIS retrieved")
-                    if not aisc.ais_gdf.empty:
-                        aisc.build_trajectories()
-                        aisc.buffer_trajectories()
-                        # We only load infra AFTER we've confirmed there are AIS points, otherwise get_slicks_without_sources_from_scene_id would prevent AIS tracks from being processed later
-                        aisc.load_infra("20231103_all_infrastructure_v20231103.csv")
-                        for slick in slicks_without_sources:
-                            source_associations = automatic_source_analysis(aisc, slick)
-                            print(
-                                f"{len(source_associations)} found for Slick ID: {slick.id}"
-                            )
-                            if len(source_associations) > 0:
-                                # XXX What to do if len(ais_associations)==0 and no sources are associated?
-                                # Then it will trigger another round of this process later! (unnecessary computation)
-                                RECORD_NUM_SOURCES = 5  # XXX Magic number 5 = number of sources to record for each slick
-                                for idx, traj in source_associations.iloc[
-                                    :RECORD_NUM_SOURCES
-                                ].iterrows():
-                                    source = await db_client.get_source(
-                                        st_name=traj["st_name"]
-                                    )
-                                    if source is None:
-                                        source = (
-                                            await db_client.insert_source_from_traj(
-                                                traj
-                                            )
+
+            print(f"# Slicks found: {len(slicks)}")
+            if len(slicks) > 0:
+                for slick in slicks:
+                    # Convert slick geometry to GeoDataFrame
+                    slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
+                    slick_gdf = gpd.GeoDataFrame({"geometry": [slick_geom]}, crs="4326")
+                    ranked_sources = pd.DataFrame()
+
+                    # Analyze AIS data
+                    if "ais" in run_flags:
+                        ais_analyzer = AISAnalyzer(slick_gdf, scene_id, s1)
+                        ais_results = ais_analyzer.associate_sources_to_slicks()
+                        ranked_sources = pd.concat(
+                            [ranked_sources, ais_results], ignore_index=True
+                        )
+
+                    # Analyze Infrastructure data
+                    if "infra" in run_flags:
+                        infra_analyzer = InfrastructureAnalyzer(slick_gdf, scene_id)
+                        infra_results = infra_analyzer.associate_sources_to_slicks()
+                        ranked_sources = pd.concat(
+                            [ranked_sources, infra_results], ignore_index=True
+                        )
+
+                    # Analyze Dark data
+                    if "dark" in run_flags:
+                        pass  # TODO: Implement dark vessel analysis
+                        # dark_analyzer = DarkAnalyzer(slick_gdf, s1)
+                        # dark_results = dark_analyzer.associate_sources_to_slicks()
+                        # ranked_sources = pd.concat(
+                        #     [ranked_sources, dark_results], ignore_index=True
+                        # )
+
+                    print(
+                        f"{len(ranked_sources)} sources found for Slick ID: {slick.id}"
+                    )
+                    if len(ranked_sources) > 0:
+                        ranked_sources = ranked_sources.sort_values(
+                            "coincidence_score", ascending=False
+                        ).reset_index(drop=True)
+                        async with db_client.session.begin():
+                            for idx, source_row in ranked_sources.iloc[:5].iterrows():
+                                # Only record the the top 5 ranked sources
+
+                                if source_row.get("source_type") == "ais":
+                                    source = (
+                                        await db_client.get_or_insert_source_from_ssvid(
+                                            ssvid=source_row["st_name"],
+                                            shipname=source_row.get("shipname"),
+                                            shiptype=source_row.get("shiptype"),
                                         )
-                                    await db_client.session.flush()
-
-                                    traj["geometry"] = (
-                                        traj["geometry"]
-                                        if isinstance(traj["geometry"], str)
-                                        else traj["geometry"].wkt
-                                    )  # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
-
-                                    await db_client.insert_slick_to_source(
-                                        source=source.id,
-                                        slick=slick.id,
-                                        coincidence_score=traj["coincidence_score"],
-                                        rank=idx + 1,
-                                        geojson_fc=traj["geojson_fc"],
-                                        geometry=traj["geometry"],
                                     )
+                                elif source_row.get("source_type") == "infra":
+                                    source = await db_client.get_or_insert_infra_source(
+                                        infra_id=source_row["infra_id"],
+                                        infra_name=source_row.get("infra_name"),
+                                    )
+                                elif source_row.get("source_type") == "dark":
+                                    raise NotImplementedError(
+                                        "Dark vessel source not implemented"
+                                    )
+                                else:
+                                    raise ValueError(
+                                        f"Unknown source type: {source_row.get('source_type')}"
+                                    )
+
+                                await db_client.session.flush()
+
+                                # Insert slick to source association
+                                await db_client.insert_slick_to_source(
+                                    source=source.id,
+                                    slick=slick.id,
+                                    coincidence_score=source_row["coincidence_score"],
+                                    rank=idx + 1,
+                                    geojson_fc=source_row.get("geojson_fc"),
+                                    geometry=source_row["geometry"].wkt,
+                                )
 
     return "Success!"
 
