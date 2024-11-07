@@ -3,15 +3,19 @@ Unified Source Analysis Module
 """
 
 import json
+import os
 import time
 from datetime import datetime, timedelta
 from typing import List, Tuple
 
 import geopandas as gpd
+import mapbox_vector_tile
+import morecantile
 import movingpandas as mpd
 import numpy as np
 import pandas as pd
 import pandas_gbq
+import requests
 import shapely
 from geoalchemy2.shape import to_shape
 from pyproj import CRS
@@ -37,7 +41,7 @@ class SourceAnalyzer:
         slick_gdf (GeoDataFrame): GeoDataFrame containing the slick geometries.
     """
 
-    def __init__(self, slick_gdf: gpd.GeoDataFrame, scene_id, **kwargs):
+    def __init__(self, slick_gdf: gpd.GeoDataFrame, scene_id: str, **kwargs):
         """
         Initialize the SourceAnalyzer.
         """
@@ -90,39 +94,88 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         Initialize the InfrastructureAnalyzer.
         """
         super().__init__(slick_gdf, scene_id, **kwargs)
-        self.infra_path = kwargs.get(
-            "infra_path",
-            "/Users/jonathanraphael/git/cerulean-cloud/cerulean_cloud/cloud_function_ais_analysis/SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv",
-        )
-        self.infra_gdf = self.load_infrastructure_data(self.infra_path)
-
-        # Default parameters
-        self.coincidence_scores = np.zeros(len(self.infra_gdf))
         self.num_vertices = kwargs.get("N", 10)
         self.closing_buffer = kwargs.get("closing_buffer", 500)
         self.radius_of_interest = kwargs.get("radius_of_interest", 3000)
         self.min_area_threshold = kwargs.get("min_area_threshold", 0.1)
 
-    def load_infrastructure_data(self, filepath, crs="epsg:4326"):
+        self.crs_meters = self.estimate_utm_crs(self.slick_gdf.unary_union)
+        self.infra_api_token = os.getenv("infra_api_token")
+        self.infra_gdf = self.load_infrastructure_data()
+        self.coincidence_scores = np.zeros(len(self.infra_gdf))
+
+    def load_infrastructure_data(self, only_oil=True):
         """
         Loads infrastructure data from a CSV file.
 
         Parameters:
-            filepath (str): Path to the infrastructure CSV file.
+            infra_api_token (str): API token for infrastructure data.
 
         Returns:
             GeoDataFrame: GeoDataFrame containing infrastructure points.
         """
 
-        df = pd.read_csv(filepath)
-        df["structure_start_date"] = pd.to_datetime(df["structure_start_date"])
-        df["structure_end_date"] = pd.to_datetime(df["structure_end_date"])
-        df["detection_date"] = pd.to_datetime(df["detection_date"])
+        # zxy = self.select_enveloping_tile() # Something's wrong with this code. Ex. [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C"] should have 2 nearby infras
+        mvt_data = self.download_mvt_tile()
+
+        df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
+
+        datetime_fields = ["structure_start_date", "structure_end_date"]
+        for field in datetime_fields:
+            if field in df.columns:
+                df[field] = pd.to_numeric(df[field])
+                df[field] = pd.to_datetime(df[field], unit="ms")
         df["source_type"] = "infra"
+        if only_oil:
+            df = df[df["label"] == "oil"]
 
         return gpd.GeoDataFrame(
-            df, geometry=gpd.points_from_xy(df.lon, df.lat), crs=crs
+            df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
         )
+
+    def select_enveloping_tile(self, max_zoom=20):
+        """
+        Determine the minimal zoom level and tile coordinates (x, y, z)
+        that cover the area of interest (slick_gdf buffered by radius_of_interest)
+        in a single tile.
+        """
+
+        buffered_slick_gdf = (
+            self.slick_gdf.to_crs(self.crs_meters)
+            .envelope.buffer(self.radius_of_interest)
+            .to_crs(epsg=4326)
+        )
+        bbox = buffered_slick_gdf.total_bounds
+
+        TMS = morecantile.tms.get("WebMercatorQuad")
+        for z in reversed(range(max_zoom + 1)):
+            tiles = list(TMS.tiles(*bbox, zooms=z))
+            if len(tiles) == 1:
+                tile = tiles[0]
+                return z, tile.x, tile.y
+
+    def download_mvt_tile(self, z=0, x=0, y=0):
+        """
+        Downloads MVT tile data for given z, x, y.
+
+        Parameters:
+            z (int): Zoom level.
+            x (int): Tile x coordinate.
+            y (int): Tile y coordinate.
+            token (str): Authorization token.
+
+        Returns:
+            bytes: The content of the MVT tile.
+        """
+        url = f"https://gateway.api.globalfishingwatch.org/v3/datasets/public-fixed-infrastructure-filtered:latest/context-layers/{z}/{x}/{y}"
+        headers = {"Authorization": f"Bearer {self.infra_api_token}"}
+        response = requests.get(url, headers=headers)
+        try:
+            decoded_tile = mapbox_vector_tile.decode(response.content)
+            return decoded_tile
+        except Exception:
+            print(f"Error decoding tile z={z}, x={x}, y={y}: {response.content}")
+            return {}
 
     def apply_closing_buffer(self, geo_df, closing_buffer):
         """
@@ -258,9 +311,8 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         """
         start_time = time.time()
 
-        crs_meters = self.estimate_utm_crs(self.slick_gdf.unary_union)
-        slick_gdf = self.slick_gdf.to_crs(crs_meters)
-        infra_gdf = self.infra_gdf.to_crs(crs_meters)
+        slick_gdf = self.slick_gdf.to_crs(self.crs_meters)
+        infra_gdf = self.infra_gdf.to_crs(self.crs_meters)
 
         # Apply closing buffer and project slick_gdf
         slick_gdf = self.apply_closing_buffer(slick_gdf, self.closing_buffer)

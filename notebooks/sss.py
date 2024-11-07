@@ -1,10 +1,11 @@
-# %%
 """
 Slick Plus Infrastructure Coincidence Score Calculator
 
 Processes GeoJSON files to compute coincidence scores for infrastructure points based on their proximity to polygon extremity points.
 Features include projection handling, extremity point selection, efficient scoring algorithms, and optional data visualization.
 """
+
+# %%
 # %load_ext autoreload
 # %autoreload 2
 
@@ -15,15 +16,14 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 
-from cerulean_cloud.cloud_function_ais_analysis.utils.analyzer import (
-    InfrastructureAnalyzer,
-)
-
 # Add the parent directory to sys.path
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
+from cerulean_cloud.cloud_function_ais_analysis.utils.analyzer import (  # noqa: E402
+    InfrastructureAnalyzer,
+)
 from cerulean_cloud.cloud_function_ais_analysis.utils.asa import (  # noqa: E402
     associate_infra_to_slick,
 )
@@ -168,8 +168,12 @@ def plot_coincidence(
     cbar = plt.colorbar(scatter, ax=ax)
     cbar.set_label("Coincidence")
 
+    max_coincidence = (
+        round(coincidence_scores.max(), 2) if len(coincidence_scores) else 0
+    )
+
     # Set titles and labels
-    plt.title(f"Slick ID {id}: Max Coincidence {round(coincidence_scores.max(), 2)}")
+    plt.title(f"Slick ID {id}: Max Coincidence {max_coincidence}")
     plt.xlabel("Longitude")
     plt.ylabel("Latitude")
 
@@ -197,20 +201,40 @@ def plot_coincidence(
 
 # %%
 # Usage example
+ids = [
+    # [3479812, 'S1A_IW_GRDH_1SDV_20240424T051434_20240424T051459_053571_0680D2_0854'],
+    # [3013300, 'S1A_IW_GRDH_1SDV_20240901T175307_20240901T175332_055475_06C482_3EA4'],
+    # [3522449, 'S1A_IW_GRDH_1SDV_20241007T175309_20241007T175334_056000_06D942_BC27'],
+    # [3343987, 'S1A_IW_GRDH_1SDV_20240609T053018_20240609T053047_054242_0698FD_4B01'],
+    # [3070818, 'S1A_IW_GRDH_1SDV_20231125T174456_20231125T174521_051377_06332E_E619'],
+    # [3173928, "S1A_IW_GRDH_1SDV_20230704T174453_20230704T174518_049277_05ECE7_7DE1"],
+    # [3229370, 'S1A_IW_GRDH_1SDV_20231007T171227_20231007T171252_050662_061A9E_BC8B'],
+    # [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C'],
+    [3411218, "S1A_IW_GRDH_1SDV_20240226T221831_20240226T221856_052736_066190_8A37"],
+]
 
-# Sample parameters
-id = 3115674
-geojson_file_path = download_geojson(id)
-slick_gdf = gpd.read_file(geojson_file_path)
-scene_id = "S1A_IW_GRDH_1SDV_20230612"
+accumulated_pairs = []
+for slick_id, scene_id in ids:
+    geojson_file_path = download_geojson(slick_id)
+    slick_gdf = gpd.read_file(geojson_file_path)
 
-ia = InfrastructureAnalyzer(slick_gdf, scene_id)
-res = ia.associate_sources_to_slicks()
-plot_coincidence(ia.infra_gdf, ia.slick_gdf, ia.coincidence_scores, id)
+    ia = InfrastructureAnalyzer(slick_gdf, scene_id)
+    res = ia.associate_sources_to_slicks()
+
+    if not res.empty:
+        top_row = res.loc[res["coincidence_score"].idxmax()]
+        structure_id = top_row["structure_id"]
+        accumulated_pairs.append({"slick_id": slick_id, "structure_id": structure_id})
+    else:
+        print(f"No associations found for slick_id: {slick_id}")
+
+    plot_coincidence(ia.infra_gdf, ia.slick_gdf, ia.coincidence_scores, slick_id)
+print(accumulated_pairs)
 
 # %%
 infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 coincidence_scores = associate_infra_to_slick(infra_gdf, slick_gdf)
-plot_coincidence(infra_gdf, slick_gdf, coincidence_scores, id, False)
+plot_coincidence(infra_gdf, slick_gdf, coincidence_scores, slick_id, False)
+
 
 # %%
