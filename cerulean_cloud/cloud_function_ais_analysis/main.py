@@ -9,11 +9,6 @@ import pandas as pd
 from flask import abort
 from shapely import wkb
 from utils.analyzer import AISAnalyzer, InfrastructureAnalyzer
-from utils.associate import (
-    associate_ais_to_slick,
-    associate_infra_to_slick,
-    slick_to_curves,
-)
 
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 
@@ -54,7 +49,7 @@ def main(request):
 
     Notes:
         - This function sets up an asyncio event loop and delegates the actual
-          request handling to `handle_aaa_request`.
+          request handling to `handle_asa_request`.
         - It's important to set up a new event loop if the function is running
           in a context where the default event loop is not available (e.g., in some WSGI servers).
     """
@@ -100,7 +95,7 @@ async def handle_asa_request(request):
                     # Analyze AIS data
                     if "ais" in run_flags:
                         ais_analyzer = AISAnalyzer(slick_gdf, scene_id, s1)
-                        ais_results = ais_analyzer.associate_sources_to_slicks()
+                        ais_results = ais_analyzer.compute_coincidence_scores()
                         ranked_sources = pd.concat(
                             [ranked_sources, ais_results], ignore_index=True
                         )
@@ -108,7 +103,7 @@ async def handle_asa_request(request):
                     # Analyze Infrastructure data
                     if "infra" in run_flags:
                         infra_analyzer = InfrastructureAnalyzer(slick_gdf, scene_id)
-                        infra_results = infra_analyzer.associate_sources_to_slicks()
+                        infra_results = infra_analyzer.compute_coincidence_scores()
                         ranked_sources = pd.concat(
                             [ranked_sources, infra_results], ignore_index=True
                         )
@@ -117,7 +112,7 @@ async def handle_asa_request(request):
                     if "dark" in run_flags:
                         pass  # TODO: Implement dark vessel analysis
                         # dark_analyzer = DarkAnalyzer(slick_gdf, s1)
-                        # dark_results = dark_analyzer.associate_sources_to_slicks()
+                        # dark_results = dark_analyzer.compute_coincidence_scores()
                         # ranked_sources = pd.concat(
                         #     [ranked_sources, dark_results], ignore_index=True
                         # )
@@ -168,42 +163,3 @@ async def handle_asa_request(request):
                                 )
 
     return "Success!"
-
-
-def automatic_source_analysis(aisc, slick):
-    """
-    Perform automatic analysis to associate AIS trajectories with slicks.
-
-    Parameters:
-        ais (ais_constructor): An instance of the ais_constructor class.
-        slick (GeoDataFrame): A GeoDataFrame containing the slick geometries.
-
-    Returns:
-        GroupBy object: The AIS-slick associations sorted and grouped by slick index.
-    """
-    slick_gdf = gpd.GeoDataFrame(
-        {"geometry": [wkb.loads(str(slick.geometry)).buffer(0)]}, crs="4326"
-    )
-    _, slick_curves = slick_to_curves(slick_gdf, aisc.crs_meters)
-
-    ais_associations = associate_ais_to_slick(
-        aisc.ais_trajectories,
-        aisc.ais_buffered,
-        aisc.ais_weighted,
-        slick_gdf,
-        slick_curves,
-        aisc.crs_meters,
-    )
-
-    infra_associations = associate_infra_to_slick(
-        aisc.infra_gdf, slick_gdf, aisc.crs_meters
-    )
-
-    all_associations = pd.concat(
-        [ais_associations, infra_associations], ignore_index=True
-    )
-
-    results = all_associations.sort_values(
-        "coincidence_score", ascending=False
-    ).reset_index(drop=True)
-    return results

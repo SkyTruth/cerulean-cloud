@@ -1,5 +1,6 @@
 """Constants for AIS analysis handler
 """
+
 import numpy as np
 
 # temporal parameters for AIS trajectory estimation
@@ -9,6 +10,7 @@ TIMESTEPS_PER_HOUR = 6
 NUM_TIMESTEPS = HOURS_BEFORE * TIMESTEPS_PER_HOUR
 
 # buffering parameters for AIS trajectories
+AIS_PROJECT_ID = "world-fishing-827"
 AIS_BUFFER = 20000  # buffer around GRD envelope to capture AIS
 SPREAD_RATE = 1000  # meters/hour perpendicular to vessel track
 BUF_START = 100

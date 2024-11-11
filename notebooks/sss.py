@@ -1,3 +1,4 @@
+# %%
 """
 Slick Plus Infrastructure Coincidence Score Calculator
 
@@ -5,23 +6,25 @@ Processes GeoJSON files to compute coincidence scores for infrastructure points 
 Features include projection handling, extremity point selection, efficient scoring algorithms, and optional data visualization.
 """
 
-# %%
 # %load_ext autoreload
 # %autoreload 2
 
+import datetime
 import os
 import sys
+from types import SimpleNamespace
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+from dotenv import load_dotenv
+from geoalchemy2 import WKTElement
 
-# Add the parent directory to sys.path
+load_dotenv(".env")
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
+sys.path.append(parent_dir)
 from cerulean_cloud.cloud_function_ais_analysis.utils.analyzer import (  # noqa: E402
+    AISAnalyzer,
     InfrastructureAnalyzer,
 )
 from cerulean_cloud.cloud_function_ais_analysis.utils.asa import (  # noqa: E402
@@ -216,10 +219,10 @@ ids = [
 accumulated_pairs = []
 for slick_id, scene_id in ids:
     geojson_file_path = download_geojson(slick_id)
-    slick_gdf = gpd.read_file(geojson_file_path)
+    slick_gdf = gpd.read_file(geojson_file_path, crs="epsg:4326")
 
     ia = InfrastructureAnalyzer(slick_gdf, scene_id)
-    res = ia.associate_sources_to_slicks()
+    res = ia.compute_coincidence_scores()
 
     if not res.empty:
         top_row = res.loc[res["coincidence_score"].idxmax()]
@@ -236,5 +239,26 @@ infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 coincidence_scores = associate_infra_to_slick(infra_gdf, slick_gdf)
 plot_coincidence(infra_gdf, slick_gdf, coincidence_scores, slick_id, False)
 
+# %%
+
+scene_id = "S1A_IW_GRDH_1SDV_20230711T160632_20230711T160657_049378_05F013_448A"
+s1 = SimpleNamespace(
+    id=69,
+    scene_id=scene_id,
+    absolute_orbit_number=49378,
+    mode="IW",
+    polarization="DV",
+    scihub_ingestion_time=datetime.datetime(2023, 7, 11, 17, 0, 44, 705000),
+    start_time=datetime.datetime(2023, 7, 11, 16, 6, 32),
+    end_time=datetime.datetime(2023, 7, 11, 16, 6, 57),
+    meta={"key": "value"},
+    url="http://example.com",
+    geometry=WKTElement(
+        "POLYGON((27.25877432902152 33.772309925795675,27.663991468237075 33.83643596487585,27.945526383317603 33.8801453845104,28.368361808395143 33.94450422643601,28.650602342685367 33.98660415338177,29.07447962628422 34.04854096653544,29.357403549219118 34.08902106313116,29.640594459658455 34.128850435890584,29.934431272085337 34.16944366756764,29.78891655910936 34.89087313481798,29.63062722274537 35.672109011899686,29.33131173198989 35.6318916336964,29.04285374913959 35.59238617078463,28.75468097143034 35.55219240037903,28.32296568450625 35.49061480402974,28.035524056468923 35.448707639173,27.604924536739723 35.38456808689098,27.318239230682664 35.34095844599587,26.905637045158333 35.27691057625879,27.0900410473316 34.49469629172755,27.25877432902152 33.772309925795675))"
+    ),
+)
+
+aa = AISAnalyzer(slick_gdf, scene_id, s1)
+res = aa.compute_coincidence_scores()
 
 # %%

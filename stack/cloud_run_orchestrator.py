@@ -148,7 +148,7 @@ default = gcp.cloudrun.Service(
                             ),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="AAA_QUEUE",
+                            name="ASA_QUEUE",
                             value=cloud_function_ais_analysis.queue.name,
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(

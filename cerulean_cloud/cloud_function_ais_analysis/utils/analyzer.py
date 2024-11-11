@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Tuple
 
+import centerline.geometry
 import geopandas as gpd
 import mapbox_vector_tile
 import morecantile
@@ -16,21 +17,31 @@ import numpy as np
 import pandas as pd
 import pandas_gbq
 import requests
+import scipy.interpolate
+import scipy.spatial.distance
 import shapely
 from geoalchemy2.shape import to_shape
-from pyproj import CRS
+from google.oauth2.service_account import Credentials
 from scipy.spatial import cKDTree
-from shapely.geometry import GeometryCollection, LineString, MultiPolygon, Polygon
+from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 
-# Constants (adjust as needed)
-AIS_BUFFER = 50000  # Meters
-BUF_VEC = [5000, 4000, 3000, 2000, 1000]
-WEIGHT_VEC = [1.0, 0.8, 0.6, 0.4, 0.2]
-HOURS_BEFORE = 24
-HOURS_AFTER = 24
-NUM_TIMESTEPS = 5
-D_FORMAT = "%Y-%m-%d"
-T_FORMAT = "%Y-%m-%d %H:%M:%S"
+from .constants import (
+    AIS_BUFFER,
+    AIS_PROJECT_ID,
+    BUF_VEC,
+    D_FORMAT,
+    HOURS_AFTER,
+    HOURS_BEFORE,
+    NUM_TIMESTEPS,
+    T_FORMAT,
+    WEIGHT_VEC,
+)
+from .scoring import (
+    compute_frechet_distance,
+    compute_overlap_score,
+    compute_temporal_score,
+    compute_total_score,
+)
 
 
 class SourceAnalyzer:
@@ -47,13 +58,7 @@ class SourceAnalyzer:
         """
         self.slick_gdf = slick_gdf
         self.scene_id = scene_id
-        # Any common initializations
-
-    def load_sources(self):
-        """
-        Placeholder method to be overridden
-        """
-        pass
+        self.crs_meters = self.slick_gdf.estimate_utm_crs()
 
     def compute_coincidence_scores(self):
         """
@@ -61,23 +66,14 @@ class SourceAnalyzer:
         """
         pass
 
-    def associate_sources_to_slicks(self):
+    def apply_closing_buffer(self, geo_df, closing_buffer):
         """
-        Placeholder method to be overridden
+        Applies a closing buffer to geometries in the GeoDataFrame.
         """
-        pass
-
-    def estimate_utm_crs(self, geometry):
-        """
-        Estimates an appropriate UTM CRS based on the centroid of the geometry.
-        """
-        return CRS.from_dict(
-            {
-                "proj": "utm",
-                "zone": int((geometry.centroid.x + 180) / 6) + 1,
-                "south": geometry.centroid.y < 0,
-            }
+        geo_df["geometry"] = (
+            geo_df["geometry"].buffer(closing_buffer).buffer(-closing_buffer)
         )
+        return geo_df
 
 
 class InfrastructureAnalyzer(SourceAnalyzer):
@@ -99,8 +95,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         self.radius_of_interest = kwargs.get("radius_of_interest", 3000)
         self.min_area_threshold = kwargs.get("min_area_threshold", 0.1)
 
-        self.crs_meters = self.estimate_utm_crs(self.slick_gdf.unary_union)
-        self.infra_api_token = os.getenv("infra_api_token")
+        self.infra_api_token = os.getenv("INFRA_API_TOKEN")
         self.infra_gdf = self.load_infrastructure_data()
         self.coincidence_scores = np.zeros(len(self.infra_gdf))
 
@@ -117,7 +112,6 @@ class InfrastructureAnalyzer(SourceAnalyzer):
 
         # zxy = self.select_enveloping_tile() # Something's wrong with this code. Ex. [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C"] should have 2 nearby infras
         mvt_data = self.download_mvt_tile()
-
         df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
 
         datetime_fields = ["structure_start_date", "structure_end_date"]
@@ -175,16 +169,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
             return decoded_tile
         except Exception:
             print(f"Error decoding tile z={z}, x={x}, y={y}: {response.content}")
-            return {}
-
-    def apply_closing_buffer(self, geo_df, closing_buffer):
-        """
-        Applies a closing buffer to geometries in the GeoDataFrame.
-        """
-        geo_df["geometry"] = (
-            geo_df["geometry"].buffer(closing_buffer).buffer(-closing_buffer)
-        )
-        return geo_df
+            raise Exception(response.content)
 
     def extract_polygons(self, geometry):
         """
@@ -367,15 +352,10 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         end_time = time.time()
         print(f"Processing completed in {end_time - start_time:.2f} seconds.")
 
-    def associate_sources_to_slicks(self):
-        """
-        Associates infrastructure sources with slicks.
-        """
-        self.compute_coincidence_scores()
-
         # Return a DataFrame with infra_gdf and coincidence_scores
         self.infra_gdf["coincidence_score"] = self.coincidence_scores
-        return self.infra_gdf[self.infra_gdf["coincidence_score"] > 0]  # Filter out 0s
+        self.results = self.infra_gdf[self.infra_gdf["coincidence_score"] > 0]
+        return self.results
 
 
 class AISAnalyzer(SourceAnalyzer):
@@ -404,35 +384,34 @@ class AISAnalyzer(SourceAnalyzer):
         self.num_timesteps = kwargs.get("num_timesteps", NUM_TIMESTEPS)
         self.buf_vec = kwargs.get("buf_vec", BUF_VEC)
         self.weight_vec = kwargs.get("weight_vec", WEIGHT_VEC)
-        # Initialize other attributes
-        self.ais_gdf = None
-        self.ais_trajectories = None
-        self.ais_buffered = None
-        self.ais_weighted = None
-        self.results = None
-        self.crs_meters = None
-        self.s1_env = None
-        # Additional initializations
-        self.initialize_scene()
-
-    def initialize_scene(self):
-        """
-        Initializes the scene parameters.
-        """
-        self.start_time = self.s1_scene.start_time - timedelta(hours=self.hours_before)
-        self.end_time = self.s1_scene.start_time + timedelta(hours=self.hours_after)
+        self.ais_project_id = kwargs.get("ais_project_id", AIS_PROJECT_ID)
+        # Calculated values
+        self.ais_start_time = self.s1_scene.start_time - timedelta(
+            hours=self.hours_before
+        )
+        self.ais_end_time = self.s1_scene.start_time + timedelta(hours=self.hours_after)
         self.time_vec = pd.date_range(
-            start=self.start_time,
+            start=self.ais_start_time,
             end=self.s1_scene.start_time,
             periods=self.num_timesteps,
         )
         self.s1_env = gpd.GeoDataFrame(
             {"geometry": [to_shape(self.s1_scene.geometry)]}, crs="4326"
         )
-        self.crs_meters = self.estimate_utm_crs(self.slick_gdf.unary_union)
-        self.envelope = (
+        self.ais_envelope = (
             self.s1_env.to_crs(self.crs_meters).buffer(self.ais_buffer).to_crs("4326")
         )
+        self.credentials = Credentials.from_service_account_info(
+            json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
+        )
+
+        # Initialize other attributes
+        self.sql = None
+        self.ais_gdf = None
+        self.ais_trajectories = None
+        self.ais_buffered = None
+        self.ais_weighted = None
+        self.results = None
 
     def retrieve_ais_data(self):
         """
@@ -456,13 +435,14 @@ class AISAnalyzer(SourceAnalyzer):
                 `world-fishing-827.gfw_research.vi_ssvid_v20230801` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE
-                seg._PARTITIONTIME between '{datetime.strftime(self.start_time, D_FORMAT)}' AND '{datetime.strftime(self.end_time, D_FORMAT)}'
-                AND seg.timestamp between '{datetime.strftime(self.start_time, T_FORMAT)}' AND '{datetime.strftime(self.end_time, T_FORMAT)}'
-                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.envelope.iloc[0].geometry.wkt}'))
+                seg._PARTITIONTIME between '{datetime.strftime(self.ais_start_time, D_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, D_FORMAT)}'
+                AND seg.timestamp between '{datetime.strftime(self.ais_start_time, T_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, T_FORMAT)}'
+                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.ais_envelope.iloc[0].geometry.wkt}'))
             """
         df = pandas_gbq.read_gbq(
             sql,
-            project_id="world-fishing-827",  # credentials=credentials
+            project_id=self.ais_project_id,
+            credentials=self.credentials,
         )
         df["geometry"] = df.apply(
             lambda row: shapely.geometry.Point(row["lon"], row["lat"]), axis=1
@@ -484,6 +464,9 @@ class AISAnalyzer(SourceAnalyzer):
                 group = pd.concat([group] * 2).reset_index(drop=True)
 
             # Build trajectory
+            group["timestamp"] = (
+                group["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
+            )
             traj = mpd.Trajectory(df=group, traj_id=st_name, t="timestamp")
 
             # Interpolate to times in time_vec
@@ -509,7 +492,7 @@ class AISAnalyzer(SourceAnalyzer):
             interpolated_traj.flag = group.iloc[0]["flag"]
 
             # Calculate display feature collection
-            s1_time = pd.Timestamp(times[-1]).tz_localize("UTC")
+            s1_time = pd.Timestamp(times[-1])
             display_gdf = group[group["timestamp"] <= s1_time].copy()
             display_gdf["timestamp"] = display_gdf["timestamp"].apply(
                 lambda x: x.isoformat()
@@ -573,89 +556,246 @@ class AISAnalyzer(SourceAnalyzer):
         self.ais_buffered = gpd.GeoDataFrame(ais_buf, crs="4326")
         self.ais_weighted = ais_weighted
 
-    def slick_to_curves(self, slick_gdf, crs_meters):
-        """
-        Converts slick polygons to curves for analysis.
-        """
-        slick_gdf_meters = slick_gdf.to_crs(crs_meters)
-        slick_curves = []
-        for geom in slick_gdf_meters.geometry:
-            if isinstance(geom, (Polygon, MultiPolygon)):
-                coords = np.array(geom.exterior.coords)
-                curve = LineString(coords)
-                slick_curves.append(curve)
-        return slick_gdf_meters, slick_curves
-
-    def associate_ais_with_slick(
+    def slick_to_curves(
         self,
-        ais_trajectories,
-        ais_buffered,
-        ais_weighted,
-        slick_gdf,
-        slick_curves,
-        crs_meters,
+        buf_size: int = 2000,
+        interp_dist: int = 200,
+        smoothing_factor: float = 1e9,
     ):
         """
-        Associates AIS trajectories with slicks based on spatial relationships.
-        """
-        associations = []
-        for traj, buffered, weighted in zip(
-            ais_trajectories, ais_buffered.geometry, self.ais_weighted
-        ):
-            # Check intersection with slick
-            if buffered.intersects(slick_gdf.unary_union):
-                # Compute coincidence score
-                coincidence_score = weighted["weight"].sum()
-                associations.append(
-                    {
-                        "st_name": traj.id,
-                        "coincidence_score": coincidence_score,
-                        "geometry": traj.to_line_gdf().geometry.iloc[0],
-                        "geojson_fc": traj.geojson_fc,
-                    }
-                )
-        return pd.DataFrame(associations)
+        From a set of oil slick detections, estimate curves that go through the detections
+        This process transforms a set of slick detections into LineStrings for each detection
 
-    def compute_coincidence_scores(self):
+        Inputs:
+            buf_size: buffer size for cleaning up slick detections
+            interp_dist: interpolation distance for centerline
+            smoothing_factor: smoothing factor for smoothing centerline
+        Returns:
+            GeoDataFrame of slick curves
         """
-        Computes coincidence scores for AIS trajectories.
-        """
-        self.results = self.associate_ais_to_slick()
-        return self.results
-
-    def associate_ais_to_slick(self):
-        """
-        Associates AIS trajectories with slicks.
-        """
-        # Transform slick_gdf to appropriate CRS
-        slick_gdf = self.slick_gdf.to_crs("4326")
-        _, slick_curves = self.slick_to_curves(slick_gdf, self.crs_meters)
-
-        ais_associations = self.associate_ais_with_slick(
-            self.ais_trajectories,
-            self.ais_buffered,
-            self.ais_weighted,
-            slick_gdf,
-            slick_curves,
-            self.crs_meters,
+        # clean up the slick detections by dilation followed by erosion
+        # this process can merge some polygons but not others, depending on proximity
+        slick_clean = self.slick_gdf.copy()
+        slick_clean = self.apply_closing_buffer(
+            slick_clean.to_crs(self.crs_meters), buf_size
         )
 
-        return ais_associations
+        # split slicks into individual polygons
+        slick_clean = slick_clean.explode(ignore_index=True, index_parts=False)
 
-    def associate_sources_to_slicks(self):
+        # find a centerline through detections
+        slick_curves = list()
+        for _, row in slick_clean.iterrows():
+            # create centerline -> MultiLineString
+            try:
+                cl = centerline.geometry.Centerline(
+                    row.geometry, interpolation_distance=interp_dist
+                )
+            except (
+                Exception
+            ) as e:  # noqa # unclear what exception was originally thrown here.
+                # sometimes the voronoi polygonization fails
+                # in this case, just fit a a simple line from the start to the end
+                exterior_coords = row.geometry.exterior.coords
+                start_point = exterior_coords[0]
+                end_point = exterior_coords[-1]
+                curve = shapely.geometry.LineString([start_point, end_point])
+                slick_curves.append(curve)
+                print(
+                    f"XXX ~WARNING~ Blanket try/except caught error but continued on anyway: {e}"
+                )
+                continue
+
+            # grab coordinates from centerline
+            x = list()
+            y = list()
+            if isinstance(cl.geometry, shapely.geometry.MultiLineString):
+                # iterate through each linestring
+                for geom in cl.geometry.geoms:
+                    x.extend(geom.coords.xy[0])
+                    y.extend(geom.coords.xy[1])
+            else:
+                x.extend(cl.geometry.coords.xy[0])
+                y.extend(cl.geometry.coords.xy[1])
+
+            # sort coordinates in both X and Y directions
+            coords = [(xc, yc) for xc, yc in zip(x, y)]
+            coords_sort_x = sorted(coords, key=lambda c: c[0])
+            coords_sort_y = sorted(coords, key=lambda c: c[1])
+
+            # remove coordinate duplicates, preserving sorted order
+            coords_seen_x = set()
+            coords_unique_x = list()
+            for c in coords_sort_x:
+                if c not in coords_seen_x:
+                    coords_unique_x.append(c)
+                    coords_seen_x.add(c)
+
+            coords_seen_y = set()
+            coords_unique_y = list()
+            for c in coords_sort_y:
+                if c not in coords_seen_y:
+                    coords_unique_y.append(c)
+                    coords_seen_y.add(c)
+
+            # grab x and y coordinates for spline fit
+            x_fit_sort_x = [c[0] for c in coords_unique_x]
+            x_fit_sort_y = [c[0] for c in coords_unique_y]
+            y_fit_sort_x = [c[1] for c in coords_unique_x]
+            y_fit_sort_y = [c[1] for c in coords_unique_y]
+
+            # Check if there are enough points for spline fitting
+            min_points_required = 4  # for cubic spline, k=3, need at least 4 points
+            if len(coords_unique_x) >= min_points_required:
+                # fit a B-spline to the centerline
+                tck_sort_x, fp_sort_x, _, _ = scipy.interpolate.splrep(
+                    x_fit_sort_x,
+                    y_fit_sort_x,
+                    k=3,
+                    s=smoothing_factor,
+                    full_output=True,
+                )
+                tck_sort_y, fp_sort_y, _, _ = scipy.interpolate.splrep(
+                    y_fit_sort_y,
+                    x_fit_sort_y,
+                    k=3,
+                    s=smoothing_factor,
+                    full_output=True,
+                )
+
+                # choose the spline that has the lowest fit error
+                if fp_sort_x <= fp_sort_y:
+                    tck = tck_sort_x
+                    x_fit = x_fit_sort_x
+                    y_fit = y_fit_sort_x
+
+                    num_points = max(round((x_fit[-1] - x_fit[0]) / 100), 5)
+                    x_new = np.linspace(x_fit[0], x_fit[-1], 10)
+                    y_new = scipy.interpolate.BSpline(*tck)(x_new)
+                else:
+                    tck = tck_sort_y
+                    x_fit = x_fit_sort_y
+                    y_fit = y_fit_sort_y
+
+                    num_points = max(round((y_fit[-1] - y_fit[0]) / 100), 5)
+                    y_new = np.linspace(y_fit[0], y_fit[-1], num_points)
+                    x_new = scipy.interpolate.BSpline(*tck)(y_new)
+
+                # store as LineString
+                curve = shapely.geometry.LineString(zip(x_new, y_new))
+            else:
+                curve = shapely.geometry.LineString(
+                    [coords_unique_x[0], coords_unique_x[-1]]
+                )
+            slick_curves.append(curve)
+
+        slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=self.crs_meters)
+        slick_curves_gdf["length"] = slick_curves_gdf.geometry.length
+        slick_curves_gdf = slick_curves_gdf.sort_values(
+            "length", ascending=False
+        ).to_crs("4326")
+
+        self.slick_curves = slick_curves_gdf
+
+    def score_trajectories(self):
+        """
+        Measure association by computing multiple metrics between AIS trajectories and slicks
+
+        Returns:
+            GeoDataFrame of slick associations
+        """
+        # only consider trajectories that intersect slick detections
+        ais_filt = list()
+        weighted_filt = list()
+        buffered_filt = list()
+        for idx, t in enumerate(self.ais_trajectories):
+            w = self.ais_weighted[idx]
+            b = self.ais_buffered.iloc[idx]
+
+            # spatially join the weighted trajectory to the slick
+            b_gdf = gpd.GeoDataFrame(index=[0], geometry=[b.geometry], crs="4326")
+            matches = gpd.sjoin(
+                b_gdf, self.slick_gdf, how="inner", predicate="intersects"
+            )
+            if matches.empty:
+                continue
+            else:
+                ais_filt.append(t)
+                weighted_filt.append(w)
+                buffered_filt.append(b_gdf)
+
+        columns = [
+            "st_name",
+            "geometry",
+            "coincidence_score",
+            "type",
+            "ext_name",
+            "ext_shiptype",
+            "flag",
+            "geojson_fc",
+        ]
+
+        entries = []
+        # Skip the loop if weighted_filt is empty
+        if weighted_filt:
+            # create trajectory collection from filtered trajectories
+            ais_filt = mpd.TrajectoryCollection(ais_filt)
+
+            # iterate over filtered trajectories
+            for t, w, b in zip(ais_filt, weighted_filt, buffered_filt):
+                # compute temporal score
+                temporal_score = compute_temporal_score(w, self.slick_gdf)
+
+                # compute overlap score
+                overlap_score = compute_overlap_score(
+                    b, self.slick_gdf, self.crs_meters
+                )
+
+                # compute frechet distance between trajectory and slick curve
+                frechet_dist = compute_frechet_distance(
+                    t, self.slick_curves, self.crs_meters
+                )
+
+                # compute total score from these three metrics
+                coincidence_score = compute_total_score(
+                    temporal_score, overlap_score, frechet_dist
+                )
+
+                print(
+                    f"st_name {t.id}: coincidence_score ({coincidence_score}) = overlap_score ({overlap_score}) * temporal_score ({temporal_score}) + 2000/frechet_dist ({frechet_dist})"
+                )
+
+                entry = {
+                    "st_name": t.id,
+                    "geometry": shapely.geometry.LineString(
+                        [p.coords[0] for p in t.df["geometry"]]
+                    ),
+                    "coincidence_score": coincidence_score,
+                    "ext_name": t.ext_name,
+                    "ext_shiptype": t.ext_shiptype,
+                    "flag": t.flag,
+                    "geojson_fc": t.geojson_fc,
+                    "source_type": "ais",
+                }
+                entries.append(entry)
+        sources = gpd.GeoDataFrame(entries, columns=columns, crs="4326")
+
+        self.results = sources[sources["coincidence_score"] > 0]
+        return self.results
+
+    def compute_coincidence_scores(self):
         """
         Associates AIS trajectories with slicks.
         """
         self.retrieve_ais_data()
         if not self.ais_gdf.empty:
+            self.slick_to_curves()
             self.build_trajectories()
             self.buffer_trajectories()
-            self.compute_coincidence_scores()
-            # Return the results
+            self.score_trajectories()
             return self.results
         else:
-            # No AIS data
-            return pd.DataFrame()  # Empty DataFrame
+            return pd.DataFrame()
 
 
 class DarkAnalyzer(SourceAnalyzer):
@@ -675,11 +815,4 @@ class DarkAnalyzer(SourceAnalyzer):
         """
         Implement the analysis logic for dark vessels.
         """
-        pass
-
-    def associate_sources_to_slicks(self):
-        """
-        Associates dark vessels with slicks.
-        """
-        # Return associations
         pass
