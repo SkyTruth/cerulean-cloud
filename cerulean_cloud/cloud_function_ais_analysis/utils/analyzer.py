@@ -437,7 +437,7 @@ class AISAnalyzer(SourceAnalyzer):
             WHERE
                 seg._PARTITIONTIME between '{datetime.strftime(self.ais_start_time, D_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, D_FORMAT)}'
                 AND seg.timestamp between '{datetime.strftime(self.ais_start_time, T_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, T_FORMAT)}'
-                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.ais_envelope.iloc[0].geometry.wkt}'))
+                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.ais_envelope[0]}'))
             """
         df = pandas_gbq.read_gbq(
             sql,
