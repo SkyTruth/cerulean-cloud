@@ -1,56 +1,10 @@
 # Cerulean API Documentation
 ## Introduction
-For most users, we recommend using the [Cerulean web application](https://cerulean.skytruth.org), which provides a visual interface for exploring the complete set of Cerulean data layers. For users who want to directly access and download oil slick detection data, we provide programmatic free access to an OGC compliant API ([api.cerulean.skytruth.org](https://api.cerulean.skytruth.org/)). Currently, only oil slick detections can be downloaded. Data used for source identification, including AIS tracks, vessel identities, and offshore oil platform locations, cannot be downloaded and can only be accessed via the Cerulean web application.
-API queries can be made programmatically (e.g. a curl request in Python) for direct data access and download. You can also execute API queries within a browser by pasting an API command into your browser’s address bar, which will then show the results of your query, including a helpful paginated map, or download the data directly.
-Below, we provide some working examples of common data queries from our API. This is only a small sample of the types of queries that are possible. To dig deeper, please see our full API docs and check out the current documentation for [tipg](https://developmentseed.org/tipg/) and [CQL-2](https://web.archive.org/web/20230326001622/https://cran.r-project.org/web/packages/rstac/vignettes/rstac-02-cql2.html), both of which are used by our API.
-## Example 1. Query by date and time range
-For our first query, let’s return all slick detection data on December 8, 2023, sorted by `slick_timestamp`. To do this, we specify a sorting function (`?sortby=slick_timestamp`) and provide a start and end datetime: 
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?sortby=slick_timestamp&datetime=2023-12-08T00:00:00Z/2023-12-09T00:00:00Z`
-The required date format is YYYY-MM-DDTHH:MM:SSZ, where the time is in UTC (which matches the timezone of S1 imagery naming convention).
-If you want to change the query dates, you can modify the `datetime` parameter to match the time range you are interested in. For example, the following command will fetch slick detections that appeared from 2023-12-01 through 2023-12-07:
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?sortby=slick_timestamp&datetime=2023-12-01T00:00:00Z/2023-12-08T00:00:00Z`
-## Example 2. Basic filtering
-Our API also allows you to filter results using various properties of the slick detection data. For example, let’s repeat the query from example 1, but limit results to detections with a `machine_confidence` greater-than-or-equal-to (GTE) 60%, and an `area` greater than (GT) 20 square km:
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?sortby=slick_timestamp&datetime=2023-12-01T00:00:00Z/2023-12-08T00:00:00Z&filter=machine_confidence GTE 0.6 AND area GT 20000000`
-To create this query, we added the following commands to Example 1: 
-- `&filter=` which always should always precede all the combined filters you apply, like those below
-- `machine_confidence GTE 0.6` which specifies a machine confidence score greater-than-or-equal-to 60%
-- `AND area GT 20000000` which specifies an area greater-than 20,000,000 square meters, equivalent to 20 square km.
+For most users, we recommend using the [Cerulean web application](https://cerulean.skytruth.org/), which provides a visual interface for exploring the complete set of Cerulean data layers.
 
-Note that these filter commands include spaces and abbreviated operators such as GTE (greater-than-or-equal-to), which are patterns enabled by CQL-2.
-There are a large number of fields available for filtering. We’ll cover a few more common examples below, but for full documentation, see our [standard API docs](https://api.cerulean.skytruth.org/).
-## Example 3. Filtering by source
-For higher-confidence slicks detected by Cerulean, we apply a second model that finds any vessels or offshore oil infrastructure recorded in the vicinity of those slicks. Let’s repeat our query from example 1, but limit the results to slicks with a possible vessel or infrastructure source identified nearby. 
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?sortby=slick_timestamp&datetime=2023-12-01T00:00:00Z/2023-12-08T00:00:00Z&filter=(NOT source_type_1_ids IS NULL OR NOT source_type_2_ids IS NULL) AND cls != 1`
+For users who want to directly access and download oil slick detection data, we provide programmatic free access to an [OGC compliant API](api.cerulean.skytruth.org). 
 
-This one is a little complicated. Let’s break it down piece by piece:
-- `&filter=(NOT source_type_1_ids IS NULL OR NOT source_type_2_ids IS NULL)`. This command returns slicks where Cerulean has identified at least one potential source of type 1 (vessel) or type 2 (infrastructure). The syntax is a little confusing because of the double negative, but the command `NOT source_type_1_ids IS NULL` tells the API to fetch all slicks where the `source_type_1` field has at least one entry, and the command `NOT source_type_2_ids IS NULL` does the same thing for source_type_2.
-- `AND cls != 1`. This is a class filter that excludes all slicks of Class 1. Class 1 is “background,” which includes detections over land and other regions where oil slicks won’t plausibly occur. We recommend including this filter in most API queries.
-## Example 4. Direct download of data as a .csv or .geojson
-If you wanted to return the query from example 2 as a csv for direct download, you would append `&f=csv` to the API query like so:
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?sortby=slick_timestamp&datetime=2023-12-01T00:00:00Z/2023-12-08T00:00:00Z&filter=machine_confidence GTE 0.6 AND area GTE 20000000&f=csv`
-
-NOTE: This functionality may be limited until this [GitHub Issue](https://github.com/developmentseed/tipg/issues/159) is resolved.
-
-If you prefer a geojson, you can append `&f=geojson` to the query instead, like this:
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?sortby=slick_timestamp&datetime=2023-12-01T00:00:00Z/2023-12-08T00:00:00Z&filter=machine_confidence GTE 0.6 AND area GTE 20000000&f=geojson`
-
-NOTE: All requests have a default value of the `limit` parameter if unspecified: `&limit=10`. If you want to return more than 10 results, adjust that number, and add it to the URL. To make use of pagination, you can also use the parameter `&offset=60` to return entries starting at any arbitrary row (shown here returning from row 61 onwards).
-## Example 5. Return a specific slick by its ID
-If you know which slick you want to pull from the API - let’s say it’s slick 171370 - you can fetch it using a query like this:
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?id=171370`
-## Example 6. Return all slicks detected in a specific Sentinel-1 scene
-If you want to return all slick detections in a specific Sentinel-1 scene, use a query like this:
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?s1_scene_id=S1A_IW_GRDH_1SDV_20231104T135322_20231104T135347_051068_062873_F9A6`
-Now, let’s limit our results to slick detections in that Sentinel-1 scene with an area greater than 10 square km and a machine confidence greater-than-or-equal-to 50%:
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?s1_scene_id=S1A_IW_GRDH_1SDV_20231104T135322_20231104T135347_051068_062873_F9A6&filter=machine_confidence GTE 0.5 AND area GT 10000000`
-## Example 7. Return slicks within a bounding box
-To download slicks within a specific geographic area, you can use the bounding box (bbox) pattern. For example, this command will download all model detections between 2023-12-01 and 2023-12-08 in an area near the Strait of Hormuz:
-`api.cerulean.skytruth.org/collections/public.slick_plus/items?&datetime=2023-12-01T00:00:00Z/2023-12-08T23:59:59Z&bbox=53.6,23.6,59.9,28.1`
-A bounding box is specified as `min_longitude,min_latitude,max_longitude,max_latitude`.
-Note: This command will return all model detections in that bounding box. We recommend restricting the returned slick detections using parameters like machine confidence, area, and non-background class (see above examples) to only return the detections most likely to be real slicks.
-## Conclusion
-We hope this summary helps you get started with Cerulean’s API. This is a small sample of the data queries that are currently possible with Cerulean’s API. We describe more queryable fields in the table below. For full documentation, please see our [standard API docs](https://api.cerulean.skytruth.org/). 
+We strongly recommend interested users to look at our [developer’s guide](https://colab.research.google.com/drive/1SYWIzPH_2NeqvfqcVzY43y1hv1Ug-YoJ#scrollTo=NW_mI607d6Jq) for some examples of how to use the API.
 
 
 # cerulean-cloud
