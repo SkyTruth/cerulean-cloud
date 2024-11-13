@@ -25,6 +25,7 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 from cerulean_cloud.cloud_function_ais_analysis.utils.analyzer import (  # noqa: E402
     ASA_MAPPING,
+    SourceAnalyzer,
 )
 from cerulean_cloud.cloud_function_ais_analysis.utils.asa import (  # noqa: E402
     associate_infra_to_slick,
@@ -222,13 +223,8 @@ def plot_coincidence(
     # Show the plot
     plt.show()
 
-    # Process and print the infrastructure GeoDataFrame with coincidence scores
-    copy_infra_gdf = infra_gdf.copy()  # To avoid SettingWithCopyWarning
-    copy_infra_gdf["coincidence_score"] = coincidence_scores
-    copy_infra_gdf = copy_infra_gdf.sort_values(by="coincidence_score", ascending=False)
-    copy_infra_gdf.reset_index(drop=True, inplace=True)
-    print(copy_infra_gdf[copy_infra_gdf["coincidence_score"] > 0].head())
 
+analyzers: dict[str, SourceAnalyzer] = {}
 
 # %%
 slick_ids = [
@@ -257,7 +253,12 @@ for slick_id in slick_ids:
     source_types = []
     source_types += ["infra"]
     source_types += ["ais"]
-    analyzers = {s_type: ASA_MAPPING[s_type](s1_scene) for s_type in source_types}
+    if not (  # If the last analyzer is for the same scene, reuse it
+        analyzers
+        and next(iter(analyzers.items()))[1].s1_scene.scene_id == s1_scene.scene_id
+    ):
+        analyzers = {s_type: ASA_MAPPING[s_type](s1_scene) for s_type in source_types}
+
     ranked_sources = pd.DataFrame()
     for s_type, analyzer in analyzers.items():
         res = analyzer.compute_coincidence_scores(slick_gdf)
@@ -278,10 +279,10 @@ for slick_id in slick_ids:
     print(ranked_sources.head())
 
 # %%
-infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
-coincidence_scores = associate_infra_to_slick(infra_gdf, slick_gdf)
+fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
+coincidence_scores = associate_infra_to_slick(fake_infra_gdf, slick_gdf)
 plot_coincidence(
-    infra_gdf=infra_gdf,
+    infra_gdf=fake_infra_gdf,
     slick_gdf=slick_gdf,
     coincidence_scores=coincidence_scores,
     slick_id=slick_id,

@@ -102,6 +102,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         self.num_vertices = kwargs.get("N", 10)
         self.closing_buffer = kwargs.get("closing_buffer", 500)
         self.radius_of_interest = kwargs.get("radius_of_interest", 3000)
+        self.decay_factor = kwargs.get("decay_factor", 4.0)
         self.min_area_threshold = kwargs.get("min_area_threshold", 0.1)
 
         self.infra_api_token = os.getenv("INFRA_API_TOKEN")
@@ -279,6 +280,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         all_extremity_points: np.ndarray,
         all_weights: np.ndarray,
         radius_of_interest: float,
+        decay_factor: float,
     ) -> np.ndarray:
         """
         Computes confidence scores for infrastructure points based on proximity to extremity points.
@@ -294,7 +296,9 @@ class InfrastructureAnalyzer(SourceAnalyzer):
                 neighbor_points = all_extremity_points[neighbors]
                 neighbor_weights = all_weights[neighbors]
                 dists = np.linalg.norm(neighbor_points - infra_coords[i], axis=1)
-                C_i = neighbor_weights - dists / radius_of_interest
+                C_i = neighbor_weights * np.exp(
+                    -decay_factor * dists / radius_of_interest
+                )
                 coincidence_scores[i] = np.clip(C_i.max(), 0, 1)
 
         return coincidence_scores
@@ -357,6 +361,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
             all_extremity_points,
             all_weights,
             self.radius_of_interest,
+            self.decay_factor,
         )
 
         self.coincidence_scores[filtered_infra.index] = confidence_filtered
@@ -364,8 +369,9 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         print(f"Processing completed in {end_time - start_time:.2f} seconds.")
 
         # Return a DataFrame with infra_gdf and coincidence_scores
-        self.infra_gdf["coincidence_score"] = self.coincidence_scores
-        self.results = self.infra_gdf[self.infra_gdf["coincidence_score"] > 0]
+        self.results = self.infra_gdf.copy()
+        self.results["coincidence_score"] = self.coincidence_scores
+        self.results = self.results[self.results["coincidence_score"] > 0]
         return self.results
 
 
