@@ -22,6 +22,7 @@ import scipy.spatial.distance
 import shapely
 from geoalchemy2.shape import to_shape
 from google.oauth2.service_account import Credentials
+from pyproj import CRS
 from scipy.spatial import cKDTree
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 
@@ -30,14 +31,18 @@ from .constants import (
     AIS_PROJECT_ID,
     BUF_VEC,
     D_FORMAT,
+    D_REF_FRECHET,
     HOURS_AFTER,
     HOURS_BEFORE,
     NUM_TIMESTEPS,
     T_FORMAT,
+    W_FRECHET,
+    W_OVERLAP,
+    W_TEMPORAL,
     WEIGHT_VEC,
 )
 from .scoring import (
-    compute_frechet_distance,
+    compute_frechet_score,
     compute_overlap_score,
     compute_temporal_score,
     compute_total_score,
@@ -52,15 +57,19 @@ class SourceAnalyzer:
         slick_gdf (GeoDataFrame): GeoDataFrame containing the slick geometries.
     """
 
-    def __init__(self, slick_gdf: gpd.GeoDataFrame, scene_id: str, **kwargs):
+    def __init__(self, s1_scene, **kwargs):
         """
         Initialize the SourceAnalyzer.
         """
-        self.slick_gdf = slick_gdf
-        self.scene_id = scene_id
-        self.crs_meters = self.slick_gdf.estimate_utm_crs()
+        self.s1_scene = s1_scene
+        geom_shape = to_shape(self.s1_scene.geometry)  # Convert to Shapely geometry
+        centroid = geom_shape.centroid
+        utm_crs = CRS(
+            proj="utm", zone=int((centroid.x + 180) / 6) + 1, south=centroid.y < 0
+        )
+        self.crs_meters = utm_crs.to_string()
 
-    def compute_coincidence_scores(self):
+    def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
         Placeholder method to be overridden
         """
@@ -85,11 +94,11 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         coincidence_scores (np.ndarray): Computed confidence scores.
     """
 
-    def __init__(self, slick_gdf, scene_id, **kwargs):
+    def __init__(self, s1_scene, **kwargs):
         """
         Initialize the InfrastructureAnalyzer.
         """
-        super().__init__(slick_gdf, scene_id, **kwargs)
+        super().__init__(s1_scene, **kwargs)
         self.num_vertices = kwargs.get("N", 10)
         self.closing_buffer = kwargs.get("closing_buffer", 500)
         self.radius_of_interest = kwargs.get("radius_of_interest", 3000)
@@ -122,7 +131,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         df["source_type"] = "infra"
         if only_oil:
             df = df[df["label"] == "oil"]
-
+        df.reset_index(drop=True, inplace=True)
         return gpd.GeoDataFrame(
             df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
         )
@@ -290,11 +299,13 @@ class InfrastructureAnalyzer(SourceAnalyzer):
 
         return coincidence_scores
 
-    def compute_coincidence_scores(self):
+    def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
         Computes coincidence scores for infrastructure points.
         """
         start_time = time.time()
+        self.coincidence_scores = np.zeros(len(self.infra_gdf))
+        self.slick_gdf = slick_gdf
 
         slick_gdf = self.slick_gdf.to_crs(self.crs_meters)
         infra_gdf = self.infra_gdf.to_crs(self.crs_meters)
@@ -309,7 +320,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         slick_buffered = combined_geometry.buffer(self.radius_of_interest)
 
         # Filter based on scene date
-        scene_date = pd.to_datetime(self.scene_id[17:25], format="%Y%m%d")
+        scene_date = pd.to_datetime(self.s1_scene.scene_id[17:25], format="%Y%m%d")
         filtered_infra = infra_gdf[infra_gdf["structure_start_date"] < scene_date]
         filtered_infra = filtered_infra[
             (infra_gdf["structure_end_date"] > scene_date)
@@ -371,11 +382,11 @@ class AISAnalyzer(SourceAnalyzer):
         results (DataFrame): Final association results.
     """
 
-    def __init__(self, slick_gdf, scene_id, s1_scene, **kwargs):
+    def __init__(self, s1_scene, **kwargs):
         """
         Initialize the AISAnalyzer.
         """
-        super().__init__(slick_gdf, scene_id, **kwargs)
+        super().__init__(s1_scene, **kwargs)
         self.s1_scene = s1_scene
         # Default parameters
         self.hours_before = kwargs.get("hours_before", HOURS_BEFORE)
@@ -385,6 +396,10 @@ class AISAnalyzer(SourceAnalyzer):
         self.buf_vec = kwargs.get("buf_vec", BUF_VEC)
         self.weight_vec = kwargs.get("weight_vec", WEIGHT_VEC)
         self.ais_project_id = kwargs.get("ais_project_id", AIS_PROJECT_ID)
+        self.w_temporal = kwargs.get("w_temporal", W_TEMPORAL)
+        self.w_overlap = kwargs.get("w_overlap", W_OVERLAP)
+        self.w_frechet = kwargs.get("w_frechet", W_FRECHET)
+        self.d_ref_frechet = kwargs.get("d_ref_frechet", D_REF_FRECHET)
         # Calculated values
         self.ais_start_time = self.s1_scene.start_time - timedelta(
             hours=self.hours_before
@@ -407,6 +422,7 @@ class AISAnalyzer(SourceAnalyzer):
 
         # Initialize other attributes
         self.sql = None
+        self.slick_curves = None
         self.ais_gdf = None
         self.ais_trajectories = None
         self.ais_buffered = None
@@ -417,6 +433,7 @@ class AISAnalyzer(SourceAnalyzer):
         """
         Retrieves AIS data from BigQuery.
         """
+        # print("Retrieving AIS data")
         sql = f"""
             SELECT
                 seg.ssvid as ssvid,
@@ -457,6 +474,7 @@ class AISAnalyzer(SourceAnalyzer):
         """
         Builds trajectories from AIS data.
         """
+        # print("Building trajectories")
         ais_trajectories = list()
         for st_name, group in self.ais_gdf.groupby("ssvid"):
             # Duplicate the row if there's only one point
@@ -515,6 +533,7 @@ class AISAnalyzer(SourceAnalyzer):
         """
         Buffers trajectories.
         """
+        # print("Buffering trajectories")
         ais_buf = list()
         ais_weighted = list()
         for traj in self.ais_trajectories:
@@ -573,6 +592,7 @@ class AISAnalyzer(SourceAnalyzer):
         Returns:
             GeoDataFrame of slick curves
         """
+        # print("Creating slick curves")
         # clean up the slick detections by dilation followed by erosion
         # this process can merge some polygons but not others, depending on proximity
         slick_clean = self.slick_gdf.copy()
@@ -704,6 +724,7 @@ class AISAnalyzer(SourceAnalyzer):
         Returns:
             GeoDataFrame of slick associations
         """
+        # print("Scoring trajectories")
         # only consider trajectories that intersect slick detections
         ais_filt = list()
         weighted_filt = list()
@@ -728,7 +749,7 @@ class AISAnalyzer(SourceAnalyzer):
             "st_name",
             "geometry",
             "coincidence_score",
-            "type",
+            "source_type",
             "ext_name",
             "ext_shiptype",
             "flag",
@@ -751,18 +772,24 @@ class AISAnalyzer(SourceAnalyzer):
                     b, self.slick_gdf, self.crs_meters
                 )
 
-                # compute frechet distance between trajectory and slick curve
-                frechet_dist = compute_frechet_distance(
-                    t, self.slick_curves, self.crs_meters
+                # compute frechet score between trajectory and slick curve
+                frechet_score = compute_frechet_score(
+                    t, self.slick_curves, self.crs_meters, self.d_ref_frechet
                 )
 
                 # compute total score from these three metrics
+
                 coincidence_score = compute_total_score(
-                    temporal_score, overlap_score, frechet_dist
+                    temporal_score,
+                    overlap_score,
+                    frechet_score,
+                    self.w_temporal,
+                    self.w_overlap,
+                    self.w_frechet,
                 )
 
                 print(
-                    f"st_name {t.id}: coincidence_score ({coincidence_score}) = overlap_score ({overlap_score}) * temporal_score ({temporal_score}) + 2000/frechet_dist ({frechet_dist})"
+                    f"st_name {t.id}: coincidence_score ({round(coincidence_score, 2)}) = ({self.w_overlap} * overlap_score ({round(overlap_score, 2)}) + {self.w_temporal} * temporal_score ({round(temporal_score, 2)}) + {self.w_frechet} * frechet_score ({round(frechet_score, 2)})) / ({self.w_overlap + self.w_temporal + self.w_frechet})"
                 )
 
                 entry = {
@@ -771,11 +798,11 @@ class AISAnalyzer(SourceAnalyzer):
                         [p.coords[0] for p in t.df["geometry"]]
                     ),
                     "coincidence_score": coincidence_score,
+                    "source_type": "ais",
                     "ext_name": t.ext_name,
                     "ext_shiptype": t.ext_shiptype,
                     "flag": t.flag,
                     "geojson_fc": t.geojson_fc,
-                    "source_type": "ais",
                 }
                 entries.append(entry)
         sources = gpd.GeoDataFrame(entries, columns=columns, crs="4326")
@@ -783,19 +810,26 @@ class AISAnalyzer(SourceAnalyzer):
         self.results = sources[sources["coincidence_score"] > 0]
         return self.results
 
-    def compute_coincidence_scores(self):
+    def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
         Associates AIS trajectories with slicks.
         """
-        self.retrieve_ais_data()
-        if not self.ais_gdf.empty:
-            self.slick_to_curves()
-            self.build_trajectories()
-            self.buffer_trajectories()
-            self.score_trajectories()
-            return self.results
-        else:
+        self.results = None
+        self.slick_curves = None
+        self.slick_gdf = slick_gdf
+
+        if self.ais_gdf is None:
+            self.retrieve_ais_data()
+        if self.ais_gdf.empty:
             return pd.DataFrame()
+
+        self.slick_to_curves()
+        if self.ais_trajectories is None:
+            self.build_trajectories()
+        if self.ais_buffered is None:
+            self.buffer_trajectories()
+        self.score_trajectories()
+        return self.results
 
 
 class DarkAnalyzer(SourceAnalyzer):
@@ -804,15 +838,23 @@ class DarkAnalyzer(SourceAnalyzer):
     Currently a placeholder for future implementation.
     """
 
-    def __init__(self, slick_gdf, s1, **kwargs):
+    def __init__(self, s1_scene, **kwargs):
         """
         Initialize the DarkAnalyzer.
         """
-        super().__init__(slick_gdf, s1, **kwargs)
+        super().__init__(s1_scene, **kwargs)
         # Initialize attributes specific to dark vessel analysis
 
-    def compute_coincidence_scores(self):
+    def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
         Implement the analysis logic for dark vessels.
         """
+        self.slick_gdf = slick_gdf
         pass
+
+
+ASA_MAPPING = {
+    "ais": AISAnalyzer,
+    "infra": InfrastructureAnalyzer,
+    "dark": DarkAnalyzer,
+}

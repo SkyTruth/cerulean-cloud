@@ -9,7 +9,6 @@ Features include projection handling, extremity point selection, efficient scori
 # %load_ext autoreload
 # %autoreload 2
 
-import datetime
 import os
 import sys
 from types import SimpleNamespace
@@ -17,6 +16,7 @@ from types import SimpleNamespace
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
 from geoalchemy2 import WKTElement
 
@@ -24,15 +24,14 @@ load_dotenv(".env")
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 from cerulean_cloud.cloud_function_ais_analysis.utils.analyzer import (  # noqa: E402
-    AISAnalyzer,
-    InfrastructureAnalyzer,
+    ASA_MAPPING,
 )
 from cerulean_cloud.cloud_function_ais_analysis.utils.asa import (  # noqa: E402
     associate_infra_to_slick,
 )
 
 
-def download_geojson(id, download_path="/Users/jonathanraphael/Downloads"):
+def download_geojson(id, download_path=os.getenv("ASA_DOWNLOAD_PATH")):
     """
     Downloads a GeoJSON file from the specified URL if it hasn't been downloaded already.
 
@@ -54,6 +53,29 @@ def download_geojson(id, download_path="/Users/jonathanraphael/Downloads"):
         print(f"GeoJSON file already exists at {geojson_file_path}. Skipping download.")
 
     return geojson_file_path
+
+
+def get_s1_scene(scene_id, download_path=os.getenv("ASA_DOWNLOAD_PATH")):
+    """
+    Downloads a S1 scene GeoJSON file from the specified URL if it hasn't been downloaded already.
+    """
+    url = f"https://api.cerulean.skytruth.org/collections/public.sentinel1_grd/items?scene_id={scene_id}&f=geojson"
+    geojson_file_path = os.path.join(download_path, f"{scene_id}.geojson")
+    if not os.path.exists(geojson_file_path):
+        print(f"Downloading GeoJSON file for Scene {scene_id}...")
+        os.system(f'curl "{url}" -o "{geojson_file_path}"')
+        print(f"Downloaded GeoJSON to {geojson_file_path}")
+    else:
+        print(f"GeoJSON file already exists at {geojson_file_path}. Skipping download.")
+    s1_gdf = gpd.read_file(geojson_file_path)
+    s1_scene = SimpleNamespace(
+        scene_id=scene_id,
+        scihub_ingestion_time=s1_gdf.scihub_ingestion_time.iloc[0],
+        start_time=s1_gdf.start_time.iloc[0],
+        end_time=s1_gdf.end_time.iloc[0],
+        geometry=WKTElement(str(s1_gdf.geometry.iloc[0])),
+    )
+    return s1_scene
 
 
 def generate_infrastructure_points(
@@ -84,11 +106,12 @@ def generate_infrastructure_points(
 
 
 def plot_coincidence(
-    infra_gdf,
-    slick_gdf,
-    coincidence_scores,
-    id,  # Added 'id' as a parameter
+    slick_id,  # Added 'id' as a parameter
+    analyzer=None,
     black=True,
+    infra_gdf=None,
+    slick_gdf=None,
+    coincidence_scores=None,
 ):
     """
     Plots a sample of infrastructure points with their coincidence scores.
@@ -99,6 +122,11 @@ def plot_coincidence(
     - coincidence_scores (np.ndarray): Array of coincidence scores.
     - id (int): Identifier for the plot title.
     """
+    if analyzer is not None:
+        infra_gdf = analyzer.infra_gdf
+        slick_gdf = analyzer.slick_gdf
+        coincidence_scores = analyzer.coincidence_scores
+
     sample_size = len(infra_gdf)
     plt.figure(figsize=(10, 10))
 
@@ -176,7 +204,7 @@ def plot_coincidence(
     )
 
     # Set titles and labels
-    plt.title(f"Slick ID {id}: Max Coincidence {max_coincidence}")
+    plt.title(f"Slick ID {slick_id}: Max Coincidence {max_coincidence}")
     plt.xlabel("Longitude")
     plt.ylabel("Latitude")
 
@@ -203,62 +231,61 @@ def plot_coincidence(
 
 
 # %%
-# Usage example
-ids = [
-    # [3479812, 'S1A_IW_GRDH_1SDV_20240424T051434_20240424T051459_053571_0680D2_0854'],
-    # [3013300, 'S1A_IW_GRDH_1SDV_20240901T175307_20240901T175332_055475_06C482_3EA4'],
-    # [3522449, 'S1A_IW_GRDH_1SDV_20241007T175309_20241007T175334_056000_06D942_BC27'],
-    # [3343987, 'S1A_IW_GRDH_1SDV_20240609T053018_20240609T053047_054242_0698FD_4B01'],
-    # [3070818, 'S1A_IW_GRDH_1SDV_20231125T174456_20231125T174521_051377_06332E_E619'],
-    # [3173928, "S1A_IW_GRDH_1SDV_20230704T174453_20230704T174518_049277_05ECE7_7DE1"],
-    # [3229370, 'S1A_IW_GRDH_1SDV_20231007T171227_20231007T171252_050662_061A9E_BC8B'],
-    # [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C'],
-    [3411218, "S1A_IW_GRDH_1SDV_20240226T221831_20240226T221856_052736_066190_8A37"],
+slick_ids = [
+    # 3479812,
+    # 3013300,
+    # 3522449,
+    # 3343987,
+    # 3070818,
+    # 3173928,
+    # 3229370,
+    # 3105854,
+    3411218,  # infra
+    # 3537523,  # ais
+    # 3000101,  # ais
+    # 3000097,  # ais
+    # 3000096,  # ais
+    # 3000100,
+    # 3058634,
 ]
 
-accumulated_pairs = []
-for slick_id, scene_id in ids:
+for slick_id in slick_ids:
     geojson_file_path = download_geojson(slick_id)
-    slick_gdf = gpd.read_file(geojson_file_path, crs="epsg:4326")
+    slick_gdf = gpd.read_file(geojson_file_path)
+    s1_scene = get_s1_scene(slick_gdf.s1_scene_id.iloc[0])
 
-    ia = InfrastructureAnalyzer(slick_gdf, scene_id)
-    res = ia.compute_coincidence_scores()
+    source_types = []
+    source_types += ["infra"]
+    source_types += ["ais"]
+    analyzers = {s_type: ASA_MAPPING[s_type](s1_scene) for s_type in source_types}
+    ranked_sources = pd.DataFrame()
+    for s_type, analyzer in analyzers.items():
+        res = analyzer.compute_coincidence_scores(slick_gdf)
+        ranked_sources = pd.concat([ranked_sources, res], ignore_index=True)
 
-    if not res.empty:
-        top_row = res.loc[res["coincidence_score"].idxmax()]
-        structure_id = top_row["structure_id"]
-        accumulated_pairs.append({"slick_id": slick_id, "structure_id": structure_id})
-    else:
-        print(f"No associations found for slick_id: {slick_id}")
+    print(f"{len(ranked_sources)} sources found for Slick ID: {slick_id}")
+    if len(ranked_sources) > 0:
+        ranked_sources = ranked_sources.sort_values(
+            "coincidence_score", ascending=False
+        ).reset_index(drop=True)
 
-    plot_coincidence(ia.infra_gdf, ia.slick_gdf, ia.coincidence_scores, slick_id)
-print(accumulated_pairs)
+    if "infra" in analyzers:
+        plot_coincidence(
+            slick_id,
+            analyzer=analyzers["infra"],
+        )
+
+    print(ranked_sources.head())
 
 # %%
 infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 coincidence_scores = associate_infra_to_slick(infra_gdf, slick_gdf)
-plot_coincidence(infra_gdf, slick_gdf, coincidence_scores, slick_id, False)
-
-# %%
-
-scene_id = "S1A_IW_GRDH_1SDV_20230711T160632_20230711T160657_049378_05F013_448A"
-s1 = SimpleNamespace(
-    id=69,
-    scene_id=scene_id,
-    absolute_orbit_number=49378,
-    mode="IW",
-    polarization="DV",
-    scihub_ingestion_time=datetime.datetime(2023, 7, 11, 17, 0, 44, 705000),
-    start_time=datetime.datetime(2023, 7, 11, 16, 6, 32),
-    end_time=datetime.datetime(2023, 7, 11, 16, 6, 57),
-    meta={"key": "value"},
-    url="http://example.com",
-    geometry=WKTElement(
-        "POLYGON((27.25877432902152 33.772309925795675,27.663991468237075 33.83643596487585,27.945526383317603 33.8801453845104,28.368361808395143 33.94450422643601,28.650602342685367 33.98660415338177,29.07447962628422 34.04854096653544,29.357403549219118 34.08902106313116,29.640594459658455 34.128850435890584,29.934431272085337 34.16944366756764,29.78891655910936 34.89087313481798,29.63062722274537 35.672109011899686,29.33131173198989 35.6318916336964,29.04285374913959 35.59238617078463,28.75468097143034 35.55219240037903,28.32296568450625 35.49061480402974,28.035524056468923 35.448707639173,27.604924536739723 35.38456808689098,27.318239230682664 35.34095844599587,26.905637045158333 35.27691057625879,27.0900410473316 34.49469629172755,27.25877432902152 33.772309925795675))"
-    ),
+plot_coincidence(
+    infra_gdf=infra_gdf,
+    slick_gdf=slick_gdf,
+    coincidence_scores=coincidence_scores,
+    slick_id=slick_id,
+    black=False,
 )
-
-aa = AISAnalyzer(slick_gdf, scene_id, s1)
-res = aa.compute_coincidence_scores()
 
 # %%
