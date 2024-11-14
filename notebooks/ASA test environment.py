@@ -228,21 +228,26 @@ analyzers: dict[str, SourceAnalyzer] = {}
 
 # %%
 slick_ids = [
-    # 3479812,
-    # 3013300,
-    # 3522449,
-    # 3343987,
-    # 3070818,
-    # 3173928,
-    # 3229370,
-    # 3105854,
-    3411218,  # infra
+    # 3479812,  # infra
+    # 3013300,  # infra
+    # 3522449,  # infra
+    # 3343987,  # infra
+    # 3070818,  # infra
+    # 3173928,  # infra
+    # 3229370,  # infra
+    # 3105854,  # infra
+    # 3411218,  # infra
     # 3537523,  # ais
-    # 3000101,  # ais
-    # 3000097,  # ais
-    # 3000096,  # ais
-    # 3000100,
-    # 3058634,
+    # 3000100,  # ais
+    # 3058634,  # ais
+    # 3518460,  # ais
+    # 3518475,  # ais
+    # 3518534,  # ais
+    # 3225071,  # ais and infra
+    # 3121526,  # ais and infra
+    # 3431603,  # ais and infra
+    # 3115926,  # ais and infra
+    3071751,  # ais and infra
 ]
 
 for slick_id in slick_ids:
@@ -273,7 +278,7 @@ for slick_id in slick_ids:
     if "infra" in analyzers:
         plot_coincidence(analyzers["infra"], slick_id)
 
-    print(ranked_sources.head())
+    print(ranked_sources[["source_type", "st_name", "coincidence_score"]].head())
 
 # %%
 fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)

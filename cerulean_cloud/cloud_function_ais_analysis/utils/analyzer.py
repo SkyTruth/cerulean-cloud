@@ -125,12 +125,14 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         # zxy = self.select_enveloping_tile() # Something's wrong with this code. Ex. [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C"] should have 2 nearby infras
         mvt_data = self.download_mvt_tile()
         df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
+        df["st_name"] = df["structure_id"]
 
         datetime_fields = ["structure_start_date", "structure_end_date"]
         for field in datetime_fields:
             if field in df.columns:
-                df[field] = pd.to_numeric(df[field])
-                df[field] = pd.to_datetime(df[field], unit="ms")
+                df.loc[df[field] == "", field] = str(int(time.time() * 1000))
+                df[field] = pd.to_numeric(df[field], errors="coerce")
+                df[field] = pd.to_datetime(df[field], unit="ms", errors="coerce")
         df["source_type"] = "infra"
         if only_oil:
             df = df[df["label"] == "oil"]
