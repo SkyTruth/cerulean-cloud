@@ -104,9 +104,11 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         self.radius_of_interest = kwargs.get("radius_of_interest", 3000)
         self.decay_factor = kwargs.get("decay_factor", 4.0)
         self.min_area_threshold = kwargs.get("min_area_threshold", 0.1)
+        self.infra_gdf = kwargs.get("infra_gdf", None)
 
-        self.infra_api_token = os.getenv("INFRA_API_TOKEN")
-        self.infra_gdf = self.load_infrastructure_data()
+        if self.infra_gdf is None:
+            self.infra_api_token = os.getenv("INFRA_API_TOKEN")
+            self.infra_gdf = self.load_infrastructure_data()
         self.coincidence_scores = np.zeros(len(self.infra_gdf))
 
     def load_infrastructure_data(self, only_oil=True):

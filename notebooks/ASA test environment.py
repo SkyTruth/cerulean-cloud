@@ -25,10 +25,8 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
 from cerulean_cloud.cloud_function_ais_analysis.utils.analyzer import (  # noqa: E402
     ASA_MAPPING,
+    InfrastructureAnalyzer,
     SourceAnalyzer,
-)
-from cerulean_cloud.cloud_function_ais_analysis.utils.asa import (  # noqa: E402
-    associate_infra_to_slick,
 )
 
 
@@ -102,33 +100,33 @@ def generate_infrastructure_points(
     infra_y = np.random.uniform(
         miny - expansion_factor * height, maxy + expansion_factor * height, num_points
     )
-    infra_gdf = gpd.GeoDataFrame(geometry=gpd.points_from_xy(infra_x, infra_y), crs=crs)
+    df = pd.DataFrame(
+        {
+            "structure_start_date": [pd.Timestamp(0)] * num_points,
+            "structure_end_date": [pd.Timestamp.now()] * num_points,
+        }
+    )
+    infra_gdf = gpd.GeoDataFrame(
+        df, geometry=gpd.points_from_xy(infra_x, infra_y), crs=crs
+    )
     return infra_gdf
 
 
 def plot_coincidence(
-    slick_id,  # Added 'id' as a parameter
-    analyzer=None,
+    analyzer,
+    slick_id,
     black=True,
-    infra_gdf=None,
-    slick_gdf=None,
-    coincidence_scores=None,
 ):
     """
     Plots a sample of infrastructure points with their coincidence scores.
 
     Parameters:
-    - infra_gdf (GeoDataFrame): GeoDataFrame containing infrastructure points.
-    - slick_gdf (GeoDataFrame): GeoDataFrame containing slick polygons.
-    - coincidence_scores (np.ndarray): Array of coincidence scores.
-    - id (int): Identifier for the plot title.
+    - analyzer (SourceAnalyzer): Analyzer object containing infrastructure points and coincidence scores.
+    - slick_id (int): Identifier for the plot title.
+    - black (bool): Whether to use black borders for the infrastructure points.
     """
-    if analyzer is not None:
-        infra_gdf = analyzer.infra_gdf
-        slick_gdf = analyzer.slick_gdf
-        coincidence_scores = analyzer.coincidence_scores
 
-    sample_size = len(infra_gdf)
+    sample_size = len(analyzer.infra_gdf)
     plt.figure(figsize=(10, 10))
 
     # Create an axes object
@@ -136,9 +134,9 @@ def plot_coincidence(
 
     # First plot the infrastructure points
     scatter = ax.scatter(
-        infra_gdf.geometry.x[:sample_size],
-        infra_gdf.geometry.y[:sample_size],
-        c=coincidence_scores[:sample_size],
+        analyzer.infra_gdf.geometry.x[:sample_size],
+        analyzer.infra_gdf.geometry.y[:sample_size],
+        c=analyzer.coincidence_scores[:sample_size],
         cmap="Blues",
         s=10,
         vmin=0,
@@ -150,16 +148,16 @@ def plot_coincidence(
     )
 
     # Then plot the slick_gdf polygons on top
-    slick_gdf.plot(
+    analyzer.slick_gdf.plot(
         edgecolor="red", linewidth=1, color="none", ax=ax, label="Slick Polygons"
     )
 
     # Optionally, plot the centroid on top
-    centroid = slick_gdf.centroid.iloc[0]
+    centroid = analyzer.slick_gdf.centroid.iloc[0]
     ax.plot(centroid.x, centroid.y, "k+", markersize=10, label="Centroid")
 
     # Set plot limits with padding
-    min_x, min_y, max_x, max_y = slick_gdf.total_bounds
+    min_x, min_y, max_x, max_y = analyzer.slick_gdf.total_bounds
     padding_ratio = 0.2
 
     width = max_x - min_x
@@ -201,7 +199,9 @@ def plot_coincidence(
     cbar.set_label("Coincidence")
 
     max_coincidence = (
-        round(coincidence_scores.max(), 2) if len(coincidence_scores) else 0
+        round(analyzer.coincidence_scores.max(), 2)
+        if len(analyzer.coincidence_scores)
+        else 0
     )
 
     # Set titles and labels
@@ -271,22 +271,14 @@ for slick_id in slick_ids:
         ).reset_index(drop=True)
 
     if "infra" in analyzers:
-        plot_coincidence(
-            slick_id,
-            analyzer=analyzers["infra"],
-        )
+        plot_coincidence(analyzers["infra"], slick_id)
 
     print(ranked_sources.head())
 
 # %%
 fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
-coincidence_scores = associate_infra_to_slick(fake_infra_gdf, slick_gdf)
-plot_coincidence(
-    infra_gdf=fake_infra_gdf,
-    slick_gdf=slick_gdf,
-    coincidence_scores=coincidence_scores,
-    slick_id=slick_id,
-    black=False,
-)
+infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
+coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)
+plot_coincidence(infra_analyzer, slick_id, False)
 
 # %%
