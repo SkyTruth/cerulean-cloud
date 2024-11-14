@@ -29,20 +29,20 @@ from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 from .constants import (
     AIS_BUFFER,
     AIS_PROJECT_ID,
+    AIS_REF_DIST,
     BUF_VEC,
     D_FORMAT,
-    D_REF_FRECHET,
     HOURS_AFTER,
     HOURS_BEFORE,
     NUM_TIMESTEPS,
     T_FORMAT,
-    W_FRECHET,
+    W_DISTANCE,
     W_OVERLAP,
     W_TEMPORAL,
     WEIGHT_VEC,
 )
 from .scoring import (
-    compute_frechet_score,
+    compute_distance_score,
     compute_overlap_score,
     compute_temporal_score,
     compute_total_score,
@@ -406,8 +406,8 @@ class AISAnalyzer(SourceAnalyzer):
         self.ais_project_id = kwargs.get("ais_project_id", AIS_PROJECT_ID)
         self.w_temporal = kwargs.get("w_temporal", W_TEMPORAL)
         self.w_overlap = kwargs.get("w_overlap", W_OVERLAP)
-        self.w_frechet = kwargs.get("w_frechet", W_FRECHET)
-        self.d_ref_frechet = kwargs.get("d_ref_frechet", D_REF_FRECHET)
+        self.w_distance = kwargs.get("w_distance", W_DISTANCE)
+        self.ais_ref_dist = kwargs.get("ais_ref_dist", AIS_REF_DIST)
         # Calculated values
         self.ais_start_time = self.s1_scene.start_time - timedelta(
             hours=self.hours_before
@@ -780,9 +780,9 @@ class AISAnalyzer(SourceAnalyzer):
                     b, self.slick_gdf, self.crs_meters
                 )
 
-                # compute frechet score between trajectory and slick curve
-                frechet_score = compute_frechet_score(
-                    t, self.slick_curves, self.crs_meters, self.d_ref_frechet
+                # compute distance score between trajectory and slick curve
+                distance_score = compute_distance_score(
+                    t, self.slick_curves, self.crs_meters, self.ais_ref_dist
                 )
 
                 # compute total score from these three metrics
@@ -790,14 +790,14 @@ class AISAnalyzer(SourceAnalyzer):
                 coincidence_score = compute_total_score(
                     temporal_score,
                     overlap_score,
-                    frechet_score,
+                    distance_score,
                     self.w_temporal,
                     self.w_overlap,
-                    self.w_frechet,
+                    self.w_distance,
                 )
 
                 print(
-                    f"st_name {t.id}: coincidence_score ({round(coincidence_score, 2)}) = ({self.w_overlap} * overlap_score ({round(overlap_score, 2)}) + {self.w_temporal} * temporal_score ({round(temporal_score, 2)}) + {self.w_frechet} * frechet_score ({round(frechet_score, 2)})) / ({self.w_overlap + self.w_temporal + self.w_frechet})"
+                    f"st_name {t.id}: coincidence_score ({round(coincidence_score, 2)}) = ({self.w_overlap} * overlap_score ({round(overlap_score, 2)}) + {self.w_temporal} * temporal_score ({round(temporal_score, 2)}) + {self.w_distance} * distance_score ({round(distance_score, 2)})) / ({self.w_overlap + self.w_temporal + self.w_distance})"
                 )
 
                 entry = {

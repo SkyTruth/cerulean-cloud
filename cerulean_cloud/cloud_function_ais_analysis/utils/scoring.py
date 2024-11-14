@@ -11,11 +11,11 @@ import shapely.ops
 from shapely import frechet_distance
 
 
-def compute_frechet_score(
+def compute_distance_score(
     traj: mpd.Trajectory,
     curves: gpd.GeoDataFrame,
     crs_meters: str,
-    d_ref_frechet: float,
+    ais_ref_dist: float,
 ):
     """
     Compute the frechet distance between an AIS trajectory and an oil slick curve
@@ -72,7 +72,7 @@ def compute_frechet_score(
     traj_line_clip = shapely.geometry.LineString(traj_points)
     dist = frechet_distance(traj_line_clip, curve)
 
-    frechet_score = math.exp(-dist / d_ref_frechet)
+    frechet_score = math.exp(-dist / ais_ref_dist)
 
     return frechet_score
 
@@ -128,10 +128,10 @@ def compute_overlap_score(
 def compute_total_score(
     temporal_score: float,
     overlap_score: float,
-    frechet_score: float,
+    distance_score: float,
     w_temporal: float,
     w_overlap: float,
-    w_frechet: float,
+    w_distance: float,
 ):
     """
     Compute the weighted total score.
@@ -139,25 +139,25 @@ def compute_total_score(
     Args:
         temporal_score (float): temporal score between a weighted AIS trajectory and an oil slick
         overlap_score (float): overlap score between a buffered AIS trajectory and an oil slick
-        frechet_dist (float): frechet distance between an AIS trajectory and an oil slick curve
+        distance_score (float): distance score between an AIS trajectory and an oil slick curve
         w_temporal (float): Weight for the temporal score.
         w_overlap (float): Weight for the overlap score.
-        w_frechet (float): Weight for the Fréchet distance score.
+        w_distance (float): Weight for the distance score.
 
     Returns:
         float: Weighted total score between 0 and 1.
     """
     # Normalize weights
-    total_weight = w_temporal + w_overlap + w_frechet
+    total_weight = w_temporal + w_overlap + w_distance
     w_temporal /= total_weight
     w_overlap /= total_weight
-    w_frechet /= total_weight
+    w_distance /= total_weight
 
     # Compute weighted sum
     total_score = (
         w_temporal * temporal_score
         + w_overlap * overlap_score
-        + w_frechet * frechet_score
+        + w_distance * distance_score
     )
 
     return total_score
