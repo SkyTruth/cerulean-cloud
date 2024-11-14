@@ -8,7 +8,7 @@ import geopandas as gpd
 import pandas as pd
 from flask import abort
 from shapely import wkb
-from utils.analyzer import AISAnalyzer, InfrastructureAnalyzer
+from utils.analyzer import ASA_MAPPING
 
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 
@@ -79,43 +79,25 @@ async def handle_asa_request(request):
         db_engine = get_engine(db_url=os.getenv("DB_URL"))
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
-                s1 = await db_client.get_scene_from_id(scene_id)
+                s1_scene = await db_client.get_scene_from_id(scene_id)
                 slicks = await db_client.get_slicks_from_scene_id(
                     scene_id, with_sources=overwrite_previous
                 )
 
             print(f"# Slicks found: {len(slicks)}")
             if len(slicks) > 0:
+                analyzers = [ASA_MAPPING[source](s1_scene) for source in run_flags]
                 for slick in slicks:
                     # Convert slick geometry to GeoDataFrame
                     slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
                     slick_gdf = gpd.GeoDataFrame({"geometry": [slick_geom]}, crs="4326")
                     ranked_sources = pd.DataFrame()
 
-                    # Analyze AIS data
-                    if "ais" in run_flags:
-                        ais_analyzer = AISAnalyzer(slick_gdf, scene_id, s1)
-                        ais_results = ais_analyzer.compute_coincidence_scores()
+                    for analyzer in analyzers:
+                        res = analyzer.compute_coincidence_scores(slick_gdf)
                         ranked_sources = pd.concat(
-                            [ranked_sources, ais_results], ignore_index=True
+                            [ranked_sources, res], ignore_index=True
                         )
-
-                    # Analyze Infrastructure data
-                    if "infra" in run_flags:
-                        infra_analyzer = InfrastructureAnalyzer(slick_gdf, scene_id)
-                        infra_results = infra_analyzer.compute_coincidence_scores()
-                        ranked_sources = pd.concat(
-                            [ranked_sources, infra_results], ignore_index=True
-                        )
-
-                    # Analyze Dark data
-                    if "dark" in run_flags:
-                        pass  # TODO: Implement dark vessel analysis
-                        # dark_analyzer = DarkAnalyzer(slick_gdf, s1)
-                        # dark_results = dark_analyzer.compute_coincidence_scores()
-                        # ranked_sources = pd.concat(
-                        #     [ranked_sources, dark_results], ignore_index=True
-                        # )
 
                     print(
                         f"{len(ranked_sources)} sources found for Slick ID: {slick.id}"

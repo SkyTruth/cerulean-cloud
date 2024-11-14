@@ -24,3 +24,10 @@ WEIGHT_VEC = np.linspace(WEIGHT_START, WEIGHT_END, NUM_TIMESTEPS) / NUM_TIMESTEP
 
 D_FORMAT = "%Y-%m-%d"
 T_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+# weighting parameters for AIS scoring
+W_TEMPORAL = 1.0
+W_OVERLAP = 1.0
+W_DISTANCE = 2.0
+AIS_REF_DIST = 4000.0
