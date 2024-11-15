@@ -108,7 +108,7 @@ async def handle_asa_request(request):
                         ).reset_index(drop=True)
                         async with db_client.session.begin():
                             for idx, source_row in ranked_sources.iloc[:5].iterrows():
-                                # Only record the the top 5 ranked sources
+                                # Only record the the top 5 ranked sources XXXMAGIC
 
                                 if source_row.get("source_type") == "ais":
                                     source = (
