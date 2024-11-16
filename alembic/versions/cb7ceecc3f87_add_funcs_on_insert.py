@@ -8,7 +8,7 @@ Create Date: 2022-08-01 16:18:55.163046
 
 from sqlalchemy import text
 
-from alembic import op
+from alembic import op  # type: ignore
 
 # revision identifiers, used by Alembic.
 revision = "cb7ceecc3f87"

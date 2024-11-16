@@ -5,9 +5,10 @@ Revises: 7cd715196b8d
 Create Date: 2022-07-01 16:59:54.560440
 
 """
+
 from alembic_utils.pg_view import PGView
 
-from alembic import op
+from alembic import op  # type: ignore
 
 # revision identifiers, used by Alembic.
 revision = "39277f6278f4"

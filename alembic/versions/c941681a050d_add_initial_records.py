@@ -11,7 +11,7 @@ from datetime import datetime
 from sqlalchemy import orm
 
 import cerulean_cloud.database_schema as database_schema
-from alembic import op
+from alembic import op  # type: ignore
 
 # revision identifiers, used by Alembic.
 revision = "c941681a050d"

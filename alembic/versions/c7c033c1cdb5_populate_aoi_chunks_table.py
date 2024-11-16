@@ -5,10 +5,11 @@ Revises: 3736e85bc273
 Create Date: 2023-11-17 11:44:59.370910
 
 """
+
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from alembic import op
+from alembic import op  # type: ignore
 
 # revision identifiers, used by Alembic.
 revision = "c7c033c1cdb5"
