@@ -110,38 +110,25 @@ async def handle_asa_request(request):
                             for idx, source_row in ranked_sources.iloc[:5].iterrows():
                                 # Only record the the top 5 ranked sources XXXMAGIC
 
-                                if source_row.get("source_type") == "ais":
-                                    source = (
-                                        await db_client.get_or_insert_source_from_ssvid(
-                                            ssvid=source_row["st_name"],
-                                            shipname=source_row.get("shipname"),
-                                            shiptype=source_row.get("shiptype"),
-                                        )
-                                    )
-                                elif source_row.get("source_type") == "infra":
-                                    source = await db_client.get_or_insert_infra_source(
-                                        infra_id=source_row["infra_id"],
-                                        infra_name=source_row.get("infra_name"),
-                                    )
-                                elif source_row.get("source_type") == "dark":
-                                    raise NotImplementedError(
-                                        "Dark vessel source not implemented"
-                                    )
-                                else:
-                                    raise ValueError(
-                                        f"Unknown source type: {source_row.get('source_type')}"
-                                    )
+                                source = await db_client.get_or_insert_ranked_source(
+                                    source_row
+                                )
 
-                                await db_client.session.flush()
+                                source_row["geometry"] = (
+                                    source_row["geometry"]
+                                    if isinstance(source_row["geometry"], str)
+                                    else source_row["geometry"].wkt
+                                )  # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
 
                                 # Insert slick to source association
                                 await db_client.insert_slick_to_source(
                                     source=source.id,
                                     slick=slick.id,
                                     coincidence_score=source_row["coincidence_score"],
+                                    collated_score=source_row["collated_score"],
                                     rank=idx + 1,
                                     geojson_fc=source_row.get("geojson_fc"),
-                                    geometry=source_row["geometry"].wkt,
+                                    geometry=source_row["geometry"],
                                 )
 
     return "Success!"

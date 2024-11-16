@@ -132,7 +132,8 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         """
         df = pd.read_csv("SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv")
         df["st_name"] = df["structure_id"]
-        df["source_type"] = "infra"
+        df["ext_id"] = df["structure_id"]
+        df["source_type"] = 2  # infra
         if only_oil:
             df = df[df["label"] == "oil"]
 
@@ -166,7 +167,8 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         if only_oil:
             df = df[df["label"] == "oil"]
         df["st_name"] = df["structure_id"]
-        df["source_type"] = "infra"
+        df["ext_id"] = df["structure_id"]
+        df["source_type"] = 2  # infra
 
         datetime_fields = ["structure_start_date", "structure_end_date"]
         for field in datetime_fields:
@@ -408,6 +410,10 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         self.results = self.infra_gdf.copy()
         self.results["coincidence_score"] = self.coincidence_scores
         self.results = self.results[self.results["coincidence_score"] > 0]
+        self.results["geojson_fc"] = {
+            "type": "FeatureCollection",
+            "features": json.loads(self.results["geometry"].to_json())["features"],
+        }
         self.results["collated_score"] = (
             self.results["coincidence_score"] - self.coinc_mean
         ) / self.coinc_std
@@ -846,7 +852,7 @@ class AISAnalyzer(SourceAnalyzer):
                         [p.coords[0] for p in t.df["geometry"]]
                     ),
                     "coincidence_score": coincidence_score,
-                    "source_type": "ais",
+                    "source_type": 1,  # vessel
                     "ext_name": t.ext_name,
                     "ext_shiptype": t.ext_shiptype,
                     "flag": t.flag,

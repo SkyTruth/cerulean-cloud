@@ -186,17 +186,23 @@ class DatabaseClient:
         )
         return slick
 
-    async def get_source(self, st_name):
+    async def get_source(self, source_type, ext_id, error_if_absent=False):
         """get existing source"""
         return await get(
-            self.session, db.Source, error_if_absent=False, st_name=st_name
+            self.session, db.Source, error_if_absent, type=source_type, ext_id=ext_id
         )
 
-    async def insert_source_from_traj(self, traj):
+    async def get_or_insert_ranked_source(self, source_row):
         """add a new source"""
-        for k, v in traj.items():
+        existing_source = await self.get_source(
+            source_row["source_type"], source_row["ext_id"]
+        )
+        if existing_source:
+            return existing_source
+
+        for k, v in source_row.items():
             if isinstance(v, base.BaseGeometry):
-                traj[k] = str(v)
+                source_row[k] = str(v)
 
         # Create a mapping from table names (stored in SourceType) to ORM classes
         tablename_to_class = {
@@ -211,15 +217,19 @@ class DatabaseClient:
         }
         insert_dict = {
             k: v
-            for k, v in traj.items()
-            if not pd.isna(v) and k in (common_cols + insert_cols[traj["type"]])
+            for k, v in source_row.items()
+            if not pd.isna(v)
+            and k in (common_cols + insert_cols[source_row["source_type"]])
         }
 
-        source_type_obj = await get(self.session, db.SourceType, id=traj["type"])
+        source_type_obj = await get(
+            self.session, db.SourceType, id=source_row["source_type"]
+        )
 
         source = await insert(
             self.session, tablename_to_class[source_type_obj.table_name], **insert_dict
         )
+        await self.session.flush()
         return source
 
     async def insert_slick_to_source(self, **kwargs):

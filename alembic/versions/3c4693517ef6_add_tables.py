@@ -11,7 +11,7 @@ from geoalchemy2 import Geography, Geometry
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import ARRAY
 
-from alembic import op
+from alembic import op  # type: ignore
 
 # revision identifiers, used by Alembic.
 revision = "3c4693517ef6"
@@ -323,6 +323,7 @@ def upgrade() -> None:
             "type", sa.BigInteger, sa.ForeignKey("source_type.id"), nullable=False
         ),
         sa.Column("st_name", sa.Text, nullable=False),
+        sa.Column("ext_id", sa.Text),
     )
 
     op.create_table(
@@ -341,7 +342,6 @@ def upgrade() -> None:
             "source_id", sa.BigInteger, sa.ForeignKey("source.id"), primary_key=True
         ),
         sa.Column("geometry", Geography("POINT"), nullable=False),
-        sa.Column("ext_id", sa.Text),
         sa.Column("ext_name", sa.Text),
         sa.Column("operator", sa.Text),
         sa.Column("sovereign", sa.Text),
@@ -355,6 +355,7 @@ def upgrade() -> None:
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
         sa.Column("source", sa.BigInteger, sa.ForeignKey("source.id"), nullable=False),
         sa.Column("coincidence_score", sa.Float),
+        sa.Column("collated_score", sa.Float),
         sa.Column("rank", sa.BigInteger),
         sa.Column("geojson_fc", sa.JSON, nullable=False),
         sa.Column("geometry", Geography("GEOMETRY"), nullable=False),
