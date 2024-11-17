@@ -11,7 +11,7 @@ from geoalchemy2 import Geography, Geometry
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import ARRAY
 
-from alembic import op  # type: ignore
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "3c4693517ef6"

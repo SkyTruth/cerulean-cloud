@@ -8,7 +8,7 @@ Create Date: 2023-07-18 01:07:58.731501
 
 from alembic_utils.pg_function import PGFunction
 
-from alembic import op  # type: ignore
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "3736e85bc273"

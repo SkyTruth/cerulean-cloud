@@ -9,7 +9,7 @@ Create Date: 2023-11-17 11:44:59.370910
 import sqlalchemy as sa
 from sqlalchemy import orm
 
-from alembic import op  # type: ignore
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "c7c033c1cdb5"

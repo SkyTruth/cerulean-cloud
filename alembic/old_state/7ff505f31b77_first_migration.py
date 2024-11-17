@@ -6,7 +6,7 @@ Create Date: 2022-06-24 12:52:00.165406
 
 """
 
-from alembic import op  # type: ignore
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "7ff505f31b77"

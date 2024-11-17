@@ -8,7 +8,7 @@ Create Date: 2022-07-01 16:59:54.560440
 
 from alembic_utils.pg_view import PGView
 
-from alembic import op  # type: ignore
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "39277f6278f4"
