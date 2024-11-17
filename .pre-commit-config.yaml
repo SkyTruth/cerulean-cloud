@@ -22,18 +22,7 @@ repos:
             '--ignore=E501,W503,E203'
           ]
 
-  # Remove the old pydocstyle repo configuration
-  # -
-  #     repo: 'https://github.com/chewse/pre-commit-mirrors-pydocstyle'
-  #     rev: v2.1.1
-  #     hooks:
-  #         - id: pydocstyle
-  #           language_version: python
-  #           args: [
-  #              '--select=D1',
-  #              '--match=(?!test).*\.py']
-
-  # Add the local pydocstyle hook
+  # Local pydocstyle hook
   - repo: local
     hooks:
       - id: pydocstyle
