@@ -39,3 +39,4 @@ repos:
     hooks:
       - id: mypy
         args: ['--install-types', '--non-interactive', '--no-strict-optional', '--ignore-missing-imports']
+        additional_dependencies: ['alembic']
