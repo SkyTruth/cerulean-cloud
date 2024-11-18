@@ -6,8 +6,8 @@ Processes GeoJSON files to compute coincidence scores for infrastructure points 
 Features include projection handling, extremity point selection, efficient scoring algorithms, and optional data visualization.
 """
 
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 
 import os
 import sys
@@ -228,12 +228,9 @@ analyzers: dict[str, SourceAnalyzer] = {}
 
 # %%
 slick_ids = [
-    # 3128096,
-    # 3156551,
-    # 3163548,
-    # 3212229,
-    # 3248711,
-    3315528,
+    # 3476096,
+    # 3216961,
+    3049976,
 ]
 # 3045541,  # infra
 
@@ -245,12 +242,18 @@ for slick_id in slick_ids:
 
     source_types = []
     source_types += ["infra"]
-    source_types += ["ais"]
+    # source_types += ["ais"]
     if not (  # If the last analyzer is for the same scene, reuse it
         analyzers
         and next(iter(analyzers.items()))[1].s1_scene.scene_id == s1_scene.scene_id
     ):
-        analyzers = {s_type: ASA_MAPPING[s_type](s1_scene) for s_type in source_types}
+        analyzers = {
+            s_type: ASA_MAPPING[s_type](
+                s1_scene,
+                gfw_infra_filepath="/Users/jonathanraphael/git/cerulean-cloud/cerulean_cloud/cloud_function_ais_analysis/SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv",
+            )
+            for s_type in source_types
+        }
 
     ranked_sources = pd.DataFrame(
         columns=["source_type", "st_name", "coincidence_score"]
@@ -272,11 +275,11 @@ for slick_id in slick_ids:
             ]
         )
 
-    # if "infra" in analyzers:
-    #     plot_coincidence(analyzers["infra"], slick_id)
+    if "infra" in analyzers:
+        plot_coincidence(analyzers["infra"], slick_id)
 
-    print(ranked_sources[["source_type", "st_name", "collated_score"]].head())
-
+    print(ranked_sources.head())
+# print(accumulated_sources)
 # %%
 fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
