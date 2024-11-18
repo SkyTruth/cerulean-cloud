@@ -6,8 +6,8 @@ Processes GeoJSON files to compute coincidence scores for infrastructure points 
 Features include projection handling, extremity point selection, efficient scoring algorithms, and optional data visualization.
 """
 
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 
 import os
 import sys
