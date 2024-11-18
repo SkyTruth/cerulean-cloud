@@ -13,3 +13,9 @@ functions-framework==3.0.0
 geoalchemy2
 asyncpg
 fiona==1.9.6
+mapbox-vector-tile
+morecantile
+pandas
+requests
+pyproj
+google-auth

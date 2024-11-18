@@ -1,3 +1,7 @@
+"""
+pytest configuration for the cerulean_cloud package.
+"""
+
 import os
 import sys
 

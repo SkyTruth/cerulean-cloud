@@ -228,28 +228,16 @@ analyzers: dict[str, SourceAnalyzer] = {}
 
 # %%
 slick_ids = [
-    # 3479812,  # infra
-    # 3013300,  # infra
-    # 3522449,  # infra
-    # 3343987,  # infra
-    # 3070818,  # infra
-    # 3173928,  # infra
-    # 3229370,  # infra
-    # 3105854,  # infra
-    # 3411218,  # infra
-    # 3537523,  # ais
-    # 3000100,  # ais
-    # 3058634,  # ais
-    # 3518460,  # ais
-    # 3518475,  # ais
-    # 3518534,  # ais
-    # 3225071,  # ais and infra
-    # 3121526,  # ais and infra
-    # 3431603,  # ais and infra
-    # 3115926,  # ais and infra
-    3071751,  # ais and infra
+    # 3128096,
+    # 3156551,
+    # 3163548,
+    # 3212229,
+    # 3248711,
+    3315528,
 ]
+# 3045541,  # infra
 
+accumulated_sources = []
 for slick_id in slick_ids:
     geojson_file_path = download_geojson(slick_id)
     slick_gdf = gpd.read_file(geojson_file_path)
@@ -264,7 +252,9 @@ for slick_id in slick_ids:
     ):
         analyzers = {s_type: ASA_MAPPING[s_type](s1_scene) for s_type in source_types}
 
-    ranked_sources = pd.DataFrame()
+    ranked_sources = pd.DataFrame(
+        columns=["source_type", "st_name", "coincidence_score"]
+    )
     for s_type, analyzer in analyzers.items():
         res = analyzer.compute_coincidence_scores(slick_gdf)
         ranked_sources = pd.concat([ranked_sources, res], ignore_index=True)
@@ -272,13 +262,20 @@ for slick_id in slick_ids:
     print(f"{len(ranked_sources)} sources found for Slick ID: {slick_id}")
     if len(ranked_sources) > 0:
         ranked_sources = ranked_sources.sort_values(
-            "coincidence_score", ascending=False
+            "collated_score", ascending=False
         ).reset_index(drop=True)
+        accumulated_sources.append(
+            [
+                slick_id,
+                ranked_sources["st_name"].iloc[0],
+                float(ranked_sources["collated_score"].iloc[0]),
+            ]
+        )
 
-    if "infra" in analyzers:
-        plot_coincidence(analyzers["infra"], slick_id)
+    # if "infra" in analyzers:
+    #     plot_coincidence(analyzers["infra"], slick_id)
 
-    print(ranked_sources[["source_type", "st_name", "coincidence_score"]].head())
+    print(ranked_sources[["source_type", "st_name", "collated_score"]].head())
 
 # %%
 fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)

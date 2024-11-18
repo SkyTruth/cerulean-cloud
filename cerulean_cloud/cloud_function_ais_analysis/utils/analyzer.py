@@ -31,11 +31,20 @@ from .constants import (
     AIS_PROJECT_ID,
     AIS_REF_DIST,
     BUF_VEC,
+    CLOSING_BUFFER,
     D_FORMAT,
+    DECAY_FACTOR,
     HOURS_AFTER,
     HOURS_BEFORE,
+    INFRA_MEAN,
+    INFRA_REF_DIST,
+    INFRA_STD,
+    MIN_AREA_THRESHOLD,
     NUM_TIMESTEPS,
+    NUM_VERTICES,
     T_FORMAT,
+    VESSEL_MEAN,
+    VESSEL_STD,
     W_DISTANCE,
     W_OVERLAP,
     W_TEMPORAL,
@@ -52,6 +61,9 @@ from .scoring import (
 class SourceAnalyzer:
     """
     Base class for source analysis.
+
+    Inputs:
+        s1_scene (Scene): A Scene object containing the scene metadata and geometry.
 
     Attributes:
         slick_gdf (GeoDataFrame): GeoDataFrame containing the slick geometries.
@@ -99,11 +111,14 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         Initialize the InfrastructureAnalyzer.
         """
         super().__init__(s1_scene, **kwargs)
-        self.num_vertices = kwargs.get("N", 10)
-        self.closing_buffer = kwargs.get("closing_buffer", 500)
-        self.radius_of_interest = kwargs.get("radius_of_interest", 3000)
-        self.decay_factor = kwargs.get("decay_factor", 4.0)
-        self.min_area_threshold = kwargs.get("min_area_threshold", 0.1)
+        self.num_vertices = kwargs.get("num_vertices", NUM_VERTICES)
+        self.closing_buffer = kwargs.get("closing_buffer", CLOSING_BUFFER)
+        self.radius_of_interest = kwargs.get("radius_of_interest", INFRA_REF_DIST)
+        self.decay_factor = kwargs.get("decay_factor", DECAY_FACTOR)
+        self.min_area_threshold = kwargs.get("min_area_threshold", MIN_AREA_THRESHOLD)
+        self.coinc_mean = kwargs.get("coinc_mean", INFRA_MEAN)
+        self.coinc_std = kwargs.get("coinc_std", INFRA_STD)
+
         self.infra_gdf = kwargs.get("infra_gdf", None)
 
         if self.infra_gdf is None:
@@ -114,9 +129,33 @@ class InfrastructureAnalyzer(SourceAnalyzer):
     def load_infrastructure_data(self, only_oil=True):
         """
         Loads infrastructure data from a CSV file.
+        """
+        df = pd.read_csv("SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv")
+        df["st_name"] = df["structure_id"]
+        df["ext_id"] = df["structure_id"]
+        df["source_type"] = 2  # infra
+        if only_oil:
+            df = df[df["label"] == "oil"]
+
+        # This code isn't working because of a bug in how GFW records the first and last date.
+        # df["structure_start_date"] = pd.to_datetime(df["structure_start_date"])
+
+        # df.loc[df["structure_end_date"].isna(), "structure_end_date"] = (
+        #     datetime.now().strftime("%Y-%m-%d")
+        # )
+        # df["structure_end_date"] = pd.to_datetime(df["structure_end_date"])
+
+        df.reset_index(drop=True, inplace=True)
+        return gpd.GeoDataFrame(
+            df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
+        )
+
+    def load_infrastructure_data_api(self, only_oil=True):
+        """
+        Loads infrastructure data from the GFW API.
 
         Parameters:
-            infra_api_token (str): API token for infrastructure data.
+            only_oil (bool): Whether to filter the data to only include oil infrastructure.
 
         Returns:
             GeoDataFrame: GeoDataFrame containing infrastructure points.
@@ -125,7 +164,11 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         # zxy = self.select_enveloping_tile() # Something's wrong with this code. Ex. [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C"] should have 2 nearby infras
         mvt_data = self.download_mvt_tile()
         df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
+        if only_oil:
+            df = df[df["label"] == "oil"]
         df["st_name"] = df["structure_id"]
+        df["ext_id"] = df["structure_id"]
+        df["source_type"] = 2  # infra
 
         datetime_fields = ["structure_start_date", "structure_end_date"]
         for field in datetime_fields:
@@ -133,9 +176,6 @@ class InfrastructureAnalyzer(SourceAnalyzer):
                 df.loc[df[field] == "", field] = str(int(time.time() * 1000))
                 df[field] = pd.to_numeric(df[field], errors="coerce")
                 df[field] = pd.to_datetime(df[field], unit="ms", errors="coerce")
-        df["source_type"] = "infra"
-        if only_oil:
-            df = df[df["label"] == "oil"]
         df.reset_index(drop=True, inplace=True)
         return gpd.GeoDataFrame(
             df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
@@ -318,25 +358,19 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         slick_gdf = self.slick_gdf.to_crs(self.crs_meters)
         infra_gdf = self.infra_gdf.to_crs(self.crs_meters)
 
-        # Apply closing buffer and project slick_gdf
+        # Generate closed polygons
         slick_gdf = self.apply_closing_buffer(slick_gdf, self.closing_buffer)
-
-        # Combine geometries and extract polygons
         combined_geometry = slick_gdf.unary_union
         polygons = self.extract_polygons(combined_geometry)
 
+        # Filter based on scene date and radius of interest
+        # scene_date = pd.to_datetime(self.s1_scene.scene_id[17:25], format="%Y%m%d") # XXX Not working because of a bug in how GFW records the first and last date.
         slick_buffered = combined_geometry.buffer(self.radius_of_interest)
-
-        # Filter based on scene date
-        scene_date = pd.to_datetime(self.s1_scene.scene_id[17:25], format="%Y%m%d")
-        filtered_infra = infra_gdf[infra_gdf["structure_start_date"] < scene_date]
-        filtered_infra = filtered_infra[
-            (infra_gdf["structure_end_date"] > scene_date)
-            | (infra_gdf["structure_end_date"].isna())
+        filtered_infra = infra_gdf[
+            infra_gdf.geometry.within(slick_buffered)
+            # & (infra_gdf["structure_start_date"] < scene_date)
+            # & (infra_gdf["structure_end_date"] > scene_date)
         ]
-
-        # Filter based on radius of interest
-        filtered_infra = filtered_infra[filtered_infra.geometry.within(slick_buffered)]
 
         if filtered_infra.empty:
             print(
@@ -376,6 +410,13 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         self.results = self.infra_gdf.copy()
         self.results["coincidence_score"] = self.coincidence_scores
         self.results = self.results[self.results["coincidence_score"] > 0]
+        self.results["geojson_fc"] = {
+            "type": "FeatureCollection",
+            "features": json.loads(self.results["geometry"].to_json())["features"],
+        }
+        self.results["collated_score"] = (
+            self.results["coincidence_score"] - self.coinc_mean
+        ) / self.coinc_std
         return self.results
 
 
@@ -410,6 +451,9 @@ class AISAnalyzer(SourceAnalyzer):
         self.w_overlap = kwargs.get("w_overlap", W_OVERLAP)
         self.w_distance = kwargs.get("w_distance", W_DISTANCE)
         self.ais_ref_dist = kwargs.get("ais_ref_dist", AIS_REF_DIST)
+        self.coinc_mean = kwargs.get("coinc_mean", VESSEL_MEAN)
+        self.coinc_std = kwargs.get("coinc_std", VESSEL_STD)
+
         # Calculated values
         self.ais_start_time = self.s1_scene.start_time - timedelta(
             hours=self.hours_before
@@ -437,7 +481,7 @@ class AISAnalyzer(SourceAnalyzer):
         self.ais_trajectories = None
         self.ais_buffered = None
         self.ais_weighted = None
-        self.results = None
+        self.results = gpd.GeoDataFrame()
 
     def retrieve_ais_data(self):
         """
@@ -808,7 +852,7 @@ class AISAnalyzer(SourceAnalyzer):
                         [p.coords[0] for p in t.df["geometry"]]
                     ),
                     "coincidence_score": coincidence_score,
-                    "source_type": "ais",
+                    "source_type": 1,  # vessel
                     "ext_name": t.ext_name,
                     "ext_shiptype": t.ext_shiptype,
                     "flag": t.flag,
@@ -824,7 +868,8 @@ class AISAnalyzer(SourceAnalyzer):
         """
         Associates AIS trajectories with slicks.
         """
-        self.results = None
+        self.results = gpd.GeoDataFrame()
+
         self.slick_curves = None
         self.slick_gdf = slick_gdf
 
@@ -839,6 +884,9 @@ class AISAnalyzer(SourceAnalyzer):
         if self.ais_buffered is None:
             self.buffer_trajectories()
         self.score_trajectories()
+        self.results["collated_score"] = (
+            self.results["coincidence_score"] - self.coinc_mean
+        ) / self.coinc_std
         return self.results
 
 
