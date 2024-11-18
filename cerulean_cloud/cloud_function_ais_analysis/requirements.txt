@@ -19,3 +19,4 @@ pandas
 requests
 pyproj
 google-auth
+geojson-pydantic~=0.6
