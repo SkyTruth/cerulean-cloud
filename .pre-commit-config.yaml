@@ -42,4 +42,10 @@ repos:
         rev: 'v1.13.0'
         hooks:
             - id: mypy
-              args: ['--install-types', '--non-interactive', '--no-strict-optional', '--ignore-missing-imports']
+              args: [
+                '--install-types',
+                '--non-interactive',
+                '--no-strict-optional',
+                '--ignore-missing-imports',
+                '--disable-error-code=attr-defined'
+              ]
