@@ -801,6 +801,7 @@ class AISAnalyzer(SourceAnalyzer):
 
         columns = [
             "st_name",
+            "ext_id",
             "geometry",
             "coincidence_score",
             "source_type",
@@ -848,6 +849,7 @@ class AISAnalyzer(SourceAnalyzer):
 
                 entry = {
                     "st_name": t.id,
+                    "ext_id": t.ext_id,
                     "geometry": shapely.geometry.LineString(
                         [p.coords[0] for p in t.df["geometry"]]
                     ),
