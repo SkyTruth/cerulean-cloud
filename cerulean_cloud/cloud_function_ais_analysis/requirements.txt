@@ -14,8 +14,9 @@ geoalchemy2
 asyncpg
 fiona==1.9.6
 mapbox-vector-tile
-morecantile
+morecantile==3.4
 pandas
 requests
 pyproj
 google-auth
+pydantic<2.0

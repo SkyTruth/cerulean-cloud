@@ -24,7 +24,7 @@ from geoalchemy2.shape import to_shape
 from google.oauth2.service_account import Credentials
 from pyproj import CRS
 from scipy.spatial import cKDTree
-from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
+from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, mapping
 
 from .constants import (
     AIS_BUFFER,
@@ -131,9 +131,9 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         Loads infrastructure data from a CSV file.
         """
         df = pd.read_csv("SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv")
-        df["st_name"] = df["structure_id"]
-        df["ext_id"] = df["structure_id"]
-        df["source_type"] = 2  # infra
+        df["st_name"] = df["structure_id"].apply(str)
+        df["ext_id"] = df["structure_id"].apply(str)
+        df["type"] = 2  # infra
         if only_oil:
             df = df[df["label"] == "oil"]
 
@@ -166,9 +166,9 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
         if only_oil:
             df = df[df["label"] == "oil"]
-        df["st_name"] = df["structure_id"]
-        df["ext_id"] = df["structure_id"]
-        df["source_type"] = 2  # infra
+        df["st_name"] = df["structure_id"].apply(str)
+        df["ext_id"] = df["structure_id"].apply(str)
+        df["type"] = 2  # infra
 
         datetime_fields = ["structure_start_date", "structure_end_date"]
         for field in datetime_fields:
@@ -410,10 +410,20 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         self.results = self.infra_gdf.copy()
         self.results["coincidence_score"] = self.coincidence_scores
         self.results = self.results[self.results["coincidence_score"] > 0]
-        self.results["geojson_fc"] = {
-            "type": "FeatureCollection",
-            "features": json.loads(self.results["geometry"].to_json())["features"],
-        }
+        self.results["geojson_fc"] = self.infra_gdf["geometry"].apply(
+            lambda geom: {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "id": "0",
+                        "type": "Feature",
+                        "geometry": mapping(geom),
+                        "properties": {},  # XXX Add properties as they become available (like first/last date)
+                    }
+                ],
+            }
+        )
+
         self.results["collated_score"] = (
             self.results["coincidence_score"] - self.coinc_mean
         ) / self.coinc_std
@@ -801,9 +811,10 @@ class AISAnalyzer(SourceAnalyzer):
 
         columns = [
             "st_name",
+            "ext_id",
             "geometry",
             "coincidence_score",
-            "source_type",
+            "type",
             "ext_name",
             "ext_shiptype",
             "flag",
@@ -848,11 +859,12 @@ class AISAnalyzer(SourceAnalyzer):
 
                 entry = {
                     "st_name": t.id,
+                    "ext_id": str(t.id),
                     "geometry": shapely.geometry.LineString(
                         [p.coords[0] for p in t.df["geometry"]]
                     ),
                     "coincidence_score": coincidence_score,
-                    "source_type": 1,  # vessel
+                    "type": 1,  # vessel
                     "ext_name": t.ext_name,
                     "ext_shiptype": t.ext_shiptype,
                     "flag": t.flag,

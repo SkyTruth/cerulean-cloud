@@ -1,5 +1,5 @@
 -r requirements-pulumi.txt
-morecantile
+morecantile==3.4
 numpy<2.0.0
 supermercado
 httpx==0.22.*

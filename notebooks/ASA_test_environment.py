@@ -230,9 +230,11 @@ analyzers: dict[str, SourceAnalyzer] = {}
 slick_ids = [
     # 3476096,
     # 3216961,
-    3049976,
+    # 3049976,
+    # 3045541
+    # 3537529, # indonesia
+    3045541,  # infra
 ]
-# 3045541,  # infra
 
 accumulated_sources = []
 for slick_id in slick_ids:
@@ -250,7 +252,7 @@ for slick_id in slick_ids:
         analyzers = {s_type: ASA_MAPPING[s_type](s1_scene) for s_type in source_types}
 
     ranked_sources = pd.DataFrame(
-        columns=["source_type", "st_name", "coincidence_score", "collated_score"]
+        columns=["type", "st_name", "coincidence_score", "collated_score"]
     )
     for s_type, analyzer in analyzers.items():
         res = analyzer.compute_coincidence_scores(slick_gdf)
@@ -272,6 +274,8 @@ for slick_id in slick_ids:
     if "infra" in analyzers:
         plot_coincidence(analyzers["infra"], slick_id)
 
+    print(ranked_sources[["type", "st_name", "collated_score"]].head())
+
     print(ranked_sources.head())
 # print(accumulated_sources)
 # %%
@@ -279,5 +283,3 @@ fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
 coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)
 plot_coincidence(infra_analyzer, slick_id, False)
-
-# %%
