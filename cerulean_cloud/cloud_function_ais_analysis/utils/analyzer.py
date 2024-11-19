@@ -24,7 +24,7 @@ from geoalchemy2.shape import to_shape
 from google.oauth2.service_account import Credentials
 from pyproj import CRS
 from scipy.spatial import cKDTree
-from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
+from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, mapping
 
 from .constants import (
     AIS_BUFFER,
@@ -410,10 +410,20 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         self.results = self.infra_gdf.copy()
         self.results["coincidence_score"] = self.coincidence_scores
         self.results = self.results[self.results["coincidence_score"] > 0]
-        self.results["geojson_fc"] = {
-            "type": "FeatureCollection",
-            "features": json.loads(self.results["geometry"].to_json())["features"],
-        }
+        self.results["geojson_fc"] = self.infra_gdf["geometry"].apply(
+            lambda geom: {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "id": "0",
+                        "type": "Feature",
+                        "geometry": mapping(geom),
+                        "properties": {},  # XXX Add properties as they become available (like first/last date)
+                    }
+                ],
+            }
+        )
+
         self.results["collated_score"] = (
             self.results["coincidence_score"] - self.coinc_mean
         ) / self.coinc_std
