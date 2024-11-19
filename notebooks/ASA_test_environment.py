@@ -255,9 +255,7 @@ for slick_id in slick_ids:
             for s_type in source_types
         }
 
-    ranked_sources = pd.DataFrame(
-        columns=["source_type", "st_name", "coincidence_score"]
-    )
+    ranked_sources = pd.DataFrame(columns=["type", "st_name", "coincidence_score"])
     for s_type, analyzer in analyzers.items():
         res = analyzer.compute_coincidence_scores(slick_gdf)
         ranked_sources = pd.concat([ranked_sources, res], ignore_index=True)
@@ -277,6 +275,8 @@ for slick_id in slick_ids:
 
     if "infra" in analyzers:
         plot_coincidence(analyzers["infra"], slick_id)
+
+    print(ranked_sources[["type", "st_name", "collated_score"]].head())
 
     print(ranked_sources.head())
 # print(accumulated_sources)

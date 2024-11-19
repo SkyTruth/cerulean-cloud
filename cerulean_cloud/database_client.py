@@ -195,7 +195,7 @@ class DatabaseClient:
     async def get_or_insert_ranked_source(self, source_row):
         """add a new source"""
         existing_source = await self.get_source(
-            source_row["source_type"], source_row["ext_id"]
+            source_row["type"], source_row["ext_id"]
         )
         if existing_source:
             return existing_source
@@ -218,13 +218,10 @@ class DatabaseClient:
         insert_dict = {
             k: v
             for k, v in source_row.items()
-            if not pd.isna(v)
-            and k in (common_cols + insert_cols[source_row["source_type"]])
+            if not pd.isna(v) and k in (common_cols + insert_cols[source_row["type"]])
         }
 
-        source_type_obj = await get(
-            self.session, db.SourceType, id=source_row["source_type"]
-        )
+        source_type_obj = await get(self.session, db.SourceType, id=source_row["type"])
 
         source = await insert(
             self.session, tablename_to_class[source_type_obj.table_name], **insert_dict
