@@ -230,9 +230,11 @@ analyzers: dict[str, SourceAnalyzer] = {}
 slick_ids = [
     # 3476096,
     # 3216961,
-    3049976,
+    # 3049976,
+    # 3045541
+    # 3537529, # indonesia
+    3045541,  # infra
 ]
-# 3045541,  # infra
 
 accumulated_sources = []
 for slick_id in slick_ids:
@@ -285,5 +287,3 @@ fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
 coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)
 plot_coincidence(infra_analyzer, slick_id, False)
-
-# %%

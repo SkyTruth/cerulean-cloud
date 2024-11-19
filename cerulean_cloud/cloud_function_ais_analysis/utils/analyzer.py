@@ -131,8 +131,8 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         Loads infrastructure data from a CSV file.
         """
         df = pd.read_csv("SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv")
-        df["st_name"] = df["structure_id"]
-        df["ext_id"] = df["structure_id"]
+        df["st_name"] = str(df["structure_id"])
+        df["ext_id"] = str(df["structure_id"])
         df["type"] = 2  # infra
         if only_oil:
             df = df[df["label"] == "oil"]
@@ -166,8 +166,8 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
         if only_oil:
             df = df[df["label"] == "oil"]
-        df["st_name"] = df["structure_id"]
-        df["ext_id"] = df["structure_id"]
+        df["st_name"] = str(df["structure_id"])
+        df["ext_id"] = str(df["structure_id"])
         df["type"] = 2  # infra
 
         datetime_fields = ["structure_start_date", "structure_end_date"]
@@ -849,7 +849,7 @@ class AISAnalyzer(SourceAnalyzer):
 
                 entry = {
                     "st_name": t.id,
-                    "ext_id": t.id,
+                    "ext_id": str(t.id),
                     "geometry": shapely.geometry.LineString(
                         [p.coords[0] for p in t.df["geometry"]]
                     ),
