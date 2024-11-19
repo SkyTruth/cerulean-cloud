@@ -12,6 +12,7 @@ from typing import List, Tuple
 import httpx
 import numpy as np
 import rasterio
+import skimage
 from rasterio.enums import Resampling
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
@@ -22,12 +23,15 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResultStack,
     PredictPayload,
 )
-from cerulean_cloud.tiling import TMS
 
 
-def img_array_to_b64_image(img_array: np.ndarray) -> str:
+def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
     """convert input b64image to torch tensor"""
-    img_array = img_array.astype("int8")
+    if to_uint8 and not img_array.dtype == np.uint8:
+        print(
+            f"WARNING: changing from dtype {img_array.dtype} to uint8 without scaling!"
+        )
+        img_array = img_array.astype("uint8")
     with MemoryFile() as memfile:
         with memfile.open(
             driver="GTiff",
@@ -50,63 +54,53 @@ class CloudRunInferenceClient:
         url: str,
         titiler_client,
         sceneid: str,
-        offset_bounds: List[float],
-        offset_image_shape: Tuple[int, int],
+        tileset_envelope_bounds: List[float],
+        image_hw_pixels: Tuple[int, int],
         layers: List,
         scale: int,
-        inference_parms,
-        filter_empty_tiles=True,
+        model_dict,
     ):
         """init"""
         self.url = url
         self.titiler_client = titiler_client
         self.sceneid = sceneid
         self.aux_datasets = handle_aux_datasets(
-            layers, self.sceneid, offset_bounds, offset_image_shape
+            layers, self.sceneid, tileset_envelope_bounds, image_hw_pixels
         )
         self.scale = scale  # 1=256, 2=512, 3=...
-        self.inference_parms = inference_parms
-        self.filter_empty_tiles = filter_empty_tiles
+        self.model_dict = model_dict
 
     async def fetch_and_process_image(
-        self, tile=None, bounds=None, rescale=(0, 255), num_channels=1
+        self, tile_bounds, rescale=(0, 255), num_channels=1
     ):
         """
-        Asynchronously fetches and processes an image tile either by specifying the tile coordinates or geographic bounds.
+        Asynchronously fetches and processes an image tile either by specifying the geographic bounds.
         The image data is then rescaled, and optionally filtered to retain a specific number of channels.
 
         Parameters:
-        - tile (Optional[Tuple[int, int, int]]): The XYZ tile coordinates to fetch the image for. If not provided, bounds must be given.
-        - bounds (Optional[Tuple[float, float, float, float]]): The geographic bounds (min_lon, min_lat, max_lon, max_lat) to fetch the image for. If not provided, tile must be given.
+        - bounds (Optional[Tuple[float, float, float, float]]): The geographic bounds (min_lon, min_lat, max_lon, max_lat) to fetch the image for.
         - rescale (Tuple[int, int], optional): The range to rescale the image data to. Defaults to (0, 255).
         - num_channels (int, optional): The number of channels to retain in the processed image. Defaults to 1, assuming VV data is desired.
 
         Returns:
-        - np.ndarray: The processed image array with dimensions corresponding to the specified number of channels and the spatial dimensions of the tile or bounds.
-
-        Raises:
-        - Exception: If neither tile nor bounds are provided.
+        - np.ndarray: The processed image array with dimensions corresponding to the specified number of channels and the spatial dimensions of the bounds.
         """
-        if tile:
-            img_array = await self.titiler_client.get_base_tile(
-                sceneid=self.sceneid, tile=tile, scale=self.scale, rescale=rescale
-            )
-        else:
-            hw = self.scale * 256
-            img_array = await self.titiler_client.get_offset_tile(
-                self.sceneid,
-                *bounds,
-                width=hw,
-                height=hw,
-                scale=self.scale,
-                rescale=rescale,
-            )
+
+        hw = self.scale * 256
+        img_array = await self.titiler_client.get_offset_tile(
+            self.sceneid,
+            *tile_bounds,
+            width=hw,
+            height=hw,
+            scale=self.scale,
+            rescale=rescale,
+        )
 
         img_array = reshape_as_raster(img_array)
         img_array = img_array[0:num_channels, :, :]
         return img_array
 
-    async def process_auxiliary_datasets(self, img_array, bounds):
+    async def process_auxiliary_datasets(self, img_array, tile_bounds):
         """
         Processes auxiliary datasets for a given image array and its geographic bounds by overlaying additional data layers.
         This is useful for enriching the image data with extra contextual information such as additional spectral bands or derived indices.
@@ -120,14 +114,12 @@ class CloudRunInferenceClient:
 
         """
         with self.aux_datasets.open() as src:
-            window = rasterio.windows.from_bounds(*bounds, transform=src.transform)
+            window = rasterio.windows.from_bounds(*tile_bounds, transform=src.transform)
             height, width = img_array.shape[1:]
             aux_ds = src.read(window=window, out_shape=(src.count, height, width))
         return np.concatenate([img_array, aux_ds], axis=0)
 
-    async def send_inference_request_and_handle_response(
-        self, http_client, img_array, bounds
-    ):
+    async def send_inference_request_and_handle_response(self, http_client, img_array):
         """
         Sends an asynchronous request to an inference service with the processed image data and handles the response.
         This involves encoding the image array to a base64 format, constructing the inference payload, and interpreting the service response.
@@ -144,67 +136,70 @@ class CloudRunInferenceClient:
         - Exception: If the request fails or the service returns an unexpected status code, with details provided in the exception message.
 
         Note:
-        - This function constructs the inference payload by encoding the image and specifying the geographic bounds and any additional inference parameters through `self.inference_parms`.
+        - This function constructs the inference payload by encoding the image and specifying the geographic bounds and any additional inference parameters through `self.model_dict`.
         """
 
-        encoded = img_array_to_b64_image(img_array)
-        inf_stack = [InferenceInput(image=encoded, bounds=bounds)]
-        payload = PredictPayload(inf_stack=inf_stack, inf_parms=self.inference_parms)
-        res = await http_client.post(
-            self.url + "/predict", json=payload.dict(), timeout=None
-        )
-        if res.status_code == 200:
-            return InferenceResultStack(**res.json())
-        else:
-            print(f"XXX Issue was found in: {self.sceneid}")
-            raise Exception(
-                f"Received unexpected status code: {res.status_code} {res.content}"
-            )
+        encoded = img_array_to_b64_image(img_array, to_uint8=True)
+        inf_stack = [InferenceInput(image=encoded)]
+        payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
 
-    async def get_tile_inference(
-        self, http_client, tile=None, bounds=None, rescale=(0, 255)
-    ):
+        max_retries = 2  # Total attempts including the first try
+        retry_delay = 5  # Delay in seconds between retries
+
+        for attempt in range(max_retries):
+            try:
+                res = await http_client.post(
+                    self.url + "/predict", json=payload.dict(), timeout=None
+                )
+                if res.status_code == 200:
+                    return InferenceResultStack(**res.json())
+                else:
+                    print(
+                        f"Attempt {attempt + 1}: Failed with status code {res.status_code}. Retrying..."
+                    )
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay)  # Wait before retrying
+            except Exception as e:
+                print(f"Attempt {attempt + 1}: Exception occurred: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)  # Wait before retrying
+
+        # If all attempts fail, raise an exception
+        raise Exception(
+            f"All attempts failed after {max_retries} retries. Last known error: {res.content}"
+        )
+
+    async def get_tile_inference(self, http_client, tile_bounds, rescale=(0, 255)):
         """
         Orchestrates the complete process of fetching an image tile, processing it, enriching it with auxiliary datasets, and sending it for inference.
 
         Parameters:
         - http_client: The HTTP client for sending requests.
-        - tile (Optional[Tuple[int, int, int]]): The XYZ tile coordinates to fetch the image for. If not provided, bounds must be given.
-        - bounds (Optional[Tuple[float, float, float, float]]): The geographic bounds (min_lon, min_lat, max_lon, max_lat) for fetching the image. If not provided, tile must be given.
+        - bounds (Optional[Tuple[float, float, float, float]]): The geographic bounds (min_lon, min_lat, max_lon, max_lat) for fetching the image.
         - rescale (Tuple[int, int], optional): The range to rescale the image data to. Defaults to (0, 255).
 
         Returns:
-        - InferenceResultStack: An object representing the stacked inference results, or an empty stack if the tile is empty and filtering is enabled.
-
-        Raises:
-        - Exception: If neither tile nor bounds are provided, or if an error occurs during any step of the process.
+        - InferenceResultStack: An object representing the stacked inference results, or an empty stack if the tile is empty.
 
         Note:
         - This function integrates several steps: fetching the image, processing it, adding auxiliary data, and sending it for inference. It also includes a check to optionally skip empty tiles.
         """
 
-        if bool(tile) == bool(bounds):  # XOR
-            raise Exception(
-                f"Inference requires (tile XOR bounds). Found {'neither' if not tile else 'both'}."
-            )
-        bounds = bounds or list(TMS.bounds(tile))
-        img_array = await self.fetch_and_process_image(
-            tile=tile, bounds=bounds, rescale=rescale
-        )
-        if self.filter_empty_tiles and not np.any(img_array):
+        img_array = await self.fetch_and_process_image(tile_bounds, rescale)
+        if not np.any(img_array):
             return InferenceResultStack(stack=[])
         if self.aux_datasets:
-            img_array = await self.process_auxiliary_datasets(img_array, bounds)
+            img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
         return await self.send_inference_request_and_handle_response(
-            http_client, img_array, bounds
+            http_client, img_array
         )
 
-    async def run_parallel_inference(self, inference_items):
+    async def run_parallel_inference(self, tileset):
         """
-        Perform inference on a set of tiles or bounds asynchronously.
+        Perform inference on a set of tile bounds asynchronously.
 
         Parameters:
-        - inference_items (list): List of either tiles or bounds for inference.
+        - tileset (list): List of bounds for inference.
 
         Returns:
         - list: List of inference results, with exceptions filtered out.
@@ -213,10 +208,14 @@ class CloudRunInferenceClient:
             headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
         ) as async_http_client:
             tasks = [
-                self.get_tile_inference(http_client=async_http_client, **item)
-                for item in inference_items
+                self.get_tile_inference(
+                    http_client=async_http_client, tile_bounds=tile_bounds
+                )
+                for tile_bounds in tileset
             ]
             inferences = await asyncio.gather(*tasks, return_exceptions=False)
+            # False means this process will error out if any subtask errors out
+            # True means this process will return a list including errors if any subtask errors out
         return inferences
 
 
@@ -346,11 +345,17 @@ def get_dist_array(
     else:
         data = data / (max_distance / 255)  # 60 km
         data[data >= 255] = 255
-    data = np.squeeze(data)
-    return data.astype(np.uint8)
+
+    upsampled = skimage.transform.resize(
+        data, (*img_shape[0:2], 1), order=1, preserve_range=True
+    )  # resampling interpolation must match training data prep
+    upsampled = np.squeeze(upsampled)
+    return upsampled.astype(np.uint8)
 
 
-def handle_aux_datasets(layers, scene_id, bounds, image_shape, **kwargs):
+def handle_aux_datasets(
+    layers, scene_id, tileset_envelope_bounds, image_hw_pixels, **kwargs
+):
     """handle aux datasets"""
     if layers[0].short_name != "VV":
         raise NotImplementedError(
@@ -362,13 +367,17 @@ def handle_aux_datasets(layers, scene_id, bounds, image_shape, **kwargs):
         for layer in layers[1:]:
             if layer.short_name == "VESSEL":
                 scene_date_month = get_scene_date_month(scene_id)
-                ar = get_ship_density(bounds, image_shape, scene_date_month)
+                ar = get_ship_density(
+                    tileset_envelope_bounds, image_hw_pixels, scene_date_month
+                )
             elif layer.short_name == "INFRA":
-                ar = get_dist_array(bounds, image_shape, layer.source_url)
+                ar = get_dist_array(
+                    tileset_envelope_bounds, image_hw_pixels, layer.source_url
+                )
             elif layer.short_name == "ALL_255":
-                ar = 255 * np.ones(shape=image_shape)
+                ar = 255 * np.ones(shape=image_hw_pixels, dtype="uint8")
             elif layer.short_name == "ALL_ZEROS":
-                ar = np.zeros(shape=image_shape)
+                ar = np.zeros(shape=image_hw_pixels, dtype="uint8")
             else:
                 raise NotImplementedError(f"Unrecognized layer: {layer.short_name}")
 
@@ -384,7 +393,9 @@ def handle_aux_datasets(layers, scene_id, bounds, image_shape, **kwargs):
         if aux_dataset_channels is not None:
             height, width = aux_dataset_channels.shape[0:2]
             transform = rasterio.transform.from_bounds(
-                *bounds, height=image_shape[0], width=image_shape[1]
+                *tileset_envelope_bounds,
+                height=image_hw_pixels[0],
+                width=image_hw_pixels[1],
             )
             with aux_memfile.open(
                 driver="GTiff",

@@ -2,6 +2,7 @@
 Client for historical run cloud functions
 i.e. python scripts/historical_run.py --stage staging eodag --date-start 2022-01-01 --date-end 2022-01-02 --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson
 """
+
 from datetime import date
 
 import click
@@ -32,9 +33,9 @@ def handler_historical_run(date_start, date_end, geometry, url):
 def cli(ctx, stage):
     """Command line tool to add tasks to Cloud Task queue, to run inference on"""
     URLS = dict(
-        staging="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-staging-cloud-function-historical-run",
-        test="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-test-cloud-function-historical-run",
-        production="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-production-cloud-function-historical-run",
+        staging="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-staging-cf-historical-run",
+        test="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-test-cf-historical-run",
+        production="https://europe-west1-cerulean-338116.cloudfunctions.net/cerulean-cloud-production-cf-historical-run",
     )
     ctx.ensure_object(dict)
     ctx.obj["URL"] = URLS[stage]

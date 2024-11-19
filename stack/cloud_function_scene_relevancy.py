@@ -1,24 +1,24 @@
 """cloud function to select appropriate scenes (over water and IW) from SNS notification"""
-import os
+
 import time
 
 import cloud_run_orchestrator
 import database
 import pulumi
 from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
-from utils import construct_name
+from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
-    construct_name("bucket-cloud-function-sr"),
+    construct_name("bucket-cf-sr"),
     location="EU",
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
 
 # Create the Queue for tasks
 queue = cloudtasks.Queue(
-    construct_name("queue-cloud-run-orchestrator"),
+    construct_name("queue-cr-orchestrator"),
     location=pulumi.Config("gcp").require("region"),
     rate_limits=cloudtasks.QueueRateLimitsArgs(
         max_concurrent_dispatches=50,
@@ -36,45 +36,43 @@ queue = cloudtasks.Queue(
     ),
 )
 
-function_name = construct_name("cloud-function-sr")
+function_name = construct_name("cf-sr")
 config_values = {
     "DB_URL": database.sql_instance_url,
-    "GCP_PROJECT": pulumi.Config("gcp").require("project"),
-    "GCP_REGION": pulumi.Config("gcp").require("region"),
+    "GCPPROJECT": pulumi.Config("gcp").require("project"),
+    "GCPREGION": pulumi.Config("gcp").require("region"),
     "QUEUE": queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
-    "FUNCTION_NAME": function_name,
+    "FUNCTIONNAME": function_name,
     "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_relevancy"),
 }
 
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_scene_relevancy"
-assets = {}
-for file in os.listdir(PATH_TO_SOURCE_CODE):
-    location = os.path.join(PATH_TO_SOURCE_CODE, file)
-    asset = pulumi.FileAsset(path=location)
-    assets[file] = asset
-
-archive = pulumi.AssetArchive(assets=assets)
+package = pulumi_create_zip(
+    dir_to_zip=PATH_TO_SOURCE_CODE,
+    zip_filepath="../cloud_function_scene_relevancy.zip",
+)
+archive = package.apply(lambda x: pulumi.FileAsset(x))
 
 # Create the single Cloud Storage object, which contains all of the function's
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
-    construct_name("source-cloud-function-sr"),
-    name="handler.py-%f" % time.time(),
+    construct_name("source-cf-sr"),
+    name=f"handler.py-{time.time():f}",
     bucket=bucket.name,
     source=archive,
 )
 
 # Assign access to cloud SQL
 cloud_function_service_account = serviceaccount.Account(
-    construct_name("cloud-function-sr"),
+    construct_name("cf-sr"),
     account_id=f"{stack}-cf-sr",
     display_name="Service Account for cloud function.",
 )
 cloud_function_service_account_iam = projects.IAMMember(
-    construct_name("cloud-function-sr-iam"),
+    construct_name("cf-sr-iam"),
     project=pulumi.Config("gcp").require("project"),
     role="projects/cerulean-338116/roles/cloudfunctionscenerelevancyrole",
     member=cloud_function_service_account.email.apply(
@@ -96,17 +94,19 @@ fxn = cloudfunctions.Function(
     entry_point="main",
     environment_variables=config_values,
     region=pulumi.Config("gcp").require("region"),
-    runtime="python38",
+    runtime="python39",
     source_archive_bucket=bucket.name,
     source_archive_object=source_archive_object.name,
     trigger_http=True,
     service_account_email=cloud_function_service_account.email,
     secret_environment_variables=[apikey],
-    opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account_iam]),
+    opts=pulumi.ResourceOptions(
+        depends_on=[cloud_function_service_account_iam],
+    ),
 )
 
 invoker = cloudfunctions.FunctionIamMember(
-    construct_name("cloud-function-sr-invoker"),
+    construct_name("cf-sr-invoker"),
     project=fxn.project,
     region=fxn.region,
     cloud_function=fxn.name,

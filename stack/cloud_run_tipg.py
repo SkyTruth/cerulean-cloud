@@ -1,6 +1,7 @@
 """infra for cloud run function for orchestration
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
+
 import cloud_run_images
 import pulumi
 import pulumi_gcp as gcp
@@ -13,13 +14,13 @@ stack = pulumi.get_stack()
 
 # Assign access to cloud secrets
 cloud_function_service_account = gcp.serviceaccount.Account(
-    construct_name("cloud-run-tipg"),
+    construct_name("cr-tipg"),
     account_id=f"{stack}-cr-tipg",
     display_name="Service Account for cloud run.",
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cloud-run-tipg-cloudSqlClient"),
+    construct_name("cr-tipg-cloudSqlClient"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/cloudsql.client",
     member=cloud_function_service_account.email.apply(
@@ -28,7 +29,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cloud-run-tipg-secretmanagerSecretAccessor"),
+    construct_name("cr-tipg-secretmanagerSecretAccessor"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/secretmanager.secretAccessor",
     member=cloud_function_service_account.email.apply(
@@ -38,7 +39,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 
 # IAM Binding for Secret Manager access
 secret_accessor_binding = gcp.secretmanager.SecretIamMember(
-    construct_name("cloud-run-tipg-secret-accessor-binding"),
+    construct_name("cr-tipg-secret-accessor-binding"),
     secret_id=pulumi.Config("cerulean-cloud").require("keyname"),
     role="roles/secretmanager.secretAccessor",
     member=pulumi.Output.concat(
@@ -47,12 +48,13 @@ secret_accessor_binding = gcp.secretmanager.SecretIamMember(
     opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account]),
 )
 
-service_name = construct_name("cloud-run-tipg")
+service_name = construct_name("cr-tipg")
 default = gcp.cloudrun.Service(
     service_name,
     opts=pulumi.ResourceOptions(depends_on=[secret_accessor_binding]),
     name=service_name,
     location=pulumi.Config("gcp").require("region"),
+    autogenerate_revision_name=True,
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             service_account_name=cloud_function_service_account.email,
@@ -60,6 +62,10 @@ default = gcp.cloudrun.Service(
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
                     image=cloud_run_images.cloud_run_tipg_image.name,
                     envs=[
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="UVICORN_PORT",
+                            value="8080",
+                        ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="DATABASE_URL",
                             value=sql_instance_url,
@@ -94,8 +100,8 @@ default = gcp.cloudrun.Service(
                                 "layer",
                                 "model",
                                 "subscription",
-                                "magic_link",
                                 "aoi_type",
+                                "hitl_slick",
                             ]
                         ],
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
@@ -120,7 +126,8 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="RESTRICTED_COLLECTIONS",
-                            value='["public.aoi_user","public.filter", "public.frequency", "public.magic_link", "public.subscription", "public.user", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel"]',
+                            value='["public.aoi_user","public.filter", "public.frequency", "public.verification_token", "public.accounts", "public.sessions", "public.subscription", "public.users", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel"]',
+                            # EditTheDatabase
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="SECRET_API_KEY",
@@ -140,7 +147,6 @@ default = gcp.cloudrun.Service(
             timeout_seconds=420,
         ),
         metadata=dict(
-            name=service_name + "-" + cloud_run_images.cloud_run_tipg_sha,
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
             },
@@ -159,7 +165,7 @@ default = gcp.cloudrun.Service(
     ],
 )
 noauth_iam_policy = gcp.cloudrun.IamPolicy(
-    construct_name("cloud-run-noauth-iam-policy-tipg"),
+    construct_name("cr-noauth-iam-policy-tipg"),
     location=default.location,
     project=default.project,
     service=default.name,

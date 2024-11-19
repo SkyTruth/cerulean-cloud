@@ -1,4 +1,5 @@
 """Test database client"""
+
 import json
 from datetime import datetime
 
@@ -116,7 +117,7 @@ async def test_create_slick(setup_database, engine):
                 titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
             )
             trigger = await db_client.get_trigger(1)
-            model = await db_client.get_model("model_path")
+            model = await db_client.get_db_model("model_path")
             orchestrator_run = await db_client.add_orchestrator(
                 datetime.now(),
                 datetime.now(),
@@ -169,7 +170,7 @@ async def test_update_orchestrator(setup_database, engine):
                 titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
             )
             trigger = await db_client.get_trigger()
-            model = await db_client.get_model("model_path")
+            model = await db_client.get_db_model("model_path")
             orchestrator_run = await db_client.add_orchestrator(
                 datetime.now(),
                 datetime.now(),

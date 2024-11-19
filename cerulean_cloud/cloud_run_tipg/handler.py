@@ -249,7 +249,7 @@ async def register_table(request: Request):
     )
 
 
-@app.get("/healthz", description="Health Check", tags=["Health Check"])
+@app.get("/health", description="Health Check", tags=["Health Check"])
 def ping():
     """Health check."""
     return {"ping": "pong!"}

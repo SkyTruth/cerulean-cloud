@@ -1,4 +1,4 @@
 pydantic-settings
 tipg~=0.5.0
-uvicorn
+uvicorn[standard]
 mangum

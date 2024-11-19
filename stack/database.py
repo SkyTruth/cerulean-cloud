@@ -22,7 +22,7 @@ instance = gcp.sql.DatabaseInstance(
             dict(name="shared_buffers", value=pulumi.Config("db").require("db-mem")),
             # Should be slightly higher than expected number of simultaneous connections
             # max_connections: Original value 500, compliant with Google Cloud
-            dict(name="max_connections", value="500"),
+            dict(name="max_connections", value="200"),
             # Use for sorting and joining operations. work_mem * max_connections
             # should be less than shared buffers. However, this is the case if
             # we expect `max_connection` to relate to the number of users querying
@@ -50,21 +50,22 @@ instance = gcp.sql.DatabaseInstance(
             dict(name="max_wal_size", value="4096"),
         ],
     ),
+    deletion_protection=pulumi.Config("db").require("deletion-protection"),
 )
 
 
 db_name = construct_name("database")
-database = gcp.sql.Database(
-    db_name,
-    instance=instance.name,
-    name=db_name,
-    opts=pulumi.ResourceOptions(protect=True),
-)
 users = gcp.sql.User(
     construct_name("database-users"),
     name=db_name,
     instance=instance.name,
     password=pulumi.Config("db").require_secret("db-password"),
+)
+database = gcp.sql.Database(
+    db_name,
+    instance=instance.name,
+    name=db_name,
+    opts=pulumi.ResourceOptions(depends_on=[users]),
 )
 
 sql_instance_url_with_asyncpg = pulumi.Output.concat(

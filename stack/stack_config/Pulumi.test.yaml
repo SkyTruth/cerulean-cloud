@@ -11,6 +11,7 @@ config:
   db:db-mem: 59904
   db:db-password:
     secure: v1:8dQyKnlQOrLqBXX6:lTmKOPMN2CYD/Oozi3IpPsUNgaFjDaCtVclsYgX4Tg0/6g==
+  db:deletion-protection: False
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b

@@ -1,6 +1,7 @@
 """
 Code for handling queue requests for Automatic AIS Analysis
 """
+
 import json
 import os
 from datetime import datetime, timedelta, timezone
@@ -11,7 +12,7 @@ from google.protobuf import timestamp_pb2
 # mypy: ignore-errors
 
 
-def add_to_aaa_queue(scene_id):
+def add_to_asa_queue(scene_id):
     """
     Adds a new task to Google Cloud Tasks for automatic AIS analysis.
 
@@ -29,10 +30,10 @@ def add_to_aaa_queue(scene_id):
     client = tasks_v2.CloudTasksClient()
 
     project = os.getenv("PROJECT_ID")
-    location = os.getenv("GCP_REGION")
-    queue = os.getenv("AAA_QUEUE")
+    location = os.getenv("GCPREGION")
+    queue = os.getenv("ASA_QUEUE")
     url = os.getenv("FUNCTION_URL")
-    dry_run = bool(os.getenv("AIS_IS_DRY_RUN"))
+    dry_run = os.getenv("AIS_IS_DRY_RUN", "").lower() == "true"
 
     # Construct the fully qualified queue name.
     parent = client.queue_path(project, location, queue)
@@ -68,5 +69,5 @@ def add_to_aaa_queue(scene_id):
         # Use the client to build and send the task.
         response = client.create_task(request={"parent": parent, "task": task})
 
-        print("Created task {}".format(response.name))
+        print(f"Created task {response.name}")
     return response

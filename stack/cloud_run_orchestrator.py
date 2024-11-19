@@ -1,6 +1,7 @@
 """infra for cloud run function for orchestration
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
+
 import os
 
 import cloud_function_ais_analysis
@@ -23,13 +24,13 @@ git_tag = next((tag.name for tag in repo.tags if tag.commit == repo.head.commit)
 
 # Assign access to cloud SQL
 cloud_function_service_account = gcp.serviceaccount.Account(
-    construct_name("cloud-run-orchestrator"),
+    construct_name("cr-orchestrator"),
     account_id=f"{stack}-cr-orch",
     display_name="Service Account for cloud run.",
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cloud-run-orchestrator-cloudTasksEnqueuer"),
+    construct_name("cr-orchestrator-cloudTasksEnqueuer"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/cloudtasks.enqueuer",
     member=cloud_function_service_account.email.apply(
@@ -38,7 +39,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cloud-run-orchestrator-cloudSqlClient"),
+    construct_name("cr-orchestrator-cloudSqlClient"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/cloudsql.client",
     member=cloud_function_service_account.email.apply(
@@ -47,7 +48,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cloud-run-orchestrator-secretmanagerSecretAccessor"),
+    construct_name("cr-orchestrator-secretmanagerSecretAccessor"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/secretmanager.secretAccessor",
     member=cloud_function_service_account.email.apply(
@@ -57,7 +58,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 
 # IAM Binding for Secret Manager access
 secret_accessor_binding = gcp.secretmanager.SecretIamMember(
-    construct_name("cloud-run-orchestrator-secret-accessor-binding"),
+    construct_name("cr-orchestrator-secret-accessor-binding"),
     secret_id=pulumi.Config("cerulean-cloud").require("keyname"),
     role="roles/secretmanager.secretAccessor",
     member=pulumi.Output.concat(
@@ -67,11 +68,12 @@ secret_accessor_binding = gcp.secretmanager.SecretIamMember(
 )
 
 
-service_name = construct_name("cloud-run-orchestrator")
+service_name = construct_name("cr-orchestrator")
 default = gcp.cloudrun.Service(
     service_name,
     name=service_name,
     location=pulumi.Config("gcp").require("region"),
+    autogenerate_revision_name=True,
     template=gcp.cloudrun.ServiceTemplateArgs(
         spec=gcp.cloudrun.ServiceTemplateSpecArgs(
             service_account_name=cloud_function_service_account.email,
@@ -79,6 +81,10 @@ default = gcp.cloudrun.Service(
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
                     image=cloud_run_images.cloud_run_orchestrator_image.name,
                     envs=[
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="UVICORN_PORT",
+                            value="8080",
+                        ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="DB_URL",
                             value=sql_instance_url_with_asyncpg,
@@ -116,7 +122,7 @@ default = gcp.cloudrun.Service(
                             value=pulumi.Config("gcp").require("project"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="GCP_REGION",
+                            name="GCPREGION",
                             value=pulumi.Config("gcp").require("region"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
@@ -142,7 +148,7 @@ default = gcp.cloudrun.Service(
                             ),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="AAA_QUEUE",
+                            name="ASA_QUEUE",
                             value=cloud_function_ais_analysis.queue.name,
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
@@ -154,14 +160,13 @@ default = gcp.cloudrun.Service(
                             value=cloud_function_ais_analysis.fxn.https_trigger_url,
                         ),
                     ],
-                    resources=dict(limits=dict(memory="4Gi", cpu="1000m")),
+                    resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
                 ),
             ],
             timeout_seconds=3540,
             container_concurrency=1,
         ),
         metadata=dict(
-            name=service_name + "-" + cloud_run_images.cloud_run_orchestrator_sha,
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
                 "autoscaling.knative.dev/maxScale": "45",
@@ -188,7 +193,7 @@ default = gcp.cloudrun.Service(
     ),
 )
 noauth_iam_policy = gcp.cloudrun.IamPolicy(
-    construct_name("cloud-run-noauth-iam-policy-orchestrator"),
+    construct_name("cr-noauth-iam-policy-orchestrator"),
     location=default.location,
     project=default.project,
     service=default.name,

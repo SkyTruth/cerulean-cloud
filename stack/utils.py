@@ -1,7 +1,13 @@
 """utils for stack building"""
+
+import asyncio
 import base64
+import fnmatch
 import hashlib
 import os
+import zipfile
+from tempfile import mkstemp
+from typing import List, Optional
 
 import docker
 import pulumi
@@ -46,27 +52,43 @@ def filebase64sha256(filename):
 # Build image
 def create_package(code_dir: str) -> str:
     """Build docker image and create package."""
-    print("Creating lambda package [running in Docker]...")
-    client = docker.from_env()
 
-    print("Building docker image...")
-    client.images.build(
+    code_dir = os.path.abspath(code_dir)
+    assert code_dir
+    print(f"Creating lambda package in [{code_dir}] [running in Docker]...")
+
+    client = docker.from_env()
+    print("Checking Docker is available...")
+    client.ping()
+
+    print("Building container image...")
+    image, _ = client.images.build(
         path=code_dir,
         dockerfile="Dockerfiles/Dockerfile.titiler",
         tag="titiler-lambda:latest",
+        nocache=True,
         rm=True,
     )
+    print(f"Sucessfully built container image with id {image.id}")
 
-    print("Copying package.zip ...")
-    client.containers.run(
+    print("Creating installation package.zip ...")
+    _ = client.containers.run(
         image="titiler-lambda:latest",
-        command="/bin/sh -c 'cp /tmp/package.zip /local/package.zip'",
         remove=True,
-        volumes={os.path.abspath(code_dir): {"bind": "/local/", "mode": "rw"}},
+        volumes={
+            code_dir: {
+                "bind": "/local/",
+                "mode": "rw",
+            },
+        },
         user=0,
     )
-    print("Copied package package.zip ...")
-    return f"{code_dir}package.zip"
+
+    result = os.path.join(code_dir, "package.zip")
+    if not os.path.isfile(result):
+        raise RuntimeError(f"Failed to create package.zip at {result}")
+    print(f"Sucessfully created package.zip at {result}")
+    return result
 
 
 def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset:
@@ -87,3 +109,62 @@ def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset
     # Download the file to a destination
     blob.download_to_filename(out_path)
     return pulumi.FileAsset(out_path)
+
+
+def create_zip(
+    dir_to_zip: str,
+    zip_filepath: Optional[str] = None,
+    ignore_globs: Optional[List[str]] = None,
+    compression: int = zipfile.ZIP_DEFLATED,
+) -> str:
+    """
+    Creates a zip file containing the contents of a specified directory. Files matching any of the provided glob patterns will be ignored.
+
+    :param zip_filepath: The path where the output zip file will be created.
+    :param dir_to_zip: The directory to recursively add to the zip file.
+    :param ignore_globs: A list of glob patterns specifying which files to ignore.
+    :param compression: The compression type to use for the zip file (default is ZIP_DEFLATED)
+    """
+    if not zip_filepath:
+        _, zip_filepath = mkstemp(
+            suffix=".zip",
+        )
+    else:
+        zip_filepath = os.path.abspath(zip_filepath)
+
+    with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for root, _, files in os.walk(dir_to_zip):
+            for file in files:
+                full_path = os.path.join(root, file)
+                if not any(
+                    fnmatch.fnmatch(full_path, pattern)
+                    for pattern in ignore_globs or []
+                ):
+                    # Store the file relative to the directory specified
+                    archive_name = os.path.relpath(full_path, dir_to_zip)
+                    zipf.write(full_path, archive_name)
+    return zip_filepath
+
+
+def pulumi_create_zip(
+    dir_to_zip: str,
+    zip_filepath: Optional[str] = None,
+    ignore_globs: Optional[List[str]] = None,
+    compression: int = zipfile.ZIP_DEFLATED,
+) -> pulumi.Output[str]:
+    """
+    Creates a zip file containing the contents of a specified directory. Files matching any of the provided glob patterns will be ignored.
+
+    :param zip_filepath: The path where the output zip file will be created.
+    :param dir_to_zip: The directory to recursively add to the zip file.
+    :param ignore_globs: A list of glob patterns specifying which files to ignore.
+    :param compression: The compression type to use for the zip file (default is ZIP_DEFLATED)
+    """
+    coro = asyncio.to_thread(
+        create_zip,
+        dir_to_zip,
+        zip_filepath,
+        ignore_globs,
+        compression,
+    )
+    return pulumi.Output.from_input(coro)

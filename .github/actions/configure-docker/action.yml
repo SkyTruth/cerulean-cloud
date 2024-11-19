@@ -1,0 +1,42 @@
+name: Configure Docker (Ubuntu)
+description: |-
+  A GitHub action to configure the installed Docker daemon on an Ubuntu GitHub Actions runner
+
+runs:
+  using: composite
+  steps:
+    - id: create-directory
+      name: Create Docker data directory
+      shell: bash
+      run: |
+        df -H
+        if ! test -d /mnt; then
+          echo "::error title=Error::Missing directory /mnt"
+          exit 1
+        fi
+        sudo mkdir /mnt/docker-data
+        sudo chmod 777 /mnt/docker-data
+
+    - id: stop-docker
+      name: Stop Docker Daemon
+      shell: bash
+      run: |
+        sudo systemctl stop docker
+
+    - id: configure-docker-data-root
+      name: Configure Docker for new data directory
+      shell: bash
+      run: |
+        if ! test -d /etc/docker; then
+          sudo mkdir -p /etc/docker
+        fi
+
+        jq < /etc/docker/daemon.json '. += { "data-root": "/mnt/docker-data" }' > /tmp/daemon.json
+        sudo cp /tmp/daemon.json /etc/docker/daemon.json
+        cat /etc/docker/daemon.json
+
+    - id: start-docker
+      name: Start Docker Daemon
+      shell: bash
+      run: |
+        sudo systemctl start docker

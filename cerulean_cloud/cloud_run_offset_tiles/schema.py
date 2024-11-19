@@ -1,7 +1,7 @@
 """schema for inference enpoint"""
-from typing import Any, Dict, List, Optional
 
-import geojson
+from typing import Any, Dict, List
+
 from pydantic import BaseModel
 
 
@@ -11,7 +11,6 @@ class InferenceInput(BaseModel):
     """
 
     image: str
-    bounds: Optional[List[float]]
 
 
 class PredictPayload(BaseModel):
@@ -20,7 +19,7 @@ class PredictPayload(BaseModel):
     """
 
     inf_stack: List[InferenceInput]
-    inf_parms: Dict[str, Any]
+    model_dict: Dict[str, Any]
 
 
 class InferenceResult(BaseModel):
@@ -28,10 +27,7 @@ class InferenceResult(BaseModel):
     Inference result from the model
     """
 
-    classes: Optional[str]
-    confidence: Optional[str]
-    bounds: Optional[List[float]]
-    features: Optional[List[geojson.Feature]]
+    json_data: str
 
 
 class InferenceResultStack(BaseModel):

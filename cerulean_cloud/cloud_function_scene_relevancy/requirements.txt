@@ -3,3 +3,4 @@ shapely==2.0.1
 google-cloud-tasks
 Flask>=1.0,<3.0
 functions-framework==3.0.0
+numpy<2.0.0

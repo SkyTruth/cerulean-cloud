@@ -25,6 +25,7 @@ def upgrade() -> None:
     bind = op.get_bind()
     session = orm.Session(bind=bind)
 
+    # EditTheDatabase
     with session.begin():
         clses = [
             database_schema.Cls(
@@ -64,6 +65,10 @@ def upgrade() -> None:
                 long_name="Vessel, coincident",
                 supercls=7,
             ),
+            database_schema.Cls(
+                short_name="AMBIGUOUS",
+                long_name="Ambiguous",
+            ),
         ]
         session.add_all(clses)
 
@@ -71,7 +76,7 @@ def upgrade() -> None:
             database_schema.Model(
                 type="MASKRCNN",
                 file_path="experiments/2023_10_05_02_22_46_4cls_rnxt101_pr512_px1024_680min_maskrcnn_wd01/scripting_cpu_model.pt",
-                layers=["VV", "INFRA", "VESSEL"],
+                layers=["VV", "ALL_255", "VESSEL"],
                 cls_map={
                     0: "BACKGROUND",
                     1: "INFRA",
@@ -83,15 +88,42 @@ def upgrade() -> None:
                 tile_width_px=512,
                 epochs=122,
                 thresholds={
+                    "poly_nms_thresh": 0.2,
                     "pixel_nms_thresh": 0.4,
-                    "bbox_score_thresh": 0.2,
-                    "poly_score_thresh": 0.2,
-                    "pixel_score_thresh": 0.2,
+                    "bbox_score_thresh": 0.3,
+                    "poly_score_thresh": 0.1,
+                    "pixel_score_thresh": 0.5,
                     "groundtruth_dice_thresh": 0.0,
                 },
                 backbone_size=101,
                 pixel_f1=0.461,
                 instance_f1=0.47,
+            ),
+            database_schema.Model(
+                type="FASTAIUNET",
+                file_path="experiments/2024_09_04_21_34_24_4cls_resnet34_pr512_px1024_100epochs_unet/tracing_cpu_model.pt",
+                layers=["VV"],
+                cls_map={
+                    0: "BACKGROUND",
+                    1: "INFRA",
+                    2: "NATURAL",
+                    3: "VESSEL",
+                },  # inference_idx maps to class table
+                name="ResNet34 46.6%",
+                tile_width_m=40844,  # Used to calculate zoom
+                tile_width_px=512,  # Used to calculate scale
+                epochs=500,
+                thresholds={
+                    "poly_nms_thresh": 0.2,  # Minimum IoU between instances that will keep the higher scoring multipolygon
+                    "pixel_nms_thresh": 0.0,  # NOT USED IN UNETS
+                    "bbox_score_thresh": 0.0001,  # Smallest bridge value that will connect polygons into a multipolygon
+                    "poly_score_thresh": 0.5,  # Determines the size of the outline of any given polygon
+                    "pixel_score_thresh": 0.9,  # Minimum pixel score that will be required to keep a multipolygon
+                    "groundtruth_dice_thresh": 0.0,
+                },
+                backbone_size=34,
+                pixel_f1=0.532,
+                # instance_f1=0.0, # TODO CALCULATE
             ),
         ]
         session.add_all(models)
@@ -269,6 +301,7 @@ def downgrade() -> None:
                         "OLD_VESSEL",
                         "REC_VESSEL",
                         "COIN_VESSEL",
+                        "AMBIGUOUS",
                     ]
                 )
             )

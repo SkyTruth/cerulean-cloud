@@ -1,0 +1,20 @@
+encryptionsalt: v1:V3gLkKKDlLY=:v1:yl0xUbSsXG2H1Jzn:TDGUP1OhDOJ3r729bRYL9YZOiK8Xyg==
+config:
+  ais:credentials: world-fishing-827-service-account-json
+  aws:region: eu-central-1
+  cerulean-cloud:dryrun_ais: "" # Make empty "" to turn on AIS analysis
+  cerulean-cloud:dryrun_historical: "" # Make empty "" to turn on historical runs
+  cerulean-cloud:dryrun_relevancy: "" # Make empty "" to turn on recurring runs
+  cerulean-cloud:keyname: prod20240903-cerulean-cloud-api-key
+  cerulean-cloud:titiler_keyname: prod20240903-titiler-api-key
+  db:db-instance: db-custom-4-15360
+  db:db-mem: "599040"
+  db:db-password:
+    secure: v1:3nTUb1x6XlmRI8nM:RMYJGPzPvDJi/aqmD1V8AhR3Nsr3P5Jv8TZ2wZFwFU1EftjdqSw7cRCDf4YYu//EudcJTuW5aty+9eM=
+  db:deletion-protection: "false"
+  gcp:project: cerulean-338116
+  gcp:region: europe-west1
+  gcp:zone: europe-west1-b
+  scihub:password:
+    secure: v1:77jKwh6VgMHCJGRK:WQTJnlF47AhaDzGmE5BCC1XA+LIGR+Ht
+  scihub:username: rodrigo1234

@@ -1,36 +1,15 @@
 # Stage 1
-FROM lambci/lambda:build-python3.8 as builder
+FROM public.ecr.aws/sam/build-python3.9
 
-WORKDIR /tmp
+WORKDIR /var/task
 
-# We install titiler and mangum
-
-COPY cerulean_cloud/titiler_sentinel/ /app/titiler_sentinel/
-
-RUN pip install --no-cache-dir -r /app/titiler_sentinel/requirements.txt -t /var/task
-
-# Reduce package size and remove useless files
-RUN cd /var/task && find . -type f -name '*.pyc' | while read f; do n=$(echo $f | sed 's/__pycache__\///' | sed 's/.cpython-[2-3][0-9]//'); cp $f $n; done;
-RUN cd /var/task && find . -type d -a -name '__pycache__' -print0 | xargs -0 rm -rf
-RUN cd /var/task && find . -type f -a -name '*.py' -print0 | xargs -0 rm -f
-RUN find /var/task -type d -a -name 'tests' -print0 | xargs -0 rm -rf
-RUN rm -rdf /var/task/numpy/doc/
-RUN rm -rdf /var/task/stack
-RUN find /var/task -type d -name "*.dist-info" -exec rm -r {} +
-
-RUN cd /var/task && zip -r9q /tmp/package.zip *
-
-# Stage 2
-FROM lambci/lambda:build-python3.8
-
-WORKDIR /tmp
-
-COPY --from=builder /tmp/package.zip .
-
+COPY cerulean_cloud/titiler_sentinel/requirements.txt ./requirements.txt
 COPY cerulean_cloud/titiler_sentinel/handler.py handler.py
 COPY cerulean_cloud/auth.py auth.py
-RUN mkdir templates
-COPY cerulean_cloud/titiler_sentinel/templates/viewer.html templates/viewer.html
-RUN zip -r9q /tmp/package.zip handler.py
-RUN zip -r9q /tmp/package.zip auth.py
-RUN zip -r9q /tmp/package.zip templates/viewer.html
+COPY cerulean_cloud/titiler_sentinel/templates/ ./templates
+
+# Use after upgrade of Pulumi Docker to >= 4
+# COPY --chown=root:root --chmod=400 Dockerfiles/scripts/titiler-entrypoint.sh /entrypoint.sh
+COPY Dockerfiles/scripts/titiler-entrypoint.sh /entrypoint.sh
+
+ENTRYPOINT [ "/bin/sh", "/entrypoint.sh" ]
