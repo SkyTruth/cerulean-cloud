@@ -24,7 +24,7 @@ from global_land_mask import globe
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
-from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_aaa_queue
+from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
@@ -369,14 +369,8 @@ async def _orchestrate(
                         )
                         print(f"{start_time}: Added slick: {slick}")
 
-                AAA_CONFIDENCE_THRESHOLD = 0.5
-                if any(
-                    feat.get("properties").get("machine_confidence")
-                    > AAA_CONFIDENCE_THRESHOLD
-                    for feat in final_ensemble.get("features")
-                ):
-                    print(f"{start_time}: Queueing up Automatic AIS Analysis")
-                    add_to_aaa_queue(sentinel1_grd.scene_id)
+                print(f"{start_time}: Queueing up Automatic AIS Analysis")
+                add_to_asa_queue(sentinel1_grd.scene_id)
 
         except Exception as e:
             success = False
