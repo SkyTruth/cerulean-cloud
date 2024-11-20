@@ -789,25 +789,6 @@ class AISAnalyzer(SourceAnalyzer):
             GeoDataFrame of slick associations
         """
         # print("Scoring trajectories")
-        # only consider trajectories that intersect slick detections
-        ais_filt = list()
-        weighted_filt = list()
-        buffered_filt = list()
-        for idx, t in enumerate(self.ais_trajectories):
-            w = self.ais_weighted[idx]
-            b = self.ais_buffered.iloc[idx]
-
-            # spatially join the weighted trajectory to the slick
-            b_gdf = gpd.GeoDataFrame(index=[0], geometry=[b.geometry], crs="4326")
-            matches = gpd.sjoin(
-                b_gdf, self.slick_gdf, how="inner", predicate="intersects"
-            )
-            if matches.empty:
-                continue
-            else:
-                ais_filt.append(t)
-                weighted_filt.append(w)
-                buffered_filt.append(b_gdf)
 
         columns = [
             "st_name",
@@ -821,29 +802,58 @@ class AISAnalyzer(SourceAnalyzer):
             "geojson_fc",
         ]
 
+        # Create a GeoDataFrame of buffered trajectories
+        buffered_trajectories_gdf = self.ais_buffered.copy()
+        buffered_trajectories_gdf["id"] = [t.id for t in self.ais_trajectories]
+        buffered_trajectories_gdf.set_index("id", inplace=True)
+
+        # Perform a spatial join between buffered trajectories and slick geometries
+        matches = gpd.sjoin(
+            buffered_trajectories_gdf,
+            self.slick_gdf,
+            how="inner",
+            predicate="intersects",
+        )
+
+        if matches.empty:
+            print("No trajectories intersect the slicks.")
+            self.results = gpd.GeoDataFrame(columns=columns, crs="4326")
+            return self.results
+
+        # Get unique trajectory IDs that intersect slicks
+        intersecting_traj_ids = matches.index.unique()
+
+        # Filter trajectories and weights based on intersecting IDs
+        ais_filt = [t for t in self.ais_trajectories if t.id in intersecting_traj_ids]
+        weighted_filt = [
+            self.ais_weighted[idx]
+            for idx, t in enumerate(self.ais_trajectories)
+            if t.id in intersecting_traj_ids
+        ]
+        buffered_filt = [buffered_trajectories_gdf.loc[[t.id]] for t in ais_filt]
+
         entries = []
         # Skip the loop if weighted_filt is empty
         if weighted_filt:
-            # create trajectory collection from filtered trajectories
+            # Create a trajectory collection from filtered trajectories
             ais_filt = mpd.TrajectoryCollection(ais_filt)
 
-            # iterate over filtered trajectories
+            # Iterate over filtered trajectories
             for t, w, b in zip(ais_filt, weighted_filt, buffered_filt):
-                # compute temporal score
+                # Compute temporal score
                 temporal_score = compute_temporal_score(w, self.slick_gdf)
 
-                # compute overlap score
+                # Compute overlap score
                 overlap_score = compute_overlap_score(
                     b, self.slick_gdf, self.crs_meters
                 )
 
-                # compute distance score between trajectory and slick curve
+                # Compute distance score between trajectory and slick curve
                 distance_score = compute_distance_score(
                     t, self.slick_curves, self.crs_meters, self.ais_ref_dist
                 )
 
-                # compute total score from these three metrics
-
+                # Compute total score from these three metrics
                 coincidence_score = compute_total_score(
                     temporal_score,
                     overlap_score,
@@ -854,7 +864,11 @@ class AISAnalyzer(SourceAnalyzer):
                 )
 
                 print(
-                    f"st_name {t.id}: coincidence_score ({round(coincidence_score, 2)}) = ({self.w_overlap} * overlap_score ({round(overlap_score, 2)}) + {self.w_temporal} * temporal_score ({round(temporal_score, 2)}) + {self.w_distance} * distance_score ({round(distance_score, 2)})) / ({self.w_overlap + self.w_temporal + self.w_distance})"
+                    f"st_name {t.id}: coincidence_score ({round(coincidence_score, 2)}) = "
+                    f"({self.w_overlap} * overlap_score ({round(overlap_score, 2)}) + "
+                    f"{self.w_temporal} * temporal_score ({round(temporal_score, 2)}) + "
+                    f"{self.w_distance} * distance_score ({round(distance_score, 2)})) / "
+                    f"({self.w_overlap + self.w_temporal + self.w_distance})"
                 )
 
                 entry = {
@@ -864,15 +878,15 @@ class AISAnalyzer(SourceAnalyzer):
                         [p.coords[0] for p in t.df["geometry"]]
                     ),
                     "coincidence_score": coincidence_score,
-                    "type": 1,  # vessel
+                    "type": 1,  # Vessel
                     "ext_name": t.ext_name,
                     "ext_shiptype": t.ext_shiptype,
                     "flag": t.flag,
                     "geojson_fc": t.geojson_fc,
                 }
                 entries.append(entry)
-        sources = gpd.GeoDataFrame(entries, columns=columns, crs="4326")
 
+        sources = gpd.GeoDataFrame(entries, columns=columns, crs="4326")
         self.results = sources[sources["coincidence_score"] > 0]
         return self.results
 
