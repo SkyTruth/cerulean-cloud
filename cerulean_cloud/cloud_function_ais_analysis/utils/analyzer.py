@@ -409,7 +409,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         # Return a DataFrame with infra_gdf and coincidence_scores
         self.results = self.infra_gdf.copy()
         self.results["coincidence_score"] = self.coincidence_scores
-        self.results = self.results[self.results["coincidence_score"] > 0]
+
         self.results["geojson_fc"] = self.infra_gdf["geometry"].apply(
             lambda geom: {
                 "type": "FeatureCollection",
@@ -423,7 +423,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
                 ],
             }
         )
-
+        self.results = self.results[self.results["coincidence_score"] > 0]
         self.results["collated_score"] = (
             self.results["coincidence_score"] - self.coinc_mean
         ) / self.coinc_std
