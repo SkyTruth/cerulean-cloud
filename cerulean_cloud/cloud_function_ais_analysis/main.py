@@ -83,8 +83,8 @@ async def handle_asa_request(request):
                 slicks = await db_client.get_slicks_from_scene_id(
                     scene_id, with_sources=overwrite_previous
                 )
-                for slick in slicks:
-                    if overwrite_previous:
+                if overwrite_previous:
+                    for slick in slicks:
                         await db_client.deactivate_sources_for_slick(slick.id)
 
             print(f"# Slicks found: {len(slicks)}")
