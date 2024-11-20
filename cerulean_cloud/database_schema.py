@@ -520,6 +520,7 @@ class SlickToSource(Base):  # noqa
     )
     slick = Column(ForeignKey("slick.id"), nullable=False)
     source = Column(ForeignKey("source.id"), nullable=False)
+    active = Column(Boolean, nullable=False)
     coincidence_score = Column(Float(53))
     collated_score = Column(Float(53))
     rank = Column(BigInteger)

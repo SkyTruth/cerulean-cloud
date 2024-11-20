@@ -83,6 +83,9 @@ async def handle_asa_request(request):
                 slicks = await db_client.get_slicks_from_scene_id(
                     scene_id, with_sources=overwrite_previous
                 )
+                if overwrite_previous:
+                    for slick in slicks:
+                        await db_client.deactivate_sources_for_slick(slick.id)
 
             print(f"# Slicks found: {len(slicks)}")
             if len(slicks) > 0:
@@ -124,6 +127,7 @@ async def handle_asa_request(request):
                                 await db_client.insert_slick_to_source(
                                     source=source.id,
                                     slick=slick.id,
+                                    active=True,
                                     coincidence_score=source_row["coincidence_score"],
                                     collated_score=source_row["collated_score"],
                                     rank=idx + 1,
