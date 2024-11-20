@@ -264,6 +264,7 @@ class DatabaseClient:
         """
         query = (
             select(db.Slick)
+            .distinct()
             .outerjoin(db.SlickToSource, db.Slick.id == db.SlickToSource.slick)
             .join(db.OrchestratorRun)
             .join(db.Sentinel1Grd)
@@ -347,5 +348,13 @@ class DatabaseClient:
 
         # Return the number of rows updated
         return result.rowcount
+
+    async def deactivate_sources_for_slick(self, slick_id):
+        """deactivate sources for slick"""
+        await self.session.execute(
+            update(db.SlickToSource)
+            .where(db.SlickToSource.slick == slick_id)
+            .values(active=False)
+        )
 
     # EditTheDatabase
