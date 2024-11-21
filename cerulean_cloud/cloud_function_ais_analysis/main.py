@@ -3,6 +3,7 @@
 
 import asyncio
 import os
+import random
 
 import geopandas as gpd
 import pandas as pd
@@ -85,11 +86,13 @@ async def handle_asa_request(request):
                 )
                 if overwrite_previous:
                     for slick in slicks:
+                        print(f"Deactivating sources for slick {slick.id}")
                         await db_client.deactivate_sources_for_slick(slick.id)
 
-            print(f"# Slicks found: {len(slicks)}")
+            print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
             if len(slicks) > 0:
                 analyzers = [ASA_MAPPING[source](s1_scene) for source in run_flags]
+                random.shuffle(slicks)  # Allows rerunning a scene to skip bugs
                 for slick in slicks:
                     # Convert slick geometry to GeoDataFrame
                     slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
