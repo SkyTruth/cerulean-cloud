@@ -241,10 +241,11 @@ for slick_id in slick_ids:
     geojson_file_path = download_geojson(slick_id)
     slick_gdf = gpd.read_file(geojson_file_path)
     s1_scene = get_s1_scene(slick_gdf.s1_scene_id.iloc[0])
+    print(s1_scene.scene_id)
 
     source_types = []
     source_types += ["infra"]
-    # source_types += ["ais"]
+    source_types += ["ais"]
     if not (  # If the last analyzer is for the same scene, reuse it
         analyzers
         and next(iter(analyzers.items()))[1].s1_scene.scene_id == s1_scene.scene_id
@@ -278,9 +279,11 @@ for slick_id in slick_ids:
     if "infra" in analyzers:
         plot_coincidence(analyzers["infra"], slick_id)
 
-    print(ranked_sources[["type", "st_name", "collated_score"]].head())
-
-    print(ranked_sources.head())
+    print(
+        ranked_sources[
+            ["type", "st_name", "collated_score", "coincidence_score"]
+        ].head()
+    )
 # print(accumulated_sources)
 # %%
 fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)

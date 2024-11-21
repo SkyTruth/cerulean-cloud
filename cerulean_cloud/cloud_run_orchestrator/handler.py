@@ -369,7 +369,7 @@ async def _orchestrate(
                         )
                         print(f"{start_time}: Added slick: {slick}")
 
-                print(f"{start_time}: Queueing up Automatic AIS Analysis")
+                print(f"{start_time}: Queueing up Automatic Source Analysis")
                 add_to_asa_queue(sentinel1_grd.scene_id)
 
         except Exception as e:
