@@ -17,7 +17,7 @@ from utils import construct_name, pulumi_create_zip
 stack = pulumi.get_stack()
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
-    construct_name("bucket-cf-ais"),
+    construct_name("bucket-cf2-ais"),
     location="EU",
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
@@ -43,7 +43,7 @@ queue = cloudtasks.Queue(
 )
 
 
-function_name = construct_name("cf-ais")
+function_name = construct_name("cf2-ais")
 config_values = {
     "DB_URL": database.sql_instance_url_with_asyncpg,
 }
@@ -60,7 +60,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # Create the single Cloud Storage object, which contains all of the function's
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
-    construct_name("source-cf-ais"),
+    construct_name("source-cf2-ais"),
     name=f"handler.py-{time.time():f}",
     bucket=bucket.name,
     source=archive,
@@ -68,13 +68,13 @@ source_archive_object = storage.BucketObject(
 
 # Assign access to cloud SQL
 cloud_function_service_account = serviceaccount.Account(
-    construct_name("cf-ais"),
-    account_id=f"{stack}-cf-ais",
+    construct_name("cf2-ais"),
+    account_id=f"{stack}-cf2-ais",
     display_name="Service Account for cloud function.",
 )
 
 cloud_function_service_account_iam = projects.IAMMember(
-    construct_name("cf-ais-iam"),
+    construct_name("cf2-ais-iam"),
     project=pulumi.Config("gcp").require("project"),
     role="projects/cerulean-338116/roles/cloudfunctionaisanalysisrole",
     member=cloud_function_service_account.email.apply(
@@ -126,7 +126,7 @@ fxn = cloudfunctionsv2.Function(
 )
 
 invoker = cloudrun.IamMember(
-    construct_name("cf-ais-invoker"),
+    construct_name("cf2-ais-invoker"),
     service=fxn.name,
     location=fxn.location,
     role="roles/run.invoker",
