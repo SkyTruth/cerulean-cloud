@@ -110,7 +110,7 @@ async def handle_asa_request(request):
                     )
                     if len(ranked_sources) > 0:
                         ranked_sources = ranked_sources.sort_values(
-                            "coincidence_score", ascending=False
+                            "collated_score", ascending=False
                         ).reset_index(drop=True)
                         async with db_client.session.begin():
                             for idx, source_row in ranked_sources.iloc[:5].iterrows():
