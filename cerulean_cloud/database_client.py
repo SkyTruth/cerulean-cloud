@@ -357,4 +357,18 @@ class DatabaseClient:
             .values(active=False)
         )
 
+    async def get_previous_asa(self, slick):
+        """Return a list of ASA types that have been run for a slick."""
+        return (
+            (
+                await self.session.execute(
+                    select(db.Source.type)
+                    .join(db.SlickToSource.source1)
+                    .where(db.SlickToSource.slick == slick)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
     # EditTheDatabase

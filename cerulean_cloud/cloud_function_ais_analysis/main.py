@@ -74,24 +74,42 @@ async def handle_asa_request(request):
     request_json = request.get_json()
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
-        run_flags = request_json.get("run_flags", ["ais", "infra", "dark"])
+        run_flags_empty = not request_json.get("run_flags", False)
+        run_flags = request_json.get(
+            "run_flags", ASA_MAPPING.keys()  # expects list of integers
+        )
         overwrite_previous = request_json.get("overwrite_previous", False)
         print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
         db_engine = get_engine(db_url=os.getenv("DB_URL"))
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
                 s1_scene = await db_client.get_scene_from_id(scene_id)
-                slicks = await db_client.get_slicks_from_scene_id(
-                    scene_id, with_sources=overwrite_previous
-                )
+                slicks = await db_client.get_slicks_from_scene_id(scene_id)
                 if overwrite_previous:
                     for slick in slicks:
                         print(f"Deactivating sources for slick {slick.id}")
                         await db_client.deactivate_sources_for_slick(slick.id)
+                previous_asa = [
+                    asa_type
+                    for slick_results in await asyncio.gather(
+                        *(db_client.get_previous_asa(slick) for slick in slicks)
+                    )
+                    for asa_type in slick_results
+                ]
 
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
             if len(slicks) > 0:
-                analyzers = [ASA_MAPPING[source](s1_scene) for source in run_flags]
+                if run_flags_empty:
+                    # default behavior is to run all ASA types that haven't been run yet
+                    # if run_flags are provided, we will run those ASA types independently of whether they've been run before
+                    run_flags = [
+                        asa_type
+                        for asa_type in run_flags
+                        if asa_type not in previous_asa
+                    ]
+                analyzers = [
+                    ASA_MAPPING[source_type](s1_scene) for source_type in run_flags
+                ]
                 random.shuffle(slicks)  # Allows rerunning a scene to skip bugs
                 for slick in slicks:
                     # Convert slick geometry to GeoDataFrame
