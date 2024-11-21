@@ -4,7 +4,14 @@ import time
 
 import database
 import pulumi
-from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
+from pulumi_gcp import (
+    cloudfunctionsv2,
+    cloudrun,
+    cloudtasks,
+    projects,
+    serviceaccount,
+    storage,
+)
 from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
@@ -75,45 +82,54 @@ cloud_function_service_account_iam = projects.IAMMember(
     ),
 )
 
-gfw_credentials = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
-    key="GOOGLE_APPLICATION_CREDENTIALS",
-    secret=pulumi.Config("ais").require("credentials"),
-    version="latest",
-    project_id=pulumi.Config("gcp").require("project"),
-)
+# Secret environment variables
+gfw_credentials = {
+    "key": "GOOGLE_APPLICATION_CREDENTIALS",
+    "secret": pulumi.Config("ais").require("credentials"),
+    "version": "latest",
+    "project_id": pulumi.Config("gcp").require("project"),
+}
 
+api_key = {
+    "key": "API_KEY",
+    "secret": pulumi.Config("cerulean-cloud").require("keyname"),
+    "version": "latest",
+    "project_id": pulumi.Config("gcp").require("project"),
+}
 
-api_key = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
-    key="API_KEY",
-    secret=pulumi.Config("cerulean-cloud").require("keyname"),
-    version="latest",
-    project_id=pulumi.Config("gcp").require("project"),
-)
-
-fxn = cloudfunctions.Function(
+fxn = cloudfunctionsv2.Function(
     function_name,
     name=function_name,
-    entry_point="main",
-    environment_variables=config_values,
-    region=pulumi.Config("gcp").require("region"),
-    runtime="python39",
-    source_archive_bucket=bucket.name,
-    source_archive_object=source_archive_object.name,
-    trigger_http=True,
-    service_account_email=cloud_function_service_account.email,
-    available_memory_mb=4096,
-    timeout=1800,
-    secret_environment_variables=[gfw_credentials, api_key],
+    location=pulumi.Config("gcp").require("region"),
+    description="Cloud function to find slick culprits from AIS tracks",
+    build_config={
+        "runtime": "python39",
+        "entry_point": "main",
+        "source": {
+            "storage_source": {
+                "bucket": bucket.name,
+                "object": source_archive_object.name,
+            },
+        },
+    },
+    service_config={
+        "available_memory": "4096M",
+        "timeout_seconds": 1800,
+        "service_account_email": cloud_function_service_account.email,
+        "environment_variables": config_values,
+        "secret_environment_variables": [gfw_credentials, api_key],
+        "ingress_settings": "ALLOW_ALL",
+    },
     opts=pulumi.ResourceOptions(
         depends_on=[cloud_function_service_account_iam],
     ),
 )
 
-invoker = cloudfunctions.FunctionIamMember(
+invoker = cloudrun.IamMember(
     construct_name("cf-ais-invoker"),
-    project=fxn.project,
-    region=fxn.region,
-    cloud_function=fxn.name,
-    role="roles/cloudfunctions.invoker",
+    service=fxn.name,
+    location=fxn.location,
+    role="roles/run.invoker",
     member="allUsers",
+    opts=pulumi.ResourceOptions(depends_on=[fxn]),
 )
