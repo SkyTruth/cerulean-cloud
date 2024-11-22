@@ -335,7 +335,7 @@ class DatabaseClient:
                     .where(
                         and_(
                             db.Sentinel1Grd.scene_id == scene_id,
-                            db.Slick.active == True,  # noqa
+                            db.Slick.active.is_(True),
                         )
                     )
                 )
@@ -364,7 +364,12 @@ class DatabaseClient:
                 await self.session.execute(
                     select(db.Source.type)
                     .join(db.SlickToSource.source1)
-                    .where(db.SlickToSource.slick == slick_id)
+                    .where(
+                        and_(
+                            db.SlickToSource.slick == slick_id,
+                            db.SlickToSource.active.is_(True),
+                        )
+                    )
                 )
             )
             .scalars()
