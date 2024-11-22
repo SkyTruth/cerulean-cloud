@@ -357,14 +357,14 @@ class DatabaseClient:
             .values(active=False)
         )
 
-    async def get_previous_asa(self, slick):
+    async def get_previous_asa(self, slick_id):
         """Return a list of ASA types that have been run for a slick."""
         return (
             (
                 await self.session.execute(
                     select(db.Source.type)
                     .join(db.SlickToSource.source1)
-                    .where(db.SlickToSource.slick == slick)
+                    .where(db.SlickToSource.slick.id == slick_id)
                 )
             )
             .scalars()
