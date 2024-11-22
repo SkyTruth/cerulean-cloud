@@ -88,14 +88,16 @@ async def handle_asa_request(request):
             async with db_client.session.begin():
                 s1_scene = await db_client.get_scene_from_id(scene_id)
                 slicks = await db_client.get_slicks_from_scene_id(scene_id)
-                if overwrite_previous:
-                    for slick in slicks:
+                previous_asa = {}
+                for slick in slicks:
+                    if overwrite_previous:
                         print(f"Deactivating sources for slick {slick.id}")
                         await db_client.deactivate_sources_for_slick(slick.id)
-                previous_asa = {
-                    slick.id: await db_client.get_previous_asa(slick.id)
-                    for slick in slicks
-                }
+                        previous_asa[slick.id] = []
+                    else:
+                        previous_asa[slick.id] = await db_client.get_previous_asa(
+                            slick.id
+                        )
 
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
@@ -110,6 +112,11 @@ async def handle_asa_request(request):
                         for analyzer in analyzers
                         if analyzer.source_type not in previous_asa[slick.id]
                     ]
+                    print("len(analyzers_to_run)", len(analyzers_to_run))
+                    print(
+                        "analyzers_to_run",
+                        [analyzer.source_type for analyzer in analyzers_to_run],
+                    )
                     if len(analyzers_to_run) == 0:
                         continue
 
