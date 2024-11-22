@@ -335,7 +335,7 @@ class DatabaseClient:
                     .where(
                         and_(
                             db.Sentinel1Grd.scene_id == scene_id,
-                            db.Slick.active.is_(True),
+                            db.Slick.active,
                         )
                     )
                 )
@@ -367,7 +367,7 @@ class DatabaseClient:
                     .where(
                         and_(
                             db.SlickToSource.slick == slick_id,
-                            db.SlickToSource.active.is_(True),
+                            db.SlickToSource.active,
                         )
                     )
                 )
