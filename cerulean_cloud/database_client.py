@@ -364,7 +364,7 @@ class DatabaseClient:
                 await self.session.execute(
                     select(db.Source.type)
                     .join(db.SlickToSource.source1)
-                    .where(db.SlickToSource.slick.id == slick_id)
+                    .where(db.SlickToSource.slick == slick_id)
                 )
             )
             .scalars()
