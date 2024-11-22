@@ -112,11 +112,6 @@ async def handle_asa_request(request):
                         for analyzer in analyzers
                         if analyzer.source_type not in previous_asa[slick.id]
                     ]
-                    print("len(analyzers_to_run)", len(analyzers_to_run))
-                    print(
-                        "analyzers_to_run",
-                        [analyzer.source_type for analyzer in analyzers_to_run],
-                    )
                     if len(analyzers_to_run) == 0:
                         continue
 
