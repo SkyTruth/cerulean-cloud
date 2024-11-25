@@ -355,6 +355,7 @@ def upgrade() -> None:
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
         sa.Column("source", sa.BigInteger, sa.ForeignKey("source.id"), nullable=False),
         sa.Column("active", sa.Boolean, nullable=False),
+        sa.Column("git_hash", sa.Text),
         sa.Column("coincidence_score", sa.Float),
         sa.Column("collated_score", sa.Float),
         sa.Column("rank", sa.BigInteger),

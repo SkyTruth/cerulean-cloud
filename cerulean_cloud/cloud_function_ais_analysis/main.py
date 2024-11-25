@@ -152,6 +152,7 @@ async def handle_asa_request(request):
                                     source=source.id,
                                     slick=slick.id,
                                     active=True,
+                                    git_hash=os.getenv("GIT_HASH"),
                                     coincidence_score=source_row["coincidence_score"],
                                     collated_score=source_row["collated_score"],
                                     rank=idx + 1,
