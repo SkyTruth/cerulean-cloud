@@ -124,10 +124,10 @@ class InfrastructureAnalyzer(SourceAnalyzer):
 
         if self.infra_gdf is None:
             self.infra_api_token = os.getenv("INFRA_API_TOKEN")
-            self.infra_gdf = self.load_infrastructure_data()
+            self.infra_gdf = self.load_infrastructure_data_api()
         self.coincidence_scores = np.zeros(len(self.infra_gdf))
 
-    def load_infrastructure_data(self, only_oil=True):
+    def load_infrastructure_data_csv(self, only_oil=True):
         """
         Loads infrastructure data from a CSV file.
         """
