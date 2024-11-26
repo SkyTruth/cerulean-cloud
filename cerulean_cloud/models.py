@@ -5,6 +5,7 @@ These classes are designed to load models, make predictions, stack results,
 and stitch together inference outputs for geospatial analysis.
 """
 
+import gc
 import json
 import logging
 import os
@@ -1039,6 +1040,8 @@ class FASTAIUNETModel(BaseModel):
                 )
             )
 
+        del p1_islands
+        gc.collect()
         return features
 
 
