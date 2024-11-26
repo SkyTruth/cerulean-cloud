@@ -2,6 +2,8 @@
 Utilities for calculating scoring metrics between AIS trajectories and oil slick detections
 """
 
+import math
+
 import geopandas as gpd
 import movingpandas as mpd
 import shapely.geometry
@@ -9,8 +11,11 @@ import shapely.ops
 from shapely import frechet_distance
 
 
-def compute_frechet_distance(
-    traj: mpd.Trajectory, curves: gpd.GeoDataFrame, crs_meters: str
+def compute_distance_score(
+    traj: mpd.Trajectory,
+    curves: gpd.GeoDataFrame,
+    crs_meters: str,
+    ais_ref_dist: float,
 ):
     """
     Compute the frechet distance between an AIS trajectory and an oil slick curve
@@ -67,7 +72,9 @@ def compute_frechet_distance(
     traj_line_clip = shapely.geometry.LineString(traj_points)
     dist = frechet_distance(traj_line_clip, curve)
 
-    return dist
+    frechet_score = math.exp(-dist / ais_ref_dist)
+
+    return frechet_score
 
 
 def compute_temporal_score(
@@ -85,11 +92,9 @@ def compute_temporal_score(
     # spatially join the weighted convex hulls to the slick geometry
     matches = gpd.sjoin(weighted_traj, slick_gdf, how="inner", predicate="intersects")
 
-    temporal_score = 0.0
-    if not matches.empty:
-        # take the sum of the weights of the matched convex hulls
-        # Sums to 1 if all hulls intersect the slick
-        temporal_score = matches["weight"].sum()
+    # take the sum of the weights of the matched convex hulls
+    # Sums to 1 if all hulls intersect the slick
+    temporal_score = matches["weight"].sum() if not matches.empty else 0.0
 
     return temporal_score
 
@@ -108,26 +113,51 @@ def compute_overlap_score(
     Returns:
         float: overlap score between buffered_traj and slick
     """
-    buffered_traj = buffered_traj.to_crs(crs_meters).iloc[0]["geometry"]
-    slick = slick_gdf.to_crs(crs_meters).iloc[0]["geometry"]
-    overlap_score = slick.intersection(buffered_traj).area / slick.area
+
+    buffered_traj = buffered_traj.to_crs(crs_meters)
+    slick_gdf = slick_gdf.to_crs(crs_meters)
+    slick_area = slick_gdf.unary_union.area
+    intersection = buffered_traj.overlay(slick_gdf, how="intersection")
+    intersection_area = intersection.unary_union.area
+
+    overlap_score = intersection_area / slick_area
     # XXX this strongly benefits smaller slicks
     return overlap_score
 
 
 def compute_total_score(
-    temporal_score: float, overlap_score: float, frechet_dist: float
+    temporal_score: float,
+    overlap_score: float,
+    distance_score: float,
+    w_temporal: float,
+    w_overlap: float,
+    w_distance: float,
 ):
     """
-    Compute the total score by combining the temporal score, overlap score, and frechet distance
-    The final weights were determined by a coarse grid search
+    Compute the weighted total score.
 
     Args:
         temporal_score (float): temporal score between a weighted AIS trajectory and an oil slick
         overlap_score (float): overlap score between a buffered AIS trajectory and an oil slick
-        frechet_dist (float): frechet distance between an AIS trajectory and an oil slick curve
+        distance_score (float): distance score between an AIS trajectory and an oil slick curve
+        w_temporal (float): Weight for the temporal score.
+        w_overlap (float): Weight for the overlap score.
+        w_distance (float): Weight for the distance score.
+
     Returns:
-        float: total weighted score between a weighted AIS trajectory and an oil slick
+        float: Weighted total score between 0 and 1.
     """
-    total_score = overlap_score * temporal_score + 2000.0 / frechet_dist
+    # Normalize weights
+    total_weight = w_temporal + w_overlap + w_distance
+    w_temporal /= total_weight
+    w_overlap /= total_weight
+    w_distance /= total_weight
+
+    # Compute weighted sum
+    total_score = (
+        w_temporal * temporal_score
+        + w_overlap * overlap_score
+        + w_distance * distance_score
+    )
+
     return total_score

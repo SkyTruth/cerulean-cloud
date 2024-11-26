@@ -27,7 +27,7 @@ from global_land_mask import globe
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
-from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_aaa_queue
+from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
@@ -283,7 +283,11 @@ async def _orchestrate(
         )
         return OrchestratorResult(status=str(e))
 
-    print(f"{start_time}: Tileset contains after landfilter: ~{n_offsettiles} tiles")
+    n_offsettiles_after = len(tileset_list[0])
+
+    print(
+        f"{start_time}: Tileset contains after landfilter: ~{n_offsettiles_after} tiles"
+    )
 
     if not any(set for set in tileset_list):
         # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
@@ -378,60 +382,73 @@ async def _orchestrate(
             features=tileset_fc_list, min_overlaps_to_keep=1
         )
 
-        if final_ensemble.get("features"):
-            LAND_MASK_BUFFER_M = 1000
-            print(
-                f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
+        # Stitch inferences
+        print(f"Stitching results: {start_time}")
+        model = get_model(model_dict)
+        tileset_fc_list = []
+
+        for tileset_results, tileset_bounds in zip(tileset_results_list, tileset_list):
+            if tileset_results and tileset_bounds:
+                fc = model.postprocess_tileset(
+                    tileset_results, [[b] for b in tileset_bounds]
+                )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+                tileset_fc_list.append(fc)
+
+        # Ensemble inferences
+        print(f"Ensembling results: {start_time}")
+        final_ensemble = model.nms_feature_reduction(
+            features=tileset_fc_list, min_overlaps_to_keep=1
+        )
+        LAND_MASK_BUFFER_M = 1000
+        print(f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land")
+        landmask_gdf = get_landmask_gdf()
+        for feat in final_ensemble.get("features"):
+            buffered_gdf = gpd.GeoDataFrame(
+                geometry=[shape(feat["geometry"])], crs="4326"
             )
-            landmask_gdf = get_landmask_gdf()
-            for feat in final_ensemble.get("features"):
-                buffered_gdf = gpd.GeoDataFrame(
-                    geometry=[shape(feat["geometry"])], crs="4326"
-                )
-                crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
-                buffered_gdf["geometry"] = (
-                    buffered_gdf.to_crs(crs_meters)
-                    .buffer(LAND_MASK_BUFFER_M)
-                    .to_crs("4326")
-                )
-                intersecting_land = gpd.sjoin(
-                    landmask_gdf,
-                    buffered_gdf,
-                    how="inner",
-                    predicate="intersects",
-                )
-                if not intersecting_land.empty:
-                    feat["properties"]["inf_idx"] = model.background_class_idx
+            crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
+            buffered_gdf["geometry"] = (
+                buffered_gdf.to_crs(crs_meters)
+                .buffer(LAND_MASK_BUFFER_M)
+                .to_crs("4326")
+            )
+            intersecting_land = gpd.sjoin(
+                landmask_gdf,
+                buffered_gdf,
+                how="inner",
+                predicate="intersects",
+            )
+            if not intersecting_land.empty:
+                feat["properties"]["inf_idx"] = model.background_class_idx
 
-                del buffered_gdf, crs_meters, intersecting_land
-                gc.collect()  # Force garbage collection
+            del buffered_gdf, crs_meters, intersecting_land
+            gc.collect()  # Force garbage collection
 
-            # Removed all preprocessing of features from within the
-            # database session to avoid holding locks on the
-            # table while performing un-related calculations.
-            async with DatabaseClient(db_engine) as db_client:
-                async with db_client.session.begin():
-                    for feat in final_ensemble.get("features"):
-                        slick = await db_client.add_slick(
-                            orchestrator_run,
-                            sentinel1_grd.start_time,
-                            feat.get("geometry"),
-                            feat.get("properties").get("inf_idx"),
-                            feat.get("properties").get("machine_confidence"),
-                        )
-                        print(f"{start_time}: Added slick: {slick}")
+        # Removed all preprocessing of features from within the
+        # database session to avoid holding locks on the
+        # table while performing un-related calculations.
+        async with DatabaseClient(db_engine) as db_client:
+            async with db_client.session.begin():
+                for feat in final_ensemble.get("features"):
+                    slick = await db_client.add_slick(
+                        orchestrator_run,
+                        sentinel1_grd.start_time,
+                        feat.get("geometry"),
+                        feat.get("properties").get("inf_idx"),
+                        feat.get("properties").get("machine_confidence"),
+                    )
+                    print(f"{start_time}: Added slick: {slick}")
 
-            AAA_CONFIDENCE_THRESHOLD = 0.5
-            if any(
-                feat.get("properties").get("machine_confidence")
-                > AAA_CONFIDENCE_THRESHOLD
-                for feat in final_ensemble.get("features")
-            ):
                 print(f"{start_time}: Queueing up Automatic AIS Analysis")
-                add_to_aaa_queue(sentinel1_grd.scene_id)
-            del landmask_gdf
+                add_to_asa_queue(sentinel1_grd.scene_id)
 
-        del (final_ensemble, tileset_fc_list, tileset_results_list, tileset_list)
+        del (
+            final_ensemble,
+            tileset_fc_list,
+            tileset_results_list,
+            tileset_list,
+            landmask_gdf,
+        )
         gc.collect()  # Force garbage collection
 
     except Exception as e:

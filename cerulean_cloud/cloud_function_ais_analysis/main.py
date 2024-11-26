@@ -3,17 +3,13 @@
 
 import asyncio
 import os
+import random
 
 import geopandas as gpd
 import pandas as pd
 from flask import abort
 from shapely import wkb
-from utils.ais import AISConstructor
-from utils.associate import (
-    associate_ais_to_slick,
-    associate_infra_to_slick,
-    slick_to_curves,
-)
+from utils.analyzer import ASA_MAPPING
 
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 
@@ -58,7 +54,7 @@ def main(request):
 
     Notes:
         - This function sets up an asyncio event loop and delegates the actual
-          request handling to `handle_aaa_request`.
+          request handling to `handle_asa_request`.
         - It's important to set up a new event loop if the function is running
           in a context where the default event loop is not available (e.g., in some WSGI servers).
     """
@@ -66,132 +62,109 @@ def main(request):
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        res = loop.run_until_complete(handle_aaa_request(request))
+        res = loop.run_until_complete(handle_asa_request(request))
     finally:
         loop.close()  # Ensure the event loop is properly closed
     return res
 
 
-async def handle_aaa_request(request):
+async def handle_asa_request(request):
     """
-    Asynchronously handles the main logic of Automatic AIS Analysis (AAA) for a given scene.
+    Asynchronously handles the main logic of Automatic Source Analysis (ASA) for a given scene.
 
     Args:
         request (flask.Request): The incoming HTTP request object containing scene information.
 
     Returns:
         str: A string "Success!" upon successful completion.
-
-    Notes:
-        - The function gets scene information from the request.
-        - It uses the `DatabaseClient` for database operations.
     """
     request_json = request.get_json()
-
-    if request_json.get("dry_run"):
-        return "Success!"
-
-    scene_id = request_json.get("scene_id")
-    if not scene_id:
-        abort(400, description="Bad Request: 'scene_id' is required.")
-
-    print(f"Running AAA on scene_id: {scene_id}")
-
-    # Use the globally initialized engine
-    async with DatabaseClient(DB_ENGINE) as db_client:
-        async with db_client.session.begin():
-            s1 = await db_client.get_scene_from_id(scene_id)
-            if not s1:
-                abort(404, description=f"Scene with ID {scene_id} not found.")
-            AAA_CONFIDENCE_THRESHOLD = 0.5
-            slicks_without_sources = (
-                await db_client.get_slicks_without_sources_from_scene_id(
-                    scene_id, AAA_CONFIDENCE_THRESHOLD
-                )
+    if not request_json.get("dry_run"):
+        scene_id = request_json.get("scene_id")
+        run_flags = request_json.get("run_flags")  # expects list of integers
+        if not run_flags:
+            run_flags = list(ASA_MAPPING.keys())
+        elif any(run_flag not in ASA_MAPPING.keys() for run_flag in run_flags):
+            raise ValueError(
+                f"Invalid run_flag provided. {run_flags} not in {ASA_MAPPING.keys()}"
             )
-            print(f"# Slicks found: {len(slicks_without_sources)}")
-            if len(slicks_without_sources) > 0:
-                aisc = AISConstructor(s1)
-                aisc.retrieve_ais()
-                print("AIS retrieved")
-                if not aisc.ais_gdf.empty:
-                    aisc.build_trajectories()
-                    aisc.buffer_trajectories()
-                    # We only load infra AFTER we've confirmed there are AIS points, otherwise get_slicks_without_sources_from_scene_id would prevent AIS tracks from being processed later
-                    aisc.load_infra("20231103_all_infrastructure_v20231103.csv")
-                    for slick in slicks_without_sources:
-                        source_associations = automatic_source_analysis(aisc, slick)
-                        print(
-                            f"{len(source_associations)} found for Slick ID: {slick.id}"
-                        )
-                        if len(source_associations) > 0:
-                            # XXX What to do if len(ais_associations)==0 and no sources are associated?
-                            # Then it will trigger another round of this process later! (unnecessary computation)
-                            RECORD_NUM_SOURCES = 5  # XXX Magic number 5 = number of sources to record for each slick
-                            for idx, traj in source_associations.iloc[
-                                :RECORD_NUM_SOURCES
-                            ].iterrows():
-                                source = await db_client.get_source(
-                                    st_name=traj["st_name"]
-                                )
-                                if source is None:
-                                    source = await db_client.insert_source_from_traj(
-                                        traj
-                                    )
-                                await db_client.session.flush()
 
-                                traj["geometry"] = (
-                                    traj["geometry"]
-                                    if isinstance(traj["geometry"], str)
-                                    else traj["geometry"].wkt
+        overwrite_previous = request_json.get("overwrite_previous", False)
+        db_engine = get_engine(db_url=os.getenv("DB_URL"))
+        async with DatabaseClient(db_engine) as db_client:
+            async with db_client.session.begin():
+                s1_scene = await db_client.get_scene_from_id(scene_id)
+                slicks = await db_client.get_slicks_from_scene_id(scene_id)
+                previous_asa = {}
+                for slick in slicks:
+                    if overwrite_previous:
+                        print(f"Deactivating sources for slick {slick.id}")
+                        await db_client.deactivate_sources_for_slick(slick.id)
+                        previous_asa[slick.id] = []
+                    else:
+                        previous_asa[slick.id] = await db_client.get_previous_asa(
+                            slick.id
+                        )
+
+            print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
+            print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
+            if len(slicks) > 0:
+                analyzers = [
+                    ASA_MAPPING[source_type](s1_scene) for source_type in run_flags
+                ]
+                random.shuffle(slicks)  # Allows rerunning a scene to skip bugs
+                for slick in slicks:
+                    analyzers_to_run = [
+                        analyzer
+                        for analyzer in analyzers
+                        if analyzer.source_type not in previous_asa[slick.id]
+                    ]
+                    if len(analyzers_to_run) == 0:
+                        continue
+
+                    # Convert slick geometry to GeoDataFrame
+                    slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
+                    slick_gdf = gpd.GeoDataFrame({"geometry": [slick_geom]}, crs="4326")
+                    ranked_sources = pd.DataFrame()
+
+                    for analyzer in analyzers_to_run:
+                        res = analyzer.compute_coincidence_scores(slick_gdf)
+                        ranked_sources = pd.concat(
+                            [ranked_sources, res], ignore_index=True
+                        )
+
+                    print(
+                        f"{len(ranked_sources)} sources found for Slick ID: {slick.id}"
+                    )
+                    if len(ranked_sources) > 0:
+                        ranked_sources = ranked_sources.sort_values(
+                            "collated_score", ascending=False
+                        ).reset_index(drop=True)
+                        async with db_client.session.begin():
+                            for idx, source_row in ranked_sources.iloc[:5].iterrows():
+                                # Only record the the top 5 ranked sources XXXMAGIC
+
+                                source = await db_client.get_or_insert_ranked_source(
+                                    source_row
+                                )
+
+                                source_row["geometry"] = (
+                                    source_row["geometry"]
+                                    if isinstance(source_row["geometry"], str)
+                                    else source_row["geometry"].wkt
                                 )  # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
 
+                                # Insert slick to source association
                                 await db_client.insert_slick_to_source(
                                     source=source.id,
                                     slick=slick.id,
-                                    coincidence_score=traj["coincidence_score"],
+                                    active=True,
+                                    git_hash=os.getenv("GIT_HASH"),
+                                    coincidence_score=source_row["coincidence_score"],
+                                    collated_score=source_row["collated_score"],
                                     rank=idx + 1,
-                                    geojson_fc=traj["geojson_fc"],
-                                    geometry=traj["geometry"],
+                                    geojson_fc=source_row.get("geojson_fc"),
+                                    geometry=source_row["geometry"],
                                 )
 
     return "Success!"
-
-
-def automatic_source_analysis(aisc, slick):
-    """
-    Perform automatic analysis to associate AIS trajectories with slicks.
-
-    Parameters:
-        aisc (ais_constructor): An instance of the ais_constructor class.
-        slick (GeoDataFrame): A GeoDataFrame containing the slick geometries.
-
-    Returns:
-        DataFrame: The AIS-slick associations sorted and grouped by slick index.
-    """
-    slick_gdf = gpd.GeoDataFrame(
-        {"geometry": [wkb.loads(str(slick.geometry)).buffer(0)]}, crs="4326"
-    )
-    _, slick_curves = slick_to_curves(slick_gdf, aisc.crs_meters)
-
-    ais_associations = associate_ais_to_slick(
-        aisc.ais_trajectories,
-        aisc.ais_buffered,
-        aisc.ais_weighted,
-        slick_gdf,
-        slick_curves,
-        aisc.crs_meters,
-    )
-
-    infra_associations = associate_infra_to_slick(
-        aisc.infra_gdf, slick_gdf, aisc.crs_meters
-    )
-
-    all_associations = pd.concat(
-        [ais_associations, infra_associations], ignore_index=True
-    )
-
-    results = all_associations.sort_values(
-        "coincidence_score", ascending=False
-    ).reset_index(drop=True)
-    return results

@@ -7,7 +7,7 @@ import pandas as pd
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
@@ -230,17 +230,23 @@ class DatabaseClient:
         )
         return slick
 
-    async def get_source(self, st_name):
+    async def get_source(self, source_type, ext_id, error_if_absent=False):
         """get existing source"""
         return await get(
-            self.session, db.Source, error_if_absent=False, st_name=st_name
+            self.session, db.Source, error_if_absent, type=source_type, ext_id=ext_id
         )
 
-    async def insert_source_from_traj(self, traj):
+    async def get_or_insert_ranked_source(self, source_row):
         """add a new source"""
-        for k, v in traj.items():
+        existing_source = await self.get_source(
+            source_row["type"], source_row["ext_id"]
+        )
+        if existing_source:
+            return existing_source
+
+        for k, v in source_row.items():
             if isinstance(v, base.BaseGeometry):
-                traj[k] = str(v)
+                source_row[k] = str(v)
 
         # Create a mapping from table names (stored in SourceType) to ORM classes
         tablename_to_class = {
@@ -255,55 +261,80 @@ class DatabaseClient:
         }
         insert_dict = {
             k: v
-            for k, v in traj.items()
-            if not pd.isna(v) and k in (common_cols + insert_cols[traj["type"]])
+            for k, v in source_row.items()
+            if not pd.isna(v) and k in (common_cols + insert_cols[source_row["type"]])
         }
 
-        source_type_obj = await get(self.session, db.SourceType, id=traj["type"])
+        source_type_obj = await get(self.session, db.SourceType, id=source_row["type"])
 
         source = await insert(
             self.session, tablename_to_class[source_type_obj.table_name], **insert_dict
         )
+        await self.session.flush()
         return source
 
     async def insert_slick_to_source(self, **kwargs):
         """add a new slick_to_source"""
         return await insert(self.session, db.SlickToSource, **kwargs)
 
-    async def get_slicks_without_sources_from_scene_id(
-        self, scene_id, min_conf=0.5, active=True
+    async def get_slicks_from_scene_id(
+        self,
+        scene_id,
+        min_conf=0.0,
+        with_sources=True,
+        without_sources=True,
+        active=True,
     ):
         """
-        Asynchronously queries the database to fetch slicks without associated sources for a given scene ID.
+        Asynchronously queries the database to fetch slicks for a given scene ID based on source associations.
 
         Args:
             scene_id (str): The ID of the scene for which slicks are needed.
-            min_conf (float): Minimum machine confidence for slicks to return. Default is 0.5.
+            min_conf (float): Minimum machine confidence for slicks to return. Default is 0.0.
+            with_sources (bool): If True, fetch slicks with associated sources. Default is True.
+            without_sources (bool): If True, fetch slicks without associated sources. Default is True.
             active (bool): Flag to filter slicks based on their active status. Default is True.
 
         Returns:
-            list: A list of Slick objects that do not have associated sources and belong to the specified scene.
+            list: A list of Slick objects based on the specified filters.
+
+        Raises:
+            ValueError: If both `with_sources` and `without_sources` are set to False.
 
         Notes:
             - The function uses SQLAlchemy for database queries.
             - It joins multiple tables: `db.Slick`, `db.SlickToSource`, `db.OrchestratorRun`, and `db.Sentinel1Grd`.
-            - The query uses an outer join to filter out slicks that have associated sources.
+            - It conditionally filters slicks based on the `with_sources` and `without_sources` flags.
         """
-
         query = (
             select(db.Slick)
+            .distinct()
             .outerjoin(db.SlickToSource, db.Slick.id == db.SlickToSource.slick)
             .join(db.OrchestratorRun)
             .join(db.Sentinel1Grd)
-            .where(
-                and_(
-                    db.SlickToSource.slick == None,  # noqa
-                    db.Sentinel1Grd.scene_id == scene_id,
-                    db.Slick.active == active,
-                    db.Slick.machine_confidence > min_conf,
-                )
-            )
         )
+
+        conditions = [
+            db.Sentinel1Grd.scene_id == scene_id,
+            db.Slick.active == active,
+            db.Slick.machine_confidence > min_conf,
+        ]
+
+        source_conditions = []
+        if not with_sources and not without_sources:
+            return []
+        if with_sources:
+            # Slicks that have at least one associated source
+            source_conditions.append(db.SlickToSource.slick != None)  # noqa
+        if without_sources:
+            # Slicks that have no associated sources
+            source_conditions.append(db.SlickToSource.slick == None)  # noqa
+
+        if source_conditions:
+            # Combine source conditions with OR logic
+            conditions.append(or_(*source_conditions))
+
+        query = query.where(and_(*conditions))
         result = await self.session.execute(query)
         return result.scalars().all()
 
@@ -348,7 +379,7 @@ class DatabaseClient:
                     .where(
                         and_(
                             db.Sentinel1Grd.scene_id == scene_id,
-                            db.Slick.active == True,  # noqa
+                            db.Slick.active,
                         )
                     )
                 )
@@ -361,5 +392,32 @@ class DatabaseClient:
 
         # Return the number of rows updated
         return result.rowcount
+
+    async def deactivate_sources_for_slick(self, slick_id):
+        """deactivate sources for slick"""
+        await self.session.execute(
+            update(db.SlickToSource)
+            .where(db.SlickToSource.slick == slick_id)
+            .values(active=False)
+        )
+
+    async def get_previous_asa(self, slick_id):
+        """Return a list of ASA types that have been run for a slick."""
+        return (
+            (
+                await self.session.execute(
+                    select(db.Source.type)
+                    .join(db.SlickToSource.source1)
+                    .where(
+                        and_(
+                            db.SlickToSource.slick == slick_id,
+                            db.SlickToSource.active,
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     # EditTheDatabase
