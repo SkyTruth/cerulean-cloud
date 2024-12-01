@@ -130,7 +130,10 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         """
         Loads infrastructure data from a CSV file.
         """
-        df = pd.read_csv("SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv")
+
+        df = pd.read_csv(
+            r"C:\Users\ebeva\SkyTruth\cv3\nonoise_SAR_Fixed_Infrastructure.csv"
+        )
         df["st_name"] = df["structure_id"].apply(str)
         df["ext_id"] = df["structure_id"].apply(str)
         df["type"] = 2  # infra
