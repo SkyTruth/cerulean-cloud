@@ -645,7 +645,7 @@ class AISAnalyzer(SourceAnalyzer):
     def slick_to_curves(
         self,
         buf_size: int = 2000,
-        interp_dist: int = 200,
+        num_of_ridges: int = 100,
         smoothing_factor: float = 1e9,
     ):
         """
@@ -675,6 +675,8 @@ class AISAnalyzer(SourceAnalyzer):
         for _, row in slick_clean.iterrows():
             # create centerline -> MultiLineString
             try:
+                polygon_perimeter = row.geometry.length  # Perimeter of the polygon
+                interp_dist = polygon_perimeter / num_of_ridges
                 cl = centerline.geometry.Centerline(
                     row.geometry, interpolation_distance=interp_dist
                 )
