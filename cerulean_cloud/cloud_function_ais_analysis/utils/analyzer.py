@@ -646,7 +646,7 @@ class AISAnalyzer(SourceAnalyzer):
         self,
         buf_size: int = 2000,
         num_of_ridges: int = 100,
-        min_perimeter_to_ignore=1000,
+        min_perimeter_to_ignore: int = 1000,
         smoothing_factor: float = 1e9,
     ):
         """
