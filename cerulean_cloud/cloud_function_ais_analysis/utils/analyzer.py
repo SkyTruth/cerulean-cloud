@@ -646,6 +646,7 @@ class AISAnalyzer(SourceAnalyzer):
         self,
         buf_size: int = 2000,
         num_of_ridges: int = 100,
+        min_perimeter_to_ignore=1000,
         smoothing_factor: float = 1e9,
     ):
         """
@@ -676,6 +677,8 @@ class AISAnalyzer(SourceAnalyzer):
             # create centerline -> MultiLineString
             try:
                 polygon_perimeter = row.geometry.length  # Perimeter of the polygon
+                if polygon_perimeter <= min_perimeter_to_ignore:
+                    continue
                 interp_dist = polygon_perimeter / num_of_ridges
                 cl = centerline.geometry.Centerline(
                     row.geometry, interpolation_distance=interp_dist
