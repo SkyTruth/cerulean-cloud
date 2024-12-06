@@ -3,6 +3,7 @@
 import time
 
 import database
+import git
 import pulumi
 from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
 from utils import construct_name, pulumi_create_zip
@@ -35,10 +36,13 @@ queue = cloudtasks.Queue(
     ),
 )
 
+repo = git.Repo(search_parent_directories=True)
+git_sha = repo.head.object.hexsha
 
 function_name = construct_name("cf-ais")
 config_values = {
     "DB_URL": database.sql_instance_url_with_asyncpg,
+    "GIT_HASH": git_sha,
 }
 
 # The Cloud Function source code itself needs to be zipped up into an

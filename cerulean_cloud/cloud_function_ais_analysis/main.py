@@ -74,32 +74,53 @@ async def handle_asa_request(request):
     request_json = request.get_json()
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
-        run_flags = request_json.get("run_flags", ["ais", "infra", "dark"])
+        run_flags = request_json.get("run_flags")  # expects list of integers
+        if not run_flags:
+            run_flags = list(ASA_MAPPING.keys())
+        elif any(run_flag not in ASA_MAPPING.keys() for run_flag in run_flags):
+            raise ValueError(
+                f"Invalid run_flag provided. {run_flags} not in {ASA_MAPPING.keys()}"
+            )
+
         overwrite_previous = request_json.get("overwrite_previous", False)
-        print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
         db_engine = get_engine(db_url=os.getenv("DB_URL"))
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
                 s1_scene = await db_client.get_scene_from_id(scene_id)
-                slicks = await db_client.get_slicks_from_scene_id(
-                    scene_id, with_sources=overwrite_previous
-                )
-                if overwrite_previous:
-                    for slick in slicks:
+                slicks = await db_client.get_slicks_from_scene_id(scene_id)
+                previous_asa = {}
+                for slick in slicks:
+                    if overwrite_previous:
                         print(f"Deactivating sources for slick {slick.id}")
                         await db_client.deactivate_sources_for_slick(slick.id)
+                        previous_asa[slick.id] = []
+                    else:
+                        previous_asa[slick.id] = await db_client.get_previous_asa(
+                            slick.id
+                        )
 
+            print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
             if len(slicks) > 0:
-                analyzers = [ASA_MAPPING[source](s1_scene) for source in run_flags]
+                analyzers = [
+                    ASA_MAPPING[source_type](s1_scene) for source_type in run_flags
+                ]
                 random.shuffle(slicks)  # Allows rerunning a scene to skip bugs
                 for slick in slicks:
+                    analyzers_to_run = [
+                        analyzer
+                        for analyzer in analyzers
+                        if analyzer.source_type not in previous_asa[slick.id]
+                    ]
+                    if len(analyzers_to_run) == 0:
+                        continue
+
                     # Convert slick geometry to GeoDataFrame
                     slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
                     slick_gdf = gpd.GeoDataFrame({"geometry": [slick_geom]}, crs="4326")
                     ranked_sources = pd.DataFrame()
 
-                    for analyzer in analyzers:
+                    for analyzer in analyzers_to_run:
                         res = analyzer.compute_coincidence_scores(slick_gdf)
                         ranked_sources = pd.concat(
                             [ranked_sources, res], ignore_index=True
@@ -110,7 +131,7 @@ async def handle_asa_request(request):
                     )
                     if len(ranked_sources) > 0:
                         ranked_sources = ranked_sources.sort_values(
-                            "coincidence_score", ascending=False
+                            "collated_score", ascending=False
                         ).reset_index(drop=True)
                         async with db_client.session.begin():
                             for idx, source_row in ranked_sources.iloc[:5].iterrows():
@@ -131,6 +152,7 @@ async def handle_asa_request(request):
                                     source=source.id,
                                     slick=slick.id,
                                     active=True,
+                                    git_hash=os.getenv("GIT_HASH"),
                                     coincidence_score=source_row["coincidence_score"],
                                     collated_score=source_row["collated_score"],
                                     rank=idx + 1,

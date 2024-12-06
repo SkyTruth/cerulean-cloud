@@ -111,6 +111,7 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         Initialize the InfrastructureAnalyzer.
         """
         super().__init__(s1_scene, **kwargs)
+        self.source_type = 2
         self.num_vertices = kwargs.get("num_vertices", NUM_VERTICES)
         self.closing_buffer = kwargs.get("closing_buffer", CLOSING_BUFFER)
         self.radius_of_interest = kwargs.get("radius_of_interest", INFRA_REF_DIST)
@@ -123,10 +124,10 @@ class InfrastructureAnalyzer(SourceAnalyzer):
 
         if self.infra_gdf is None:
             self.infra_api_token = os.getenv("INFRA_API_TOKEN")
-            self.infra_gdf = self.load_infrastructure_data()
+            self.infra_gdf = self.load_infrastructure_data_api()
         self.coincidence_scores = np.zeros(len(self.infra_gdf))
 
-    def load_infrastructure_data(self, only_oil=True):
+    def load_infrastructure_data_csv(self, only_oil=True):
         """
         Loads infrastructure data from a CSV file.
         """
@@ -451,6 +452,7 @@ class AISAnalyzer(SourceAnalyzer):
         Initialize the AISAnalyzer.
         """
         super().__init__(s1_scene, **kwargs)
+        self.source_type = 1
         self.s1_scene = s1_scene
         # Default parameters
         self.hours_before = kwargs.get("hours_before", HOURS_BEFORE)
@@ -918,6 +920,7 @@ class DarkAnalyzer(SourceAnalyzer):
         Initialize the DarkAnalyzer.
         """
         super().__init__(s1_scene, **kwargs)
+        self.source_type = 3
         # Initialize attributes specific to dark vessel analysis
 
     def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
@@ -929,7 +932,8 @@ class DarkAnalyzer(SourceAnalyzer):
 
 
 ASA_MAPPING = {
-    "ais": AISAnalyzer,
-    "infra": InfrastructureAnalyzer,
-    "dark": DarkAnalyzer,
+    1: AISAnalyzer,
+    2: InfrastructureAnalyzer,
+    # 3: DarkAnalyzer,
+    # 4: NaturalAnalyzer,
 }

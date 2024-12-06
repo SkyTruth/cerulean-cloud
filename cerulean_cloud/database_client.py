@@ -335,7 +335,7 @@ class DatabaseClient:
                     .where(
                         and_(
                             db.Sentinel1Grd.scene_id == scene_id,
-                            db.Slick.active == True,  # noqa
+                            db.Slick.active,
                         )
                     )
                 )
@@ -355,6 +355,25 @@ class DatabaseClient:
             update(db.SlickToSource)
             .where(db.SlickToSource.slick == slick_id)
             .values(active=False)
+        )
+
+    async def get_previous_asa(self, slick_id):
+        """Return a list of ASA types that have been run for a slick."""
+        return (
+            (
+                await self.session.execute(
+                    select(db.Source.type)
+                    .join(db.SlickToSource.source1)
+                    .where(
+                        and_(
+                            db.SlickToSource.slick == slick_id,
+                            db.SlickToSource.active,
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
         )
 
     # EditTheDatabase
