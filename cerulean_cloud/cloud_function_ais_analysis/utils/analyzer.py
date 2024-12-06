@@ -645,8 +645,6 @@ class AISAnalyzer(SourceAnalyzer):
     def slick_to_curves(
         self,
         buf_size: int = 2000,
-        num_of_ridges: int = 100,
-        min_perimeter_to_ignore: int = 1000,
         smoothing_factor: float = 1e9,
     ):
         """
@@ -675,28 +673,13 @@ class AISAnalyzer(SourceAnalyzer):
         slick_curves = list()
         for _, row in slick_clean.iterrows():
             # create centerline -> MultiLineString
-            try:
-                polygon_perimeter = row.geometry.length  # Perimeter of the polygon
-                if polygon_perimeter <= min_perimeter_to_ignore:
-                    continue
-                interp_dist = polygon_perimeter / num_of_ridges
-                cl = centerline.geometry.Centerline(
-                    row.geometry, interpolation_distance=interp_dist
-                )
-            except (
-                Exception
-            ) as e:  # noqa # unclear what exception was originally thrown here.
-                # sometimes the voronoi polygonization fails
-                # in this case, just fit a a simple line from the start to the end
-                exterior_coords = row.geometry.exterior.coords
-                start_point = exterior_coords[0]
-                end_point = exterior_coords[-1]
-                curve = shapely.geometry.LineString([start_point, end_point])
-                slick_curves.append(curve)
-                print(
-                    f"XXX ~WARNING~ Blanket try/except caught error but continued on anyway: {e}"
-                )
-                continue
+            polygon_perimeter = row.geometry.length  # Perimeter of the polygon
+            interp_dist = min(
+                100, polygon_perimeter / 1000
+            )  # Use a minimum of 1000 points for voronoi calculation
+            cl = centerline.geometry.Centerline(
+                row.geometry, interpolation_distance=interp_dist
+            )
 
             # grab coordinates from centerline
             x = list()
