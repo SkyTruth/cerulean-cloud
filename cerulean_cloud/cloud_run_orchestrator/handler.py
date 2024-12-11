@@ -382,23 +382,6 @@ async def _orchestrate(
             features=tileset_fc_list, min_overlaps_to_keep=1
         )
 
-        # Stitch inferences
-        print(f"Stitching results: {start_time}")
-        model = get_model(model_dict)
-        tileset_fc_list = []
-
-        for tileset_results, tileset_bounds in zip(tileset_results_list, tileset_list):
-            if tileset_results and tileset_bounds:
-                fc = model.postprocess_tileset(
-                    tileset_results, [[b] for b in tileset_bounds]
-                )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
-                tileset_fc_list.append(fc)
-
-        # Ensemble inferences
-        print(f"Ensembling results: {start_time}")
-        final_ensemble = model.nms_feature_reduction(
-            features=tileset_fc_list, min_overlaps_to_keep=1
-        )
         LAND_MASK_BUFFER_M = 1000
         print(f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land")
         landmask_gdf = get_landmask_gdf()
