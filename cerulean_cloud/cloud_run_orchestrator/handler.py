@@ -42,7 +42,7 @@ from cerulean_cloud.titiler_client import TitilerClient
 # Configure logger
 logger = logging.getLogger("orchestrate")
 handler = logging.StreamHandler()
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+formatter = logging.Formatter("%(asctime)s: %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
@@ -174,7 +174,7 @@ async def orchestrate(
         )
     except DatabaseError as db_err:
         # Handle database-related errors
-        logger.error(
+        logger.exception(
             f"Database error during orchestration for sceneid {payload.sceneid}: {db_err}"
         )
         raise HTTPException(
@@ -183,14 +183,14 @@ async def orchestrate(
         ) from db_err
     except ValidationError as val_err:
         # Handle payload validation errors
-        logger.error(f"Validation error for payload {payload}: {val_err}")
+        logger.exception(f"Validation error for payload {payload}: {val_err}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invalid input data provided.",
         ) from val_err
     except InferenceError as inf_err:
         # Handle inference-related errors
-        logger.error(
+        logger.exception(
             f"Inference error during processing sceneid {payload.sceneid}: {inf_err}"
         )
         raise HTTPException(
@@ -217,11 +217,24 @@ def is_tile_over_water(tile_bounds: List[float]) -> bool:
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
+    
+    logging.info(f"Start time: {start_time}; Orchestrating for sceneid {payload.sceneid}")
+    
     # Orchestrate inference
     start_time = datetime.now()
-    print(f"Start time: {start_time}")
-    print(f"{start_time}: Orchestrating for sceneid {payload.sceneid}")
+    
+    logging.info(
+        f"Initiating database client - start time: {start_time}; Orchestrating for sceneid {payload.sceneid})"
+    )
 
+    # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
+    # When scene traverses the anti-meridian, scene_bounds are nonsensical
+    # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
+    scene_bounds = await titiler_client.get_bounds(payload.sceneid)
+    scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+    scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+
+    
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
             db_model = await db_client.get_db_model(os.getenv("MODEL"))
@@ -233,29 +246,22 @@ async def _orchestrate(
                 )
                 for column in db_model.__table__.columns
             }
-    zoom = payload.zoom or model_dict["zoom_level"]
-    scale = payload.scale or model_dict["scale"]
-    print(f"{start_time}: zoom: {zoom}")
-    print(f"{start_time}: scale: {scale}")
 
     if model_dict["zoom_level"] != zoom:
-        print(
-            f"{start_time}: WARNING: Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}"
+        logger.warning(
+            f"{start_time}: Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}"
         )
     if model_dict["tile_width_px"] != scale * 256:
-        print(
-            f"{start_time}: WARNING: Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}"
+        logger.warning(
+            f"{start_time}: Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}"
         )
 
-    # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
-    # When scene traverses the anti-meridian, scene_bounds are nonsensical
-    # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
-    scene_bounds = await titiler_client.get_bounds(payload.sceneid)
-    scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
-    scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
-    print(f"{start_time}: scene_bounds: {scene_bounds}")
-    print(f"{start_time}: scene_stats: {scene_stats}")
-    print(f"{start_time}: scene_info: {scene_info}")
+    zoom = payload.zoom or model_dict["zoom_level"]
+    scale = payload.scale or model_dict["scale"]
+
+    logging.info(
+        f"Generating tilesets - sceneid {payload.sceneid} (zoom: {zoom} scale: {scale}, scene_bounds: {scene_bounds}, scene_stats: {scene_stats}, : scene_info: {scene_info})"
+    )
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
     n_basetiles = len(base_tiles)
@@ -271,34 +277,28 @@ async def _orchestrate(
     tileset_envelope_bounds = group_bounds_from_list_of_bounds(tileset_list[0])
 
     # Filter out land tiles
-    print(f"{start_time}: Tileset contains before landfilter: {n_offsettiles} tiles")
+    logger.info(f"Removing invalid tiles - tileset contains {n_offsettiles} tiles before landfilter")
     try:
         tileset_list = [
             [b for b in tileset if is_tile_over_water(b)] for tileset in tileset_list
         ]
     except ValueError as e:
         # XXX BUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
-        print(
-            f"{start_time}: WARNING: FAILURE {payload.sceneid} touches antimeridian, and is_tile_over_water() failed!"
+        logger.exception(
+            f"FAILURE {payload.sceneid} touches antimeridian, and is_tile_over_water() failed!"
         )
         return OrchestratorResult(status=str(e))
-
-    n_offsettiles_after = len(tileset_list[0])
-
-    print(
-        f"{start_time}: Tileset contains after landfilter: ~{n_offsettiles_after} tiles"
-    )
 
     if not any(set for set in tileset_list):
         # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
         # WARNING this will return success, but there will be not trace in the DB of your request (i.e. in S1 or Orchestrator tables)
         # XXX TODO
-        print(f"{start_time}: No tiles to be processed over water {payload.sceneid}")
+        logger.info(f"NO TILES TO BE PROCESSED FOR {payload.sceneid} (SUCCESS)")
         return OrchestratorResult(status="Success (no oceanic tiles)")
 
     if payload.dry_run:
         # Only tests code above this point, without actually adding any new data to the database, or running inference.
-        print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
+        logger.warning(f"DRY RUN (SUCCESS)")
         return OrchestratorResult(status="Success (dry run)")
 
     # write to DB
@@ -319,7 +319,7 @@ async def _orchestrate(
             stale_slick_count = await db_client.deactivate_stale_slicks_from_scene_id(
                 payload.sceneid
             )
-            print(
+            logger.info(
                 f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
             )
             orchestrator_run = await db_client.add_orchestrator(
@@ -345,7 +345,7 @@ async def _orchestrate(
 
     success = True
     try:
-        print(f"{start_time}: Instantiating inference client.")
+        # print(f"{start_time}: Instantiating inference client.")
         cloud_run_inference = CloudRunInferenceClient(
             url=os.getenv("INFERENCE_URL"),
             titiler_client=titiler_client,
@@ -358,7 +358,8 @@ async def _orchestrate(
         )
 
         # Perform inferences
-        print(f"Inference starting: {start_time}")
+        n_offsettiles_after = len(tileset_list[0])
+        logger.info(f"Inference starting - {n_offsettiles_after} tileset lists")
         tileset_results_list = [
             await cloud_run_inference.run_parallel_inference(tileset)
             for tileset in tileset_list
@@ -437,7 +438,7 @@ async def _orchestrate(
     except Exception as e:
         success = False
         exc = e
-        print(f"{start_time}: Error processing {payload.sceneid}. Details: {e}")
+        logger.exception(f"{start_time}: Error processing {payload.sceneid}. Details: {e}")
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
             or_refreshed = await db_client.get_orchestrator(orchestrator_run_id)
@@ -445,8 +446,7 @@ async def _orchestrate(
             end_time = datetime.now()
             or_refreshed.success = success
             or_refreshed.inference_end_time = end_time
-            print(f"{start_time}: End time: {end_time}")
-            print(f"{start_time}: Orchestration success: {success}")
+            logging.info(f"{start_time}: End time: {end_time}; Orchestration success: {success}")
     if success is False:
         raise exc
     return OrchestratorResult(status="Success")

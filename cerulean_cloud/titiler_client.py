@@ -9,6 +9,7 @@ import mercantile
 import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
+import time
 
 from cerulean_cloud.tiling import TMS
 
@@ -26,7 +27,7 @@ class TitilerClient:
         )
         self.timeout = timeout
 
-    async def get_bounds(self, sceneid: str) -> List[float]:
+    async def get_bounds(self, sceneid: str, retries: str = 3) -> List[float]:
         """fetch bounds of a scene
 
         Args:
@@ -40,14 +41,17 @@ class TitilerClient:
         Raises:
             HTTPException: For various HTTP related errors including authentication issues.
         """
-        try:
-            url = urlib.urljoin(self.url, "bounds")
-            url += f"?sceneid={sceneid}"
-            resp = await self.client.get(url, timeout=self.timeout)
-            resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
-            return resp.json()["bounds"]
-        except Exception:
-            raise
+        for attempt in range(1, retries + 1):
+            try:
+                url = urlib.urljoin(self.url, "bounds")
+                url += f"?sceneid={sceneid}"
+                resp = await self.client.get(url, timeout=self.timeout)
+                resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
+                return resp.json()["bounds"]
+            except Exception:
+                if attempt == retries:
+                    raise
+                time.sleep(5 ** attempt)
 
     async def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
         """fetch bounds of a scene

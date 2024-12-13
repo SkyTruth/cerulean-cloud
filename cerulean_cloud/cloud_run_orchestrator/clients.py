@@ -3,6 +3,7 @@
 import asyncio
 import gc  # Import garbage collection module
 import json
+import logging
 import os
 import zipfile
 from base64 import b64encode
@@ -25,6 +26,9 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     PredictPayload,
 )
 
+handler = logging.StreamHandler()
+formatter = logging.Formatter("%(asctime)s: %(message)s")
+handler.setFormatter(formatter)
 
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
     """Convert input image array to base64-encoded image."""
@@ -67,6 +71,11 @@ class CloudRunInferenceClient:
         self.sceneid = sceneid
         self.scale = scale  # 1=256, 2=512, 3=...
         self.model_dict = model_dict
+
+        # Configure logger
+        self.logger = logging.getLogger("InferenceClient")
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
 
         # Handle auxiliary datasets and ensure they are properly managed
         self.aux_datasets = handle_aux_datasets(
@@ -157,13 +166,13 @@ class CloudRunInferenceClient:
                 if res.status_code == 200:
                     return InferenceResultStack(**res.json())
                 else:
-                    print(
+                    self.logger.warning(
                         f"Attempt {attempt + 1}: Failed with status code {res.status_code}. Retrying..."
                     )
                     if attempt < max_retries - 1:
                         await asyncio.sleep(retry_delay)  # Wait before retrying
             except Exception as e:
-                print(f"Attempt {attempt + 1}: Exception occurred: {e}")
+                self.logger.warning(f"Attempt {attempt + 1}: Exception occurred: {e}")
                 if attempt < max_retries - 1:
                     await asyncio.sleep(retry_delay)  # Wait before retrying
 
@@ -190,7 +199,9 @@ class CloudRunInferenceClient:
 
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
         if not np.any(img_array):
+            self.logger.warning(f"no imagery for {str(tile_bounds)}")
             return InferenceResultStack(stack=[])
+
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
         res = await self.send_inference_request_and_handle_response(

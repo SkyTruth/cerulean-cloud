@@ -2,16 +2,20 @@
 
 import os
 from typing import Optional
-
+import logging
 import pandas as pd
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+import sqlalchemy.exc
 
 import cerulean_cloud.database_schema as db
 
+handler = logging.StreamHandler()
+formatter = logging.Formatter("%(asctime)s: %(message)s")
+handler.setFormatter(formatter)
 
 class InstanceNotFoundError(Exception):
     """Raised when an instance is not found in the database."""
@@ -105,14 +109,27 @@ class DatabaseClient:
         """init"""
         self.engine = engine
 
+        # Configure logger
+        self.logger = logging.getLogger("DatabaseClient")
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
     async def __aenter__(self):
         """open session"""
-        self.session = AsyncSession(self.engine, expire_on_commit=False)
-        return self
+        try:
+            self.session = AsyncSession(self.engine, expire_on_commit=False)
+            return self
+        except sqlalchemy.exc.OperationalError as oe:
+            self.logger.exception(f"Failed to start database session: {oe}")
+            raise
 
     async def __aexit__(self, exc_type, exc_value, exc_traceback):
         """close session"""
-        await self.session.close()
+        try:
+            await self.session.close()
+        except Exception as e:
+            self.logger.exception(f"Error occurred while closing the database session: {e}")
+            raise
 
     async def get_trigger(self, trigger: Optional[int] = None):
         """get trigger from id"""
@@ -128,7 +145,10 @@ class DatabaseClient:
 
     async def get_db_model(self, model_path: str):
         """get model from path"""
-        return await get(self.session, db.Model, file_path=model_path)
+        try:
+            return await get(self.session, db.Model, file_path=model_path)
+        except Exception as e:
+            self.logger.exception(f"Error occurred while getting the database model: {e}")
 
     async def get_layer(self, short_name: str):
         """get layer from short_name"""
