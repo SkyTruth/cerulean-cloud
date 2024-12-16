@@ -149,6 +149,7 @@ class DatabaseClient:
             return await get(self.session, db.Model, file_path=model_path)
         except Exception as e:
             self.logger.exception(f"Error occurred while getting the database model: {e}")
+            raise
 
     async def get_layer(self, short_name: str):
         """get layer from short_name"""
@@ -162,21 +163,25 @@ class DatabaseClient:
         elif isinstance(shape_s1, MultiPolygon):
             geom = from_shape(shape_s1.geoms[0])
 
-        s1_grd = await get_or_insert(
-            self.session,
-            db.Sentinel1Grd,
-            scene_id=sceneid,
-            absolute_orbit_number=scene_info["absoluteOrbitNumber"],
-            mode=scene_info["mode"],
-            polarization=scene_info["polarization"],
-            scihub_ingestion_time=parse(scene_info["sciHubIngestion"], ignoretz=True),
-            start_time=parse(scene_info["startTime"]),
-            end_time=parse(scene_info["stopTime"]),
-            meta=scene_info,
-            url=titiler_url,
-            geometry=geom,
-        )
-        return s1_grd
+        try:
+            s1_grd = await get_or_insert(
+                self.session,
+                db.Sentinel1Grd,
+                scene_id=sceneid,
+                absolute_orbit_number=scene_info["absoluteOrbitNumber"],
+                mode=scene_info["mode"],
+                polarization=scene_info["polarization"],
+                scihub_ingestion_time=parse(scene_info["sciHubIngestion"], ignoretz=True),
+                start_time=parse(scene_info["startTime"]),
+                end_time=parse(scene_info["stopTime"]),
+                meta=scene_info,
+                url=titiler_url,
+                geometry=geom,
+            )
+            return s1_grd
+        except Exception as e:
+            self.logger.error(f"Failed to get S1 record: {e}")
+            raise
 
     async def add_orchestrator(
         self,
@@ -408,7 +413,11 @@ class DatabaseClient:
         )
 
         # Execute the update query and get the result
-        result = await self.session.execute(update_query)
+        try:
+            result = await self.session.execute(update_query)
+        except Exception as e:
+            self.logger.error(f"Failed to deactivate stale slicks: {e}")
+            raise
 
         # Return the number of rows updated
         return result.rowcount

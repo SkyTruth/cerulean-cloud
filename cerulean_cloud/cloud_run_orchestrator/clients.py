@@ -99,18 +99,21 @@ class CloudRunInferenceClient:
         """
 
         hw = self.scale * 256
-        img_array = await self.titiler_client.get_offset_tile(
-            self.sceneid,
-            *tile_bounds,
-            width=hw,
-            height=hw,
-            scale=self.scale,
-            rescale=rescale,
-        )
+        try:
+            img_array = await self.titiler_client.get_offset_tile(
+                self.sceneid,
+                *tile_bounds,
+                width=hw,
+                height=hw,
+                scale=self.scale,
+                rescale=rescale,
+            )
 
-        img_array = reshape_as_raster(img_array)
-        img_array = img_array[0:num_channels, :, :]
-        return img_array
+            img_array = reshape_as_raster(img_array)
+            img_array = img_array[0:num_channels, :, :]
+            return img_array
+        except Exception as e:
+            self.logger.warning(f"could not retrieve tile array for {self.sceneid}; {json.dumps(tile_bounds)}")
 
     async def process_auxiliary_datasets(self, img_array, tile_bounds):
         """
@@ -198,7 +201,7 @@ class CloudRunInferenceClient:
         """
 
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
-        if not np.any(img_array):
+        if img_array is None or not np.any(img_array):
             self.logger.warning(f"no imagery for {str(tile_bounds)}")
             return InferenceResultStack(stack=[])
 
@@ -423,26 +426,26 @@ def handle_aux_datasets(
             del ar
             gc.collect()
 
-        aux_memfile = MemoryFile()
-        if aux_dataset_channels is not None:
-            height, width = aux_dataset_channels.shape[0:2]
-            transform = rasterio.transform.from_bounds(
-                *tileset_envelope_bounds,
-                height=image_hw_pixels[0],
-                width=image_hw_pixels[1],
-            )
-            with aux_memfile.open(
-                driver="GTiff",
-                count=len(layers) - 1,  # XXX Hack, assumes layers follow a VV layer
-                height=height,
-                width=width,
-                dtype=aux_dataset_channels.dtype,
-                transform=transform,
-                crs="EPSG:4326",
-            ) as dataset:
-                dataset.write(reshape_as_raster(aux_dataset_channels))
+        with MemoryFile() as aux_memfile:
+            if aux_dataset_channels is not None:
+                height, width = aux_dataset_channels.shape[0:2]
+                transform = rasterio.transform.from_bounds(
+                    *tileset_envelope_bounds,
+                    height=image_hw_pixels[0],
+                    width=image_hw_pixels[1],
+                )
+                with aux_memfile.open(
+                    driver="GTiff",
+                    count=len(layers) - 1,  # XXX Hack, assumes layers follow a VV layer
+                    height=height,
+                    width=width,
+                    dtype=aux_dataset_channels.dtype,
+                    transform=transform,
+                    crs="EPSG:4326",
+                ) as dataset:
+                    dataset.write(reshape_as_raster(aux_dataset_channels))
 
-        del aux_dataset_channels
+            del aux_dataset_channels
         gc.collect()
 
         return aux_memfile

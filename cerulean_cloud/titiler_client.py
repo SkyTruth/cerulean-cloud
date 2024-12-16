@@ -158,6 +158,7 @@ class TitilerClient:
         img_format: str = "png",
         scale: int = 1,
         rescale: Tuple[int, int] = (0, 255),
+        retries: str = 3,
     ) -> np.ndarray:
         """get offset tile as numpy array (with bounds)
 
@@ -184,10 +185,17 @@ class TitilerClient:
         url += f"&bands={band}"
         url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
-        resp = await self.client.get(url, timeout=self.timeout)
+        for attempt in range(1, retries + 1):
+            try:
+                resp = await self.client.get(url, timeout=self.timeout)
+                with MemoryFile(resp.content) as memfile:
+                    with memfile.open() as dataset:
+                        np_img = reshape_as_image(dataset.read())
 
-        with MemoryFile(resp.content) as memfile:
-            with memfile.open() as dataset:
-                np_img = reshape_as_image(dataset.read())
+                return np_img
+            except Exception:
+                if attempt == retries:
+                    raise
+                self.logger.warning(f"Error retrieving {url}")
+                time.sleep(5 ** attempt)
 
-        return np_img

@@ -230,22 +230,28 @@ async def _orchestrate(
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
     # When scene traverses the anti-meridian, scene_bounds are nonsensical
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
-    scene_bounds = await titiler_client.get_bounds(payload.sceneid)
-    scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
-    scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
-
+    try:    
+        scene_bounds = await titiler_client.get_bounds(payload.sceneid)
+        scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+        scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+    except Exception as e:
+        logger.error(f"TiTiler client error for scene ID {payload.sceneid}: {e}")
+        return OrchestratorResult(status=str(e))
     
-    async with DatabaseClient(db_engine) as db_client:
-        async with db_client.session.begin():
-            db_model = await db_client.get_db_model(os.getenv("MODEL"))
-            model_dict = {
-                column.name: (
-                    getattr(db_model, column.name).isoformat()
-                    if isinstance(getattr(db_model, column.name), datetime)
-                    else getattr(db_model, column.name)
-                )
-                for column in db_model.__table__.columns
-            }
+    try:
+        async with DatabaseClient(db_engine) as db_client:
+            async with db_client.session.begin():
+                db_model = await db_client.get_db_model(os.getenv("MODEL"))
+                model_dict = {
+                    column.name: (
+                        getattr(db_model, column.name).isoformat()
+                        if isinstance(getattr(db_model, column.name), datetime)
+                        else getattr(db_model, column.name)
+                    )
+                    for column in db_model.__table__.columns
+                }
+    except Exception as e:
+        return OrchestratorResult(status=str(e))
 
     if model_dict["zoom_level"] != zoom:
         logger.warning(
@@ -302,46 +308,50 @@ async def _orchestrate(
         return OrchestratorResult(status="Success (dry run)")
 
     # write to DB
-    async with DatabaseClient(db_engine) as db_client:
-        async with db_client.session.begin():
-            trigger = await db_client.get_trigger(trigger=payload.trigger)
-            layers = [
-                await db_client.get_layer(layer) for layer in model_dict["layers"]
-            ]
-            sentinel1_grd = await db_client.get_sentinel1_grd(
-                payload.sceneid,
-                scene_info,
-                titiler_client.get_base_tile_url(
+    try:
+        async with DatabaseClient(db_engine) as db_client:
+            async with db_client.session.begin():
+                trigger = await db_client.get_trigger(trigger=payload.trigger)
+                layers = [
+                    await db_client.get_layer(layer) for layer in model_dict["layers"]
+                ]
+                sentinel1_grd = await db_client.get_sentinel1_grd(
                     payload.sceneid,
-                    rescale=(0, 255),
-                ),
-            )
-            stale_slick_count = await db_client.deactivate_stale_slicks_from_scene_id(
-                payload.sceneid
-            )
-            logger.info(
-                f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
-            )
-            orchestrator_run = await db_client.add_orchestrator(
-                start_time,
-                start_time,
-                n_basetiles,
-                n_offsettiles,
-                os.getenv("GIT_HASH"),
-                os.getenv("GIT_TAG"),
-                make_cloud_log_url(
-                    os.getenv("CLOUD_RUN_NAME"),
+                    scene_info,
+                    titiler_client.get_base_tile_url(
+                        payload.sceneid,
+                        rescale=(0, 255),
+                    ),
+                )
+                stale_slick_count = await db_client.deactivate_stale_slicks_from_scene_id(
+                    payload.sceneid
+                )
+                logger.info(
+                    f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
+                )
+                orchestrator_run = await db_client.add_orchestrator(
                     start_time,
-                    os.getenv("PROJECT_ID"),
-                ),
-                zoom,
-                scale,
-                scene_bounds,
-                trigger,
-                db_model,
-                sentinel1_grd,
-            )
-            orchestrator_run_id = orchestrator_run.id
+                    start_time,
+                    n_basetiles,
+                    n_offsettiles,
+                    os.getenv("GIT_HASH"),
+                    os.getenv("GIT_TAG"),
+                    make_cloud_log_url(
+                        os.getenv("CLOUD_RUN_NAME"),
+                        start_time,
+                        os.getenv("PROJECT_ID"),
+                    ),
+                    zoom,
+                    scale,
+                    scene_bounds,
+                    trigger,
+                    db_model,
+                    sentinel1_grd,
+                )
+                orchestrator_run_id = orchestrator_run.id
+    except Exception as e:
+        logging.error("Failed to write to DB")
+        return OrchestratorResult(status=str(e))
 
     success = True
     try:

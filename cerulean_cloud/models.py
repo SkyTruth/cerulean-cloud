@@ -1087,19 +1087,19 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
         else rasterio.transform.from_origin(0, 0, 1, 1)
     )
 
-    memfile = MemoryFile()
-    with memfile.open(
-        driver="GTiff",
-        count=nparray.shape[0],  # number of bands
-        height=nparray.shape[1],
-        width=nparray.shape[2],
-        dtype=nparray.dtype,
-        transform=transform,
-        crs="EPSG:4326",
-    ) as dataset:
-        dataset.write(nparray)
+    with MemoryFile() as memfile:
+        with memfile.open(
+            driver="GTiff",
+            count=nparray.shape[0],  # number of bands
+            height=nparray.shape[1],
+            width=nparray.shape[2],
+            dtype=nparray.dtype,
+            transform=transform,
+            crs="EPSG:4326",
+        ) as dataset:
+            dataset.write(nparray)
 
-    memfile.seek(0)
+        memfile.seek(0)
     if encode:
         encoded = b64encode(memfile.read()).decode("ascii")
         return encoded
