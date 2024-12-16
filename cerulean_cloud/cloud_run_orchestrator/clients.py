@@ -30,6 +30,7 @@ handler = logging.StreamHandler()
 formatter = logging.Formatter("%(asctime)s: %(message)s")
 handler.setFormatter(formatter)
 
+
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
     """Convert input image array to base64-encoded image."""
     if to_uint8 and not img_array.dtype == np.uint8:
@@ -113,7 +114,9 @@ class CloudRunInferenceClient:
             img_array = img_array[0:num_channels, :, :]
             return img_array
         except Exception as e:
-            self.logger.warning(f"could not retrieve tile array for {self.sceneid}; {json.dumps(tile_bounds)}")
+            self.logger.warning(
+                f"could not retrieve tile array for {self.sceneid}; {json.dumps(tile_bounds)}: {e}"
+            )
 
     async def process_auxiliary_datasets(self, img_array, tile_bounds):
         """

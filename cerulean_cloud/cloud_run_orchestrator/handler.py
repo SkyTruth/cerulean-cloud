@@ -217,12 +217,10 @@ def is_tile_over_water(tile_bounds: List[float]) -> bool:
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
-    
-    logging.info(f"Start time: {start_time}; Orchestrating for sceneid {payload.sceneid}")
-    
+
     # Orchestrate inference
     start_time = datetime.now()
-    
+
     logging.info(
         f"Initiating database client - start time: {start_time}; Orchestrating for sceneid {payload.sceneid})"
     )
@@ -230,14 +228,14 @@ async def _orchestrate(
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
     # When scene traverses the anti-meridian, scene_bounds are nonsensical
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
-    try:    
+    try:
         scene_bounds = await titiler_client.get_bounds(payload.sceneid)
         scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
         scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
     except Exception as e:
         logger.error(f"TiTiler client error for scene ID {payload.sceneid}: {e}")
         return OrchestratorResult(status=str(e))
-    
+
     try:
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
@@ -253,6 +251,9 @@ async def _orchestrate(
     except Exception as e:
         return OrchestratorResult(status=str(e))
 
+    zoom = payload.zoom or model_dict["zoom_level"]
+    scale = payload.scale or model_dict["scale"]
+
     if model_dict["zoom_level"] != zoom:
         logger.warning(
             f"{start_time}: Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}"
@@ -261,9 +262,6 @@ async def _orchestrate(
         logger.warning(
             f"{start_time}: Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}"
         )
-
-    zoom = payload.zoom or model_dict["zoom_level"]
-    scale = payload.scale or model_dict["scale"]
 
     logging.info(
         f"Generating tilesets - sceneid {payload.sceneid} (zoom: {zoom} scale: {scale}, scene_bounds: {scene_bounds}, scene_stats: {scene_stats}, : scene_info: {scene_info})"
@@ -283,7 +281,9 @@ async def _orchestrate(
     tileset_envelope_bounds = group_bounds_from_list_of_bounds(tileset_list[0])
 
     # Filter out land tiles
-    logger.info(f"Removing invalid tiles - tileset contains {n_offsettiles} tiles before landfilter")
+    logger.info(
+        f"Removing invalid tiles - tileset contains {n_offsettiles} tiles before landfilter"
+    )
     try:
         tileset_list = [
             [b for b in tileset if is_tile_over_water(b)] for tileset in tileset_list
@@ -304,7 +304,7 @@ async def _orchestrate(
 
     if payload.dry_run:
         # Only tests code above this point, without actually adding any new data to the database, or running inference.
-        logger.warning(f"DRY RUN (SUCCESS)")
+        logger.warning("DRY RUN (SUCCESS)")
         return OrchestratorResult(status="Success (dry run)")
 
     # write to DB
@@ -323,8 +323,10 @@ async def _orchestrate(
                         rescale=(0, 255),
                     ),
                 )
-                stale_slick_count = await db_client.deactivate_stale_slicks_from_scene_id(
-                    payload.sceneid
+                stale_slick_count = (
+                    await db_client.deactivate_stale_slicks_from_scene_id(
+                        payload.sceneid
+                    )
                 )
                 logger.info(
                     f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
@@ -448,7 +450,9 @@ async def _orchestrate(
     except Exception as e:
         success = False
         exc = e
-        logger.exception(f"{start_time}: Error processing {payload.sceneid}. Details: {e}")
+        logger.exception(
+            f"{start_time}: Error processing {payload.sceneid}. Details: {e}"
+        )
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
             or_refreshed = await db_client.get_orchestrator(orchestrator_run_id)
@@ -456,7 +460,9 @@ async def _orchestrate(
             end_time = datetime.now()
             or_refreshed.success = success
             or_refreshed.inference_end_time = end_time
-            logging.info(f"{start_time}: End time: {end_time}; Orchestration success: {success}")
+            logging.info(
+                f"{start_time}: End time: {end_time}; Orchestration success: {success}"
+            )
     if success is False:
         raise exc
     return OrchestratorResult(status="Success")

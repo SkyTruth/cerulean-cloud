@@ -1,6 +1,7 @@
 """client code to interact with titiler for sentinel 1"""
 
 import os
+import time
 import urllib.parse as urlib
 from typing import Dict, List, Optional, Tuple
 
@@ -9,7 +10,6 @@ import mercantile
 import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
-import time
 
 from cerulean_cloud.tiling import TMS
 
@@ -27,7 +27,7 @@ class TitilerClient:
         )
         self.timeout = timeout
 
-    async def get_bounds(self, sceneid: str, retries: str = 3) -> List[float]:
+    async def get_bounds(self, sceneid: str, retries: int = 3) -> List[float]:
         """fetch bounds of a scene
 
         Args:
@@ -52,7 +52,9 @@ class TitilerClient:
                 if attempt == retries:
                     raise
                 self.logger.warning(f"Error retrieving {url}")
-                time.sleep(5 ** attempt)
+                time.sleep(5**attempt)
+
+        return None
 
     async def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
         """fetch bounds of a scene
@@ -158,7 +160,7 @@ class TitilerClient:
         img_format: str = "png",
         scale: int = 1,
         rescale: Tuple[int, int] = (0, 255),
-        retries: str = 3,
+        retries: int = 3,
     ) -> np.ndarray:
         """get offset tile as numpy array (with bounds)
 
@@ -197,5 +199,4 @@ class TitilerClient:
                 if attempt == retries:
                     raise
                 self.logger.warning(f"Error retrieving {url}")
-                time.sleep(5 ** attempt)
-
+                time.sleep(5**attempt)

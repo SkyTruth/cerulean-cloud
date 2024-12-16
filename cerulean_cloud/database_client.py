@@ -1,21 +1,23 @@
 """Client code to interact with the database"""
 
+import logging
 import os
 from typing import Optional
-import logging
+
 import pandas as pd
+import sqlalchemy.exc
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
-import sqlalchemy.exc
 
 import cerulean_cloud.database_schema as db
 
 handler = logging.StreamHandler()
 formatter = logging.Formatter("%(asctime)s: %(message)s")
 handler.setFormatter(formatter)
+
 
 class InstanceNotFoundError(Exception):
     """Raised when an instance is not found in the database."""
@@ -128,7 +130,9 @@ class DatabaseClient:
         try:
             await self.session.close()
         except Exception as e:
-            self.logger.exception(f"Error occurred while closing the database session: {e}")
+            self.logger.exception(
+                f"Error occurred while closing the database session: {e}"
+            )
             raise
 
     async def get_trigger(self, trigger: Optional[int] = None):
@@ -148,7 +152,9 @@ class DatabaseClient:
         try:
             return await get(self.session, db.Model, file_path=model_path)
         except Exception as e:
-            self.logger.exception(f"Error occurred while getting the database model: {e}")
+            self.logger.exception(
+                f"Error occurred while getting the database model: {e}"
+            )
             raise
 
     async def get_layer(self, short_name: str):
@@ -171,7 +177,9 @@ class DatabaseClient:
                 absolute_orbit_number=scene_info["absoluteOrbitNumber"],
                 mode=scene_info["mode"],
                 polarization=scene_info["polarization"],
-                scihub_ingestion_time=parse(scene_info["sciHubIngestion"], ignoretz=True),
+                scihub_ingestion_time=parse(
+                    scene_info["sciHubIngestion"], ignoretz=True
+                ),
                 start_time=parse(scene_info["startTime"]),
                 end_time=parse(scene_info["stopTime"]),
                 meta=scene_info,
