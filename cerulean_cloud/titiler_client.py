@@ -51,6 +51,7 @@ class TitilerClient:
             except Exception:
                 if attempt == retries:
                     raise
+                self.logger.warning(f"Error retrieving {url}")
                 time.sleep(5 ** attempt)
 
     async def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
