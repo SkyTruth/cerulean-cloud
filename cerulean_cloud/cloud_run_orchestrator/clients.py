@@ -26,10 +26,6 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     PredictPayload,
 )
 
-handler = logging.StreamHandler()
-formatter = logging.Formatter("%(asctime)s: %(message)s")
-handler.setFormatter(formatter)
-
 
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
     """Convert input image array to base64-encoded image."""
@@ -74,6 +70,9 @@ class CloudRunInferenceClient:
         self.model_dict = model_dict
 
         # Configure logger
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter("%(asctime)s: %(message)s")
+        handler.setFormatter(formatter)
         self.logger = logging.getLogger("InferenceClient")
         self.logger.addHandler(handler)
         self.logger.setLevel(logging.INFO)

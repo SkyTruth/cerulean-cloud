@@ -357,7 +357,7 @@ async def _orchestrate(
 
     success = True
     try:
-        # print(f"{start_time}: Instantiating inference client.")
+        logger.info(f"Instantiating inference client: {start_time}")
         cloud_run_inference = CloudRunInferenceClient(
             url=os.getenv("INFERENCE_URL"),
             titiler_client=titiler_client,
@@ -378,7 +378,7 @@ async def _orchestrate(
         ]
 
         # Stitch inferences
-        print(f"Stitching results: {start_time}")
+        logger.info(f"Stitching results: {start_time}")
         model = get_model(model_dict)
         tileset_fc_list = [
             model.postprocess_tileset(
@@ -390,13 +390,15 @@ async def _orchestrate(
         ]
 
         # Ensemble inferences
-        print(f"Ensembling results: {start_time}")
+        logger.info(f"Ensembling results: {start_time}")
         final_ensemble = model.nms_feature_reduction(
             features=tileset_fc_list, min_overlaps_to_keep=1
         )
 
         LAND_MASK_BUFFER_M = 1000
-        print(f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land")
+        logger.info(
+            f"Removing all slicks within {LAND_MASK_BUFFER_M}m of land: {start_time}"
+        )
         landmask_gdf = get_landmask_gdf()
         for feat in final_ensemble.get("features"):
             buffered_gdf = gpd.GeoDataFrame(
@@ -433,9 +435,9 @@ async def _orchestrate(
                         feat.get("properties").get("inf_idx"),
                         feat.get("properties").get("machine_confidence"),
                     )
-                    print(f"{start_time}: Added slick: {slick}")
+                    logger.info(f"{start_time}: Added slick: {slick}")
 
-                print(f"{start_time}: Queueing up Automatic AIS Analysis")
+                logger.info(f"{start_time}: Queueing up Automatic AIS Analysis")
                 add_to_asa_queue(sentinel1_grd.scene_id)
 
         del (
