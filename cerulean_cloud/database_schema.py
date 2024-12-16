@@ -371,6 +371,7 @@ class Source(Base):  # noqa
     )
     type = Column(ForeignKey("source_type.id"), nullable=False)
     st_name = Column(Text, nullable=False)
+    ext_id = Column(Text, nullable=False)
 
     source_type = relationship("SourceType")
 
@@ -383,7 +384,6 @@ class SourceInfra(Source):  # noqa
         Geography("POINT", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
     )
-    ext_id = Column(Text)
     ext_name = Column(Text)
     operator = Column(Text)
     sovereign = Column(Text)
@@ -483,6 +483,7 @@ class HitlSlick(Base):  # noqa
     cls = Column(ForeignKey("cls.id"), nullable=False)
     confidence = Column(Float(53))
     update_time = Column(DateTime, nullable=False, server_default=text("now()"))
+    is_duplicate = Column(Boolean)
 
     cls1 = relationship("Cls")
     slick1 = relationship("Slick")
@@ -519,7 +520,10 @@ class SlickToSource(Base):  # noqa
     )
     slick = Column(ForeignKey("slick.id"), nullable=False)
     source = Column(ForeignKey("source.id"), nullable=False)
+    active = Column(Boolean, nullable=False)
+    git_hash = Column(Text)
     coincidence_score = Column(Float(53))
+    collated_score = Column(Float(53))
     rank = Column(BigInteger)
     geojson_fc = Column(JSON, nullable=False)
     geometry = Column(

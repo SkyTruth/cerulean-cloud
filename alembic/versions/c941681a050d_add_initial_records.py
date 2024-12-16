@@ -101,31 +101,28 @@ def upgrade() -> None:
             ),
             database_schema.Model(
                 type="FASTAIUNET",
-                file_path="experiments/2024_03_06_18_14_31_7cls_rn101_pr256_z9_fastai_baseline_noamb/tracing_cpu_model.pt",
+                file_path="experiments/2024_09_04_21_34_24_4cls_resnet34_pr512_px1024_100epochs_unet/tracing_cpu_model.pt",
                 layers=["VV"],
                 cls_map={
                     0: "BACKGROUND",
                     1: "INFRA",
                     2: "NATURAL",
-                    3: "COIN_VESSEL",
-                    4: "REC_VESSEL",
-                    5: "OLD_VESSEL",
-                    6: "BACKGROUND",  # HITL AMBIGUOUS, should never be output by inference_idx
+                    3: "VESSEL",
                 },  # inference_idx maps to class table
-                name="ResNet101 Baseline Noamb",
+                name="ResNet34 46.6%",
                 tile_width_m=40844,  # Used to calculate zoom
-                tile_width_px=256,  # Used to calculate scale
-                epochs=80,
+                tile_width_px=512,  # Used to calculate scale
+                epochs=500,
                 thresholds={
-                    "poly_nms_thresh": 0.2,
-                    "pixel_nms_thresh": 0.4,
-                    "bbox_score_thresh": 0.05,
-                    "poly_score_thresh": 0.1,
-                    "pixel_score_thresh": 0.3,
+                    "poly_nms_thresh": 0.2,  # Minimum IoU between instances that will keep the higher scoring multipolygon
+                    "pixel_nms_thresh": 0.0,  # NOT USED IN UNETS
+                    "bbox_score_thresh": 0.0001,  # Smallest bridge value that will connect polygons into a multipolygon
+                    "poly_score_thresh": 0.5,  # Determines the size of the outline of any given polygon
+                    "pixel_score_thresh": 0.9,  # Minimum pixel score that will be required to keep a multipolygon
                     "groundtruth_dice_thresh": 0.0,
                 },
-                backbone_size=101,
-                # pixel_f1=0.0, # TODO CALCULATE
+                backbone_size=34,
+                pixel_f1=0.532,
                 # instance_f1=0.0, # TODO CALCULATE
             ),
         ]

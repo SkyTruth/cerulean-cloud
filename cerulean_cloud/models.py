@@ -19,9 +19,9 @@ import numpy as np
 import rasterio
 import torch
 import torchvision  # noqa
-from rasterio.features import shapes
+from rasterio.features import geometry_mask, shapes
 from rasterio.io import MemoryFile
-from rasterio.merge import merge as rio_merge
+from rasterio.transform import Affine
 from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
 
@@ -85,9 +85,9 @@ class BaseModel:
         logging.info(f"Stack has {len(inf_stack)} images")
 
         self.load()  # Load model into memory
-        preprocessed_tensors = self.preprocess_tiles(inf_stack)  # Preprocess imagery
+        preprocessed_tensors = self.preprocess_tiles(inf_stack)
         raw_preds = self.process_tiles(preprocessed_tensors)  # Run inference
-        inference_results = self.postprocess_tiles(raw_preds)  # Postprocess inference
+        inference_results = self.postprocess_tiles(raw_preds, preprocessed_tensors)
         return InferenceResultStack(stack=inference_results)
 
     def preprocess_tiles(self, inf_stack):
@@ -108,7 +108,9 @@ class BaseModel:
         """
         raise NotImplementedError("Subclasses should implement this method")
 
-    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
+    def postprocess_tiles(
+        self, raw_preds, preprocessed_tensors=None
+    ) -> List[InferenceResult]:
         """
         Process and stack the raw_preds of predictions. This method should be implemented by subclasses.
 
@@ -120,7 +122,7 @@ class BaseModel:
     def postprocess_tileset(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ) -> geojson.FeatureCollection:
         """
         Process the InferenceResultStack into a scene and then return a FC. This method should be implemented by subclasses.
@@ -213,9 +215,9 @@ class BaseModel:
                     else:
                         feats_to_remove.append(j)
                 # Check for substantial inclusion and remove the encompassed feature
-                elif intersection > 0.9 * feat_i["area"]:
+                elif intersection > 0.5 * feat_i["area"]:
                     feats_to_remove.append(i)
-                elif intersection > 0.9 * feat_j["area"]:
+                elif intersection > 0.5 * feat_j["area"]:
                     feats_to_remove.append(j)
 
         # Collect features that are not marked for removal
@@ -252,7 +254,9 @@ class MASKRCNNModel(BaseModel):
 
         return self.model(stack_tensors)[1]
 
-    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
+    def postprocess_tiles(
+        self, raw_preds, preprocessed_tensors=None
+    ) -> List[InferenceResult]:
         """
         Process and stack the raw_preds of MASKRCNN predictions.
 
@@ -310,7 +314,7 @@ class MASKRCNNModel(BaseModel):
     def postprocess_tileset(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ) -> geojson.FeatureCollection:
         """
         Post-process a list of tileset results to create a unified geojson feature collection.
@@ -335,7 +339,7 @@ class MASKRCNNModel(BaseModel):
     def reduce_tile_features(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ):
         """
         Reduces the number of prediction features within each tile by applying thresholds and generating polygons.
@@ -351,12 +355,9 @@ class MASKRCNNModel(BaseModel):
         pred_list = []
         for i, inf_result_stack in enumerate(tileset_results):
             if inf_result_stack.stack:
-                pred = [
-                    self.deserialize(inference_result.json_data)
-                    for inference_result in inf_result_stack.stack
-                ]
-                pred_list.extend(pred)
-                bounds_list.append(tileset_bounds[i])
+                for j, inference_result in enumerate(inf_result_stack.stack):
+                    pred_list.append(self.deserialize(inference_result.json_data))
+                    bounds_list.append(tileset_bounds[i][j])
 
         reduced_pred_list = self.reduce_preds(
             pred_list, **self.model_dict["thresholds"]
@@ -428,15 +429,15 @@ class MASKRCNNModel(BaseModel):
 
         # Map the group indices and counts back to the GeoDataFrame
         final_gdf["group_index"] = final_gdf.index.map(group_mapping)
-        final_gdf["mean_conf"] = final_gdf["median_conf"] = final_gdf[
-            "max_conf"
-        ] = final_gdf["machine_confidence"]
+        final_gdf["mean_conf"] = final_gdf["machine_confidence"]
+        final_gdf["median_conf"] = final_gdf["machine_confidence"]
+        final_gdf["max_conf"] = final_gdf["machine_confidence"]
 
         # Dissolve overlapping features into one based on their group index and calculate the median confidence and maximum inference index
         dissolved_gdf = final_gdf.dissolve(
             by="group_index",
             aggfunc={
-                "machine_confidence": "max",
+                "machine_confidence": "median",
                 "inf_idx": lambda x: int(x.mode()[0]),
                 "mean_conf": "mean",
                 "median_conf": "median",
@@ -740,7 +741,9 @@ class FASTAIUNETModel(BaseModel):
         """
         return self.model(preprocessed_tensors)
 
-    def postprocess_tiles(self, raw_preds) -> List[InferenceResult]:
+    def postprocess_tiles(
+        self, raw_preds, preprocessed_tensors=None
+    ) -> List[InferenceResult]:
         """
         Applies a softmax function to the raw predictions from FASTAIUNET, serializes them,
         and returns a list of InferenceResults with serialized data.
@@ -755,6 +758,12 @@ class FASTAIUNETModel(BaseModel):
         processed_preds = [
             torch.nn.functional.softmax(pred, dim=0) for pred in raw_preds
         ]
+
+        if preprocessed_tensors is not None:
+            data_mask = preprocessed_tensors != 0  # Pixels that are not zero
+            for i, probs in enumerate(processed_preds):
+                probs[1:, :, :] = probs[1:, :, :] * data_mask[i]
+                # Zero out the background class; applied to each channel from index 1 onwards using broadcasting
 
         inference_results = [
             InferenceResult(json_data=self.serialize(pred)) for pred in processed_preds
@@ -789,7 +798,7 @@ class FASTAIUNETModel(BaseModel):
     def postprocess_tileset(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ) -> geojson.FeatureCollection:
         """
         Stitches together multiple InferenceResultStacks from the FASTAIUNET model.
@@ -808,40 +817,69 @@ class FASTAIUNETModel(BaseModel):
     def stitch(
         self,
         tileset_results: List[InferenceResultStack],
-        tileset_bounds: List[List[float]],
+        tileset_bounds: List[List[List[float]]],
     ):
-        """Merge arrays based on their geographical bounds and return the merged array and its bounds.
+        """Manually merge arrays based on their geographical bounds.
 
         Args:
-            tileset_results:
+            tileset_results: The list of InferenceResultStacks to stitch together.
+            tileset_bounds: The list of bounds for each InferenceResultStack.
 
         Returns:
-            tuple: A tuple containing the merged numpy array and the bounds (min_x, min_y, max_x, max_y) of the merged area.
+            tuple: A tuple containing the merged numpy array and the transform of the merged area.
         """
         bounds_list = []
         tile_probs_by_class = []
         for i, inf_result_stack in enumerate(tileset_results):
             if inf_result_stack.stack:
-                probabilities = [
-                    self.deserialize(inference_result.json_data).detach().numpy()
-                    for inference_result in inf_result_stack.stack
-                ]
-                tile_probs_by_class.extend(probabilities)
-                bounds_list.append(tileset_bounds[i])
+                for j, inference_result in enumerate(inf_result_stack.stack):
+                    tile_probs_by_class.append(
+                        self.deserialize(inference_result.json_data).detach().numpy()
+                    )
+                    bounds_list.append(tileset_bounds[i][j])
 
-        ds_tiles = []
-        try:
-            ds_tiles = [
-                memfile_gtiff(nparray=tile_probs, bounds=bounds).open()
-                for tile_probs, bounds in zip(tile_probs_by_class, bounds_list)
-            ]
+        if len(bounds_list) == 0:
+            # If the only tiles over ocean contain no vv data
+            return np.array([]), Affine.identity()
 
-            logging.info("Stitching tile probabilites together!")
-            scene_array, transform = rio_merge(ds_tiles)
-            return scene_array, transform
-        finally:
-            for ds in ds_tiles:
-                ds.close()
+        # Determine overall bounds
+        min_x = min(b[0] for b in bounds_list)
+        min_y = min(b[1] for b in bounds_list)
+        max_x = max(b[2] for b in bounds_list)
+        max_y = max(b[3] for b in bounds_list)
+
+        # Get resolution from one tile
+        sample_tile = tile_probs_by_class[0]
+        tile_height, tile_width = sample_tile.shape[1], sample_tile.shape[2]
+        tile_bounds = bounds_list[0]
+        res_x = (tile_bounds[2] - tile_bounds[0]) / tile_width
+        res_y = (tile_bounds[3] - tile_bounds[1]) / tile_height
+
+        num_classes = sample_tile.shape[0]
+
+        # Compute final array dimensions directly
+        final_width = int(round((max_x - min_x) / res_x))
+        final_height = int(round((max_y - min_y) / res_y))
+
+        # Pre-allocate final array
+        scene_array_probs = np.zeros(
+            (num_classes, final_height, final_width), dtype=sample_tile.dtype
+        )
+        # Place each tile into the final array
+        for tile_probs, bounds in zip(tile_probs_by_class, bounds_list):
+            x_offset = int(round((bounds[0] - min_x) / res_x))
+            y_offset = int(round((max_y - bounds[3]) / res_y))
+
+            tile_height, tile_width = tile_probs.shape[1], tile_probs.shape[2]
+
+            scene_array_probs[
+                :, y_offset : y_offset + tile_height, x_offset : x_offset + tile_width
+            ] = tile_probs
+
+        # Create the transform
+        transform = Affine.translation(min_x, max_y) * Affine.scale(res_x, -res_y)
+
+        return scene_array_probs, transform
 
     def instantiate(self, scene_array_probs, transform):
         """
@@ -854,23 +892,39 @@ class FASTAIUNETModel(BaseModel):
         Returns:
         - geojson.FeatureCollection: A collection of geojson features representing detected instances.
         """
-        # Convert numpy.ndarray to PyTorch tensor if necessary
-        if isinstance(scene_array_probs, np.ndarray):
-            scene_array_probs = torch.tensor(scene_array_probs)
 
-        features = []
-        for inf_idx, cls_probs in enumerate(scene_array_probs):
-            if inf_idx != self.background_class_idx:
-                features.extend(
-                    self.instances_from_probs(
-                        cls_probs,
-                        p1=self.model_dict["thresholds"]["bbox_score_thresh"],
-                        p2=self.model_dict["thresholds"]["poly_score_thresh"],
-                        p3=self.model_dict["thresholds"]["pixel_score_thresh"],
-                        transform=transform,
-                        addl_props={"inf_idx": inf_idx},
-                    )
-                )
+        # If there aren't any probability detections in the scene, also catches all-zeros scene_array_probs
+        if not np.any(scene_array_probs):
+            return geojson.FeatureCollection(features=[])
+
+        # Ensure scene_array_probs is a NumPy array
+        if isinstance(scene_array_probs, torch.Tensor):
+            scene_array_probs = scene_array_probs.detach().cpu().numpy()
+
+        oil_classes = [
+            1,
+            2,
+            3,
+        ]  # Classes that are considered to be OIL (including from natural oil seeps) XXX This should not be hardcoded rather be a grabbed from the model inf_idx... OPEN QUESTION
+        scene_oil_probs = scene_array_probs[oil_classes].sum(0)
+        features = self.instances_from_probs(
+            scene_oil_probs,
+            p1=self.model_dict["thresholds"]["bbox_score_thresh"],
+            p2=self.model_dict["thresholds"]["poly_score_thresh"],
+            p3=self.model_dict["thresholds"]["pixel_score_thresh"],
+            transform=transform,
+        )
+        for feat in features:
+            mask = geometry_mask(
+                [feat["geometry"]],
+                out_shape=scene_oil_probs.shape,
+                transform=transform,
+                invert=True,
+            )
+            cls_sums = [
+                scene_array_probs[cls_idx][mask].sum() for cls_idx in oil_classes
+            ]
+            feat["properties"]["inf_idx"] = oil_classes[np.argmax(cls_sums)]
 
         return geojson.FeatureCollection(features=features)
 
@@ -880,8 +934,9 @@ class FASTAIUNETModel(BaseModel):
         p1,
         p2,
         p3,
-        transform,
+        transform=Affine.identity(),
         addl_props={},
+        discard_edge_polygons_buffer=0.005,
     ):
         """
         Converts raster predictions to GeoJSON based on probability thresholds.
@@ -889,60 +944,100 @@ class FASTAIUNETModel(BaseModel):
 
         Args:
             raster (np.array): The input raster array to be processed.
-            p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. lower value = fewer groups
-            p2 (float): The middle probability, used to trim the final polygons size. lower value = coarser polygons
-            p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. higher value = more restrictive
+            p1 (float): The lowest probability, used to group adjacent polygons into multipolygons. Lower value = fewer groups
+            p2 (float): The middle probability, used to trim the final polygons size. Lower value = coarser polygons
+            p3 (float): The highest probability, used to discard polygons that don't reach sufficient confidence. Higher value = more restrictive
+            transform (Affine): The transform to apply to the raster.
+            addl_props (dict): Additional properties to add to the features.
+            discard_edge_polygons_buffer (float): The buffer distance to discard polygons that are too close to the edge of the scene.
             Sample values: p1, p2, p3 = 0.1, 0.5, 0.95
             Analogous to bbox_score_thresh, poly_score_thresh, pixel_score_thresh
         Returns:
-            GeoJSON: A GeoJSON feature collection of the processed predictions.
+            List[geojson.Feature]: A list of GeoJSON features of the processed predictions.
         """
 
-        raster = raster.float().detach().numpy()
+        def overlap_percent(a, b):
+            """
+            Calculate the percentage of overlap between two polygons.
+            This is different from IoU, because it is not symmetric.
+            Used to discard polygons that are too close to the edge of the scene.
+            """
+            if not a.intersects(b):  # Avoid unnecessary intersection computation
+                return 0.0
+            elif a.within(b):  # Avoid unnecessary intersection computation
+                return 1.0
+            else:
+                return a.intersection(b).area / a.area
 
-        # Label components based on p3 to find peaks
-        p1_islands, p1_island_count = label(raster >= p1)
-        # logging.info(f"p1_island_count: {p1_island_count}")
-        p3_islands, p3_island_count = label(raster >= p3)
-        # logging.info(f"p3_island_count: {p3_island_count}")
+        # Generate masks for each threshold
+        nodata_mask = raster == 0
+        p1_islands, _ = label(raster >= p1)
+        p2_mask = raster >= p2
+        p3_mask = raster >= p3
 
-        # Initialize an empty set for unique p1 labels corresponding to p3 components
-        reduced_labels = set()
+        # Extract p1 labels where p3_mask is True
+        p1_p3_labels = np.unique(p1_islands[p3_mask])
 
-        # Iterate over each p3 component
-        for i in range(1, p3_island_count + 1):
-            p3_island_mask = p3_islands == i
-            p1_label_at_p3 = p1_islands[p3_island_mask].flat[
-                0
-            ]  # Take the first pixel's p1 label
-            reduced_labels.add(p1_label_at_p3)
-        # logging.info(f"reduced_labels: {len(reduced_labels)}")
+        # Create mask of all p1_islands that pass p3 criterium
+        p1_p3_mask = np.isin(p1_islands, p1_p3_labels)
+
+        # Create mask of all pixels that pass p2 criterium inside p1_islands that passed the p3 criterium
+        p1_p2_p3_mask = p1_p3_mask & p2_mask
+
+        # Assign distinct labels to the islands that pass p1, p2, and p3 criteria
+        combined_raster = p1_p2_p3_mask * p1_islands
+
+        # Create a buffer around the edge of the scene to discard polygons that are too close to the edge
+        scene_edge = MultiPolygon(
+            shape(geom)
+            for geom, value in shapes(
+                nodata_mask.astype(np.uint8), mask=nodata_mask, transform=transform
+            )
+            if value == 1
+        ).buffer(discard_edge_polygons_buffer)
+
+        # Now, use rasterio.features.shapes to extract polygons and their labels
+        shapes_generator = shapes(
+            combined_raster,
+            mask=combined_raster > 0,  # Only consider pixels with p1_label > 0
+            transform=transform,
+        )
+
+        # Dictionary to collect geometries per p1_label
+        label_geometries = {}
+        for geom, p1_label in shapes_generator:
+            poly = shape(geom)
+            if overlap_percent(poly, scene_edge) <= 0.5:
+                # Only record polygons that are not overlapping the scene edge
+                if p1_label not in label_geometries:  # Initialize if doesn't exist
+                    label_geometries[p1_label] = []
+                label_geometries[p1_label].append(poly)  # Add polygon to list
 
         features = []
-        # Process into feature collections based on unique p1 labels
-        for p1_label in reduced_labels:
-            mask = (p1_islands == p1_label) & (raster >= p2)  # Apply p2 trimming
-            masked_raster = raster[mask]
-            shapes = rasterio.features.shapes(
-                mask.astype(np.uint8), mask=mask, transform=transform
-            )
-            polygons = [shape(geom) for geom, value in shapes if value == 1]
+        for _, geometries in label_geometries.items():
+            multipolygon = MultiPolygon(geometries)
 
-            # Ensure there are polygons left after trimming to process into a MultiPolygon
-            if polygons:
-                multipolygon = MultiPolygon(polygons)
-                features.append(
-                    geojson.Feature(
-                        geometry=multipolygon,
-                        properties={
-                            "mean_conf": float(np.mean(masked_raster)),
-                            "median_conf": float(np.median(masked_raster)),
-                            "max_conf": float(np.max(masked_raster)),
-                            "machine_confidence": float(np.max(masked_raster)),
-                            **addl_props,
-                        },
-                    )
+            geom_mask = geometry_mask(
+                [multipolygon],
+                out_shape=raster.shape,
+                transform=transform,
+                invert=True,
+            )
+
+            masked_raster = raster[geom_mask]
+
+            features.append(
+                geojson.Feature(
+                    geometry=multipolygon,
+                    properties={
+                        "mean_conf": float(np.mean(masked_raster)),
+                        "median_conf": float(np.median(masked_raster)),
+                        "max_conf": float(np.max(masked_raster)),
+                        "machine_confidence": float(np.median(masked_raster)),
+                        **addl_props,
+                    },
                 )
+            )
 
         return features
 

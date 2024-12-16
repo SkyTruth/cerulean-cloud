@@ -45,13 +45,13 @@ registry_url = registry.id.apply(
     lambda _: gcp.container.get_registry_repository().repository_url
 )
 cloud_run_offset_tile_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cloud-run-offset-tile-image')}"
+    lambda url: f"{url}/{construct_name('cr-offset-tile-image')}"
 )
 cloud_run_orchestrator_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cloud-run-orchestrator-image')}"
+    lambda url: f"{url}/{construct_name('cr-orchestrator-image')}"
 )
 cloud_run_tipg_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cloud-run-tipg-image')}"
+    lambda url: f"{url}/{construct_name('cr-tipg-image')}"
 )
 registry_info = None  # use gcloud for authentication.
 
@@ -61,7 +61,7 @@ model_weights = get_file_from_gcs(
     out_path="../cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
 )
 cloud_run_offset_tile_image = docker.Image(
-    construct_name("cloud-run-offset-tile-image"),
+    construct_name("cr-offset-tile-image"),
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_offset",
@@ -71,7 +71,7 @@ cloud_run_offset_tile_image = docker.Image(
     registry=registry_info,
 )
 cloud_run_orchestrator_image = docker.Image(
-    construct_name("cloud-run-orchestrator-image"),
+    construct_name("cr-orchestrator-image"),
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_orchestrator",
@@ -81,7 +81,7 @@ cloud_run_orchestrator_image = docker.Image(
     registry=registry_info,
 )
 cloud_run_tipg_image = docker.Image(
-    construct_name("cloud-run-tipg-image"),
+    construct_name("cr-tipg-image"),
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_tipg",

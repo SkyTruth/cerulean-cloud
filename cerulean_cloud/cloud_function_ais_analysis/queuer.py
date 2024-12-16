@@ -12,7 +12,7 @@ from google.protobuf import timestamp_pb2
 # mypy: ignore-errors
 
 
-def add_to_aaa_queue(scene_id):
+def add_to_asa_queue(scene_id):
     """
     Adds a new task to Google Cloud Tasks for automatic AIS analysis.
 
@@ -31,7 +31,7 @@ def add_to_aaa_queue(scene_id):
 
     project = os.getenv("PROJECT_ID")
     location = os.getenv("GCPREGION")
-    queue = os.getenv("AAA_QUEUE")
+    queue = os.getenv("ASA_QUEUE")
     url = os.getenv("FUNCTION_URL")
     dry_run = os.getenv("AIS_IS_DRY_RUN", "").lower() == "true"
 

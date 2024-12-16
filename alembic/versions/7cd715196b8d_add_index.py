@@ -5,6 +5,7 @@ Revises: 3c4693517ef6
 Create Date: 2022-07-01 14:03:52.485218
 
 """
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -40,6 +41,10 @@ def upgrade() -> None:
 
     op.create_index("idx_source_name", "source", ["st_name", "type"])
 
+    op.create_index(
+        "idx_slick_to_source_collated_score", "slick_to_source", ["collated_score"]
+    )
+
     op.create_index("idx_slick_to_aoi_slick", "slick_to_aoi", ["slick"])
     op.create_index("idx_slick_to_aoi_aoi", "slick_to_aoi", ["aoi"])
 
@@ -74,6 +79,8 @@ def downgrade() -> None:
     op.drop_index("idx_slick_to_aoi_slick", "slick_to_aoi")
 
     op.drop_index("idx_source_name", "source")
+
+    op.drop_index("idx_slick_to_source_collated_score", "slick_to_source")
 
     op.drop_index("idx_filter_hash", "filter")
 

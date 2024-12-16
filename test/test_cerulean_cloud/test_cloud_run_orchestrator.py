@@ -50,7 +50,7 @@ def get_base_tile_3band(*args, **kwargs):
 )
 def test_create_fixture_inference(
     url="https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/",
-    inference_url="https://cerulean-cloud-staging-cloud-run-offset-tiles-49b-5qkjkyomta-ew.a.run.app",
+    inference_url="https://cerulean-cloud-staging-cr-offset-tiles-49b-5qkjkyomta-ew.a.run.app",
 ):
     titiler_client = TitilerClient(url=url)
     S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
@@ -321,11 +321,11 @@ async def test_orchestrator_live():
 def test_make_cloud_log_url():
     start_time = datetime.strptime("2022-07-06 13:39:30.56396", "%Y-%m-%d %H:%M:%S.%f")
     res = make_cloud_log_url(
-        "cerulean-cloud-test-cloud-run-orch", start_time, "cerulean-338116"
+        "cerulean-cloud-test-cr-orchestrator", start_time, "cerulean-338116"
     )
     assert res == (
         "https://console.cloud.google.com/logs/query;query="
-        "resource.type%20%3D%20%22cloud_run_revision%22%20resource.labels.service_name%20%3D%20%22cerulean-cloud-test-cloud-run-orch%22;"
+        "resource.type%20%3D%20%22cloud_run_revision%22%20resource.labels.service_name%20%3D%20%22cerulean-cloud-test-cr-orchestrator%22;"
         "timeRange=2022-07-06T13:39:30.563960Z%2F2022-07-06T13:41:30.563960Z;"
         "cursorTimestamp=2022-07-06T13:39:30.563960Z?"
         "project=cerulean-338116"

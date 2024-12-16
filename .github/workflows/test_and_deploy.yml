@@ -135,22 +135,24 @@ jobs:
 
   deploy-staging:
     name: Deploy [STAGING]
-    needs: [tests]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     environment: staging
+    needs: [tests]
     if: github.ref == 'refs/heads/main'
     concurrency:
       group: staging
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - id: configure-docker
         name: Configure Docker
         uses: ./.github/actions/configure-docker
 
-      - name: Deploy Infrastructure
+      - id: deploy-infrastructure-staging
+        name: Deploy Infrastructure
         uses: ./.github/actions/deploy_infrastructure
         with:
           environment: staging
@@ -159,24 +161,26 @@ jobs:
 
   deploy-production:
     name: Deploy [PRODUCTION]
+    runs-on: ubuntu-20.04
+    environment: prod20240903
     needs: [tests]
-    runs-on: ubuntu-latest
-    environment: production
     if: startsWith(github.event.ref, 'refs/tags')
     concurrency:
       group: production
       cancel-in-progress: false
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - id: configure-docker
         name: Configure Docker
         uses: ./.github/actions/configure-docker
 
-      - name: Deploy Infrastructure
+      - id: deploy-infrastructure-prod20240903
+        name: Deploy Infrastructure
         uses: ./.github/actions/deploy_infrastructure
         with:
-          environment: production
+          environment: prod20240903
           pulumi-version: 3.121.0
-          pulumi-stack-passphrase: production
+          pulumi-stack-passphrase: prod20240903
