@@ -226,18 +226,22 @@ class CloudRunInferenceClient:
         Returns:
         - list: List of inference results, with exceptions filtered out.
         """
-        async with httpx.AsyncClient(
-            headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
-        ) as async_http_client:
-            tasks = [
-                self.get_tile_inference(
-                    http_client=async_http_client, tile_bounds=tile_bounds
-                )
-                for tile_bounds in tileset
-            ]
-            inferences = await asyncio.gather(*tasks, return_exceptions=False)
-            # False means this process will error out if any subtask errors out
-            # True means this process will return a list including errors if any subtask errors out
+        try:
+            async with httpx.AsyncClient(
+                headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+            ) as async_http_client:
+                tasks = [
+                    self.get_tile_inference(
+                        http_client=async_http_client, tile_bounds=tile_bounds
+                    )
+                    for tile_bounds in tileset
+                ]
+                inferences = await asyncio.gather(*tasks, return_exceptions=False)
+                # False means this process will error out if any subtask errors out
+                # True means this process will return a list including errors if any subtask errors out
+        except Exception as e:
+            self.logger.error(f"Failed to complete parallel inference: {e}")
+            inferences = None
 
         # After processing, close and delete aux_datasets
         if self.aux_datasets:
