@@ -197,6 +197,7 @@ class TitilerClient:
                 return np_img
             except Exception:
                 if attempt == retries:
+                    self.logger.error(f"Failed to retrieve {url}")
                     raise
                 self.logger.warning(f"Error retrieving {url}")
                 time.sleep(5**attempt)
