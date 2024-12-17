@@ -428,26 +428,26 @@ def handle_aux_datasets(
             del ar
             gc.collect()
 
-        with MemoryFile() as aux_memfile:
-            if aux_dataset_channels is not None:
-                height, width = aux_dataset_channels.shape[0:2]
-                transform = rasterio.transform.from_bounds(
-                    *tileset_envelope_bounds,
-                    height=image_hw_pixels[0],
-                    width=image_hw_pixels[1],
-                )
-                with aux_memfile.open(
-                    driver="GTiff",
-                    count=len(layers) - 1,  # XXX Hack, assumes layers follow a VV layer
-                    height=height,
-                    width=width,
-                    dtype=aux_dataset_channels.dtype,
-                    transform=transform,
-                    crs="EPSG:4326",
-                ) as dataset:
-                    dataset.write(reshape_as_raster(aux_dataset_channels))
+        aux_memfile = MemoryFile()
+        if aux_dataset_channels is not None:
+            height, width = aux_dataset_channels.shape[0:2]
+            transform = rasterio.transform.from_bounds(
+                *tileset_envelope_bounds,
+                height=image_hw_pixels[0],
+                width=image_hw_pixels[1],
+            )
+            with aux_memfile.open(
+                driver="GTiff",
+                count=len(layers) - 1,  # XXX Hack, assumes layers follow a VV layer
+                height=height,
+                width=width,
+                dtype=aux_dataset_channels.dtype,
+                transform=transform,
+                crs="EPSG:4326",
+            ) as dataset:
+                dataset.write(reshape_as_raster(aux_dataset_channels))
 
-            del aux_dataset_channels
+        del aux_dataset_channels
         gc.collect()
 
         return aux_memfile
