@@ -116,6 +116,7 @@ class CloudRunInferenceClient:
             self.logger.warning(
                 f"could not retrieve tile array for {self.sceneid}; {json.dumps(tile_bounds)}: {e}"
             )
+            return None
 
     async def process_auxiliary_datasets(self, img_array, tile_bounds):
         """
