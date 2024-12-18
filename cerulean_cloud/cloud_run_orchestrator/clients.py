@@ -135,7 +135,7 @@ class CloudRunInferenceClient:
                 structured_log(
                     f"could not retrieve tile array for {json.dumps(tile_bounds)}",
                     scene_id=self.sceneid,
-                    exception=e,
+                    exception=str(e),
                 )
             )
             return None
@@ -208,7 +208,7 @@ class CloudRunInferenceClient:
                         structured_log(
                             f"Inference failed; Attempt {attempt + 1}, retrying . . .",
                             scene_id=self.sceneid,
-                            exception=e,
+                            exception=str(e),
                         )
                     )
                     await asyncio.sleep(retry_delay)  # Wait before retrying
@@ -280,7 +280,7 @@ class CloudRunInferenceClient:
                 structured_log(
                     "Failed to complete parallel inference",
                     scene_id=self.sceneid,
-                    exception=e,
+                    exception=str(e),
                 )
             )
             inferences = None

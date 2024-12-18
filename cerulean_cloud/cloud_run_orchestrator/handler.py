@@ -195,7 +195,7 @@ async def orchestrate(
             structured_log(
                 "Database error during orchestration",
                 scene_id=payload.sceneid,
-                exception=db_err,
+                exception=str(db_err),
             )
         )
 
@@ -207,7 +207,7 @@ async def orchestrate(
         # Handle payload validation errors
         logger.exception(
             structured_log(
-                "Validation error", scene_id=payload.sceneid, exception=val_err
+                "Validation error", scene_id=payload.sceneid, exception=str(val_err)
             )
         )
         raise HTTPException(
@@ -218,7 +218,7 @@ async def orchestrate(
         # Handle inference-related errors
         logger.exception(
             structured_log(
-                "Inference error", scene_id=payload.sceneid, exception=inf_err
+                "Inference error", scene_id=payload.sceneid, exception=str(inf_err)
             )
         )
         raise HTTPException(
@@ -231,7 +231,7 @@ async def orchestrate(
             structured_log(
                 "Unexpected error during orchestration",
                 scene_id=payload.sceneid,
-                exception=e,
+                exception=str(e),
             )
         )
         raise HTTPException(
@@ -257,7 +257,7 @@ async def _orchestrate(
         structured_log(
             "Initiating database client",
             scene_id=payload.sceneid,
-            start_time=start_time,
+            start_time=start_time.isoformat(),
         )
     )
 
@@ -271,7 +271,7 @@ async def _orchestrate(
     except Exception as e:
         logger.error(
             structured_log(
-                "TiTiler client error", scene_id=payload.sceneid, exception=e
+                "TiTiler client error", scene_id=payload.sceneid, exception=str(e)
             )
         )
         return OrchestratorResult(status=str(e))
@@ -509,7 +509,7 @@ async def _orchestrate(
                     )
                     logger.info(
                         structured_log(
-                            "Added slick", scene_id=payload.sceneid, slick=slick
+                            "Added slick", scene_id=payload.sceneid, slick=str(slick)
                         )
                     )
 
@@ -534,7 +534,7 @@ async def _orchestrate(
         exc = e
         logger.exception(
             structured_log(
-                "Error processing scene", scene_id=payload.sceneid, exception=e
+                "Error processing scene", scene_id=payload.sceneid, exception=str(e)
             )
         )
     async with DatabaseClient(db_engine) as db_client:

@@ -140,7 +140,7 @@ class DatabaseClient:
             return self
         except sqlalchemy.exc.OperationalError as oe:
             self.logger.exception(
-                structured_log("Failed to start database session", exception=oe)
+                structured_log("Failed to start database session", exception=str(oe))
             )
             raise
 
@@ -151,7 +151,8 @@ class DatabaseClient:
         except Exception as e:
             self.logger.exception(
                 structured_log(
-                    "Error occurred while closing the database session", exception=e
+                    "Error occurred while closing the database session",
+                    exception=str(e),
                 )
             )
             raise
@@ -175,7 +176,7 @@ class DatabaseClient:
         except Exception as e:
             self.logger.exception(
                 structured_log(
-                    "Error occurred while getting the database model", exception=e
+                    "Error occurred while getting the database model", exception=str(e)
                 )
             )
             raise
@@ -211,7 +212,9 @@ class DatabaseClient:
             )
             return s1_grd
         except Exception as e:
-            self.logger.error(structured_log("Failed to get S1 record", exception=e))
+            self.logger.error(
+                structured_log("Failed to get S1 record", exception=str(e))
+            )
             raise
 
     async def add_orchestrator(
@@ -448,7 +451,7 @@ class DatabaseClient:
             result = await self.session.execute(update_query)
         except Exception as e:
             self.logger.error(
-                structured_log("Failed to deactivate stale slicks", exception=e)
+                structured_log("Failed to deactivate stale slicks", exception=str(e))
             )
             raise
 
