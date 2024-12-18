@@ -436,7 +436,7 @@ async def _orchestrate(
         n_offsettiles_after = len(tileset_list[0])
         logger.info(
             structured_log(
-                f"Inference starting - {n_offsettiles_after} tileset lists",
+                f"Inference starting - {n_offsettiles_after} tilesets",
                 scene_id=payload.sceneid,
             )
         )
@@ -508,7 +508,7 @@ async def _orchestrate(
                     )
                     logger.info(
                         structured_log(
-                            "Added slick", scene_id=payload.sceneid, slick=str(slick)
+                            "Added slick", scene_id=payload.sceneid, slick=slick.id
                         )
                     )
 
@@ -545,7 +545,7 @@ async def _orchestrate(
             or_refreshed.inference_end_time = end_time
             logger.info(
                 structured_log(
-                    f"{start_time}: End time: {end_time}; Orchestration success: {success}",
+                    f"Orchestration success: {success}",
                     scene_id=payload.sceneid,
                 )
             )
