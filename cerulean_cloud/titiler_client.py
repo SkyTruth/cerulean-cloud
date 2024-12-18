@@ -1,5 +1,7 @@
 """client code to interact with titiler for sentinel 1"""
 
+import json
+import logging
 import os
 import time
 import urllib.parse as urlib
@@ -15,6 +17,26 @@ from cerulean_cloud.tiling import TMS
 
 TMS_TITLE = TMS.identifier
 
+handler = logging.StreamHandler()
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+
+
+def structured_log(message, **kwargs):
+    """
+    Create a structured log message in JSON format.
+
+    Args:
+        message (str): The main log message.
+        **kwargs: Arbitrary keyword arguments representing additional log details.
+
+    Returns:
+        str: A JSON-formatted string containing the log message and metadata.
+    """
+    log_data = {"message": message}
+    log_data.update(kwargs)
+    return json.dumps(log_data)
+
 
 class TitilerClient:
     """client for titiler S1"""
@@ -26,6 +48,11 @@ class TitilerClient:
             headers={"Authorization": f"Bearer {os.getenv('TITILER_API_KEY')}"}
         )
         self.timeout = timeout
+
+        # Configure logger
+        self.logger = logging.getLogger("DatabaseClient")
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
 
     async def get_bounds(self, sceneid: str, retries: int = 3) -> List[float]:
         """fetch bounds of a scene
@@ -51,7 +78,9 @@ class TitilerClient:
             except Exception:
                 if attempt == retries:
                     raise
-                self.logger.warning(f"Error retrieving {url}")
+                self.logger.warning(
+                    structured_log(f"Error retrieving {url}", scene_id=sceneid)
+                )
                 time.sleep(5**attempt)
 
         return None
@@ -197,7 +226,13 @@ class TitilerClient:
                 return np_img
             except Exception:
                 if attempt == retries:
-                    self.logger.error(f"Failed to retrieve {url}")
+                    self.logger.error(
+                        structured_log(f"Failed to retrieve {url}", scene_id=sceneid)
+                    )
                     raise
-                self.logger.warning(f"Error retrieving {url}")
+                self.logger.warning(
+                    structured_log(
+                        f"Error retrieving {url}, retrying . . .", scene_id=sceneid
+                    )
+                )
                 time.sleep(5**attempt)

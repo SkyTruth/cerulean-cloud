@@ -27,6 +27,22 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 )
 
 
+def structured_log(message, **kwargs):
+    """
+    Create a structured log message in JSON format.
+
+    Args:
+        message (str): The main log message.
+        **kwargs: Arbitrary keyword arguments representing additional log details.
+
+    Returns:
+        str: A JSON-formatted string containing the log message and metadata.
+    """
+    log_data = {"message": message}
+    log_data.update(kwargs)
+    return json.dumps(log_data)
+
+
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
     """Convert input image array to base64-encoded image."""
     if to_uint8 and not img_array.dtype == np.uint8:
@@ -71,7 +87,9 @@ class CloudRunInferenceClient:
 
         # Configure logger
         handler = logging.StreamHandler()
-        formatter = logging.Formatter("%(asctime)s: %(message)s")
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
         handler.setFormatter(formatter)
         self.logger = logging.getLogger("InferenceClient")
         self.logger.addHandler(handler)
@@ -114,7 +132,11 @@ class CloudRunInferenceClient:
             return img_array
         except Exception as e:
             self.logger.warning(
-                f"could not retrieve tile array for {self.sceneid}; {json.dumps(tile_bounds)}: {e}"
+                structured_log(
+                    f"could not retrieve tile array for {json.dumps(tile_bounds)}",
+                    scene_id=self.sceneid,
+                    exception=e,
+                )
             )
             return None
 
@@ -173,13 +195,22 @@ class CloudRunInferenceClient:
                     return InferenceResultStack(**res.json())
                 else:
                     self.logger.warning(
-                        f"Attempt {attempt + 1}: Failed with status code {res.status_code}. Retrying..."
+                        structured_log(
+                            f"Attempt {attempt + 1}: Failed with status code {res.status_code}. Retrying...",
+                            scene_id=self.sceneid,
+                        )
                     )
                     if attempt < max_retries - 1:
                         await asyncio.sleep(retry_delay)  # Wait before retrying
             except Exception as e:
-                self.logger.warning(f"Attempt {attempt + 1}: Exception occurred: {e}")
                 if attempt < max_retries - 1:
+                    self.logger.warning(
+                        structured_log(
+                            f"Inference failed; Attempt {attempt + 1}, retrying . . .",
+                            scene_id=self.sceneid,
+                            exception=e,
+                        )
+                    )
                     await asyncio.sleep(retry_delay)  # Wait before retrying
 
         # If all attempts fail, raise an exception
@@ -205,7 +236,11 @@ class CloudRunInferenceClient:
 
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
         if img_array is None or not np.any(img_array):
-            self.logger.warning(f"no imagery for {str(tile_bounds)}")
+            self.logger.warning(
+                structured_log(
+                    f"no imagery for {str(tile_bounds)}", scene_id=self.sceneid
+                )
+            )
             return InferenceResultStack(stack=[])
 
         if self.aux_datasets:
@@ -241,7 +276,13 @@ class CloudRunInferenceClient:
                 # False means this process will error out if any subtask errors out
                 # True means this process will return a list including errors if any subtask errors out
         except Exception as e:
-            self.logger.error(f"Failed to complete parallel inference: {e}")
+            self.logger.error(
+                structured_log(
+                    "Failed to complete parallel inference",
+                    scene_id=self.sceneid,
+                    exception=e,
+                )
+            )
             inferences = None
 
         # After processing, close and delete aux_datasets

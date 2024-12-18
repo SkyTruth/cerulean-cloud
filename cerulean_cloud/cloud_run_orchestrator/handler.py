@@ -10,6 +10,7 @@ needs env vars:
 """
 
 import gc
+import json
 import logging
 import os
 import urllib.parse as urlparse
@@ -42,10 +43,26 @@ from cerulean_cloud.titiler_client import TitilerClient
 # Configure logger
 logger = logging.getLogger("orchestrate")
 handler = logging.StreamHandler()
-formatter = logging.Formatter("%(asctime)s: %(message)s")
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
+
+
+def structured_log(message, **kwargs):
+    """
+    Create a structured log message in JSON format.
+
+    Args:
+        message (str): The main log message.
+        **kwargs: Arbitrary keyword arguments representing additional log details.
+
+    Returns:
+        str: A JSON-formatted string containing the log message and metadata.
+    """
+    log_data = {"message": message}
+    log_data.update(kwargs)
+    return json.dumps(log_data)
 
 
 def get_landmask_gdf():
@@ -175,15 +192,24 @@ async def orchestrate(
     except DatabaseError as db_err:
         # Handle database-related errors
         logger.exception(
-            f"Database error during orchestration for sceneid {payload.sceneid}: {db_err}"
+            structured_log(
+                "Database error during orchestration",
+                scene_id=payload.sceneid,
+                exception=db_err,
+            )
         )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="A database error occurred while processing your request.",
         ) from db_err
     except ValidationError as val_err:
         # Handle payload validation errors
-        logger.exception(f"Validation error for payload {payload}: {val_err}")
+        logger.exception(
+            structured_log(
+                "Validation error", scene_id=payload.sceneid, exception=val_err
+            )
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Invalid input data provided.",
@@ -191,7 +217,9 @@ async def orchestrate(
     except InferenceError as inf_err:
         # Handle inference-related errors
         logger.exception(
-            f"Inference error during processing sceneid {payload.sceneid}: {inf_err}"
+            structured_log(
+                "Inference error", scene_id=payload.sceneid, exception=inf_err
+            )
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -200,7 +228,11 @@ async def orchestrate(
     except Exception as e:
         # Handle unexpected errors
         logger.exception(
-            f"Unexpected error during orchestration for sceneid {payload.sceneid}: {e}"
+            structured_log(
+                "Unexpected error during orchestration",
+                scene_id=payload.sceneid,
+                exception=e,
+            )
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -221,8 +253,12 @@ async def _orchestrate(
     # Orchestrate inference
     start_time = datetime.now()
 
-    logging.info(
-        f"Initiating database client - start time: {start_time}; Orchestrating for sceneid {payload.sceneid})"
+    logger.info(
+        structured_log(
+            "Initiating database client",
+            scene_id=payload.sceneid,
+            start_time=start_time,
+        )
     )
 
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
@@ -233,7 +269,11 @@ async def _orchestrate(
         scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
         scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
     except Exception as e:
-        logger.error(f"TiTiler client error for scene ID {payload.sceneid}: {e}")
+        logger.error(
+            structured_log(
+                "TiTiler client error", scene_id=payload.sceneid, exception=e
+            )
+        )
         return OrchestratorResult(status=str(e))
 
     try:
@@ -256,15 +296,24 @@ async def _orchestrate(
 
     if model_dict["zoom_level"] != zoom:
         logger.warning(
-            f"{start_time}: Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}"
+            structured_log(
+                f"Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}",
+                scene_id=payload.sceneid,
+            )
         )
     if model_dict["tile_width_px"] != scale * 256:
         logger.warning(
-            f"{start_time}: Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}"
+            structured_log(
+                f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}",
+                scene_id=payload.sceneid,
+            )
         )
 
-    logging.info(
-        f"Generating tilesets - sceneid {payload.sceneid} (zoom: {zoom} scale: {scale}, scene_bounds: {scene_bounds}, scene_stats: {scene_stats}, : scene_info: {scene_info})"
+    logger.info(
+        structured_log(
+            f"Generating tilesets (zoom: {zoom} scale: {scale}, scene_bounds: {scene_bounds}, scene_stats: {scene_stats}, : scene_info: {scene_info})",
+            scene_id=payload.sceneid,
+        )
     )
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
@@ -282,7 +331,10 @@ async def _orchestrate(
 
     # Filter out land tiles
     logger.info(
-        f"Removing invalid tiles - tileset contains {n_offsettiles} tiles before landfilter"
+        structured_log(
+            f"Removing invalid tiles - tileset contains {n_offsettiles} tiles before landfilter",
+            scene_id=payload.sceneid,
+        )
     )
     try:
         tileset_list = [
@@ -291,7 +343,10 @@ async def _orchestrate(
     except ValueError as e:
         # XXX BUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
         logger.exception(
-            f"FAILURE {payload.sceneid} touches antimeridian, and is_tile_over_water() failed!"
+            structured_log(
+                "FAILURE - scene touches antimeridian, and is_tile_over_water() failed!",
+                scene_id=payload.sceneid,
+            )
         )
         return OrchestratorResult(status=str(e))
 
@@ -299,12 +354,16 @@ async def _orchestrate(
         # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
         # WARNING this will return success, but there will be not trace in the DB of your request (i.e. in S1 or Orchestrator tables)
         # XXX TODO
-        logger.info(f"NO TILES TO BE PROCESSED FOR {payload.sceneid} (SUCCESS)")
+        logger.info(
+            structured_log(
+                "NO TILES TO BE PROCESSED (SUCCESS)", scene_id=payload.sceneid
+            )
+        )
         return OrchestratorResult(status="Success (no oceanic tiles)")
 
     if payload.dry_run:
         # Only tests code above this point, without actually adding any new data to the database, or running inference.
-        logger.warning("DRY RUN (SUCCESS)")
+        logger.warning(structured_log("DRY RUN (SUCCESS)", scene_id=payload.scene_id))
         return OrchestratorResult(status="Success (dry run)")
 
     # write to DB
@@ -329,7 +388,10 @@ async def _orchestrate(
                     )
                 )
                 logger.info(
-                    f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
+                    structured_log(
+                        f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs.",
+                        scene_id=payload.sceneid,
+                    )
                 )
                 orchestrator_run = await db_client.add_orchestrator(
                     start_time,
@@ -357,7 +419,9 @@ async def _orchestrate(
 
     success = True
     try:
-        logger.info(f"Instantiating inference client: {start_time}")
+        logger.info(
+            structured_log("Instantiating inference client", scene_id=payload.sceneid)
+        )
         cloud_run_inference = CloudRunInferenceClient(
             url=os.getenv("INFERENCE_URL"),
             titiler_client=titiler_client,
@@ -371,14 +435,19 @@ async def _orchestrate(
 
         # Perform inferences
         n_offsettiles_after = len(tileset_list[0])
-        logger.info(f"Inference starting - {n_offsettiles_after} tileset lists")
+        logger.info(
+            structured_log(
+                f"Inference starting - {n_offsettiles_after} tileset lists",
+                scene_id=payload.sceneid,
+            )
+        )
         tileset_results_list = [
             await cloud_run_inference.run_parallel_inference(tileset)
             for tileset in tileset_list
         ]
 
         # Stitch inferences
-        logger.info(f"Stitching results: {start_time}")
+        logger.info(structured_log("Stitching result", scene_id=payload.sceneid))
         model = get_model(model_dict)
         tileset_fc_list = [
             model.postprocess_tileset(
@@ -390,14 +459,17 @@ async def _orchestrate(
         ]
 
         # Ensemble inferences
-        logger.info(f"Ensembling results: {start_time}")
+        logger.info(structured_log("Ensembling results", scene_id=payload.sceneid))
         final_ensemble = model.nms_feature_reduction(
             features=tileset_fc_list, min_overlaps_to_keep=1
         )
 
         LAND_MASK_BUFFER_M = 1000
         logger.info(
-            f"Removing all slicks within {LAND_MASK_BUFFER_M}m of land: {start_time}"
+            structured_log(
+                f"Removing all slicks within {LAND_MASK_BUFFER_M}m of land",
+                scene_id=payload.sceneid,
+            )
         )
         landmask_gdf = get_landmask_gdf()
         for feat in final_ensemble.get("features"):
@@ -435,9 +507,17 @@ async def _orchestrate(
                         feat.get("properties").get("inf_idx"),
                         feat.get("properties").get("machine_confidence"),
                     )
-                    logger.info(f"{start_time}: Added slick: {slick}")
+                    logger.info(
+                        structured_log(
+                            "Added slick", scene_id=payload.sceneid, slick=slick
+                        )
+                    )
 
-                logger.info(f"{start_time}: Queueing up Automatic AIS Analysis")
+                logger.info(
+                    structured_log(
+                        "Queueing up Automatic AIS Analysis", scene_id=payload.sceneid
+                    )
+                )
                 add_to_asa_queue(sentinel1_grd.scene_id)
 
         del (
@@ -453,7 +533,9 @@ async def _orchestrate(
         success = False
         exc = e
         logger.exception(
-            f"{start_time}: Error processing {payload.sceneid}. Details: {e}"
+            structured_log(
+                "Error processing scene", scene_id=payload.sceneid, exception=e
+            )
         )
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
@@ -462,8 +544,11 @@ async def _orchestrate(
             end_time = datetime.now()
             or_refreshed.success = success
             or_refreshed.inference_end_time = end_time
-            logging.info(
-                f"{start_time}: End time: {end_time}; Orchestration success: {success}"
+            logger.info(
+                structured_log(
+                    f"{start_time}: End time: {end_time}; Orchestration success: {success}",
+                    scene_id=payload.sceneid,
+                )
             )
     if success is False:
         raise exc

@@ -1,5 +1,6 @@
 """Client code to interact with the database"""
 
+import json
 import logging
 import os
 from typing import Optional
@@ -15,8 +16,24 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engin
 import cerulean_cloud.database_schema as db
 
 handler = logging.StreamHandler()
-formatter = logging.Formatter("%(asctime)s: %(message)s")
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
+
+
+def structured_log(message, **kwargs):
+    """
+    Create a structured log message in JSON format.
+
+    Args:
+        message (str): The main log message.
+        **kwargs: Arbitrary keyword arguments representing additional log details.
+
+    Returns:
+        str: A JSON-formatted string containing the log message and metadata.
+    """
+    log_data = {"message": message}
+    log_data.update(kwargs)
+    return json.dumps(log_data)
 
 
 class InstanceNotFoundError(Exception):
@@ -122,7 +139,9 @@ class DatabaseClient:
             self.session = AsyncSession(self.engine, expire_on_commit=False)
             return self
         except sqlalchemy.exc.OperationalError as oe:
-            self.logger.exception(f"Failed to start database session: {oe}")
+            self.logger.exception(
+                structured_log("Failed to start database session", exception=oe)
+            )
             raise
 
     async def __aexit__(self, exc_type, exc_value, exc_traceback):
@@ -131,7 +150,9 @@ class DatabaseClient:
             await self.session.close()
         except Exception as e:
             self.logger.exception(
-                f"Error occurred while closing the database session: {e}"
+                structured_log(
+                    "Error occurred while closing the database session", exception=e
+                )
             )
             raise
 
@@ -153,7 +174,9 @@ class DatabaseClient:
             return await get(self.session, db.Model, file_path=model_path)
         except Exception as e:
             self.logger.exception(
-                f"Error occurred while getting the database model: {e}"
+                structured_log(
+                    "Error occurred while getting the database model", exception=e
+                )
             )
             raise
 
@@ -188,7 +211,7 @@ class DatabaseClient:
             )
             return s1_grd
         except Exception as e:
-            self.logger.error(f"Failed to get S1 record: {e}")
+            self.logger.error(structured_log("Failed to get S1 record", exception=e))
             raise
 
     async def add_orchestrator(
@@ -424,7 +447,9 @@ class DatabaseClient:
         try:
             result = await self.session.execute(update_query)
         except Exception as e:
-            self.logger.error(f"Failed to deactivate stale slicks: {e}")
+            self.logger.error(
+                structured_log("Failed to deactivate stale slicks", exception=e)
+            )
             raise
 
         # Return the number of rows updated
