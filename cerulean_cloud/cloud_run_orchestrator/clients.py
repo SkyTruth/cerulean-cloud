@@ -20,13 +20,13 @@ from rasterio.enums import Resampling
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 from rio_tiler.io import COGReader
-from utils import structured_log
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInput,
     InferenceResultStack,
     PredictPayload,
 )
+from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 
 
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:

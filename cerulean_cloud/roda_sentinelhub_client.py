@@ -7,8 +7,9 @@ import urllib.parse as urlib
 from typing import Dict
 
 import httpx
-from cloud_run_orchestrator.utils import structured_log
 from rio_tiler_pds.sentinel.utils import s1_sceneid_parser
+
+from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 
 
 class RodaSentinelHubClient:

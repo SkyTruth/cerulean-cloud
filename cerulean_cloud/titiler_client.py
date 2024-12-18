@@ -10,10 +10,10 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 import mercantile
 import numpy as np
-from cloud_run_orchestrator.utils import structured_log
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
 
+from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 from cerulean_cloud.tiling import TMS
 
 TMS_TITLE = TMS.identifier

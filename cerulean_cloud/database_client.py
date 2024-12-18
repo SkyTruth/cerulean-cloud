@@ -8,7 +8,6 @@ from typing import Optional
 
 import pandas as pd
 import sqlalchemy.exc
-from cloud_run_orchestrator.utils import structured_log
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
@@ -16,6 +15,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
+from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 
 
 class InstanceNotFoundError(Exception):
