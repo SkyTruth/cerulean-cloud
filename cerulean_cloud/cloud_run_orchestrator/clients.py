@@ -20,28 +20,13 @@ from rasterio.enums import Resampling
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 from rio_tiler.io import COGReader
+from utils import structured_log
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInput,
     InferenceResultStack,
     PredictPayload,
 )
-
-
-def structured_log(message, **kwargs):
-    """
-    Create a structured log message in JSON format.
-
-    Args:
-        message (str): The main log message.
-        **kwargs: Arbitrary keyword arguments representing additional log details.
-
-    Returns:
-        str: A JSON-formatted string containing the log message and metadata.
-    """
-    log_data = {"message": message}
-    log_data.update(kwargs)
-    return json.dumps(log_data)
 
 
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
@@ -131,6 +116,7 @@ class CloudRunInferenceClient:
             self.logger.warning(
                 structured_log(
                     f"could not retrieve tile array for {json.dumps(tile_bounds)}",
+                    severity="WARNING",
                     scene_id=self.sceneid,
                     exception=str(e),
                 )
@@ -194,6 +180,7 @@ class CloudRunInferenceClient:
                     self.logger.warning(
                         structured_log(
                             f"Attempt {attempt + 1}: Failed with status code {res.status_code}. Retrying...",
+                            severity="WARNING",
                             scene_id=self.sceneid,
                         )
                     )
@@ -204,6 +191,7 @@ class CloudRunInferenceClient:
                     self.logger.warning(
                         structured_log(
                             f"Inference failed; Attempt {attempt + 1}, retrying . . .",
+                            severity="WARNING",
                             scene_id=self.sceneid,
                             exception=str(e),
                         )
@@ -235,14 +223,18 @@ class CloudRunInferenceClient:
         if img_array is None:
             self.logger.warning(
                 structured_log(
-                    f"no imagery for {str(tile_bounds)}", scene_id=self.sceneid
+                    f"no imagery for {str(tile_bounds)}",
+                    severity="WARNING",
+                    scene_id=self.sceneid,
                 )
             )
             return InferenceResultStack(stack=[])
         elif not np.any(img_array):
             self.logger.warning(
                 structured_log(
-                    f"empty image for {str(tile_bounds)}", scene_id=self.sceneid
+                    f"empty image for {str(tile_bounds)}",
+                    severity="WARNING",
+                    scene_id=self.sceneid,
                 )
             )
             return InferenceResultStack(stack=[])
@@ -254,6 +246,15 @@ class CloudRunInferenceClient:
         )
         del img_array
         gc.collect()
+
+        self.logger.info(
+            structured_log(
+                f"generated image for {str(tile_bounds)}",
+                severity="INFO",
+                scene_id=self.sceneid,
+            )
+        )
+
         return res
 
     async def run_parallel_inference(self, tileset):
@@ -283,6 +284,7 @@ class CloudRunInferenceClient:
             self.logger.error(
                 structured_log(
                     "Failed to complete parallel inference",
+                    severity="ERROR",
                     scene_id=self.sceneid,
                     exception=str(e),
                 )

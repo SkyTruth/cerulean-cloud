@@ -1,6 +1,5 @@
 """Client code to interact with the database"""
 
-import json
 import logging
 import os
 import sys
@@ -9,6 +8,7 @@ from typing import Optional
 
 import pandas as pd
 import sqlalchemy.exc
+from cloud_run_orchestrator.utils import structured_log
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
@@ -16,22 +16,6 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
-
-
-def structured_log(message, **kwargs):
-    """
-    Create a structured log message in JSON format.
-
-    Args:
-        message (str): The main log message.
-        **kwargs: Arbitrary keyword arguments representing additional log details.
-
-    Returns:
-        str: A JSON-formatted string containing the log message and metadata.
-    """
-    log_data = {"message": message}
-    log_data.update(kwargs)
-    return json.dumps(log_data)
 
 
 class InstanceNotFoundError(Exception):
@@ -141,6 +125,7 @@ class DatabaseClient:
             self.logger.error(
                 structured_log(
                     "Failed to start database session",
+                    severity="ERROR",
                     exception=str(oe),
                     traceback=traceback.format_exc(),
                 )
@@ -155,6 +140,7 @@ class DatabaseClient:
             self.logger.error(
                 structured_log(
                     "Error occurred while closing the database session",
+                    severity="ERROR",
                     exception=str(e),
                     traceback=traceback.format_exc(),
                 )
@@ -181,6 +167,7 @@ class DatabaseClient:
             self.logger.error(
                 structured_log(
                     "Error occurred while getting the database model",
+                    severity="ERROR",
                     exception=str(e),
                     traceback=traceback.format_exc(),
                 )
@@ -219,7 +206,9 @@ class DatabaseClient:
             return s1_grd
         except Exception as e:
             self.logger.error(
-                structured_log("Failed to get S1 record", exception=str(e))
+                structured_log(
+                    "Failed to get S1 record", severity="ERROR", exception=str(e)
+                )
             )
             raise
 
@@ -457,7 +446,11 @@ class DatabaseClient:
             result = await self.session.execute(update_query)
         except Exception as e:
             self.logger.error(
-                structured_log("Failed to deactivate stale slicks", exception=str(e))
+                structured_log(
+                    "Failed to deactivate stale slicks",
+                    severity="ERROR",
+                    exception=str(e),
+                )
             )
             raise
 

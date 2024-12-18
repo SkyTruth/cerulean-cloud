@@ -1,6 +1,5 @@
 """client code to interact with titiler for sentinel 1"""
 
-import json
 import logging
 import os
 import sys
@@ -11,28 +10,13 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 import mercantile
 import numpy as np
+from cloud_run_orchestrator.utils import structured_log
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
 
 from cerulean_cloud.tiling import TMS
 
 TMS_TITLE = TMS.identifier
-
-
-def structured_log(message, **kwargs):
-    """
-    Create a structured log message in JSON format.
-
-    Args:
-        message (str): The main log message.
-        **kwargs: Arbitrary keyword arguments representing additional log details.
-
-    Returns:
-        str: A JSON-formatted string containing the log message and metadata.
-    """
-    log_data = {"message": message}
-    log_data.update(kwargs)
-    return json.dumps(log_data)
 
 
 class TitilerClient:
@@ -77,7 +61,9 @@ class TitilerClient:
                 if attempt == retries:
                     raise
                 self.logger.warning(
-                    structured_log(f"Error retrieving {url}", scene_id=sceneid)
+                    structured_log(
+                        f"Error retrieving {url}", severity="WARNING", scene_id=sceneid
+                    )
                 )
                 time.sleep(5**attempt)
 
@@ -225,12 +211,18 @@ class TitilerClient:
             except Exception:
                 if attempt == retries:
                     self.logger.error(
-                        structured_log(f"Failed to retrieve {url}", scene_id=sceneid)
+                        structured_log(
+                            f"Failed to retrieve {url}",
+                            severity="ERROR",
+                            scene_id=sceneid,
+                        )
                     )
                     raise
                 self.logger.warning(
                     structured_log(
-                        f"Error retrieving {url}, retrying . . .", scene_id=sceneid
+                        f"Error retrieving {url}, retrying . . .",
+                        severity="WARNING",
+                        scene_id=sceneid,
                     )
                 )
                 time.sleep(5**attempt)
