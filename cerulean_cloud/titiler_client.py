@@ -50,10 +50,11 @@ class TitilerClient:
         Raises:
             HTTPException: For various HTTP related errors including authentication issues.
         """
+
+        url = urlib.urljoin(self.url, "bounds")
+        url += f"?sceneid={sceneid}"
         for attempt in range(1, retries + 1):
             try:
-                url = urlib.urljoin(self.url, "bounds")
-                url += f"?sceneid={sceneid}"
                 resp = await self.client.get(url, timeout=self.timeout)
                 resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
                 return resp.json()["bounds"]
@@ -69,7 +70,9 @@ class TitilerClient:
 
         return None
 
-    async def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
+    async def get_statistics(
+        self, sceneid: str, band: str = "vv", retries: int = 3
+    ) -> Dict:
         """fetch bounds of a scene
 
         Args:
@@ -84,8 +87,22 @@ class TitilerClient:
         url = urlib.urljoin(self.url, "statistics")
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
-        resp = await self.client.get(url, timeout=self.timeout)
-        return resp.json()[band]
+        for attempt in range(1, retries + 1):
+            try:
+                resp = await self.client.get(url, timeout=self.timeout)
+                resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
+                return resp.json()[band]
+            except Exception:
+                if attempt == retries:
+                    raise
+                self.logger.warning(
+                    structured_log(
+                        f"Error retrieving {url}", severity="WARNING", scene_id=sceneid
+                    )
+                )
+                time.sleep(5**attempt)
+
+        return None
 
     def get_base_tile_url(
         self,
@@ -220,7 +237,7 @@ class TitilerClient:
                     raise
                 self.logger.warning(
                     structured_log(
-                        f"Error retrieving {url}, retrying . . .",
+                        f"Failed to retrieve {url}, retrying . . .",
                         severity="WARNING",
                         scene_id=sceneid,
                     )
