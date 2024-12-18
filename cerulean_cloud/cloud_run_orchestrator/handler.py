@@ -13,6 +13,7 @@ import gc
 import json
 import logging
 import os
+import sys
 import urllib.parse as urlparse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -42,9 +43,7 @@ from cerulean_cloud.titiler_client import TitilerClient
 
 # Configure logger
 logger = logging.getLogger("orchestrate")
-handler = logging.StreamHandler()
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
+handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 

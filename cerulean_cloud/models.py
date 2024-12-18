@@ -9,6 +9,7 @@ import gc
 import json
 import logging
 import os
+import sys
 from base64 import b64decode, b64encode
 from io import BytesIO
 from typing import List, Union
@@ -33,9 +34,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 )
 
 logger = logging.getLogger("model")
-handler = logging.StreamHandler()
-formatter = logging.Formatter("%(asctime)s: %(message)s")
-handler.setFormatter(formatter)
+handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 

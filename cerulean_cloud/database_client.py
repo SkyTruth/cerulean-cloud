@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import sys
 from typing import Optional
 
 import pandas as pd
@@ -14,10 +15,6 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
-
-handler = logging.StreamHandler()
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
 
 
 def structured_log(message, **kwargs):
@@ -130,6 +127,7 @@ class DatabaseClient:
 
         # Configure logger
         self.logger = logging.getLogger("DatabaseClient")
+        handler = logging.StreamHandler(sys.stdout)
         self.logger.addHandler(handler)
         self.logger.setLevel(logging.INFO)
 

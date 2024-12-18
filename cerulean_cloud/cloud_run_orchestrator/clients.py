@@ -5,6 +5,7 @@ import gc  # Import garbage collection module
 import json
 import logging
 import os
+import sys
 import zipfile
 from base64 import b64encode
 from datetime import datetime
@@ -86,12 +87,8 @@ class CloudRunInferenceClient:
         self.model_dict = model_dict
 
         # Configure logger
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
-        handler.setFormatter(formatter)
         self.logger = logging.getLogger("InferenceClient")
+        handler = logging.StreamHandler(sys.stdout)  # Write logs to stdout
         self.logger.addHandler(handler)
         self.logger.setLevel(logging.INFO)
 

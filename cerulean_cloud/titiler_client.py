@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import sys
 import time
 import urllib.parse as urlib
 from typing import Dict, List, Optional, Tuple
@@ -16,10 +17,6 @@ from rasterio.plot import reshape_as_image
 from cerulean_cloud.tiling import TMS
 
 TMS_TITLE = TMS.identifier
-
-handler = logging.StreamHandler()
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
 
 
 def structured_log(message, **kwargs):
@@ -51,6 +48,7 @@ class TitilerClient:
 
         # Configure logger
         self.logger = logging.getLogger("DatabaseClient")
+        handler = logging.StreamHandler(sys.stdout)
         self.logger.addHandler(handler)
         self.logger.setLevel(logging.INFO)
 
