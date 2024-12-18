@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import sys
+import traceback
 from typing import Optional
 
 import pandas as pd
@@ -137,8 +138,12 @@ class DatabaseClient:
             self.session = AsyncSession(self.engine, expire_on_commit=False)
             return self
         except sqlalchemy.exc.OperationalError as oe:
-            self.logger.exception(
-                structured_log("Failed to start database session", exception=str(oe))
+            self.logger.error(
+                structured_log(
+                    "Failed to start database session",
+                    exception=str(oe),
+                    traceback=traceback.format_exc(),
+                )
             )
             raise
 
@@ -147,10 +152,11 @@ class DatabaseClient:
         try:
             await self.session.close()
         except Exception as e:
-            self.logger.exception(
+            self.logger.error(
                 structured_log(
                     "Error occurred while closing the database session",
                     exception=str(e),
+                    traceback=traceback.format_exc(),
                 )
             )
             raise
@@ -172,9 +178,11 @@ class DatabaseClient:
         try:
             return await get(self.session, db.Model, file_path=model_path)
         except Exception as e:
-            self.logger.exception(
+            self.logger.error(
                 structured_log(
-                    "Error occurred while getting the database model", exception=str(e)
+                    "Error occurred while getting the database model",
+                    exception=str(e),
+                    traceback=traceback.format_exc(),
                 )
             )
             raise

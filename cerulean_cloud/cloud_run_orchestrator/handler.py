@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import sys
+import traceback
 import urllib.parse as urlparse
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -190,11 +191,12 @@ async def orchestrate(
         )
     except DatabaseError as db_err:
         # Handle database-related errors
-        logger.exception(
+        logger.error(
             structured_log(
                 "Database error during orchestration",
                 scene_id=payload.sceneid,
                 exception=str(db_err),
+                traceback=traceback.format_exc(),
             )
         )
 
@@ -204,9 +206,12 @@ async def orchestrate(
         ) from db_err
     except ValidationError as val_err:
         # Handle payload validation errors
-        logger.exception(
+        logger.error(
             structured_log(
-                "Validation error", scene_id=payload.sceneid, exception=str(val_err)
+                "Validation error",
+                scene_id=payload.sceneid,
+                exception=str(val_err),
+                traceback=traceback.format_exc(),
             )
         )
         raise HTTPException(
@@ -215,9 +220,12 @@ async def orchestrate(
         ) from val_err
     except InferenceError as inf_err:
         # Handle inference-related errors
-        logger.exception(
+        logger.error(
             structured_log(
-                "Inference error", scene_id=payload.sceneid, exception=str(inf_err)
+                "Inference error",
+                scene_id=payload.sceneid,
+                exception=str(inf_err),
+                traceback=traceback.format_exc(),
             )
         )
         raise HTTPException(
@@ -226,11 +234,12 @@ async def orchestrate(
         ) from inf_err
     except Exception as e:
         # Handle unexpected errors
-        logger.exception(
+        logger.error(
             structured_log(
                 "Unexpected error during orchestration",
                 scene_id=payload.sceneid,
                 exception=str(e),
+                traceback=traceback.format_exc(),
             )
         )
         raise HTTPException(
@@ -341,10 +350,11 @@ async def _orchestrate(
         ]
     except ValueError as e:
         # XXX BUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
-        logger.exception(
+        logger.error(
             structured_log(
                 "FAILURE - scene touches antimeridian, and is_tile_over_water() failed!",
                 scene_id=payload.sceneid,
+                traceback=traceback.format_exc(),
             )
         )
         return OrchestratorResult(status=str(e))
@@ -531,9 +541,12 @@ async def _orchestrate(
     except Exception as e:
         success = False
         exc = e
-        logger.exception(
+        logger.error(
             structured_log(
-                "Error processing scene", scene_id=payload.sceneid, exception=str(e)
+                "Error processing scene",
+                scene_id=payload.sceneid,
+                exception=str(e),
+                traceback=traceback.format_exc(),
             )
         )
     async with DatabaseClient(db_engine) as db_client:
