@@ -232,10 +232,17 @@ class CloudRunInferenceClient:
         """
 
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
-        if img_array is None or not np.any(img_array):
+        if img_array is None:
             self.logger.warning(
                 structured_log(
                     f"no imagery for {str(tile_bounds)}", scene_id=self.sceneid
+                )
+            )
+            return InferenceResultStack(stack=[])
+        elif not np.any(img_array):
+            self.logger.warning(
+                structured_log(
+                    f"empty image for {str(tile_bounds)}", scene_id=self.sceneid
                 )
             )
             return InferenceResultStack(stack=[])
