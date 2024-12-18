@@ -68,7 +68,7 @@ class TitilerClient:
                 )
                 time.sleep(5**attempt)
 
-        return None
+        raise RuntimeError("Failed to retrieve scene bounds")
 
     async def get_statistics(
         self, sceneid: str, band: str = "vv", retries: int = 3
@@ -102,7 +102,7 @@ class TitilerClient:
                 )
                 time.sleep(5**attempt)
 
-        return None
+        raise RuntimeError("Failed to retrieve scene stats")
 
     def get_base_tile_url(
         self,
