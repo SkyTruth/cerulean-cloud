@@ -1,6 +1,9 @@
 """client code to interact with titiler for sentinel 1"""
 
+import logging
 import os
+import sys
+import time
 import urllib.parse as urlib
 from typing import Dict, List, Optional, Tuple
 
@@ -10,6 +13,7 @@ import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
 
+from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 from cerulean_cloud.tiling import TMS
 
 TMS_TITLE = TMS.identifier
@@ -26,7 +30,13 @@ class TitilerClient:
         )
         self.timeout = timeout
 
-    async def get_bounds(self, sceneid: str) -> List[float]:
+        # Configure logger
+        self.logger = logging.getLogger("DatabaseClient")
+        handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
+    async def get_bounds(self, sceneid: str, retries: int = 3) -> List[float]:
         """fetch bounds of a scene
 
         Args:
@@ -40,16 +50,29 @@ class TitilerClient:
         Raises:
             HTTPException: For various HTTP related errors including authentication issues.
         """
-        try:
-            url = urlib.urljoin(self.url, "bounds")
-            url += f"?sceneid={sceneid}"
-            resp = await self.client.get(url, timeout=self.timeout)
-            resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
-            return resp.json()["bounds"]
-        except Exception:
-            raise
 
-    async def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
+        url = urlib.urljoin(self.url, "bounds")
+        url += f"?sceneid={sceneid}"
+        for attempt in range(1, retries + 1):
+            try:
+                resp = await self.client.get(url, timeout=self.timeout)
+                resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
+                return resp.json()["bounds"]
+            except Exception:
+                if attempt == retries:
+                    raise
+                self.logger.warning(
+                    structured_log(
+                        f"Error retrieving {url}", severity="WARNING", scene_id=sceneid
+                    )
+                )
+                time.sleep(5**attempt)
+
+        raise RuntimeError("Failed to retrieve scene bounds")
+
+    async def get_statistics(
+        self, sceneid: str, band: str = "vv", retries: int = 3
+    ) -> Dict:
         """fetch bounds of a scene
 
         Args:
@@ -64,8 +87,22 @@ class TitilerClient:
         url = urlib.urljoin(self.url, "statistics")
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
-        resp = await self.client.get(url, timeout=self.timeout)
-        return resp.json()[band]
+        for attempt in range(1, retries + 1):
+            try:
+                resp = await self.client.get(url, timeout=self.timeout)
+                resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
+                return resp.json()[band]
+            except Exception:
+                if attempt == retries:
+                    raise
+                self.logger.warning(
+                    structured_log(
+                        f"Error retrieving {url}", severity="WARNING", scene_id=sceneid
+                    )
+                )
+                time.sleep(5**attempt)
+
+        raise RuntimeError("Failed to retrieve scene stats")
 
     def get_base_tile_url(
         self,
@@ -153,6 +190,7 @@ class TitilerClient:
         img_format: str = "png",
         scale: int = 1,
         rescale: Tuple[int, int] = (0, 255),
+        retries: int = 3,
     ) -> np.ndarray:
         """get offset tile as numpy array (with bounds)
 
@@ -179,10 +217,29 @@ class TitilerClient:
         url += f"&bands={band}"
         url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
-        resp = await self.client.get(url, timeout=self.timeout)
+        for attempt in range(1, retries + 1):
+            try:
+                resp = await self.client.get(url, timeout=self.timeout)
+                with MemoryFile(resp.content) as memfile:
+                    with memfile.open() as dataset:
+                        np_img = reshape_as_image(dataset.read())
 
-        with MemoryFile(resp.content) as memfile:
-            with memfile.open() as dataset:
-                np_img = reshape_as_image(dataset.read())
-
-        return np_img
+                return np_img
+            except Exception:
+                if attempt == retries:
+                    self.logger.error(
+                        structured_log(
+                            f"Failed to retrieve {url}",
+                            severity="ERROR",
+                            scene_id=sceneid,
+                        )
+                    )
+                    raise
+                self.logger.warning(
+                    structured_log(
+                        f"Failed to retrieve {url}, retrying . . .",
+                        severity="WARNING",
+                        scene_id=sceneid,
+                    )
+                )
+                time.sleep(5**attempt)
