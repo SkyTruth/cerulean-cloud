@@ -275,9 +275,6 @@ class CloudRunInferenceClient:
                     )
                     for tile_bounds in tileset
                 ]
-                inferences = await asyncio.gather(*tasks, return_exceptions=False)
-                # False means this process will error out if any subtask errors out
-                # True means this process will return a list including errors if any subtask errors out
         except Exception as e:
             self.logger.error(
                 structured_log(
@@ -288,12 +285,18 @@ class CloudRunInferenceClient:
                     traceback=traceback.format_exc(),
                 )
             )
-            inferences = None
 
         # After processing, close and delete aux_datasets
         if self.aux_datasets:
             del self.aux_datasets
             gc.collect()
+
+        if "tasks" in locals():
+            inferences = await asyncio.gather(*tasks, return_exceptions=False)
+            # False means this process will error out if any subtask errors out
+            # True means this process will return a list including errors if any subtask errors out
+        else:
+            raise ValueError("Failed to gather inference")
 
         return inferences
 
