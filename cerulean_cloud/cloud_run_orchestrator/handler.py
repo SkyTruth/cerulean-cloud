@@ -303,6 +303,15 @@ async def _orchestrate(
                     for column in db_model.__table__.columns
                 }
     except Exception as e:
+        logger.error(
+            structured_log(
+                "Failed to get DB model",
+                severity="ERROR",
+                scene_id=payload.sceneid,
+                exception=str(e),
+                traceback=traceback.format_exc(),
+            )
+        )
         return OrchestratorResult(status=str(e))
 
     zoom = payload.zoom or model_dict["zoom_level"]
@@ -594,6 +603,7 @@ async def _orchestrate(
                 traceback=traceback.format_exc(),
             )
         )
+
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
             or_refreshed = await db_client.get_orchestrator(orchestrator_run_id)
