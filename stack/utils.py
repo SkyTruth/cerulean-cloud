@@ -126,9 +126,7 @@ def create_zip(
     :param compression: The compression type to use for the zip file (default is ZIP_DEFLATED)
     """
     if not zip_filepath:
-        _, zip_filepath = mkstemp(
-            suffix=".zip",
-        )
+        _, zip_filepath = mkstemp(suffix=".zip")
     else:
         zip_filepath = os.path.abspath(zip_filepath)
 
@@ -142,7 +140,21 @@ def create_zip(
                 ):
                     # Store the file relative to the directory specified
                     archive_name = os.path.relpath(full_path, dir_to_zip)
-                    zipf.write(full_path, archive_name)
+
+                    # Create ZipInfo object to set the date_time manually
+                    zinfo = zipfile.ZipInfo.from_file(full_path, archive_name)
+                    # Set date_time to January 1, 1980
+                    zinfo.date_time = (1980, 1, 1, 0, 0, 0)
+
+                    # Write file data to zip in chunks to be memory efficient
+                    with open(full_path, "rb") as f:
+                        with zipf.open(zinfo, "w") as zf:
+                            while True:
+                                chunk = f.read(1024 * 1024)  # Read 1MB at a time
+                                if not chunk:
+                                    break
+                                zf.write(chunk)
+
     return zip_filepath
 
 
