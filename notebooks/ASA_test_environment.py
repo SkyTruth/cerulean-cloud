@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from geoalchemy2 import WKTElement
+from matplotlib.patches import Patch
 
 load_dotenv(".env")
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -112,52 +113,125 @@ def generate_infrastructure_points(
     return infra_gdf
 
 
-def plot_coincidence(
-    analyzer,
-    slick_id,
-    black=True,
-):
+def plot(analyzers, slick_id, black=True, num_ais=5):
     """
-    Plots a sample of infrastructure points with their coincidence scores.
+    Combines the plots of AIS buffered geometries and infrastructure coincidence scores,
+    with a legend showing colors corresponding to each st_name.
 
     Parameters:
-    - analyzer (SourceAnalyzer): Analyzer object containing infrastructure points and coincidence scores.
+    - analyzers (dict): Dictionary containing Analyzer objects with keys 1 and/or 2.
+        - Key 1: AIS Analyzer containing ais_buffered, results, and slick_gdf.
+        - Key 2: Infrastructure Analyzer containing infra_gdf, coincidence_scores, and slick_gdf.
     - slick_id (int): Identifier for the plot title.
     - black (bool): Whether to use black borders for the infrastructure points.
     """
+    fig, ax = plt.subplots(figsize=(10, 10))
 
-    sample_size = len(analyzer.infra_gdf)
-    plt.figure(figsize=(10, 10))
+    # Initialize variables
+    ais_analyzer = None
+    infra_analyzer = None
+    slick_gdf = None
 
-    # Create an axes object
-    ax = plt.gca()
+    # Assign analyzers based on keys
+    if 1 in analyzers.keys():
+        ais_analyzer = analyzers[1]
+        slick_gdf = analyzers[1].slick_gdf
+    if 2 in analyzers.keys():
+        infra_analyzer = analyzers[2]
+        slick_gdf = analyzers[
+            2
+        ].slick_gdf  # This will overwrite if both 1 and 2 are present
 
-    # First plot the infrastructure points
-    scatter = ax.scatter(
-        analyzer.infra_gdf.geometry.x[:sample_size],
-        analyzer.infra_gdf.geometry.y[:sample_size],
-        c=analyzer.coincidence_scores[:sample_size],
-        cmap="Blues",
-        s=10,
-        vmin=0,
-        vmax=1,
-        alpha=0.6,
-        edgecolor="black" if black else None,  # Adds black borders
-        # linewidth=0.5,  # Optional: adjust border thickness
-        label="Infrastructure Points",
-    )
+    # Check if slick_gdf is assigned
+    if slick_gdf is None:
+        raise ValueError(
+            "No slick_gdf found in analyzers. Ensure that analyzers[1] or analyzers[2] is provided."
+        )
 
-    # Then plot the slick_gdf polygons on top
-    analyzer.slick_gdf.plot(
+    # Plot the AIS buffered geometries if ais_analyzer is present
+    if ais_analyzer is not None:
+        # Ensure 'st_name' exists in both ais_buffered and results
+        if (
+            "st_name" in ais_analyzer.ais_buffered.columns
+            and "st_name" in ais_analyzer.results.columns
+        ):
+            ranked_results = (
+                ais_analyzer.results.sort_values("collated_score", ascending=False)
+                .reset_index(drop=True)
+                .iloc[:num_ais]
+            )
+            # Filter ais_buffered where st_name is in results.st_name
+            filtered_ais_buffered = ais_analyzer.ais_buffered[
+                ais_analyzer.ais_buffered["st_name"].isin(
+                    ranked_results["st_name"].values
+                )
+            ]
+
+            # Get unique st_name values
+            unique_st_names = filtered_ais_buffered["st_name"].unique()
+            num_st_names = len(unique_st_names)
+
+            # Assign a unique color to each st_name using a colormap
+            cmap = plt.get_cmap("rainbow", num_st_names)
+            st_name_to_color = {
+                st_name: cmap(i) for i, st_name in enumerate(unique_st_names)
+            }
+
+            # Plot each group of st_name with its corresponding color
+            for st_name, group in filtered_ais_buffered.groupby("st_name"):
+                group.plot(
+                    ax=ax, color=st_name_to_color[st_name], alpha=0.2, label=st_name
+                )
+
+            # Create legend handles for st_name
+            st_name_patches = [
+                Patch(facecolor=st_name_to_color[st_name], label=st_name)
+                for st_name in unique_st_names
+            ]
+        else:
+            print(
+                "Warning: 'st_name' column not found in ais_buffered or results. AIS buffered geometries will not be colored by 'st_name'."
+            )
+            # Plot AIS buffered geometries without color coding
+            colors = plt.cm.get_cmap("viridis", len(ais_analyzer.ais_buffered))
+            for row in ais_analyzer.ais_buffered.itertuples():
+                geom = row.geometry
+                gpd.GeoSeries(geom).plot(
+                    ax=ax,
+                    color=colors(row.Index),
+                    alpha=0.8,
+                    label="AIS Buffered" if row.Index == 0 else "",
+                )
+            st_name_patches = []
+
+    # Plot the centroid
+    centroid = slick_gdf.centroid.iloc[0]
+    ax.plot(centroid.x, centroid.y, "k+", markersize=10, label="Centroid")
+
+    # Plot the infrastructure points with coincidence scores if infra_analyzer is present
+    if infra_analyzer is not None:
+        scatter = ax.scatter(
+            infra_analyzer.infra_gdf.geometry.x,
+            infra_analyzer.infra_gdf.geometry.y,
+            c=infra_analyzer.coincidence_scores,
+            cmap="Blues",
+            s=10,
+            vmin=0,
+            vmax=1,
+            alpha=0.8,
+            edgecolor="black" if black else None,
+            label="Infrastructure Points",
+        )
+    else:
+        scatter = None
+
+    # Plot the slick polygons
+    slick_gdf.plot(
         edgecolor="red", linewidth=1, color="none", ax=ax, label="Slick Polygons"
     )
 
-    # Optionally, plot the centroid on top
-    centroid = analyzer.slick_gdf.centroid.iloc[0]
-    ax.plot(centroid.x, centroid.y, "k+", markersize=10, label="Centroid")
-
     # Set plot limits with padding
-    min_x, min_y, max_x, max_y = analyzer.slick_gdf.total_bounds
+    min_x, min_y, max_x, max_y = slick_gdf.total_bounds
     padding_ratio = 0.2
 
     width = max_x - min_x
@@ -194,31 +268,60 @@ def plot_coincidence(
     ax.set_xlim(min_x_final, max_x_final)
     ax.set_ylim(min_y_final, max_y_final)
 
-    # Add colorbar
-    cbar = plt.colorbar(scatter, ax=ax)
-    cbar.set_label("Coincidence")
+    # Add colorbar for coincidence scores if infra_analyzer is present
+    if scatter is not None:
+        cbar = plt.colorbar(scatter, ax=ax)
+        cbar.set_label("Coincidence")
 
-    max_coincidence = (
-        round(analyzer.coincidence_scores.max(), 2)
-        if len(analyzer.coincidence_scores)
-        else 0
-    )
+        max_coincidence = (
+            round(infra_analyzer.coincidence_scores.max(), 2)
+            if len(infra_analyzer.coincidence_scores)
+            else 0
+        )
+    else:
+        max_coincidence = 0
 
     # Set titles and labels
     plt.title(f"Slick ID {slick_id}: Max Coincidence {max_coincidence}")
     plt.xlabel("Longitude")
     plt.ylabel("Latitude")
 
-    # Remove or adjust the aspect ratio
-    # plt.axis("equal")  # Removed to prevent overriding limits
-
     # Add grid
     plt.grid(True)
 
     # Optionally, add a legend
     handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        plt.legend(handles=handles, labels=labels)
+
+    # If st_name_patches exist, add them to the legend
+    if "st_name_patches" in locals() and st_name_patches:
+        # Existing handles (e.g., Slick Polygons, Centroid, Infrastructure Points)
+        # plus st_name_patches
+        combined_handles = st_name_patches.copy()
+        combined_labels = [patch.get_label() for patch in st_name_patches]
+
+        # Get existing handles excluding st_name patches
+        existing_handles = []
+        existing_labels = []
+        for h, l in zip(handles, labels):
+            if l not in combined_labels and l not in [
+                "AIS Buffered"
+            ]:  # Exclude AIS Buffered to avoid duplicates
+                existing_handles.append(h)
+                existing_labels.append(l)
+
+        combined_handles.extend(existing_handles)
+        combined_labels.extend(existing_labels)
+
+        plt.legend(handles=combined_handles, labels=combined_labels, title="st_name")
+    else:
+        if handles:
+            # Remove duplicate labels
+            unique = {}
+            for h, l in zip(handles, labels):
+                if l not in unique:
+                    unique[l] = h
+            handles, labels = zip(*unique.items())
+            plt.legend(handles=handles, labels=labels)
 
     # Show the plot
     plt.show()
@@ -228,12 +331,16 @@ analyzers: dict[int, SourceAnalyzer] = {}
 
 # %%
 slick_ids = [
-    # 3476096,
-    # 3216961,
+    # 3476096,  # ridges error
+    # 3216961,  # ridges error
     # 3049976,
-    # 3045541
-    # 3537529, # indonesia
-    3045541,  # infra
+    # 3045541,
+    # 3537529,  # indonesia
+    # 3045541,  # infra
+    # 3573155,  # T&T
+    # 3571486,  # missing from GFW
+    # 3581392,  # low score ais?
+    3581329,  # vessel
 ]
 
 accumulated_sources = []
@@ -254,6 +361,9 @@ for slick_id in slick_ids:
     ranked_sources = pd.DataFrame(columns=["type", "st_name", "collated_score"])
     for s_type, analyzer in analyzers.items():
         res = analyzer.compute_coincidence_scores(slick_gdf)
+        if res is not None:
+            res = res.dropna(axis=1, how="all")
+
         ranked_sources = pd.concat([ranked_sources, res], ignore_index=True)
 
     print(f"{len(ranked_sources)} sources found for Slick ID: {slick_id}")
@@ -269,8 +379,7 @@ for slick_id in slick_ids:
             ]
         )
 
-    if 2 in analyzers.keys():
-        plot_coincidence(analyzers[2], slick_id)
+    plot(analyzers, slick_id)
 
     print(
         ranked_sources[["type", "ext_id", "coincidence_score", "collated_score"]].head()
@@ -281,4 +390,6 @@ for slick_id in slick_ids:
 fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
 coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)
-plot_coincidence(infra_analyzer, slick_id, False)
+plot({2: infra_analyzer}, slick_id, False)
+
+# %%
