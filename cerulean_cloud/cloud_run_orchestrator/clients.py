@@ -170,34 +170,33 @@ class CloudRunInferenceClient:
         max_retries = 2  # Total attempts including the first try
         retry_delay = 5  # Delay in seconds between retries
 
+        e = None
         for attempt in range(max_retries):
             try:
                 res = await http_client.post(
                     self.url + "/predict", json=payload.dict(), timeout=None
                 )
-                if res.status_code == 200:
-                    return InferenceResultStack(**res.json())
-                else:
-                    self.logger.warning(
-                        structured_log(
-                            f"Attempt {attempt + 1}: Failed with status code {res.status_code}. Retrying...",
-                            severity="WARNING",
-                            scene_id=self.sceneid,
-                        )
-                    )
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(retry_delay)  # Wait before retrying
+                return InferenceResultStack(**res.json())
             except Exception as e:
                 if attempt < max_retries - 1:
                     self.logger.warning(
                         structured_log(
-                            f"Inference failed; Attempt {attempt + 1}, retrying . . .",
+                            f"Inference error; Attempt {attempt + 1}, retrying . . .",
                             severity="WARNING",
                             scene_id=self.sceneid,
                             exception=str(e),
                         )
                     )
                     await asyncio.sleep(retry_delay)  # Wait before retrying
+
+        self.logger.error(
+            structured_log(
+                "Inference Failed",
+                severity="ERROR",
+                exception=str(e),
+                traceback=traceback.format_exc(),
+            )
+        )
 
         # If all attempts fail, raise an exception
         raise Exception(f"All inference attempts failed after {max_retries} retries.")
