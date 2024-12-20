@@ -191,7 +191,7 @@ class CloudRunInferenceClient:
 
                 self.logger.warning(
                     structured_log(
-                        f"Error getting inference; Attempt {attempt + 1}, retrying . . .",
+                        f"Error getting inference; Attempt {attempt}, retrying . . .",
                         severity="WARNING",
                     )
                 )
