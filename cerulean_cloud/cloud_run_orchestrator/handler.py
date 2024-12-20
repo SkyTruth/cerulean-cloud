@@ -560,8 +560,7 @@ async def _orchestrate(
                         structured_log(
                             "Added slick",
                             severity="INFO",
-                            scene_id=payload.sceneid,
-                            slick=slick.id,
+                            slick=slick.id,  # TODO: this is null - is there a slick attribute to use?
                         )
                     )
 
@@ -588,7 +587,7 @@ async def _orchestrate(
         exc = e
         logger.error(
             structured_log(
-                "Error processing scene",
+                "Failed to process scene",
                 severity="ERROR",
                 scene_id=payload.sceneid,
                 exception=str(e),

@@ -59,17 +59,23 @@ class TitilerClient:
                 resp = await self.client.get(url, timeout=self.timeout)
                 resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
                 return resp.json()["bounds"]
-            except Exception:
+            except Exception as e:
                 if attempt == retries:
+                    self.logger.error(
+                        structured_log(
+                            f"Failed to retrieve scene bounds: {url}",
+                            severity="ERROR",
+                            scene_id=sceneid,
+                            exception=str(e),
+                            traceback=traceback.format_exc(),
+                        )
+                    )
                     raise
                 self.logger.warning(
-                    structured_log(
-                        f"Error retrieving {url}", severity="WARNING", scene_id=sceneid
-                    )
+                    structured_log("Error retrieving scene bounds", severity="WARNING")
                 )
                 time.sleep(5**attempt)
-
-        raise RuntimeError("Failed to retrieve scene bounds")
+        return None
 
     async def get_statistics(
         self, sceneid: str, band: str = "vv", retries: int = 3
@@ -93,17 +99,25 @@ class TitilerClient:
                 resp = await self.client.get(url, timeout=self.timeout)
                 resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
                 return resp.json()[band]
-            except Exception:
+            except Exception as e:
                 if attempt == retries:
+                    self.logger.error(
+                        structured_log(
+                            f"Failed to retrieve scene statistics: {url}",
+                            severity="ERROR",
+                            scene_id=sceneid,
+                            exception=str(e),
+                            traceback=traceback.format_exc(),
+                        )
+                    )
                     raise
                 self.logger.warning(
                     structured_log(
-                        f"Error retrieving {url}", severity="WARNING", scene_id=sceneid
+                        "Error retrieving scene statistics", severity="WARNING"
                     )
                 )
                 time.sleep(5**attempt)
-
-        raise RuntimeError("Failed to retrieve scene stats")
+        return None
 
     def get_base_tile_url(
         self,
@@ -230,7 +244,7 @@ class TitilerClient:
                 if attempt == retries:
                     self.logger.error(
                         structured_log(
-                            f"Failed to retrieve {url}",
+                            f"Failed to retrieve offset tile: {url}",
                             severity="ERROR",
                             scene_id=sceneid,
                             exception=str(e),
@@ -240,9 +254,8 @@ class TitilerClient:
                     raise
                 self.logger.warning(
                     structured_log(
-                        f"Failed to retrieve {url}, retrying . . .",
+                        "error retrieving offset tile, retrying . . .",
                         severity="WARNING",
-                        scene_id=sceneid,
                     )
                 )
                 time.sleep(5**attempt)

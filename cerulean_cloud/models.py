@@ -773,7 +773,7 @@ class FASTAIUNETModel(BaseModel):
         except Exception as e:
             logger.error(
                 structured_log(
-                    "Error in preprocessing",
+                    "Failure in preprocessing",
                     severity="ERROR",
                     exception=str(e),
                     traceback=traceback.format_exc(),

@@ -116,7 +116,7 @@ class CloudRunInferenceClient:
         except Exception as e:
             self.logger.warning(
                 structured_log(
-                    f"could not retrieve tile array for {json.dumps(tile_bounds)}",
+                    f"Error retrieving tile array for {json.dumps(tile_bounds)}",
                     severity="WARNING",
                     scene_id=self.sceneid,
                     exception=str(e),
@@ -170,36 +170,32 @@ class CloudRunInferenceClient:
         max_retries = 2  # Total attempts including the first try
         retry_delay = 5  # Delay in seconds between retries
 
-        e = None
-        for attempt in range(max_retries):
+        for attempt in range(1, max_retries + 1):
             try:
                 res = await http_client.post(
                     self.url + "/predict", json=payload.dict(), timeout=None
                 )
                 return InferenceResultStack(**res.json())
             except Exception as e:
-                if attempt < max_retries - 1:
-                    self.logger.warning(
+                if attempt == max_retries:
+                    self.logger.error(
                         structured_log(
-                            f"Inference error; Attempt {attempt + 1}, retrying . . .",
-                            severity="WARNING",
+                            "Failed to get inference",
+                            severity="ERROR",
                             scene_id=self.sceneid,
                             exception=str(e),
+                            traceback=traceback.format_exc(),
                         )
                     )
-                    await asyncio.sleep(retry_delay)  # Wait before retrying
+                    raise
 
-        self.logger.error(
-            structured_log(
-                "Inference Failed",
-                severity="ERROR",
-                exception=str(e),
-                traceback=traceback.format_exc(),
-            )
-        )
-
-        # If all attempts fail, raise an exception
-        raise Exception(f"All inference attempts failed after {max_retries} retries.")
+                self.logger.warning(
+                    structured_log(
+                        f"Error getting inference; Attempt {attempt + 1}, retrying . . .",
+                        severity="WARNING",
+                    )
+                )
+                await asyncio.sleep(retry_delay)  # Wait before retrying
 
     async def get_tile_inference(self, http_client, tile_bounds, rescale=(0, 255)):
         """
@@ -219,13 +215,6 @@ class CloudRunInferenceClient:
 
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
         if img_array is None:
-            self.logger.warning(
-                structured_log(
-                    f"no imagery for {str(tile_bounds)}",
-                    severity="WARNING",
-                    scene_id=self.sceneid,
-                )
-            )
             return InferenceResultStack(stack=[])
         elif not np.any(img_array):
             self.logger.warning(

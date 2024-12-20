@@ -3,6 +3,7 @@ import logging
 import posixpath
 import sys
 import time
+import traceback
 import urllib.parse as urlib
 from typing import Dict
 
@@ -58,14 +59,23 @@ class RodaSentinelHubClient:
                 resp = await self.client.get(url, timeout=self.timeout)
                 resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
                 return resp.json()
-            except Exception:
+            except Exception as e:
                 if attempt == retries:
+                    self.logger.error(
+                        structured_log(
+                            f"Failed to retrieve product info from SentinelHub: {url}",
+                            severity="ERROR",
+                            scene_id=sceneid,
+                            exception=str(e),
+                            traceback=traceback.format_exc(),
+                        )
+                    )
                     raise
                 self.logger.warning(
                     structured_log(
-                        f"Error retrieving {url}", severity="WARNING", scene_id=sceneid
+                        "Error retrieving product info from SentinelHub",
+                        severity="WARNING",
                     )
                 )
                 time.sleep(5**attempt)
-
-        raise RuntimeError("Failed to retrieve product info from SentinelHub")
+        return None
