@@ -141,16 +141,23 @@ def handle_notification(request_json, ocean_poly):
     for r in request_json.get("Records"):
         sns = r["Sns"]
         msg = json.loads(sns["Message"])
-        scene_poly = sh.polygon.Polygon(msg["footprint"]["coordinates"][0][0])
 
-        is_highdef = msg["id"][10] == "H"
-        is_vv = (
-            msg["id"][15] == "V"
-        )  # we don't want to process any polarization other than vv XXX This is hardcoded in the server, where we look for a vv.grd file
-        is_oceanic = scene_poly.intersects(ocean_poly)
-        print(is_highdef, is_vv, is_oceanic)
-        if is_highdef and is_vv and is_oceanic:
-            filtered_scenes.append(msg["id"])
+        if not (msg["id"][4:6] == "IW"):
+            # Check Beam Mode
+            # XXX This is workaround a bug in Titiler.get_bounds (404 not found) that fails if the beam mode is not IW
+            continue
+        if not (msg["id"][10] == "H"):
+            # Check High Definition
+            continue
+        if not (msg["id"][15] == "V"):
+            # Check Polarization
+            # XXX This is hardcoded in the server, where we look for a vv.grd file
+            continue
+        scene_poly = sh.polygon.Polygon(msg["footprint"]["coordinates"][0][0])
+        if not (scene_poly.intersects(ocean_poly)):
+            # Check Oceanic
+            continue
+        filtered_scenes.append(msg["id"])
     return filtered_scenes
 
 
