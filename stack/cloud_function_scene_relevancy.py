@@ -21,7 +21,7 @@ queue = cloudtasks.Queue(
     construct_name("queue-cr-orchestrator"),
     location=pulumi.Config("gcp").require("region"),
     rate_limits=cloudtasks.QueueRateLimitsArgs(
-        max_concurrent_dispatches=50,
+        max_concurrent_dispatches=40,
         max_dispatches_per_second=1,
     ),
     retry_config=cloudtasks.QueueRetryConfigArgs(
