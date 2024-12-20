@@ -254,16 +254,16 @@ class CloudRunInferenceClient:
         Returns:
         - list: List of inference results, with exceptions filtered out.
         """
+        async_http_client = httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+        )
         try:
-            async with httpx.AsyncClient(
-                headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
-            ) as async_http_client:
-                tasks = [
-                    self.get_tile_inference(
-                        http_client=async_http_client, tile_bounds=tile_bounds
-                    )
-                    for tile_bounds in tileset
-                ]
+            tasks = [
+                self.get_tile_inference(
+                    http_client=async_http_client, tile_bounds=tile_bounds
+                )
+                for tile_bounds in tileset
+            ]
         except Exception as e:
             self.logger.error(
                 structured_log(
@@ -293,6 +293,9 @@ class CloudRunInferenceClient:
             if self.aux_datasets:
                 del self.aux_datasets
                 gc.collect()
+
+            # close and clean up the async client
+            await async_http_client.aclose()
 
 
 def get_scene_date_month(scene_id: str) -> str:
