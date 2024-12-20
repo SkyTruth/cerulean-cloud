@@ -78,4 +78,5 @@ class RodaSentinelHubClient:
                     )
                 )
                 time.sleep(5**attempt)
-        return None
+
+        raise RuntimeError("Unexpected error: Failed to get SentinelHub product info.")

@@ -75,7 +75,7 @@ class TitilerClient:
                     structured_log("Error retrieving scene bounds", severity="WARNING")
                 )
                 time.sleep(5**attempt)
-        return None
+        raise RuntimeError("Unexpected error: Failed to retrieve scene bounds.")
 
     async def get_statistics(
         self, sceneid: str, band: str = "vv", retries: int = 3
@@ -117,7 +117,7 @@ class TitilerClient:
                     )
                 )
                 time.sleep(5**attempt)
-        return None
+        raise RuntimeError("Unexpected error: Failed to retrieve scene statistics.")
 
     def get_base_tile_url(
         self,
