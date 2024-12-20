@@ -286,15 +286,20 @@ class CloudRunInferenceClient:
                 )
             )
 
-        # After processing, close and delete aux_datasets
-        if self.aux_datasets:
-            del self.aux_datasets
-            gc.collect()
+            # If get_tile_inference tasks fail, close and delete aux_datasets
+            if self.aux_datasets:
+                del self.aux_datasets
+                gc.collect()
 
         if "tasks" in locals():
             inferences = await asyncio.gather(*tasks, return_exceptions=False)
             # False means this process will error out if any subtask errors out
             # True means this process will return a list including errors if any subtask errors out
+
+            # After processing, close and delete aux_datasets
+            if self.aux_datasets:
+                del self.aux_datasets
+                gc.collect()
         else:
             raise ValueError("Failed to gather inference")
 
