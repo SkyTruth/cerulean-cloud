@@ -264,11 +264,23 @@ async def _orchestrate(
     try:
         scene_bounds = await titiler_client.get_bounds(payload.sceneid)
         scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
-        scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
     except Exception as e:
         logger.error(
             structured_log(
                 "TiTiler client error",
+                severity="ERROR",
+                scene_id=payload.sceneid,
+                exception=str(e),
+            )
+        )
+        return OrchestratorResult(status=str(e))
+
+    try:
+        scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+    except Exception as e:
+        logger.error(
+            structured_log(
+                "Roda Sentinel Hub error",
                 severity="ERROR",
                 scene_id=payload.sceneid,
                 exception=str(e),

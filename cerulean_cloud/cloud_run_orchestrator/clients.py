@@ -199,9 +199,7 @@ class CloudRunInferenceClient:
                     await asyncio.sleep(retry_delay)  # Wait before retrying
 
         # If all attempts fail, raise an exception
-        raise Exception(
-            f"All attempts failed after {max_retries} retries. Last known error: {res.content}"
-        )
+        raise Exception(f"All inference attempts failed after {max_retries} retries.")
 
     async def get_tile_inference(self, http_client, tile_bounds, rescale=(0, 255)):
         """
