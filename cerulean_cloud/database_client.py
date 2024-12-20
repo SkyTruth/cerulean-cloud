@@ -207,7 +207,10 @@ class DatabaseClient:
         except Exception as e:
             self.logger.error(
                 structured_log(
-                    "Failed to get S1 record", severity="ERROR", exception=str(e)
+                    "Failed to get S1 record",
+                    severity="ERROR",
+                    exception=str(e),
+                    traceback=traceback.format_exc(),
                 )
             )
             raise
@@ -450,6 +453,7 @@ class DatabaseClient:
                     "Failed to deactivate stale slicks",
                     severity="ERROR",
                     exception=str(e),
+                    traceback=traceback.format_exc(),
                 )
             )
             raise

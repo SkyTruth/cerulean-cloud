@@ -271,6 +271,7 @@ async def _orchestrate(
                 severity="ERROR",
                 scene_id=payload.sceneid,
                 exception=str(e),
+                traceback=traceback.format_exc(),
             )
         )
         return OrchestratorResult(status=str(e))
@@ -284,6 +285,7 @@ async def _orchestrate(
                 severity="ERROR",
                 scene_id=payload.sceneid,
                 exception=str(e),
+                traceback=traceback.format_exc(),
             )
         )
         return OrchestratorResult(status=str(e))
@@ -439,7 +441,15 @@ async def _orchestrate(
                 )
                 orchestrator_run_id = orchestrator_run.id
     except Exception as e:
-        logging.error("Failed to write to DB")
+        logger.error(
+            structured_log(
+                "Failed to write to DB",
+                severity="ERROR",
+                scene_id=payload.sceneid,
+                exception=str(e),
+                traceback=traceback.format_exc(),
+            )
+        )
         return OrchestratorResult(status=str(e))
 
     success = True

@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sys
+import traceback
 import zipfile
 from base64 import b64encode
 from datetime import datetime
@@ -285,6 +286,7 @@ class CloudRunInferenceClient:
                     severity="ERROR",
                     scene_id=self.sceneid,
                     exception=str(e),
+                    traceback=traceback.format_exc(),
                 )
             )
             inferences = None

@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import time
+import traceback
 import urllib.parse as urlib
 from typing import Dict, List, Optional, Tuple
 
@@ -225,13 +226,15 @@ class TitilerClient:
                         np_img = reshape_as_image(dataset.read())
 
                 return np_img
-            except Exception:
+            except Exception as e:
                 if attempt == retries:
                     self.logger.error(
                         structured_log(
                             f"Failed to retrieve {url}",
                             severity="ERROR",
                             scene_id=sceneid,
+                            exception=str(e),
+                            traceback=traceback.format_exc(),
                         )
                     )
                     raise
