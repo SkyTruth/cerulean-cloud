@@ -504,7 +504,7 @@ async def _orchestrate(
         model = get_model(model_dict)
         tileset_fc_list = [
             model.postprocess_tileset(
-                tileset_results, [[b] for b in tileset_bounds]
+                tileset_results, [[b] for b in tileset_bounds], payload.sceneid
             )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
             for (tileset_results, tileset_bounds) in zip(
                 tileset_results_list, tileset_list
@@ -521,11 +521,14 @@ async def _orchestrate(
             features=tileset_fc_list, min_overlaps_to_keep=1
         )
         features = final_ensemble.get("features", [])
+        n_feats = (
+            len(features.features) if hasattr("features", features) else "unknown"
+        )  # TODO: this was for testing, and can be removed if features always has attribute "features"
 
         LAND_MASK_BUFFER_M = 1000
         logger.info(
             structured_log(
-                f"Ensemble contains {len(features)} slicks. Removing all slicks within {LAND_MASK_BUFFER_M}m of land",
+                f"Ensemble contains {n_feats} slicks. Removing all slicks within {LAND_MASK_BUFFER_M}m of land",
                 severity="INFO",
                 scene_id=payload.sceneid,
             )

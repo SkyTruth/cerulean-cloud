@@ -254,6 +254,15 @@ class CloudRunInferenceClient:
         Returns:
         - list: List of inference results, with exceptions filtered out.
         """
+
+        self.logger.info(
+            structured_log(
+                f"Starting parallel inference on {len(tileset)} tiles",
+                severity="INFO",
+                scene_id=self.sceneid,
+            )
+        )
+
         async_http_client = httpx.AsyncClient(
             headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
         )

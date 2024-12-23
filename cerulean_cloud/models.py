@@ -137,6 +137,7 @@ class BaseModel:
         self,
         tileset_results: List[InferenceResultStack],
         tileset_bounds: List[List[List[float]]],
+        scene_id: str,
     ) -> geojson.FeatureCollection:
         """
         Process the InferenceResultStack into a scene and then return a FC. This method should be implemented by subclasses.
@@ -334,6 +335,7 @@ class MASKRCNNModel(BaseModel):
         self,
         tileset_results: List[InferenceResultStack],
         tileset_bounds: List[List[List[float]]],
+        scene_id: str,
     ) -> geojson.FeatureCollection:
         """
         Post-process a list of tileset results to create a unified geojson feature collection.
@@ -356,7 +358,7 @@ class MASKRCNNModel(BaseModel):
         scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
         logger.info(
             structured_log(
-                "Stitching tiles into scene",
+                f"Stitching {len(tileset_results)} tiles into scene",
                 severity="INFO",
             )
         )
@@ -845,6 +847,7 @@ class FASTAIUNETModel(BaseModel):
         self,
         tileset_results: List[InferenceResultStack],
         tileset_bounds: List[List[List[float]]],
+        scene_id: str,
     ) -> geojson.FeatureCollection:
         """
         Stitches together multiple InferenceResultStacks from the FASTAIUNET model.
@@ -852,11 +855,25 @@ class FASTAIUNETModel(BaseModel):
         Args:
             tileset_results: The list of InferenceResultStacks to stitch together.
         """
-        logger.info(structured_log("Stitching tiles into scene", severity="INFO"))
+        logger.info(
+            structured_log(
+                f"Stitching {len(tileset_results)} tiles into scene",
+                severity="INFO",
+                scene_id=scene_id,
+            )
+        )
         scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
-        logger.info(structured_log("Finding instances in scene", severity="INFO"))
+        logger.info(
+            structured_log(
+                "Finding instances in scene", severity="INFO", scene_id=scene_id
+            )
+        )
         feature_collection = self.instantiate(scene_array_probs, transform)
-        logger.info(structured_log("Reducing feature count on scene", severity="INFO"))
+        logger.info(
+            structured_log(
+                "Reducing feature count on scene", severity="INFO", scene_id=scene_id
+            )
+        )
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
         return reduced_feature_collection
 
