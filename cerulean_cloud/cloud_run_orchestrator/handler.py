@@ -520,17 +520,19 @@ async def _orchestrate(
         final_ensemble = model.nms_feature_reduction(
             features=tileset_fc_list, min_overlaps_to_keep=1
         )
+        features = final_ensemble.get("features", [])
 
         LAND_MASK_BUFFER_M = 1000
         logger.info(
             structured_log(
-                f"Removing all slicks within {LAND_MASK_BUFFER_M}m of land",
+                f"Ensemble contains {len(features)} slicks. Removing all slicks within {LAND_MASK_BUFFER_M}m of land",
                 severity="INFO",
                 scene_id=payload.sceneid,
             )
         )
         landmask_gdf = get_landmask_gdf()
-        for feat in final_ensemble.get("features"):
+        n_background = 0
+        for feat in features:
             buffered_gdf = gpd.GeoDataFrame(
                 geometry=[shape(feat["geometry"])], crs="4326"
             )
@@ -548,9 +550,18 @@ async def _orchestrate(
             )
             if not intersecting_land.empty:
                 feat["properties"]["inf_idx"] = model.background_class_idx
+                n_background += 1
 
             del buffered_gdf, crs_meters, intersecting_land
             gc.collect()  # Force garbage collection
+
+        logger.info(
+            structured_log(
+                f"Removed {n_background} slicks within {LAND_MASK_BUFFER_M}m of land. Adding {len(features)-n_background} slicks",
+                severity="INFO",
+                scene_id=payload.sceneid,
+            )
+        )
 
         # Removed all preprocessing of features from within the
         # database session to avoid holding locks on the
@@ -596,7 +607,7 @@ async def _orchestrate(
         exc = e
         logger.error(
             structured_log(
-                "Failed to process scene",
+                "Failed to process inference on scene",
                 severity="ERROR",
                 scene_id=payload.sceneid,
                 exception=str(e),
