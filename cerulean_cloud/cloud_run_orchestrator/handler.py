@@ -611,15 +611,21 @@ async def _orchestrate(
             end_time = datetime.now()
             or_refreshed.success = success
             or_refreshed.inference_end_time = end_time
-            logger.info(
-                structured_log(
-                    f"Orchestration success: {success}",
-                    severity="INFO",
-                    scene_id=payload.sceneid,
-                )
-            )
+
     if success is False:
         raise exc
+
+    dt = (end_time - start_time).total_seconds() / 60
+
+    logger.info(
+        structured_log(
+            f"Orchestration success: {success}, completed in {dt:.2f} minutes",
+            severity="INFO",
+            timestamp=end_time,
+            scene_id=payload.sceneid,
+        )
+    )
+
     return OrchestratorResult(status="Success")
 
 
