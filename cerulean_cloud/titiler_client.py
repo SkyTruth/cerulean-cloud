@@ -163,6 +163,7 @@ class TitilerClient:
         img_format: str = "png",
         scale: int = 1,
         rescale: Tuple[int, int] = (0, 255),
+        retries: int = 3,
     ) -> np.ndarray:
         """get base tile as numpy array
 
@@ -184,13 +185,34 @@ class TitilerClient:
         url += f"&format={img_format}"
         url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
-        resp = await self.client.get(url, timeout=self.timeout)
+        for attempt in range(1, retries + 1):
+            try:
+                resp = await self.client.get(url, timeout=self.timeout)
+                with MemoryFile(resp.content) as memfile:
+                    with memfile.open() as dataset:
+                        np_img = reshape_as_image(dataset.read())
 
-        with MemoryFile(resp.content) as memfile:
-            with memfile.open() as dataset:
-                np_img = reshape_as_image(dataset.read())
+                return np_img
 
-        return np_img
+            except Exception as e:
+                if attempt == retries:
+                    self.logger.error(
+                        structured_log(
+                            f"Failed to retrieve base tile: {url}",
+                            severity="ERROR",
+                            scene_id=sceneid,
+                            exception=str(e),
+                            traceback=traceback.format_exc(),
+                        )
+                    )
+                    raise
+                self.logger.warning(
+                    structured_log(
+                        "Error retrieving scene statistics", severity="WARNING"
+                    )
+                )
+                time.sleep(5**attempt)
+        raise RuntimeError("Unexpected error: Failed to retrieve base tile.")
 
     async def get_offset_tile(
         self,
