@@ -251,7 +251,7 @@ async def _orchestrate(
 
     logger.info(
         structured_log(
-            "Initiating database client",
+            "Initiating Orchestrator",
             severity="INFO",
             scene_id=payload.sceneid,
             start_time=start_time.isoformat(),
