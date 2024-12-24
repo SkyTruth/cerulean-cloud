@@ -23,13 +23,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
 from shapely.geometry import shape
 
-from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
 )
+from cerulean_cloud.common.auth import api_key_auth
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 from cerulean_cloud.models import get_model
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
