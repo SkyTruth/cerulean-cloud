@@ -11,7 +11,7 @@ from flask import abort
 from shapely import wkb
 from utils.analyzer import ASA_MAPPING
 
-from cerulean_cloud.database_client import DatabaseClient, get_engine
+from cerulean_cloud.common.database_client import DatabaseClient, get_engine
 
 
 def verify_api_key(request):
