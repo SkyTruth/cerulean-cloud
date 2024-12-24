@@ -16,16 +16,19 @@ RUN pip install \
       --no-cache-dir \
       --upgrade \
       --target ./site-packages \
-      -r ./requirements.txt \
-      && pip install \
-       --isolated \
-       --no-cache-dir \
-       --disable-pip-version-check \
-       'cyclonedx-bom<4.0.0' \
-      && pip freeze --path ./site-packages | cyclonedx-py -r -i - --purl-bom-ref --format xml -o sbom.xml --force \
-      && rm requirements.txt
+      -r ./requirements.txt
 
-COPY cerulean_cloud/ /app/cerulean_cloud/
+RUN pip install \
+      --isolated \
+      --no-cache-dir \
+      --disable-pip-version-check \
+      'cyclonedx-bom<4.0.0'
+RUN pip freeze --path ./site-packages | cyclonedx-py -r -i - --purl-bom-ref --format xml -o sbom.xml --force
+RUN rm requirements.txt
+
+COPY cerulean_cloud/__init__.py /app/cerulean_cloud/
+COPY cerulean_cloud/common /app/cerulean_cloud/common
+COPY cerulean_cloud/cloud_run_tipg /app/cerulean_cloud/cloud_run_tipg
 
 FROM gcr.io/distroless/python3-debian11:debug-nonroot AS final
 
