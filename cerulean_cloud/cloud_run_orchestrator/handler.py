@@ -605,6 +605,7 @@ async def _orchestrate(
                         structured_log(
                             "Added slick",
                             severity="INFO",
+                            scene_id=payload.sceneid,
                             slick=slick.id,  # TODO: this is null - is there a slick attribute to use?
                         )
                     )
