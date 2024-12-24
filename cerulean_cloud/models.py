@@ -1177,9 +1177,9 @@ def get_model(
     )
 
     if model_type == "MASKRCNN":
-        return MASKRCNNModel(model_dict, model_path_local)
+        return MASKRCNNModel(model_dict, model_path_local, scene_id=scene_id)
     elif model_type == "FASTAIUNET":
-        return FASTAIUNETModel(model_dict, model_path_local)
+        return FASTAIUNETModel(model_dict, model_path_local, scene_id=scene_id)
     else:
         raise ValueError("Unsupported model type")
 

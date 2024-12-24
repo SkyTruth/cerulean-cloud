@@ -254,7 +254,7 @@ async def _orchestrate(
             "Initiating Orchestrator",
             severity="INFO",
             scene_id=payload.sceneid,
-            start_time=start_time.isoformat(),
+            start_time=start_time.isoformat() + "Z",
         )
     )
 
@@ -632,7 +632,7 @@ async def _orchestrate(
         structured_log(
             f"Orchestration success: {success}, completed in {dt:.2f} minutes",
             severity="INFO",
-            timestamp=end_time,
+            timestamp=end_time.isoformat() + "Z",
             scene_id=payload.sceneid,
         )
     )
