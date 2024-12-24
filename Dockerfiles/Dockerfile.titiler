@@ -5,8 +5,8 @@ WORKDIR /var/task
 
 COPY cerulean_cloud/titiler_sentinel/requirements.txt ./requirements.txt
 COPY cerulean_cloud/titiler_sentinel/handler.py handler.py
-COPY cerulean_cloud/auth.py auth.py
 COPY cerulean_cloud/titiler_sentinel/templates/ ./templates
+COPY cerulean_cloud/common/auth.py auth.py
 
 # Use after upgrade of Pulumi Docker to >= 4
 # COPY --chown=root:root --chmod=400 Dockerfiles/scripts/titiler-entrypoint.sh /entrypoint.sh
