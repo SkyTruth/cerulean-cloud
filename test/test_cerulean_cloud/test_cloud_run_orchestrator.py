@@ -28,7 +28,7 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     offset_group_shape_from_base_tiles,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
-from cerulean_cloud.models import BaseModel, b64_image_to_array
+from cerulean_cloud.common.models import BaseModel, b64_image_to_array
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
