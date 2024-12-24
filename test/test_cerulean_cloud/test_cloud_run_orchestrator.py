@@ -29,7 +29,7 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
 from cerulean_cloud.common.models import BaseModel, b64_image_to_array
-from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
+from cerulean_cloud.common.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
@@ -150,7 +150,7 @@ async def mock_get_product_info(*args, **kwargs):
     cerulean_cloud.titiler_client.TitilerClient, "get_bounds", mock_get_bounds
 )
 @patch.object(
-    cerulean_cloud.roda_sentinelhub_client.RodaSentinelHubClient,
+    RodaSentinelHubClient,
     "get_product_info",
     mock_get_product_info,
 )
