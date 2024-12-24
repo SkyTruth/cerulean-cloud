@@ -19,7 +19,7 @@ from cerulean_cloud.cloud_run_orchestrator.clients import (
     get_ship_density,
     handle_aux_datasets,
 )
-from cerulean_cloud.tiling import TMS
+from cerulean_cloud.common.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
 

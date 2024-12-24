@@ -9,7 +9,7 @@ from rasterio.plot import reshape_as_raster
 
 import cerulean_cloud.common.models as models
 from cerulean_cloud.cloud_run_offset_tiles.schema import InferenceInput, PredictPayload
-from cerulean_cloud.tiling import TMS
+from cerulean_cloud.common.tiling import TMS
 from cerulean_cloud.titiler_client import TitilerClient
 
 

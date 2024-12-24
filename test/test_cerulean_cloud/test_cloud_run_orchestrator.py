@@ -30,7 +30,7 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
 from cerulean_cloud.common.models import BaseModel, b64_image_to_array
 from cerulean_cloud.common.roda_sentinelhub_client import RodaSentinelHubClient
-from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
+from cerulean_cloud.common.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
 S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
