@@ -203,7 +203,22 @@ class BaseModel:
         )
         feats_to_remove.extend(gdf[gdf["overlaps"] < min_overlaps_to_keep].index)
 
+        total_features = len(gdf)
+        log_interval = max(total_features // 10, 1)  # Ensure at least one log every 10%
+
         for i, feat_i in gdf.iterrows():
+
+            # Log progress at every 10%
+            # TODO: Remove this log after identifying if this is the step that is failing
+            if (i + 1) % log_interval == 0 or (i + 1) == total_features:
+                percentage_complete = int((i + 1) / total_features * 100)
+                logger.debug(
+                    structured_log(
+                        f"Progress: {percentage_complete}% completed ({i + 1}/{total_features})",
+                        severity="DEBUG",
+                        features_processed=i + 1,
+                    )
+                )
             # Compare the current feature against all subsequent features
             for j, feat_j in gdf.iloc[i + 1 :].iterrows():
                 if j in feats_to_remove or i in feats_to_remove:
