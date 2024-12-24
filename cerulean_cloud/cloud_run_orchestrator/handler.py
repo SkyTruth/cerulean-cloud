@@ -383,7 +383,7 @@ async def _orchestrate(
                 "Removed tiles over land",
                 severity="INFO",
                 scene_id=payload.sceneid,
-                n_tiles=len(tileset_list),
+                n_tilesets=len(tileset_list),
             )
         )
     except ValueError as e:
@@ -514,13 +514,22 @@ async def _orchestrate(
             for tileset in tileset_list
         ]
 
+        logger.info(
+            structured_log(
+                "Initializing model",
+                severity="INFO",
+                scene_id=payload.sceneid,
+                model_type=model_dict["type"],
+            )
+        )
+        model = get_model(model_dict, scene_id=payload.sceneid)
+
         # Stitch inferences
         logger.info(
             structured_log(
                 "Stitching result", severity="INFO", scene_id=payload.sceneid
             )
         )
-        model = get_model(model_dict, scene_id=payload.sceneid)
         tileset_fc_list = [
             model.postprocess_tileset(
                 tileset_results, [[b] for b in tileset_bounds]

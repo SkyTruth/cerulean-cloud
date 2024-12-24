@@ -35,11 +35,6 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 )
 from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 
-logger = logging.getLogger("model")
-handler = logging.StreamHandler(sys.stdout)
-logger.addHandler(handler)
-logger.setLevel(logging.INFO)
-
 
 class BaseModel:
     """
@@ -69,6 +64,11 @@ class BaseModel:
         )
         self.scene_id = scene_id
 
+        self.logger = logging.getLogger("model")
+        handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
     def load(self):
         """
         Loads the model from the given path.
@@ -78,7 +78,7 @@ class BaseModel:
                 self.model = torch.jit.load(self.model_path_local, map_location="cpu")
                 self.model.eval()
         except Exception as e:
-            logger.error(
+            self.logger.error(
                 structured_log(
                     "Error loading model",
                     severity="ERROR",
@@ -96,7 +96,7 @@ class BaseModel:
         Args:
             inf_stack: The input data stack for inference.
         """
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Predicting images",
                 severity="INFO",
@@ -172,7 +172,7 @@ class BaseModel:
         - A geojson FeatureCollection containing the retained features.
         """
 
-        logger.debug(
+        self.logger.debug(
             structured_log(
                 "DEBUG NMS: initializing feature list",
                 severity="DEBUG",
@@ -191,7 +191,7 @@ class BaseModel:
         if not feature_list:
             return geojson.FeatureCollection([])
 
-        logger.debug(
+        self.logger.debug(
             structured_log(
                 "DEBUG NMS: filtering None type geometry",
                 severity="DEBUG",
@@ -206,7 +206,7 @@ class BaseModel:
         ]
 
         # Precompute the areas of all features to optimize geometry operations
-        logger.debug(
+        self.logger.debug(
             structured_log(
                 "DEBUG NMS: precomputing areas",
                 severity="DEBUG",
@@ -224,7 +224,7 @@ class BaseModel:
             ],
             crs="EPSG:4326",
         )
-        logger.debug(
+        self.logger.debug(
             structured_log(
                 "DEBUG NMS: reprojecting features",
                 severity="DEBUG",
@@ -240,7 +240,7 @@ class BaseModel:
         feats_to_remove = []
 
         # If the feature has fewer overlaps than required, mark it for removal
-        logger.debug(
+        self.logger.debug(
             structured_log(
                 "DEBUG NMS: finding overlaps",
                 severity="DEBUG",
@@ -257,7 +257,7 @@ class BaseModel:
         total_features = len(gdf)
         log_interval = max(total_features // 10, 1)  # Ensure at least one log every 10%
 
-        logger.debug(
+        self.logger.debug(
             structured_log(
                 "DEBUG NMS: removing intersecting features",
                 severity="DEBUG",
@@ -272,7 +272,7 @@ class BaseModel:
             # TODO: Remove this log after identifying if this is the step that is failing
             if (i + 1) % log_interval == 0 or (i + 1) == total_features:
                 percentage_complete = int((i + 1) / total_features * 100)
-                logger.debug(
+                self.logger.debug(
                     structured_log(
                         "Progress update",
                         severity="DEBUG",
@@ -338,7 +338,7 @@ class MASKRCNNModel(BaseModel):
             )
             for record in inf_stack
         ]
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Stacked tensors",
                 severity="INFO",
@@ -429,7 +429,7 @@ class MASKRCNNModel(BaseModel):
             geojson.FeatureCollection: A geojson feature collection representing the processed and combined geographical data.
         """
 
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Reducing feature count on tiles",
                 severity="INFO",
@@ -437,7 +437,7 @@ class MASKRCNNModel(BaseModel):
             )
         )
         scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Stitching tiles into scene",
                 severity="INFO",
@@ -446,7 +446,7 @@ class MASKRCNNModel(BaseModel):
             )
         )
         feature_collection = self.stitch(scene_polys)
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Reducing feature count on scene",
                 severity="INFO",
@@ -456,7 +456,7 @@ class MASKRCNNModel(BaseModel):
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
         n_feats = len(reduced_feature_collection.get("features", []))
 
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Generated features",
                 severity="INFO",
@@ -859,7 +859,7 @@ class FASTAIUNETModel(BaseModel):
                 for record in inf_stack
             ]
             batch_tensor = torch.cat(stack_tensors, dim=0).to(self.device)
-            logger.info(
+            self.logger.info(
                 structured_log(
                     "Generated batch tensor",
                     severity="INFO",
@@ -869,7 +869,7 @@ class FASTAIUNETModel(BaseModel):
             )
             return batch_tensor  # Only the tensor batch is needed for the model
         except Exception as e:
-            logger.error(
+            self.logger.error(
                 structured_log(
                     "Failure in preprocessing",
                     severity="ERROR",
@@ -951,7 +951,7 @@ class FASTAIUNETModel(BaseModel):
         Args:
             tileset_results: The list of InferenceResultStacks to stitch together.
         """
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Stitching tiles into scene",
                 severity="INFO",
@@ -961,7 +961,7 @@ class FASTAIUNETModel(BaseModel):
         )
         scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
 
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Finding instances in scene", severity="INFO", scene_id=self.scene_id
             )
@@ -970,7 +970,7 @@ class FASTAIUNETModel(BaseModel):
         feature_collection = self.instantiate(scene_array_probs, transform)
         n_feats = len(feature_collection.get("features", []))
 
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Generated features. Reducing feature count on scene",
                 severity="INFO",
@@ -982,7 +982,7 @@ class FASTAIUNETModel(BaseModel):
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
         n_feats = len(reduced_feature_collection.get("features", []))
 
-        logger.info(
+        self.logger.info(
             structured_log(
                 "Reduced features",
                 severity="INFO",
@@ -1238,14 +1238,6 @@ def get_model(
         An instance of the appropriate model class.
     """
     model_type = model_dict["type"]
-    logger.info(
-        structured_log(
-            "Initializing model",
-            severity="INFO",
-            scene_id=scene_id,
-            model_type=model_type,
-        )
-    )
 
     if model_type == "MASKRCNN":
         return MASKRCNNModel(model_dict, model_path_local, scene_id=scene_id)
@@ -1309,16 +1301,7 @@ def b64_image_to_array(image: str, tensor: bool = False, to_float=False, scene_i
         if to_float:
             np_img = dtype_to_float(np_img)
         return torch.tensor(np_img) if tensor else np_img
-    except Exception as e:
-        logger.error(
-            structured_log(
-                "Failed to convert base64 image to array",
-                severity="ERROR",
-                scene_id=scene_id,
-                exception=str(e),
-                traceback=traceback.format_exc(),
-            )
-        )
+    except Exception:
         raise
 
 
