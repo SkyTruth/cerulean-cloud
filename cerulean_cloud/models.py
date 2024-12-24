@@ -176,7 +176,7 @@ class BaseModel:
                 "DEBUG NMS: initializing feature list",
                 severity="DEBUG",
                 scene_id=self.scene_id,
-                feature_type=type(features),
+                feature_type=type(features).__name__,
             )
         )
         feature_list = []
