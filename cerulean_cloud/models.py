@@ -152,6 +152,7 @@ class BaseModel:
         features: Union[geojson.FeatureCollection, List[geojson.FeatureCollection]],
         min_overlaps_to_keep: int = 0,
         in_class_only: bool = False,
+        scene_id: str = "",
     ) -> geojson.FeatureCollection:
         """
         Performs ensemble inference on a list of geojson Features to eliminate overlapping features based on a non-maximum suppression approach using IoU and inclusion thresholds. Features with fewer overlaps than a specified threshold are also discarded.
@@ -216,7 +217,7 @@ class BaseModel:
                     structured_log(
                         f"Progress: {percentage_complete}% completed ({i + 1}/{total_features})",
                         severity="DEBUG",
-                        features_processed=i + 1,
+                        scene_id=scene_id,
                     )
                 )
             # Compare the current feature against all subsequent features
@@ -387,7 +388,9 @@ class MASKRCNNModel(BaseModel):
                 scene_id=scene_id,
             )
         )
-        reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        reduced_feature_collection = self.nms_feature_reduction(
+            feature_collection, scene_id=scene_id
+        )
         n_feats = len(reduced_feature_collection.get("features", []))
 
         logger.info(
@@ -906,7 +909,9 @@ class FASTAIUNETModel(BaseModel):
             )
         )
 
-        reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        reduced_feature_collection = self.nms_feature_reduction(
+            feature_collection, scene_id=scene_id
+        )
         n_feats = len(reduced_feature_collection.get("features", []))
 
         logger.info(
