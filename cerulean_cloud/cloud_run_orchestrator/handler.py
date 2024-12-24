@@ -500,10 +500,10 @@ async def _orchestrate(
                 "Stitching result", severity="INFO", scene_id=payload.sceneid
             )
         )
-        model = get_model(model_dict)
+        model = get_model(model_dict, scene_id=payload.sceneid)
         tileset_fc_list = [
             model.postprocess_tileset(
-                tileset_results, [[b] for b in tileset_bounds], payload.sceneid
+                tileset_results, [[b] for b in tileset_bounds]
             )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
             for (tileset_results, tileset_bounds) in zip(
                 tileset_results_list, tileset_list

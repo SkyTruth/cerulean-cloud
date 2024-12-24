@@ -47,7 +47,7 @@ class BaseModel:
     making predictions, stacking results, and stitching outputs.
     """
 
-    def __init__(self, model_dict=None, model_path_local=None):
+    def __init__(self, model_dict=None, model_path_local=None, scene_id=None):
         """
         Initializes the BaseModel with a model path and inference parameters.
 
@@ -67,6 +67,7 @@ class BaseModel:
             ),
             None,
         )
+        self.scene_id = scene_id
 
     def load(self):
         """
@@ -81,6 +82,7 @@ class BaseModel:
                 structured_log(
                     "Error loading model",
                     severity="ERROR",
+                    scene_id=self.scene_id,
                     exception=str(e),
                     traceback=traceback.format_exc(),
                 )
@@ -95,7 +97,11 @@ class BaseModel:
             inf_stack: The input data stack for inference.
         """
         logger.info(
-            structured_log(f"Stack has {len(inf_stack)} images", severity="INFO")
+            structured_log(
+                f"Stack has {len(inf_stack)} images",
+                severity="INFO",
+                scene_id=self.scene_id,
+            )
         )
 
         self.load()  # Load model into memory
@@ -137,7 +143,6 @@ class BaseModel:
         self,
         tileset_results: List[InferenceResultStack],
         tileset_bounds: List[List[List[float]]],
-        scene_id: str,
     ) -> geojson.FeatureCollection:
         """
         Process the InferenceResultStack into a scene and then return a FC. This method should be implemented by subclasses.
@@ -152,7 +157,6 @@ class BaseModel:
         features: Union[geojson.FeatureCollection, List[geojson.FeatureCollection]],
         min_overlaps_to_keep: int = 0,
         in_class_only: bool = False,
-        scene_id: str = "",
     ) -> geojson.FeatureCollection:
         """
         Performs ensemble inference on a list of geojson Features to eliminate overlapping features based on a non-maximum suppression approach using IoU and inclusion thresholds. Features with fewer overlaps than a specified threshold are also discarded.
@@ -217,7 +221,7 @@ class BaseModel:
                     structured_log(
                         f"Progress: {percentage_complete}% completed ({i + 1}/{total_features})",
                         severity="DEBUG",
-                        scene_id=scene_id,
+                        scene_id=self.scene_id,
                     )
                 )
             # Compare the current feature against all subsequent features
@@ -272,13 +276,16 @@ class MASKRCNNModel(BaseModel):
         Processes image data contained in InferenceInput and prepares them for MASKRCNN model inference.
         """
         stack_tensors = [
-            b64_image_to_array(record.image, tensor=True, to_float=True)
+            b64_image_to_array(
+                record.image, tensor=True, to_float=True, scene_id=self.scene_id
+            )
             for record in inf_stack
         ]
         logger.info(
             structured_log(
                 f"Images have shape {stack_tensors[0].shape}",
                 severity="INFO",
+                scene_id=self.scene_id,
             )
         )
         return stack_tensors
@@ -351,7 +358,6 @@ class MASKRCNNModel(BaseModel):
         self,
         tileset_results: List[InferenceResultStack],
         tileset_bounds: List[List[List[float]]],
-        scene_id: str,
     ) -> geojson.FeatureCollection:
         """
         Post-process a list of tileset results to create a unified geojson feature collection.
@@ -369,7 +375,7 @@ class MASKRCNNModel(BaseModel):
             structured_log(
                 "Reducing feature count on tiles",
                 severity="INFO",
-                scene_id=scene_id,
+                scene_id=self.scene_id,
             )
         )
         scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
@@ -377,7 +383,7 @@ class MASKRCNNModel(BaseModel):
             structured_log(
                 f"Stitching {len(tileset_results)} tiles into scene",
                 severity="INFO",
-                scene_id=scene_id,
+                scene_id=self.scene_id,
             )
         )
         feature_collection = self.stitch(scene_polys)
@@ -385,17 +391,15 @@ class MASKRCNNModel(BaseModel):
             structured_log(
                 "Reducing feature count on scene",
                 severity="INFO",
-                scene_id=scene_id,
+                scene_id=self.scene_id,
             )
         )
-        reduced_feature_collection = self.nms_feature_reduction(
-            feature_collection, scene_id=scene_id
-        )
+        reduced_feature_collection = self.nms_feature_reduction(feature_collection)
         n_feats = len(reduced_feature_collection.get("features", []))
 
         logger.info(
             structured_log(
-                f"Generated {n_feats} features", severity="INFO", scene_id=scene_id
+                f"Generated {n_feats} features", severity="INFO", scene_id=self.scene_id
             )
         )
         return reduced_feature_collection
@@ -781,9 +785,9 @@ class FASTAIUNETModel(BaseModel):
 
         try:
             stack_tensors = [
-                b64_image_to_array(record.image, tensor=True, to_float=True).unsqueeze(
-                    0
-                )
+                b64_image_to_array(
+                    record.image, tensor=True, to_float=True, scene_id=self.scene_id
+                ).unsqueeze(0)
                 # normalize_and_clamp(
                 #    b64_image_to_array(record.image, tensor=True, to_float=True),
                 #    mean=SAR_stats[0],
@@ -797,6 +801,7 @@ class FASTAIUNETModel(BaseModel):
                 structured_log(
                     f"Batch tensor shape: {batch_tensor.shape}",
                     severity="INFO",
+                    scene_id=self.scene_id,
                 )
             )
             return batch_tensor  # Only the tensor batch is needed for the model
@@ -805,6 +810,7 @@ class FASTAIUNETModel(BaseModel):
                 structured_log(
                     "Failure in preprocessing",
                     severity="ERROR",
+                    scene_id=self.scene_id,
                     exception=str(e),
                     traceback=traceback.format_exc(),
                 )
@@ -875,7 +881,6 @@ class FASTAIUNETModel(BaseModel):
         self,
         tileset_results: List[InferenceResultStack],
         tileset_bounds: List[List[List[float]]],
-        scene_id: str,
     ) -> geojson.FeatureCollection:
         """
         Stitches together multiple InferenceResultStacks from the FASTAIUNET model.
@@ -887,14 +892,14 @@ class FASTAIUNETModel(BaseModel):
             structured_log(
                 f"Stitching {len(tileset_results)} tiles into scene",
                 severity="INFO",
-                scene_id=scene_id,
+                scene_id=self.scene_id,
             )
         )
         scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
 
         logger.info(
             structured_log(
-                "Finding instances in scene", severity="INFO", scene_id=scene_id
+                "Finding instances in scene", severity="INFO", scene_id=self.scene_id
             )
         )
 
@@ -905,18 +910,16 @@ class FASTAIUNETModel(BaseModel):
             structured_log(
                 f"Generated {n_feats} features. Reducing feature count on scene",
                 severity="INFO",
-                scene_id=scene_id,
+                scene_id=self.scene_id,
             )
         )
 
-        reduced_feature_collection = self.nms_feature_reduction(
-            feature_collection, scene_id=scene_id
-        )
+        reduced_feature_collection = self.nms_feature_reduction(feature_collection)
         n_feats = len(reduced_feature_collection.get("features", []))
 
         logger.info(
             structured_log(
-                f"Generated {n_feats} features", severity="INFO", scene_id=scene_id
+                f"Generated {n_feats} features", severity="INFO", scene_id=self.scene_id
             )
         )
         return reduced_feature_collection
@@ -1154,6 +1157,7 @@ class FASTAIUNETModel(BaseModel):
 def get_model(
     model_dict,
     model_path_local=os.getenv("MODEL_PATH_LOCAL"),
+    scene_id="",
 ):
     """
     Factory function to get the appropriate model instance based on inference parameters.
@@ -1166,7 +1170,11 @@ def get_model(
         An instance of the appropriate model class.
     """
     model_type = model_dict["type"]
-    logger.info(structured_log(f"Model type is {model_type}", severity="INFO"))
+    logger.info(
+        structured_log(
+            f"Model type is {model_type}", severity="INFO", scene_id=scene_id
+        )
+    )
 
     if model_type == "MASKRCNN":
         return MASKRCNNModel(model_dict, model_path_local)
@@ -1209,7 +1217,7 @@ def memfile_gtiff(nparray, transform=None, bounds=None, encode=False):
     return memfile
 
 
-def b64_image_to_array(image: str, tensor: bool = False, to_float=False):
+def b64_image_to_array(image: str, tensor: bool = False, to_float=False, scene_id=""):
     """
     Converts a base64-encoded image string into a np.array or torch.tensor.
 
@@ -1235,6 +1243,7 @@ def b64_image_to_array(image: str, tensor: bool = False, to_float=False):
             structured_log(
                 "Failed to convert base64 image to array",
                 severity="ERROR",
+                scene_id=scene_id,
                 exception=str(e),
                 traceback=traceback.format_exc(),
             )
