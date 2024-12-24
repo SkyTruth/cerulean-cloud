@@ -98,9 +98,10 @@ class BaseModel:
         """
         logger.info(
             structured_log(
-                f"Stack has {len(inf_stack)} images",
+                "Predicting images",
                 severity="INFO",
                 scene_id=self.scene_id,
+                n_images=len(inf_stack),
             )
         )
 
@@ -192,9 +193,10 @@ class BaseModel:
 
         logger.debug(
             structured_log(
-                f"DEBUG NMS: filtering None type geometry ({len(feature_list)} features)",
+                "DEBUG NMS: filtering None type geometry",
                 severity="DEBUG",
                 scene_id=self.scene_id,
+                n_features=len(feature_list),
             )
         )
 
@@ -206,9 +208,10 @@ class BaseModel:
         # Precompute the areas of all features to optimize geometry operations
         logger.debug(
             structured_log(
-                f"DEBUG NMS: precomputing areas ({len(feature_list)} features)",
+                "DEBUG NMS: precomputing areas",
                 severity="DEBUG",
                 scene_id=self.scene_id,
+                n_features=len(feature_list),
             )
         )
 
@@ -223,9 +226,10 @@ class BaseModel:
         )
         logger.debug(
             structured_log(
-                f"DEBUG NMS: reprojecting features ({len(gdf)} features)",
+                "DEBUG NMS: reprojecting features",
                 severity="DEBUG",
                 scene_id=self.scene_id,
+                n_features=len(gdf),
             )
         )
 
@@ -238,9 +242,10 @@ class BaseModel:
         # If the feature has fewer overlaps than required, mark it for removal
         logger.debug(
             structured_log(
-                f"DEBUG NMS: finding overlaps ({len(gdf)} features)",
+                "DEBUG NMS: finding overlaps",
                 severity="DEBUG",
                 scene_id=self.scene_id,
+                n_features=len(gdf),
             )
         )
 
@@ -254,9 +259,10 @@ class BaseModel:
 
         logger.debug(
             structured_log(
-                f"DEBUG NMS: removing intersecting features ({total_features} features)",
+                "DEBUG NMS: removing intersecting features",
                 severity="DEBUG",
                 scene_id=self.scene_id,
+                n_features=total_features,
             )
         )
 
@@ -268,9 +274,11 @@ class BaseModel:
                 percentage_complete = int((i + 1) / total_features * 100)
                 logger.debug(
                     structured_log(
-                        f"Progress: {percentage_complete}% completed ({i + 1}/{total_features})",
+                        "Progress update",
                         severity="DEBUG",
-                        scene_id=self.scene_id,
+                        percentage_complete=percentage_complete,
+                        features_processed=i + 1,
+                        total_features=total_features,
                     )
                 )
             # Compare the current feature against all subsequent features
@@ -332,9 +340,10 @@ class MASKRCNNModel(BaseModel):
         ]
         logger.info(
             structured_log(
-                f"Images have shape {stack_tensors[0].shape}",
+                "Stacked tensors",
                 severity="INFO",
                 scene_id=self.scene_id,
+                image_shape=stack_tensors[0].shape,
             )
         )
         return stack_tensors
@@ -430,9 +439,10 @@ class MASKRCNNModel(BaseModel):
         scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
         logger.info(
             structured_log(
-                f"Stitching {len(tileset_results)} tiles into scene",
+                "Stitching tiles into scene",
                 severity="INFO",
                 scene_id=self.scene_id,
+                n_tiles=len(tileset_results),
             )
         )
         feature_collection = self.stitch(scene_polys)
@@ -448,7 +458,10 @@ class MASKRCNNModel(BaseModel):
 
         logger.info(
             structured_log(
-                f"Generated {n_feats} features", severity="INFO", scene_id=self.scene_id
+                "Generated features",
+                severity="INFO",
+                scene_id=self.scene_id,
+                n_features=n_feats,
             )
         )
         return reduced_feature_collection
@@ -848,9 +861,10 @@ class FASTAIUNETModel(BaseModel):
             batch_tensor = torch.cat(stack_tensors, dim=0).to(self.device)
             logger.info(
                 structured_log(
-                    f"Batch tensor shape: {batch_tensor.shape}",
+                    "Generated batch tensor",
                     severity="INFO",
                     scene_id=self.scene_id,
+                    tensor_shape=batch_tensor.shape,
                 )
             )
             return batch_tensor  # Only the tensor batch is needed for the model
@@ -939,9 +953,10 @@ class FASTAIUNETModel(BaseModel):
         """
         logger.info(
             structured_log(
-                f"Stitching {len(tileset_results)} tiles into scene",
+                "Stitching tiles into scene",
                 severity="INFO",
                 scene_id=self.scene_id,
+                n_tiles=len(tileset_results),
             )
         )
         scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
@@ -957,9 +972,10 @@ class FASTAIUNETModel(BaseModel):
 
         logger.info(
             structured_log(
-                f"Generated {n_feats} features. Reducing feature count on scene",
+                "Generated features. Reducing feature count on scene",
                 severity="INFO",
                 scene_id=self.scene_id,
+                n_features=n_feats,
             )
         )
 
@@ -968,7 +984,10 @@ class FASTAIUNETModel(BaseModel):
 
         logger.info(
             structured_log(
-                f"Generated {n_feats} features", severity="INFO", scene_id=self.scene_id
+                "Reduced features",
+                severity="INFO",
+                scene_id=self.scene_id,
+                n_features=n_feats,
             )
         )
         return reduced_feature_collection
@@ -1221,7 +1240,10 @@ def get_model(
     model_type = model_dict["type"]
     logger.info(
         structured_log(
-            f"Model type is {model_type}", severity="INFO", scene_id=scene_id
+            "Initializing model",
+            severity="INFO",
+            scene_id=scene_id,
+            model_type=model_type,
         )
     )
 

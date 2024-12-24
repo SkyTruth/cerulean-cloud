@@ -63,16 +63,21 @@ class TitilerClient:
                 if attempt == retries:
                     self.logger.error(
                         structured_log(
-                            f"Failed to retrieve scene bounds: {url}",
+                            "Failed to retrieve scene bounds",
                             severity="ERROR",
                             scene_id=sceneid,
+                            url=url,
                             exception=str(e),
                             traceback=traceback.format_exc(),
                         )
                     )
                     raise
                 self.logger.warning(
-                    structured_log("Error retrieving scene bounds", severity="WARNING")
+                    structured_log(
+                        "Error retrieving scene bounds",
+                        severity="WARNING",
+                        scene_id=sceneid,
+                    )
                 )
                 time.sleep(5**attempt)
         raise RuntimeError("Unexpected error: Failed to retrieve scene bounds.")
@@ -103,9 +108,10 @@ class TitilerClient:
                 if attempt == retries:
                     self.logger.error(
                         structured_log(
-                            f"Failed to retrieve scene statistics: {url}",
+                            "Failed to retrieve scene statistics",
                             severity="ERROR",
                             scene_id=sceneid,
+                            url=url,
                             exception=str(e),
                             traceback=traceback.format_exc(),
                         )
@@ -113,7 +119,9 @@ class TitilerClient:
                     raise
                 self.logger.warning(
                     structured_log(
-                        "Error retrieving scene statistics", severity="WARNING"
+                        "Error retrieving scene statistics",
+                        severity="WARNING",
+                        scene_id=sceneid,
                     )
                 )
                 time.sleep(5**attempt)
@@ -198,9 +206,10 @@ class TitilerClient:
                 if attempt == retries:
                     self.logger.error(
                         structured_log(
-                            f"Failed to retrieve base tile: {url}",
+                            "Failed to retrieve base tile",
                             severity="ERROR",
                             scene_id=sceneid,
+                            url=url,
                             exception=str(e),
                             traceback=traceback.format_exc(),
                         )
@@ -208,7 +217,9 @@ class TitilerClient:
                     raise
                 self.logger.warning(
                     structured_log(
-                        "Error retrieving scene statistics", severity="WARNING"
+                        "Error retrieving scene statistics",
+                        severity="WARNING",
+                        scene_id=sceneid,
                     )
                 )
                 time.sleep(5**attempt)
@@ -266,9 +277,10 @@ class TitilerClient:
                 if attempt == retries:
                     self.logger.error(
                         structured_log(
-                            f"Failed to retrieve offset tile: {url}",
+                            "Failed to retrieve offset tile",
                             severity="ERROR",
                             scene_id=sceneid,
+                            url=url,
                             exception=str(e),
                             traceback=traceback.format_exc(),
                         )
@@ -276,8 +288,9 @@ class TitilerClient:
                     raise
                 self.logger.warning(
                     structured_log(
-                        "error retrieving offset tile, retrying . . .",
+                        "Error retrieving offset tile, retrying . . .",
                         severity="WARNING",
+                        scene_id=sceneid,
                     )
                 )
                 time.sleep(5**attempt)

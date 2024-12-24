@@ -63,9 +63,10 @@ class RodaSentinelHubClient:
                 if attempt == retries:
                     self.logger.error(
                         structured_log(
-                            f"Failed to retrieve product info from SentinelHub: {url}",
+                            "Failed to retrieve product info from SentinelHub",
                             severity="ERROR",
                             scene_id=sceneid,
+                            url=url,
                             exception=str(e),
                             traceback=traceback.format_exc(),
                         )
@@ -75,6 +76,7 @@ class RodaSentinelHubClient:
                     structured_log(
                         "Error retrieving product info from SentinelHub",
                         severity="WARNING",
+                        scene_id=sceneid,
                     )
                 )
                 time.sleep(5**attempt)

@@ -10,6 +10,7 @@ needs env vars:
 """
 
 import gc
+import json
 import logging
 import os
 import sys
@@ -320,25 +321,34 @@ async def _orchestrate(
     if model_dict["zoom_level"] != zoom:
         logger.warning(
             structured_log(
-                f"Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}",
+                "Model zoom level warning",
                 severity="WARNING",
                 scene_id=payload.sceneid,
+                training_zoom=model_dict["zoom_level"],
+                zoom=zoom,
             )
         )
     if model_dict["tile_width_px"] != scale * 256:
         logger.warning(
             structured_log(
-                f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}",
+                "Model resolution warning",
                 severity="WARNING",
                 scene_id=payload.sceneid,
+                training_resolution=model_dict["tile_width_px"],
+                resolution=scale * 256,
             )
         )
 
     logger.info(
         structured_log(
-            f"Generating tilesets (zoom: {zoom} scale: {scale}, scene_bounds: {scene_bounds}, scene_stats: {scene_stats}, : scene_info: {scene_info})",
+            "Generating tilesets",
             severity="INFO",
             scene_id=payload.sceneid,
+            zoom=zoom,
+            scale=scale,
+            scene_bounds=json.dumps(scene_bounds),
+            scene_stats=json.dumps(scene_stats),
+            scene_info=json.dumps(scene_info),
         )
     )
 
@@ -358,9 +368,10 @@ async def _orchestrate(
     # Filter out land tiles
     logger.info(
         structured_log(
-            f"Removing invalid tiles - tileset contains {n_offsettiles} tiles before landfilter",
+            "Removing invalid tiles (land filter)",
             severity="INFO",
             scene_id=payload.sceneid,
+            n_tiles=n_offsettiles,
         )
     )
     try:
@@ -424,9 +435,10 @@ async def _orchestrate(
                 )
                 logger.info(
                     structured_log(
-                        f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs.",
+                        "Deactivating slicks from stale runs.",
                         severity="INFO",
                         scene_id=payload.sceneid,
+                        n_stale_slicks=stale_slick_count,
                     )
                 )
                 orchestrator_run = await db_client.add_orchestrator(
@@ -525,9 +537,11 @@ async def _orchestrate(
         LAND_MASK_BUFFER_M = 1000
         logger.info(
             structured_log(
-                f"Ensemble contains {n_feats} slicks. Removing all slicks within {LAND_MASK_BUFFER_M}m of land",
+                "Removing all slicks near land",
                 severity="INFO",
                 scene_id=payload.sceneid,
+                n_features=n_feats,
+                land_buffer_m=LAND_MASK_BUFFER_M,
             )
         )
         landmask_gdf = get_landmask_gdf()
@@ -557,9 +571,12 @@ async def _orchestrate(
 
         logger.info(
             structured_log(
-                f"Removed {n_background} slicks within {LAND_MASK_BUFFER_M}m of land. Adding {len(features)-n_background} slicks",
+                "Adding slicks to database",
                 severity="INFO",
                 scene_id=payload.sceneid,
+                land_buffer_m=LAND_MASK_BUFFER_M,
+                n_background_slicks=n_background,
+                n_slicks=len(features) - n_background,
             )
         )
 
@@ -630,10 +647,12 @@ async def _orchestrate(
 
     logger.info(
         structured_log(
-            f"Orchestration success: {success}, completed in {dt:.2f} minutes",
+            "Orchestration complete!",
             severity="INFO",
             timestamp=end_time.isoformat() + "Z",
             scene_id=payload.sceneid,
+            success=success,
+            duration_minutes=dt,
         )
     )
 
