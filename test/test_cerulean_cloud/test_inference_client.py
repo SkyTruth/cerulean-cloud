@@ -7,7 +7,6 @@ import pytest
 import rasterio
 from rasterio.plot import reshape_as_image
 
-import cerulean_cloud.titiler_client
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResult,
     InferenceResultStack,
@@ -20,7 +19,7 @@ from cerulean_cloud.cloud_run_orchestrator.clients import (
     handle_aux_datasets,
 )
 from cerulean_cloud.common.tiling import TMS
-from cerulean_cloud.titiler_client import TitilerClient
+from cerulean_cloud.common.titiler_client import TitilerClient
 
 
 def get_mock_layer(short_name, source_url=""):
@@ -77,9 +76,7 @@ def fixture_cloud_inference_tile(httpx_mock):
     )
 
 
-@patch.object(
-    cerulean_cloud.titiler_client.TitilerClient, "get_base_tile", mock_get_base_tile
-)
+@patch.object(TitilerClient, "get_base_tile", mock_get_base_tile)
 @pytest.mark.skip
 @pytest.mark.asyncio
 async def test_get_tile_inference(fixture_cloud_inference_tile, httpx_mock):

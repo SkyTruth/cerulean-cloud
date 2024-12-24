@@ -10,7 +10,7 @@ import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
 
-from cerulean_cloud.tiling import TMS
+from cerulean_cloud.common.tiling import TMS
 
 TMS_TITLE = TMS.identifier
 

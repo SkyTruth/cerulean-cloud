@@ -1,8 +1,8 @@
 import mercantile
 import pytest
 
-from cerulean_cloud.tiling import adjacent_tile, pixel_to_location
-from cerulean_cloud.titiler_client import TMS_TITLE, TitilerClient
+from cerulean_cloud.common.tiling import adjacent_tile, pixel_to_location
+from cerulean_cloud.common.titiler_client import TMS_TITLE, TitilerClient
 
 
 @pytest.fixture

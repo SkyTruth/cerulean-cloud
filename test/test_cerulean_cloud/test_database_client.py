@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from cerulean_cloud.common import database_schema
 from cerulean_cloud.common.database_client import DatabaseClient, get_engine
-from cerulean_cloud.titiler_client import TitilerClient
+from cerulean_cloud.common.titiler_client import TitilerClient
 
 
 def test_get_engine(postgresql):
