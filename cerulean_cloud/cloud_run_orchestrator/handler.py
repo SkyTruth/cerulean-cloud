@@ -482,10 +482,9 @@ async def _orchestrate(
         )
 
         # Perform inferences
-        n_offsettiles_after = len(tileset_list[0])
         logger.info(
             structured_log(
-                f"Inference starting - {n_offsettiles_after} tilesets",
+                "Inference starting",
                 severity="INFO",
                 scene_id=payload.sceneid,
             )
@@ -521,9 +520,7 @@ async def _orchestrate(
             features=tileset_fc_list, min_overlaps_to_keep=1
         )
         features = final_ensemble.get("features", [])
-        n_feats = (
-            len(features.features) if hasattr("features", features) else "unknown"
-        )  # TODO: this was for testing, and can be removed if features always has attribute "features"
+        n_feats = len(features)
 
         LAND_MASK_BUFFER_M = 1000
         logger.info(

@@ -353,6 +353,7 @@ class MASKRCNNModel(BaseModel):
             structured_log(
                 "Reducing feature count on tiles",
                 severity="INFO",
+                scene_id=scene_id,
             )
         )
         scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
@@ -360,6 +361,7 @@ class MASKRCNNModel(BaseModel):
             structured_log(
                 f"Stitching {len(tileset_results)} tiles into scene",
                 severity="INFO",
+                scene_id=scene_id,
             )
         )
         feature_collection = self.stitch(scene_polys)
@@ -367,9 +369,17 @@ class MASKRCNNModel(BaseModel):
             structured_log(
                 "Reducing feature count on scene",
                 severity="INFO",
+                scene_id=scene_id,
             )
         )
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        n_feats = len(reduced_feature_collection.get("features", []))
+
+        logger.info(
+            structured_log(
+                f"Generated {n_feats} features", severity="INFO", scene_id=scene_id
+            )
+        )
         return reduced_feature_collection
 
     def reduce_tile_features(
@@ -863,18 +873,32 @@ class FASTAIUNETModel(BaseModel):
             )
         )
         scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
+
         logger.info(
             structured_log(
                 "Finding instances in scene", severity="INFO", scene_id=scene_id
             )
         )
+
         feature_collection = self.instantiate(scene_array_probs, transform)
+        n_feats = len(feature_collection.get("features", []))
+
         logger.info(
             structured_log(
-                "Reducing feature count on scene", severity="INFO", scene_id=scene_id
+                f"Generated {n_feats} features. Reducing feature count on scene",
+                severity="INFO",
+                scene_id=scene_id,
             )
         )
+
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        n_feats = len(reduced_feature_collection.get("features", []))
+
+        logger.info(
+            structured_log(
+                f"Generated {n_feats} features", severity="INFO", scene_id=scene_id
+            )
+        )
         return reduced_feature_collection
 
     def stitch(
