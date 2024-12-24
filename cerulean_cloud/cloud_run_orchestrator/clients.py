@@ -116,9 +116,10 @@ class CloudRunInferenceClient:
         except Exception as e:
             self.logger.warning(
                 structured_log(
-                    f"Error retrieving tile array for {json.dumps(tile_bounds)}",
+                    "Error retrieving tile array",
                     severity="WARNING",
                     scene_id=self.sceneid,
+                    tile_bounds=json.dumps(tile_bounds),
                     exception=str(e),
                 )
             )
@@ -191,8 +192,9 @@ class CloudRunInferenceClient:
 
                 self.logger.warning(
                     structured_log(
-                        f"Error getting inference; Attempt {attempt}, retrying . . .",
+                        "Error getting inference; Retrying . . .",
                         severity="WARNING",
+                        attempt=attempt,
                     )
                 )
                 await asyncio.sleep(retry_delay)  # Wait before retrying
@@ -219,9 +221,10 @@ class CloudRunInferenceClient:
         elif not np.any(img_array):
             self.logger.warning(
                 structured_log(
-                    f"empty image for {str(tile_bounds)}",
+                    "Empty image",
                     severity="WARNING",
                     scene_id=self.sceneid,
+                    tile_bounds=json.dumps(tile_bounds),
                 )
             )
             return InferenceResultStack(stack=[])
@@ -236,9 +239,10 @@ class CloudRunInferenceClient:
 
         self.logger.info(
             structured_log(
-                f"generated image for {str(tile_bounds)}",
+                "Generated image",
                 severity="INFO",
                 scene_id=self.sceneid,
+                tile_bounds=json.dumps(tile_bounds),
             )
         )
 
@@ -257,9 +261,10 @@ class CloudRunInferenceClient:
 
         self.logger.info(
             structured_log(
-                f"Starting parallel inference on {len(tileset)} tiles",
+                "Starting parallel inference",
                 severity="INFO",
                 scene_id=self.sceneid,
+                n_tiles=len(tileset),
             )
         )
 

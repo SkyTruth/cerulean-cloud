@@ -378,6 +378,14 @@ async def _orchestrate(
         tileset_list = [
             [b for b in tileset if is_tile_over_water(b)] for tileset in tileset_list
         ]
+        logger.info(
+            structured_log(
+                "Removed tiles over land",
+                severity="INFO",
+                scene_id=payload.sceneid,
+                n_tiles=len(tileset_list),
+            )
+        )
     except ValueError as e:
         # XXX BUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
         logger.error(
