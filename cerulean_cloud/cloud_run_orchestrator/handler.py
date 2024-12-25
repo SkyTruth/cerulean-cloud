@@ -546,7 +546,7 @@ async def _orchestrate(
             )
         )
         final_ensemble = model.nms_feature_reduction(
-            features=tileset_fc_list, min_overlaps_to_keep=1, verbose=True
+            features=tileset_fc_list, min_overlaps_to_keep=1
         )
         features = final_ensemble.get("features", [])
         n_feats = len(features)

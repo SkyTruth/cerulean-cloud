@@ -158,7 +158,6 @@ class BaseModel:
         features: Union[geojson.FeatureCollection, List[geojson.FeatureCollection]],
         min_overlaps_to_keep: int = 0,
         in_class_only: bool = False,
-        verbose: bool = False,
     ) -> geojson.FeatureCollection:
         """
         Performs ensemble inference on a list of geojson Features to eliminate overlapping features based on a non-maximum suppression approach using IoU and inclusion thresholds. Features with fewer overlaps than a specified threshold are also discarded.
@@ -173,15 +172,14 @@ class BaseModel:
         - A geojson FeatureCollection containing the retained features.
         """
 
-        if verbose:
-            self.logger.info(
-                structured_log(
-                    "DEBUG NMS: initializing feature list",
-                    severity="INFO",
-                    scene_id=self.scene_id,
-                    feature_type=type(features).__name__,
-                )
+        self.logger.info(
+            structured_log(
+                "NMS: initializing feature list",
+                severity="INFO",
+                scene_id=self.scene_id,
+                feature_type=type(features).__name__,
             )
+        )
         feature_list = []
         if isinstance(features, geojson.FeatureCollection):
             feature_list.extend(features["features"])
@@ -193,31 +191,20 @@ class BaseModel:
         if not feature_list:
             return geojson.FeatureCollection([])
 
-        if verbose:
-            self.logger.info(
-                structured_log(
-                    "DEBUG NMS: filtering None type geometry",
-                    severity="INFO",
-                    scene_id=self.scene_id,
-                    n_features=len(feature_list),
-                )
-            )
-
         # Filter out features with None geometry before processing
         feature_list = [
             feature for feature in feature_list if feature["geometry"] is not None
         ]
 
         # Precompute the areas of all features to optimize geometry operations
-        if verbose:
-            self.logger.info(
-                structured_log(
-                    "DEBUG NMS: precomputing areas",
-                    severity="INFO",
-                    scene_id=self.scene_id,
-                    n_features=len(feature_list),
-                )
+        self.logger.info(
+            structured_log(
+                "NMS: precomputing areas",
+                severity="INFO",
+                scene_id=self.scene_id,
+                n_features=len(feature_list),
             )
+        )
 
         gdf = gpd.GeoDataFrame(
             [feature["properties"] for feature in feature_list],
@@ -228,15 +215,14 @@ class BaseModel:
             ],
             crs="EPSG:4326",
         )
-        if verbose:
-            self.logger.info(
-                structured_log(
-                    "DEBUG NMS: reprojecting features",
-                    severity="INFO",
-                    scene_id=self.scene_id,
-                    n_features=len(gdf),
-                )
+        self.logger.info(
+            structured_log(
+                "NMS: reprojecting features",
+                severity="INFO",
+                scene_id=self.scene_id,
+                n_features=len(gdf),
             )
+        )
 
         gdf = reproject_to_utm(gdf)
         gdf["area"] = gdf.area
@@ -245,30 +231,28 @@ class BaseModel:
         feats_to_remove = []
 
         # If the feature has fewer overlaps than required, mark it for removal
-        if verbose:
-            self.logger.info(
-                structured_log(
-                    "DEBUG NMS: finding overlaps",
-                    severity="INFO",
-                    scene_id=self.scene_id,
-                    n_features=len(gdf),
-                )
+        self.logger.info(
+            structured_log(
+                "NMS: finding overlaps",
+                severity="INFO",
+                scene_id=self.scene_id,
+                n_features=len(gdf),
             )
+        )
 
         gdf["overlaps"] = gdf.apply(
             lambda x: sum(x.geometry.intersects(y) for y in gdf.geometry) - 1, axis=1
         )
         feats_to_remove.extend(gdf[gdf["overlaps"] < min_overlaps_to_keep].index)
 
-        if verbose:
-            self.logger.info(
-                structured_log(
-                    "DEBUG NMS: removing intersecting features",
-                    severity="INFO",
-                    scene_id=self.scene_id,
-                    n_features=len(gdf),
-                )
+        self.logger.info(
+            structured_log(
+                "NMS: removing intersecting features",
+                severity="INFO",
+                scene_id=self.scene_id,
+                n_features=len(gdf),
             )
+        )
 
         for i, feat_i in gdf.iterrows():
 
