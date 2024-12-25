@@ -172,10 +172,10 @@ class BaseModel:
         - A geojson FeatureCollection containing the retained features.
         """
 
-        self.logger.debug(
+        self.logger.info(
             structured_log(
                 "DEBUG NMS: initializing feature list",
-                severity="DEBUG",
+                severity="INFO",
                 scene_id=self.scene_id,
                 feature_type=type(features).__name__,
             )
@@ -191,10 +191,10 @@ class BaseModel:
         if not feature_list:
             return geojson.FeatureCollection([])
 
-        self.logger.debug(
+        self.logger.info(
             structured_log(
                 "DEBUG NMS: filtering None type geometry",
-                severity="DEBUG",
+                severity="INFO",
                 scene_id=self.scene_id,
                 n_features=len(feature_list),
             )
@@ -206,10 +206,10 @@ class BaseModel:
         ]
 
         # Precompute the areas of all features to optimize geometry operations
-        self.logger.debug(
+        self.logger.info(
             structured_log(
                 "DEBUG NMS: precomputing areas",
-                severity="DEBUG",
+                severity="INFO",
                 scene_id=self.scene_id,
                 n_features=len(feature_list),
             )
@@ -224,10 +224,10 @@ class BaseModel:
             ],
             crs="EPSG:4326",
         )
-        self.logger.debug(
+        self.logger.info(
             structured_log(
                 "DEBUG NMS: reprojecting features",
-                severity="DEBUG",
+                severity="INFO",
                 scene_id=self.scene_id,
                 n_features=len(gdf),
             )
@@ -240,10 +240,10 @@ class BaseModel:
         feats_to_remove = []
 
         # If the feature has fewer overlaps than required, mark it for removal
-        self.logger.debug(
+        self.logger.info(
             structured_log(
                 "DEBUG NMS: finding overlaps",
-                severity="DEBUG",
+                severity="INFO",
                 scene_id=self.scene_id,
                 n_features=len(gdf),
             )
@@ -257,10 +257,10 @@ class BaseModel:
         total_features = len(gdf)
         log_interval = max(total_features // 10, 1)  # Ensure at least one log every 10%
 
-        self.logger.debug(
+        self.logger.info(
             structured_log(
                 "DEBUG NMS: removing intersecting features",
-                severity="DEBUG",
+                severity="INFO",
                 scene_id=self.scene_id,
                 n_features=total_features,
             )
@@ -272,10 +272,10 @@ class BaseModel:
             # TODO: Remove this log after identifying if this is the step that is failing
             if (i + 1) % log_interval == 0 or (i + 1) == total_features:
                 percentage_complete = int((i + 1) / total_features * 100)
-                self.logger.debug(
+                self.logger.info(
                     structured_log(
                         "Progress update",
-                        severity="DEBUG",
+                        severity="INFO",
                         percentage_complete=percentage_complete,
                         features_processed=i + 1,
                         total_features=total_features,
