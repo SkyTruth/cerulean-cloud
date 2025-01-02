@@ -28,10 +28,10 @@ from cerulean_cloud.cloud_run_orchestrator.handler import (
     offset_group_shape_from_base_tiles,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import OrchestratorInput
-from cerulean_cloud.models import BaseModel, b64_image_to_array
-from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
-from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
-from cerulean_cloud.titiler_client import TitilerClient
+from cerulean_cloud.common.models import BaseModel, b64_image_to_array
+from cerulean_cloud.common.roda_sentinelhub_client import RodaSentinelHubClient
+from cerulean_cloud.common.tiling import TMS, offset_bounds_from_base_tiles
+from cerulean_cloud.common.titiler_client import TitilerClient
 
 S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
 
@@ -45,9 +45,7 @@ def get_base_tile_3band(*args, **kwargs):
 
 
 @pytest.mark.skip
-@patch.object(
-    cerulean_cloud.titiler_client.TitilerClient, "get_base_tile", get_base_tile_3band
-)
+@patch.object(TitilerClient, "get_base_tile", get_base_tile_3band)
 def test_create_fixture_inference(
     url="https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/",
     inference_url="https://cerulean-cloud-staging-cr-offset-tiles-49b-5qkjkyomta-ew.a.run.app",
@@ -143,14 +141,10 @@ async def mock_get_product_info(*args, **kwargs):
 
 
 @pytest.mark.skip
+@patch.object(TitilerClient, "get_statistics", mock_get_statistics)
+@patch.object(TitilerClient, "get_bounds", mock_get_bounds)
 @patch.object(
-    cerulean_cloud.titiler_client.TitilerClient, "get_statistics", mock_get_statistics
-)
-@patch.object(
-    cerulean_cloud.titiler_client.TitilerClient, "get_bounds", mock_get_bounds
-)
-@patch.object(
-    cerulean_cloud.roda_sentinelhub_client.RodaSentinelHubClient,
+    RodaSentinelHubClient,
     "get_product_info",
     mock_get_product_info,
 )

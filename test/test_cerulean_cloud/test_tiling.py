@@ -4,7 +4,7 @@ import pytest
 import shapely.geometry
 import supermercado
 
-from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
+from cerulean_cloud.common.tiling import TMS, offset_bounds_from_base_tiles
 
 
 @pytest.fixture

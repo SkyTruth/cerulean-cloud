@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
+from cerulean_cloud.common.roda_sentinelhub_client import RodaSentinelHubClient
 
 S1_IDS = [
     "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF",

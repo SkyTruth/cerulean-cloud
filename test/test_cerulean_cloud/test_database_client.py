@@ -11,9 +11,9 @@ from shapely.geometry import MultiPolygon, box
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, sessionmaker
 
-import cerulean_cloud.database_schema as database_schema
-from cerulean_cloud.database_client import DatabaseClient, get_engine
-from cerulean_cloud.titiler_client import TitilerClient
+from cerulean_cloud.common import database_schema
+from cerulean_cloud.common.database_client import DatabaseClient, get_engine
+from cerulean_cloud.common.titiler_client import TitilerClient
 
 
 def test_get_engine(postgresql):

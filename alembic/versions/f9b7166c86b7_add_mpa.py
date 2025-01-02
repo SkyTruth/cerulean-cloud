@@ -12,7 +12,7 @@ from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, shape
 from sqlalchemy import orm
 
-import cerulean_cloud.database_schema as database_schema
+import cerulean_cloud.common.database_schema as database_schema
 from alembic import op
 
 # revision identifiers, used by Alembic.

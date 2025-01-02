@@ -1,7 +1,6 @@
 FROM python:3.9-slim AS build-env
 
 WORKDIR /app
-COPY cerulean_cloud/ /app/cerulean_cloud/
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -14,16 +13,20 @@ RUN pip install \
       --no-warn-script-location \
       --isolated \
       --target ./site-packages \
-      -r ./requirements.txt \
-      && pip install \
-       --isolated \
-       --no-cache-dir \
-       --disable-pip-version-check \
-       'cyclonedx-bom<4.0.0' \
-      && pip freeze --path ./site-packages | cyclonedx-py -r -i - --purl-bom-ref --format xml -o sbom.xml --force \
-      && rm requirements.txt
+      -r ./requirements.txt
+RUN pip install \
+      --isolated \
+      --no-cache-dir \
+      --disable-pip-version-check \
+      'cyclonedx-bom<4.0.0'
+RUN pip freeze --path ./site-packages | cyclonedx-py -r -i - --purl-bom-ref --format xml -o sbom.xml --force
+RUN rm requirements.txt
 
-COPY cerulean_cloud/ /app/cerulean_cloud/
+COPY cerulean_cloud/__init__.py /app/cerulean_cloud/
+COPY cerulean_cloud/common /app/cerulean_cloud/common
+COPY cerulean_cloud/cloud_run_orchestrator /app/cerulean_cloud/cloud_run_orchestrator
+COPY cerulean_cloud/cloud_run_offset_tiles /app/cerulean_cloud/cloud_run_offset_tiles
+COPY cerulean_cloud/cloud_function_ais_analysis /app/cerulean_cloud/cloud_function_ais_analysis
 
 FROM gcr.io/distroless/python3-debian11:debug-nonroot AS final
 

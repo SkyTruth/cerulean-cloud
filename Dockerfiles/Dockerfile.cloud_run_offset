@@ -18,14 +18,16 @@ RUN pip install \
       -r requirements.txt
 
 RUN pip install \
-       --isolated \
-       --no-cache-dir \
-       --disable-pip-version-check \
-       'cyclonedx-bom<4.0.0' \
-      && pip freeze --path ./site-packages | cyclonedx-py -r -i - --purl-bom-ref --format xml -o sbom.xml --force \
-      && rm requirements.txt
+      --isolated \
+      --no-cache-dir \
+      --disable-pip-version-check \
+      'cyclonedx-bom<4.0.0'
+RUN pip freeze --path ./site-packages | cyclonedx-py -r -i - --purl-bom-ref --format xml -o sbom.xml --force
+RUN rm requirements.txt
 
-COPY cerulean_cloud/ /app/cerulean_cloud/
+COPY cerulean_cloud/__init__.py /app/cerulean_cloud/
+COPY cerulean_cloud/common /app/cerulean_cloud/common
+COPY cerulean_cloud/cloud_run_offset_tiles /app/cerulean_cloud/cloud_run_offset_tiles
 
 FROM gcr.io/distroless/python3-debian11:debug-nonroot AS final
 

@@ -10,7 +10,7 @@ from shapely.geometry import MultiPolygon, Polygon, base, box, shape
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-import cerulean_cloud.database_schema as db
+import cerulean_cloud.common.database_schema as db
 
 
 class InstanceNotFoundError(Exception):
