@@ -15,6 +15,7 @@ from typing import List, Tuple
 
 import httpx
 import numpy as np
+import psutil
 import rasterio
 import skimage
 from rasterio.enums import Resampling
@@ -81,6 +82,17 @@ class CloudRunInferenceClient:
         # Handle auxiliary datasets and ensure they are properly managed
         self.aux_datasets = handle_aux_datasets(
             layers, self.sceneid, tileset_envelope_bounds, image_hw_pixels
+        )
+
+        # Log memory usage and aux_datasets size
+        self.logger.info(
+            structured_log(
+                "MEMORY USAGE 1",
+                severity="INFO",
+                scene_id=self.sceneid,
+                aux_datasets_size_mb=sys.getsizeof(self.aux_datasets) / (1024**2),
+                memory_usage_mb=psutil.Process().memory_info().rss / (1024**2),
+            )
         )
 
     async def fetch_and_process_image(
@@ -303,6 +315,15 @@ class CloudRunInferenceClient:
             # If asyncio.gather tasks fail, raise ValueError
             raise ValueError(f"Failed to gather inference: {e}")
         finally:
+            self.logger.info(
+                structured_log(
+                    "MEMORY USAGE 2",
+                    severity="INFO",
+                    scene_id=self.sceneid,
+                    aux_datasets_size_mb=sys.getsizeof(self.aux_datasets) / (1024**2),
+                    memory_usage_mb=psutil.Process().memory_info().rss / (1024**2),
+                )
+            )
             # Cleanup: close and delete aux_datasets
             if self.aux_datasets:
                 del self.aux_datasets
