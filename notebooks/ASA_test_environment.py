@@ -358,7 +358,9 @@ for slick_id in slick_ids:
     ):
         analyzers = {s_type: ASA_MAPPING[s_type](s1_scene) for s_type in source_types}
 
-    ranked_sources = pd.DataFrame(columns=["type", "st_name", "collated_score"])
+    ranked_sources = pd.DataFrame(
+        columns=["type", "st_name", "coincidence_score", "collated_score"]
+    )
     for s_type, analyzer in analyzers.items():
         res = analyzer.compute_coincidence_scores(slick_gdf)
         if res is not None:
