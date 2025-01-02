@@ -270,7 +270,7 @@ def get_scene_log_stats(project_id, service_name, revision_name, scene_id):
     query = log_query(
         service_name, revision_name=revision_name, jsonPayload=json_payload
     )
-    logs = query_logger(project_id, query, df=True)
+    logs = query_logger(project_id, query)
     logs["json_message"] = logs["json_payload"].apply(lambda x: x["message"])
     started = "unknown"
     try:
