@@ -111,6 +111,7 @@ jobs:
     name: Deploy [TEST]
     runs-on: ubuntu-20.04
     environment: test
+    concurrency: test
     needs: [tests]
     if: github.event_name == 'workflow_dispatch'
     steps:
@@ -133,6 +134,7 @@ jobs:
     name: Deploy [STAGING]
     runs-on: ubuntu-20.04
     environment: staging
+    concurrency: staging
     needs: [tests]
     if: github.ref == 'refs/heads/main'
     steps:
@@ -155,6 +157,7 @@ jobs:
     name: Deploy [PRODUCTION]
     runs-on: ubuntu-20.04
     environment: prod20240903
+    concurrency: prod20240903
     needs: [tests]
     if: startsWith(github.event.ref, 'refs/tags')
     steps:
