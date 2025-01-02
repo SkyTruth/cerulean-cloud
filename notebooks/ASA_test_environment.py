@@ -224,7 +224,7 @@ def plot_coincidence(
     plt.show()
 
 
-analyzers: dict[str, SourceAnalyzer] = {}
+analyzers: dict[int, SourceAnalyzer] = {}
 
 # %%
 slick_ids = [
@@ -243,8 +243,8 @@ for slick_id in slick_ids:
     s1_scene = get_s1_scene(slick_gdf.s1_scene_id.iloc[0])
 
     source_types = []
-    source_types += ["infra"]
-    source_types += ["ais"]
+    source_types += [1]  # ais
+    source_types += [2]  # infra
     if not (  # If the last analyzer is for the same scene, reuse it
         analyzers
         and next(iter(analyzers.items()))[1].s1_scene.scene_id == s1_scene.scene_id
@@ -271,12 +271,13 @@ for slick_id in slick_ids:
             ]
         )
 
-    if "infra" in analyzers:
-        plot_coincidence(analyzers["infra"], slick_id)
+    if 2 in analyzers.keys():
+        plot_coincidence(analyzers[2], slick_id)
 
-    print(ranked_sources[["type", "st_name", "collated_score"]].head())
+    print(
+        ranked_sources[["type", "ext_id", "coincidence_score", "collated_score"]].head()
+    )
 
-    print(ranked_sources.head())
 # print(accumulated_sources)
 # %%
 fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
