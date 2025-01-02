@@ -1,7 +1,5 @@
 """cloud function to find slick culprits from AIS tracks"""
 
-import time
-
 import database
 import git
 import pulumi
@@ -58,7 +56,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cf-ais"),
-    name=f"handler.py-{time.time():f}",
+    name="handler.py",
     bucket=bucket.name,
     source=archive,
 )

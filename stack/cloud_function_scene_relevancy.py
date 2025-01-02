@@ -1,7 +1,5 @@
 """cloud function to select appropriate scenes (over water and IW) from SNS notification"""
 
-import time
-
 import cloud_run_orchestrator
 import database
 import pulumi
@@ -21,7 +19,7 @@ queue = cloudtasks.Queue(
     construct_name("queue-cr-orchestrator"),
     location=pulumi.Config("gcp").require("region"),
     rate_limits=cloudtasks.QueueRateLimitsArgs(
-        max_concurrent_dispatches=50,
+        max_concurrent_dispatches=40,
         max_dispatches_per_second=1,
     ),
     retry_config=cloudtasks.QueueRetryConfigArgs(
@@ -60,7 +58,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cf-sr"),
-    name=f"handler.py-{time.time():f}",
+    name="handler.py",
     bucket=bucket.name,
     source=archive,
 )
