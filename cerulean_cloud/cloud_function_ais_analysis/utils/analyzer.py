@@ -495,14 +495,6 @@ class AISAnalyzer(SourceAnalyzer):
         self.ais_weighted = None
         self.results = gpd.GeoDataFrame()
 
-    def load_fxo_data_csv(self):
-        """
-        Loads fxo data from a CSV file.
-        """
-        df = pd.read_csv("FxO_fxo_masterlist_uncompressed_v1_20241029.csv")
-        df["mmsi"] = df["mmsi"].astype(int)
-        return df
-
     def retrieve_ais_data(self):
         """
         Retrieves AIS data from BigQuery.
