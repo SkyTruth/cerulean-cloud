@@ -13,6 +13,7 @@ import gc
 import json
 import logging
 import os
+import signal
 import sys
 import traceback
 import urllib.parse as urlparse
@@ -49,6 +50,75 @@ logger = logging.getLogger("orchestrate")
 handler = logging.StreamHandler(sys.stdout)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
+
+# Set current step globally
+current_step = "Not started"
+
+
+def cleanup():
+    """
+    Cleanup resources when SIGTERM is received.
+    """
+    try:
+
+        logger.info(
+            structured_log(
+                "Freeing up resources",
+                severity="INFO",
+            )
+        )
+
+        unreachable_objects = gc.collect()
+        logger.info(
+            structured_log(
+                "Garbage Collection Complete",
+                severity="INFO",
+                n_unreachable_objects=unreachable_objects,
+            )
+        )
+
+    except Exception as e:
+        logger.warning(
+            structured_log(
+                "Error during cleanup",
+                severity="WARNING",
+                exception=str(e),
+                traceback=traceback.format_exc(),
+            )
+        )
+    finally:
+        logger.info(
+            structured_log(
+                "Exiting gracefully.",
+                severity="INFO",
+            )
+        )
+
+
+# Handle SIGTERM signal
+def handle_sigterm(signum, frame):
+    """
+    Handle the SIGTERM signal.
+    """
+
+    print(f"Current frame: {frame.f_code.co_filename} at line {frame.f_lineno}")
+
+    logger.warning(
+        structured_log(
+            "SIGTERM signal received.",
+            severity="WARNING",
+            current_step=current_step,
+            file_name=frame.f_code.co_filename,
+            line_number=frame.f_lineno,
+        )
+    )
+    cleanup()
+    # Exit the process cleanly
+    sys.exit(0)
+
+
+# Register SIGTERM handler
+signal.signal(signal.SIGTERM, handle_sigterm)
 
 
 def get_landmask_gdf():
