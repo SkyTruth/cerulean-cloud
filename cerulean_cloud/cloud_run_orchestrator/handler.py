@@ -23,6 +23,7 @@ from typing import Dict, List, Tuple
 import geopandas as gpd
 import morecantile
 import numpy as np
+import psutil
 import supermercado
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -235,6 +236,20 @@ async def orchestrate(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred. Please try again later.",
         ) from e
+    finally:
+        before = psutil.Process().memory_info().rss / (1024**2)
+        unreachable_objects = gc.collect()  # Force garbage collection
+        after = psutil.Process().memory_info().rss / (1024**2)
+        logger.info(
+            structured_log(
+                "Garbage clean up",
+                severity="INFO",
+                scene_id=payload.sceneid,
+                memory_usage_before_cleanup_mb=before,
+                memory_usage_after_cleanup_mb=after,
+                n_unreachable_objects=unreachable_objects,
+            )
+        )
 
 
 def is_tile_over_water(tile_bounds: List[float]) -> bool:
@@ -256,6 +271,7 @@ async def _orchestrate(
             severity="INFO",
             scene_id=payload.sceneid,
             start_time=start_time.isoformat() + "Z",
+            memory_usage_mb=psutil.Process().memory_info().rss / (1024**2),
         )
     )
 
@@ -584,7 +600,6 @@ async def _orchestrate(
                 n_background += 1
 
             del buffered_gdf, crs_meters, intersecting_land
-            gc.collect()  # Force garbage collection
 
         logger.info(
             structured_log(
@@ -635,7 +650,6 @@ async def _orchestrate(
             tileset_list,
             landmask_gdf,
         )
-        gc.collect()  # Force garbage collection
 
     except Exception as e:
         success = False
