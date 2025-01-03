@@ -163,13 +163,13 @@ default = gcp.cloudrun.Service(
                     resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
                 ),
             ],
-            timeout_seconds=3540,
+            timeout_seconds=60,  # 3540,
             container_concurrency=1,
         ),
         metadata=dict(
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
-                "autoscaling.knative.dev/maxScale": "45",
+                "autoscaling.knative.dev/maxScale": "1",
             },
         ),
     ),
