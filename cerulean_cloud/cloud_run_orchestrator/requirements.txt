@@ -20,6 +20,7 @@ python-dateutil
 global-land-mask
 libpysal
 geopandas
+psutil
 pygeos
 networkx
 google-cloud-tasks
