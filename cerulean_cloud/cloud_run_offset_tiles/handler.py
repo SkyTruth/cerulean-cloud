@@ -9,12 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi_utils.timing import add_timing_middleware, record_timing
 from starlette.requests import Request
 
-from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResultStack,
     PredictPayload,
 )
-from cerulean_cloud.models import get_model
+from cerulean_cloud.common.auth import api_key_auth
+from cerulean_cloud.common.models import get_model
 
 # mypy: ignore-errors
 
