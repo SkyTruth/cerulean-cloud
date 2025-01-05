@@ -35,7 +35,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cf-historical-run"),
-    name="handler.py",
+    name="handler.py-hr",
     bucket=cloud_function_scene_relevancy.bucket.name,
     source=archive,
 )

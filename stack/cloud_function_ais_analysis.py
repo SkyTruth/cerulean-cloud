@@ -56,7 +56,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cf-ais"),
-    name="handler.py",
+    name="handler.py-ais",
     bucket=bucket.name,
     source=archive,
 )
