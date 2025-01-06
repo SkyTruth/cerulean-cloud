@@ -411,16 +411,14 @@ class DatabaseClient:
         :param slick_id: The ID of the slick to query.
         :return: List of tuples containing (id, collated_score).
         """
-        return await self.session.execute(
-            (
-                select(db.SlickToSource.id, db.SlickToSource.collated_score).where(
-                    and_(
-                        db.SlickToSource.slick == slick_id,
-                        db.SlickToSource.active.is_(True),
-                    )
-                )
+        query = select(db.SlickToSource.id, db.SlickToSource.collated_score).where(
+            and_(
+                db.SlickToSource.slick == slick_id,
+                db.SlickToSource.active.is_(True),
             )
-        ).all()
+        )
+        result = await self.session.execute(query)
+        return result.all()
 
     async def update_slick_to_source(self, filter_kwargs: dict, update_kwargs: dict):
         """
