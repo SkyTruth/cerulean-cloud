@@ -154,30 +154,33 @@ async def handle_asa_request(request):
                             for idx, source_row in combined_df.iterrows():
                                 if pd.isna(source_row["slick_to_source_id"]):
                                     # Insert slick to source association
-                                    source = (
-                                        await db_client.get_or_insert_ranked_source(
-                                            source_row
+                                    if idx < only_record_top:
+                                        source = (
+                                            await db_client.get_or_insert_ranked_source(
+                                                source_row
+                                            )
                                         )
-                                    )
 
-                                    await db_client.insert_slick_to_source(
-                                        source=source.id,
-                                        slick=slick.id,
-                                        active=idx < only_record_top,
-                                        git_hash=os.getenv("GIT_HASH"),
-                                        coincidence_score=source_row[
-                                            "coincidence_score"
-                                        ],
-                                        collated_score=source_row["collated_score"],
-                                        rank=source_row["rank"],
-                                        geojson_fc=source_row.get("geojson_fc"),
-                                        geometry=(
-                                            source_row["geometry"]
-                                            if isinstance(source_row["geometry"], str)
-                                            else source_row["geometry"].wkt
-                                            # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
-                                        ),
-                                    )
+                                        await db_client.insert_slick_to_source(
+                                            source=source.id,
+                                            slick=slick.id,
+                                            active=True,
+                                            git_hash=os.getenv("GIT_HASH"),
+                                            coincidence_score=source_row[
+                                                "coincidence_score"
+                                            ],
+                                            collated_score=source_row["collated_score"],
+                                            rank=source_row["rank"],
+                                            geojson_fc=source_row.get("geojson_fc"),
+                                            geometry=(
+                                                source_row["geometry"]
+                                                if isinstance(
+                                                    source_row["geometry"], str
+                                                )
+                                                else source_row["geometry"].wkt
+                                                # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
+                                            ),
+                                        )
                                 else:
                                     await db_client.update_slick_to_source(
                                         filter_kwargs={
