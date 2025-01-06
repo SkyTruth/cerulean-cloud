@@ -83,7 +83,6 @@ async def handle_asa_request(request):
             )
 
         overwrite_previous = request_json.get("overwrite_previous", False)
-        print(f"overwrite_previous: {overwrite_previous}")
         db_engine = get_engine(db_url=os.getenv("DB_URL"))
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
@@ -96,17 +95,14 @@ async def handle_asa_request(request):
                         print(f"Deactivating sources for slick {slick.id}")
                         await db_client.deactivate_sources_for_slick(slick.id)
                         previous_asa[slick.id] = []
+                        previous_collated_scores[slick.id] = []
                     else:
-                        print(f"Getting previous ASA for slick {slick.id}")
                         previous_asa[slick.id] = await db_client.get_previous_asa(
                             slick.id
                         )
-                        print(f"previous_asa: {previous_asa}")
-                        print(f"Getting previous collated scores for slick {slick.id}")
                         previous_collated_scores[
                             slick.id
                         ] = await db_client.get_id_collated_score_pairs(slick.id)
-                        print(f"previous_collated_scores: {previous_collated_scores}")
 
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
@@ -143,7 +139,6 @@ async def handle_asa_request(request):
                             previous_collated_scores[slick.id],
                             columns=["slick_to_source_id", "collated_score"],
                         )
-                        print(f"old_ranked_sources: {old_ranked_sources.head()}")
                         combined_df = pd.concat(
                             [old_ranked_sources, fresh_ranked_sources],
                             ignore_index=True,
@@ -153,15 +148,11 @@ async def handle_asa_request(request):
                         )
                         combined_df.reset_index(drop=True, inplace=True)
                         combined_df["rank"] = combined_df.index + 1
-                        print(f"combined_df: {combined_df.head()}")
 
                         only_record_top = 5  # XXXMAGIC
                         async with db_client.session.begin():
                             for idx, source_row in combined_df.iterrows():
-                                print(f"idx: {idx}")
-                                print(f"source_row: {source_row}")
                                 if pd.isna(source_row["slick_to_source_id"]):
-                                    print("Inserting slick to source association")
                                     # Insert slick to source association
                                     source = (
                                         await db_client.get_or_insert_ranked_source(
@@ -188,13 +179,6 @@ async def handle_asa_request(request):
                                         ),
                                     )
                                 else:
-                                    print(
-                                        f"Updating slick to source association for {source_row['slick_to_source_id']}"
-                                    )
-                                    print(f"id: {source_row['slick_to_source_id']}")
-                                    print(f"rank: {source_row['rank']}")
-                                    print(f"active: {idx < only_record_top}")
-
                                     await db_client.update_slick_to_source(
                                         filter_kwargs={
                                             "id": source_row["slick_to_source_id"]
