@@ -84,7 +84,7 @@ gfw_credentials = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
     project_id=pulumi.Config("gcp").require("project"),
 )
 
-api_key = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
+infra_api_key = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
     key="INFRA_API_TOKEN",
     secret=pulumi.Config("cerulean-cloud").require("infra_keyname"),
     version="latest",
@@ -111,7 +111,11 @@ fxn = cloudfunctions.Function(
     service_account_email=cloud_function_service_account.email,
     available_memory_mb=4096,
     timeout=540,
-    secret_environment_variables=[gfw_credentials, api_key],
+    secret_environment_variables=[
+        gfw_credentials,
+        infra_api_key,
+        api_key,
+    ],
     opts=pulumi.ResourceOptions(
         depends_on=[cloud_function_service_account_iam],
     ),
