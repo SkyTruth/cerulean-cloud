@@ -151,7 +151,7 @@ async def handle_asa_request(request):
                         only_record_top = 5  # XXXMAGIC
                         async with db_client.session.begin():
                             for idx, source_row in combined_df.iterrows():
-                                if source_row["slick_to_source_id"] is None:
+                                if pd.isna(source_row["slick_to_source_id"]):
                                     # Insert slick to source association
                                     source = (
                                         await db_client.get_or_insert_ranked_source(
