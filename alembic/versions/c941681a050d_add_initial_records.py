@@ -215,14 +215,14 @@ def upgrade() -> None:
         ]
         session.add_all(source_types)
 
-        labels = [
-            database_schema.Label(
+        tags = [
+            database_schema.Tag(
                 short_name="fxo",
                 description="Vessels that have been identified as FPSOs or FSOs",
                 citation="SkyTruth: fxo_masterlist_uncompressed_v1_20241029.csv",
             ),
         ]
-        session.add_all(labels)
+        session.add_all(tags)
 
         frequencies = [
             database_schema.Frequency(

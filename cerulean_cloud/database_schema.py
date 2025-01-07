@@ -376,27 +376,27 @@ class Source(Base):  # noqa
     source_type = relationship("SourceType")
 
 
-class Label(Base):  # noqa
-    __tablename__ = "label"
+class Tag(Base):  # noqa
+    __tablename__ = "tag"
 
     id = Column(
         BigInteger,
         primary_key=True,
-        server_default=text("nextval('label_id_seq'::regclass)"),
+        server_default=text("nextval('tag_id_seq'::regclass)"),
     )
     short_name = Column(Text, nullable=False)
     description = Column(Text)
     citation = Column(Text)
 
 
-class SourceToLabel(Base):  # noqa
-    __tablename__ = "source_to_label"
+class SourceToTag(Base):  # noqa
+    __tablename__ = "source_to_tag"
 
     source = Column(ForeignKey("source.id"), primary_key=True, nullable=False)
-    label = Column(ForeignKey("label.id"), primary_key=True, nullable=False)
+    tag = Column(ForeignKey("tag.id"), primary_key=True, nullable=False)
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
-    label1 = relationship("Label")
+    tag1 = relationship("tag")
     source1 = relationship("Source")
 
 

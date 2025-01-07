@@ -58,14 +58,14 @@ def upgrade() -> None:
     op.create_index("idx_slick_orchestrator_run", "slick", ["orchestrator_run"])
     op.create_index("idx_slick_cls", "slick", ["cls"])
 
-    op.create_index("idx_source_to_label_source", "source_to_label", ["source"])
-    op.create_index("idx_source_to_label_label", "source_to_label", ["label"])
+    op.create_index("idx_source_to_tag_source", "source_to_tag", ["source"])
+    op.create_index("idx_source_to_tag_tag", "source_to_tag", ["tag"])
 
 
 def downgrade() -> None:
     """drop indices"""
-    op.drop_index("idx_source_to_label_source", "source_to_label")
-    op.drop_index("idx_source_to_label_label", "source_to_label")
+    op.drop_index("idx_source_to_tag_source", "source_to_tag")
+    op.drop_index("idx_source_to_tag_tag", "source_to_tag")
 
     op.drop_index("idx_model_name", "model")
     op.drop_index("idx_model_file_path", "model")
