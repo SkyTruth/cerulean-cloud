@@ -3,6 +3,7 @@ Utilities for calculating scoring metrics between AIS trajectories and oil slick
 """
 
 import math
+import numpy as np
 
 import geopandas as gpd
 import movingpandas as mpd
@@ -28,53 +29,62 @@ def compute_distance_score(
         float: frechet distance between traj and curve
     """
     # Only use the longest curve
-    curve = curves.to_crs(crs_meters).iloc[0]["geometry"]
 
-    # get the trajectory coordinates as points in descending time order from collect
-    traj_gdf = (
-        traj.to_point_gdf()
-        .sort_values(by="timestamp", ascending=False)
-        .set_crs("4326")
-        .to_crs(crs_meters)
-    )
+    frechet_scores = list()
+    print("Processing ", len(curves), "curves...")
+    for _, slick_curve in curves.to_crs(crs_meters).iterrows():
 
-    # take the points and put them in a linestring
-    traj_line = shapely.geometry.LineString(traj_gdf.geometry)
+        curve = slick_curve["geometry"]  # curves.to_crs(crs_meters).iloc[0]["geometry"]
+        curve_length = slick_curve["length"]
+        # print("Working with ", type(curve))
+        # get the trajectory coordinates as points in descending time order from collect
+        traj_gdf = (
+            traj.to_point_gdf()
+            .sort_values(by="timestamp", ascending=False)
+            .set_crs("4326")
+            .to_crs(crs_meters)
+        )
 
-    # get the first and last points of the slick curve
-    first_point = shapely.geometry.Point(curve.coords[0])
-    last_point = shapely.geometry.Point(curve.coords[-1])
+        # take the points and put them in a linestring
+        traj_line = shapely.geometry.LineString(traj_gdf.geometry)
 
-    # compute the distance from these points to the start of the trajectory
-    first_dist = first_point.distance(shapely.geometry.Point(traj_line.coords[0]))
-    last_dist = last_point.distance(shapely.geometry.Point(traj_line.coords[0]))
+        # get the first and last points of the slick curve
+        first_point = shapely.geometry.Point(curve.coords[0])
+        last_point = shapely.geometry.Point(curve.coords[-1])
 
-    if last_dist < first_dist:
-        # change input orientation by reversing the slick curve
-        curve = shapely.geometry.LineString(list(curve.coords)[::-1])
+        # compute the distance from these points to the start of the trajectory
+        first_dist = first_point.distance(shapely.geometry.Point(traj_line.coords[0]))
+        last_dist = last_point.distance(shapely.geometry.Point(traj_line.coords[0]))
 
-    # for every point in the curve, find the closest trajectory point and store it off
-    traj_points = list()
-    for curve_point in curve.coords:
-        # compute the distance between this point and every point in the trajectory
-        these_distances = list()
-        for traj_point in traj_line.coords:
-            dist = shapely.geometry.Point(curve_point).distance(
-                shapely.geometry.Point(traj_point)
-            )
-            these_distances.append(dist)
+        if last_dist < first_dist:
+            # change input orientation by reversing the slick curve
+            curve = shapely.geometry.LineString(list(curve.coords)[::-1])
 
-        closest_distance = min(these_distances)
-        closest_idx = these_distances.index(closest_distance)
-        traj_points.append(shapely.geometry.Point(traj_line.coords[closest_idx]))
+        # for every point in the curve, find the closest trajectory point and store it off
+        traj_points = list()
+        for curve_point in curve.coords:
+            # compute the distance between this point and every point in the trajectory
+            these_distances = list()
+            for traj_point in traj_line.coords:
+                dist = shapely.geometry.Point(curve_point).distance(
+                    shapely.geometry.Point(traj_point)
+                )
+                these_distances.append(dist)
 
-    # compute the frechet distance between the sampled trajectory curve and the slick curve
-    traj_line_clip = shapely.geometry.LineString(traj_points)
-    dist = frechet_distance(traj_line_clip, curve)
+            closest_distance = min(these_distances)
+            closest_idx = these_distances.index(closest_distance)
+            traj_points.append(shapely.geometry.Point(traj_line.coords[closest_idx]))
 
-    frechet_score = math.exp(-dist / ais_ref_dist)
+        # compute the frechet distance between the sampled trajectory curve and the slick curve
+        traj_line_clip = shapely.geometry.LineString(traj_points)
+        dist = frechet_distance(traj_line_clip, curve)
 
-    return frechet_score
+        # accumulate frechet scores weighted by slick curve length
+        frechet_score = curve_length * math.exp(-dist / ais_ref_dist)
+        frechet_scores.append(frechet_score)
+
+    # calculate weighted average of frechet scores
+    return np.sum(frechet_scores) / np.sum(curves["length"].values)
 
 
 def compute_temporal_score(
