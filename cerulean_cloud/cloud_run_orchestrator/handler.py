@@ -328,7 +328,7 @@ async def _orchestrate(
         # Only tests code above this point, without actually adding any new data to the database, or running inference.
         logger.info(
             structured_log(
-                "DRY RUN (SUCCESS)", severity="INFO", scene_id=payload.scene_id
+                "DRY RUN (SUCCESS)", severity="INFO", scene_id=payload.sceneid
             )
         )
         return OrchestratorResult(status="Success (dry run)")
