@@ -156,7 +156,7 @@ class CloudRunInferenceClient:
         max_retries = 2  # Total attempts including the first try
         retry_delay = 5  # Delay in seconds between retries
 
-        for attempt in range(max_retries):
+        for attempt in range(1, max_retries + 1):
             try:
                 res = await http_client.post(
                     self.url + "/predict", json=payload.dict(), timeout=None
@@ -164,11 +164,17 @@ class CloudRunInferenceClient:
                 if res.status_code == 200:
                     return InferenceResultStack(**res.json())
                 else:
-                    if attempt < max_retries - 1:
+                    if attempt < max_retries:
                         await asyncio.sleep(retry_delay)  # Wait before retrying
             except Exception as e:
-                print(f"Attempt {attempt + 1}: Exception occurred: {e}")
-                if attempt < max_retries - 1:
+                if attempt < max_retries:
+                    self.logger.warning(
+                        structured_log(
+                            "Error getting inference; Retrying . . .",
+                            severity="WARNING",
+                            attempt=attempt,
+                        )
+                    )
                     await asyncio.sleep(retry_delay)  # Wait before retrying
 
                 self.logger.error(
