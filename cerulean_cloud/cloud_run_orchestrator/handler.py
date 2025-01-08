@@ -223,8 +223,31 @@ async def _orchestrate(
             )
         )
 
+    logger.info(
+        structured_log(
+            "Getting scene bounds",
+            severity="INFO",
+            scene_id=payload.sceneid,
+        )
+    )
     scene_bounds = await titiler_client.get_bounds(payload.sceneid)
+
+    logger.info(
+        structured_log(
+            "Getting scene statistics",
+            severity="INFO",
+            scene_id=payload.sceneid,
+        )
+    )
     scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+
+    logger.info(
+        structured_log(
+            "Getting SentinalHUB product info",
+            severity="INFO",
+            scene_id=payload.sceneid,
+        )
+    )
     scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
 
     logger.info(

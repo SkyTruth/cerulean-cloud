@@ -1190,10 +1190,7 @@ class FASTAIUNETModel(BaseModel):
         return features
 
 
-def get_model(
-    model_dict,
-    model_path_local=os.getenv("MODEL_PATH_LOCAL"),
-):
+def get_model(model_dict, model_path_local=os.getenv("MODEL_PATH_LOCAL"), scene_id=""):
     """
     Factory function to get the appropriate model instance based on inference parameters.
 
@@ -1207,9 +1204,9 @@ def get_model(
     model_type = model_dict["type"]
 
     if model_type == "MASKRCNN":
-        return MASKRCNNModel(model_dict, model_path_local)
+        return MASKRCNNModel(model_dict, model_path_local, scene_id=scene_id)
     elif model_type == "FASTAIUNET":
-        return FASTAIUNETModel(model_dict, model_path_local)
+        return FASTAIUNETModel(model_dict, model_path_local, scene_id=scene_id)
     else:
         raise ValueError("Unsupported model type")
 
@@ -1268,8 +1265,7 @@ def b64_image_to_array(image: str, tensor: bool = False, to_float=False):
         if to_float:
             np_img = dtype_to_float(np_img)
         return torch.tensor(np_img) if tensor else np_img
-    except Exception as e:
-        logging.error(f"Failed to convert base64 image to array: {e}")
+    except Exception:
         raise
 
 

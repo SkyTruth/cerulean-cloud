@@ -1,6 +1,9 @@
 """client code to interact with titiler for sentinel 1"""
 
+import logging
 import os
+import sys
+import traceback
 import urllib.parse as urlib
 from typing import Dict, List, Optional, Tuple
 
@@ -10,6 +13,7 @@ import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
 
+from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 from cerulean_cloud.tiling import TMS
 
 TMS_TITLE = TMS.identifier
@@ -26,6 +30,12 @@ class TitilerClient:
         )
         self.timeout = timeout
 
+        # Configure logger
+        self.logger = logging.getLogger("TitilerClient")
+        handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
     async def get_bounds(self, sceneid: str) -> List[float]:
         """fetch bounds of a scene
 
@@ -40,13 +50,23 @@ class TitilerClient:
         Raises:
             HTTPException: For various HTTP related errors including authentication issues.
         """
+        url = urlib.urljoin(self.url, "bounds")
+        url += f"?sceneid={sceneid}"
         try:
-            url = urlib.urljoin(self.url, "bounds")
-            url += f"?sceneid={sceneid}"
             resp = await self.client.get(url, timeout=self.timeout)
             resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
             return resp.json()["bounds"]
-        except Exception:
+        except Exception as e:
+            self.logger.error(
+                structured_log(
+                    "Failed to retrieve scene bounds",
+                    severity="ERROR",
+                    scene_id=sceneid,
+                    url=url,
+                    exception=str(e),
+                    traceback=traceback.format_exc(),
+                )
+            )
             raise
 
     async def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
@@ -64,8 +84,22 @@ class TitilerClient:
         url = urlib.urljoin(self.url, "statistics")
         url += f"?sceneid={sceneid}"
         url += f"&bands={band}"
-        resp = await self.client.get(url, timeout=self.timeout)
-        return resp.json()[band]
+        try:
+            resp = await self.client.get(url, timeout=self.timeout)
+            resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
+            return resp.json()[band]
+        except Exception as e:
+            self.logger.error(
+                structured_log(
+                    "Failed to retrieve scene statistics",
+                    severity="ERROR",
+                    scene_id=sceneid,
+                    url=url,
+                    exception=str(e),
+                    traceback=traceback.format_exc(),
+                )
+            )
+            raise
 
     def get_base_tile_url(
         self,
