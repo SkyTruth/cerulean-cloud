@@ -96,15 +96,20 @@ async def handle_asa_request(request):
                 s1_scene = await db_client.get_scene_from_id(scene_id)
                 slicks = await db_client.get_slicks_from_scene_id(scene_id)
                 previous_asa = {}
+                previous_collated_scores = {}
                 for slick in slicks:
                     if overwrite_previous:
                         print(f"Deactivating sources for slick {slick.id}")
                         await db_client.deactivate_sources_for_slick(slick.id)
                         previous_asa[slick.id] = []
+                        previous_collated_scores[slick.id] = []
                     else:
                         previous_asa[slick.id] = await db_client.get_previous_asa(
                             slick.id
                         )
+                        previous_collated_scores[
+                            slick.id
+                        ] = await db_client.get_id_collated_score_pairs(slick.id)
 
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
@@ -125,46 +130,73 @@ async def handle_asa_request(request):
                     # Convert slick geometry to GeoDataFrame
                     slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
                     slick_gdf = gpd.GeoDataFrame({"geometry": [slick_geom]}, crs="4326")
-                    ranked_sources = pd.DataFrame()
+                    fresh_ranked_sources = pd.DataFrame()
 
                     for analyzer in analyzers_to_run:
                         res = analyzer.compute_coincidence_scores(slick_gdf)
-                        ranked_sources = pd.concat(
-                            [ranked_sources, res], ignore_index=True
+                        fresh_ranked_sources = pd.concat(
+                            [fresh_ranked_sources, res], ignore_index=True
                         )
 
                     print(
-                        f"{len(ranked_sources)} sources found for Slick ID: {slick.id}"
+                        f"{len(fresh_ranked_sources)} sources found for Slick ID: {slick.id}"
                     )
-                    if len(ranked_sources) > 0:
-                        ranked_sources = ranked_sources.sort_values(
-                            "collated_score", ascending=False
-                        ).reset_index(drop=True)
+                    if len(fresh_ranked_sources) > 0:
+                        old_ranked_sources = pd.DataFrame(
+                            previous_collated_scores[slick.id],
+                            columns=["slick_to_source_id", "collated_score"],
+                        )
+                        combined_df = pd.concat(
+                            [old_ranked_sources, fresh_ranked_sources],
+                            ignore_index=True,
+                        )
+                        combined_df.sort_values(
+                            "collated_score", ascending=False, inplace=True
+                        )
+                        combined_df.reset_index(drop=True, inplace=True)
+                        combined_df["rank"] = combined_df.index + 1
+
+                        only_record_top = 5  # XXXMAGIC
                         async with db_client.session.begin():
-                            for idx, source_row in ranked_sources.iloc[:5].iterrows():
-                                # Only record the the top 5 ranked sources XXXMAGIC
+                            for idx, source_row in combined_df.iterrows():
+                                if pd.isna(source_row["slick_to_source_id"]):
+                                    # Insert slick to source association
+                                    if idx < only_record_top:
+                                        source = (
+                                            await db_client.get_or_insert_ranked_source(
+                                                source_row
+                                            )
+                                        )
 
-                                source = await db_client.get_or_insert_ranked_source(
-                                    source_row
-                                )
-
-                                source_row["geometry"] = (
-                                    source_row["geometry"]
-                                    if isinstance(source_row["geometry"], str)
-                                    else source_row["geometry"].wkt
-                                )  # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
-
-                                # Insert slick to source association
-                                await db_client.insert_slick_to_source(
-                                    source=source.id,
-                                    slick=slick.id,
-                                    active=True,
-                                    git_hash=os.getenv("GIT_HASH"),
-                                    coincidence_score=source_row["coincidence_score"],
-                                    collated_score=source_row["collated_score"],
-                                    rank=idx + 1,
-                                    geojson_fc=source_row.get("geojson_fc"),
-                                    geometry=source_row["geometry"],
-                                )
+                                        await db_client.insert_slick_to_source(
+                                            source=source.id,
+                                            slick=slick.id,
+                                            active=True,
+                                            git_hash=os.getenv("GIT_HASH"),
+                                            coincidence_score=source_row[
+                                                "coincidence_score"
+                                            ],
+                                            collated_score=source_row["collated_score"],
+                                            rank=source_row["rank"],
+                                            geojson_fc=source_row.get("geojson_fc"),
+                                            geometry=(
+                                                source_row["geometry"]
+                                                if isinstance(
+                                                    source_row["geometry"], str
+                                                )
+                                                else source_row["geometry"].wkt
+                                                # XXX HACK TODO Need to figure out WHY this is a string 95% of the time, but then sometimes a shapely.point and sometimes a shapely.linestring
+                                            ),
+                                        )
+                                else:
+                                    await db_client.update_slick_to_source(
+                                        filter_kwargs={
+                                            "id": source_row["slick_to_source_id"]
+                                        },
+                                        update_kwargs={
+                                            "rank": source_row["rank"],
+                                            "active": idx < only_record_top,
+                                        },
+                                    )
 
     return "Success!"

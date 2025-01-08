@@ -58,7 +58,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cf-ais"),
-    name=f"handler.py-{time.time():f}",
+    name=f"handler.py-ais-{time.time():f}",
     bucket=bucket.name,
     source=archive,
 )
@@ -86,6 +86,12 @@ gfw_credentials = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
     project_id=pulumi.Config("gcp").require("project"),
 )
 
+infra_api_key = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
+    key="INFRA_API_TOKEN",
+    secret=pulumi.Config("cerulean-cloud").require("infra_keyname"),
+    version="latest",
+    project_id=pulumi.Config("gcp").require("project"),
+)
 
 api_key = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
     key="API_KEY",
@@ -107,7 +113,11 @@ fxn = cloudfunctions.Function(
     service_account_email=cloud_function_service_account.email,
     available_memory_mb=4096,
     timeout=540,
-    secret_environment_variables=[gfw_credentials, api_key],
+    secret_environment_variables=[
+        gfw_credentials,
+        infra_api_key,
+        api_key,
+    ],
     opts=pulumi.ResourceOptions(
         depends_on=[cloud_function_service_account_iam],
     ),

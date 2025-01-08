@@ -103,6 +103,34 @@ async def get_or_insert(sess, kls, **kwargs):
     )
 
 
+async def update_object(
+    sess, kls, filter_kwargs: dict, update_kwargs: dict, flush: bool = False
+):
+    """
+    Generic method to update a record in the database.
+
+    Args:
+        kls: The SQLAlchemy model class.
+        filter_kwargs (dict): Key-value pairs to filter the record to update.
+        update_kwargs (dict): Key-value pairs of fields to update.
+
+    Returns:
+        The updated instance.
+    """
+    instance = await get(sess, kls, True, **filter_kwargs)
+    for key, value in update_kwargs.items():
+        if hasattr(instance, key):
+            setattr(instance, key, value)
+        else:
+            raise AttributeError(f"{kls.__name__} has no attribute '{key}'")
+    sess.add(instance)
+
+    if flush:
+        await sess.flush()
+
+    return instance
+
+
 class DatabaseClient:
     """the database client"""
 
@@ -486,6 +514,30 @@ class DatabaseClient:
             )
             .scalars()
             .all()
+        )
+
+    async def get_id_collated_score_pairs(self, slick_id):
+        """
+        Return a list of (id, collated_score) pairs for a given slick.
+
+        :param slick_id: The ID of the slick to query.
+        :return: List of tuples containing (id, collated_score).
+        """
+        query = select(db.SlickToSource.id, db.SlickToSource.collated_score).where(
+            and_(
+                db.SlickToSource.slick == slick_id,
+                db.SlickToSource.active.is_(True),
+            )
+        )
+        result = await self.session.execute(query)
+        return result.all()
+
+    async def update_slick_to_source(self, filter_kwargs: dict, update_kwargs: dict):
+        """
+        Update a SlickToSource record
+        """
+        return await update_object(
+            self.session, db.SlickToSource, filter_kwargs, update_kwargs
         )
 
     # EditTheDatabase
