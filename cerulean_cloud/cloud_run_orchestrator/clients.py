@@ -207,6 +207,16 @@ class CloudRunInferenceClient:
             return InferenceResultStack(stack=[])
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
+
+        self.logger.info(
+            structured_log(
+                "Generated image",
+                severity="INFO",
+                scene_id=self.sceneid,
+                tile_bounds=json.dumps(tile_bounds),
+            )
+        )
+
         return await self.send_inference_request_and_handle_response(
             http_client, img_array
         )
@@ -221,6 +231,16 @@ class CloudRunInferenceClient:
         Returns:
         - list: List of inference results, with exceptions filtered out.
         """
+
+        self.logger.info(
+            structured_log(
+                "Starting parallel inference",
+                severity="INFO",
+                scene_id=self.sceneid,
+                n_tiles=len(tileset),
+            )
+        )
+
         async with httpx.AsyncClient(
             headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
         ) as async_http_client:

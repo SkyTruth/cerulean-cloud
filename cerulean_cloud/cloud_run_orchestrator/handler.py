@@ -398,7 +398,7 @@ async def _orchestrate(
                     model_type=model_dict["type"],
                 )
             )
-            model = get_model(model_dict)
+            model = get_model(model_dict, scene_id=payload.sceneid)
 
             logger.info(
                 structured_log(
