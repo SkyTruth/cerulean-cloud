@@ -375,6 +375,7 @@ def upgrade() -> None:
         "tag",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("short_name", sa.Text, nullable=False),
+        sa.Column("long_name", sa.Text, nullable=False),
         sa.Column("description", sa.Text),
         sa.Column("citation", sa.Text),
     )

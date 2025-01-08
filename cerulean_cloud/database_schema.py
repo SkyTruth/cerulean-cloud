@@ -385,6 +385,7 @@ class Tag(Base):  # noqa
         server_default=text("nextval('tag_id_seq'::regclass)"),
     )
     short_name = Column(Text, nullable=False)
+    long_name = Column(Text, nullable=False)
     description = Column(Text)
     citation = Column(Text)
 
