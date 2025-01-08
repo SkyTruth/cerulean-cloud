@@ -1,5 +1,7 @@
 """cloud function to select appropriate scenes (over water and IW) from SNS notification"""
 
+import time
+
 import cloud_run_orchestrator
 import database
 import pulumi
@@ -58,7 +60,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # source code. ("main.py" and "requirements.txt".)
 source_archive_object = storage.BucketObject(
     construct_name("source-cf-sr"),
-    name="handler.py",
+    name=f"handler.py-sr-{time.time():f}",
     bucket=bucket.name,
     source=archive,
 )
