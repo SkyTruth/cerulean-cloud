@@ -12,6 +12,7 @@ needs env vars:
 import json
 import logging
 import os
+import signal
 import sys
 import traceback
 import urllib.parse as urlparse
@@ -52,6 +53,32 @@ app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
 landmask_gdf = None
+
+# Set current step globally
+current_step = "Not started"
+
+
+# Handle SIGTERM signal
+def handle_sigterm(signum, frame):
+    """
+    Handle the SIGTERM signal.
+    """
+
+    print(f"Current frame: {frame.f_code.co_filename} at line {frame.f_lineno}")
+
+    logger.warning(
+        structured_log(
+            "SIGTERM signal received.",
+            severity="WARNING",
+            current_step=current_step,
+            file_name=frame.f_code.co_filename,
+            line_number=frame.f_lineno,
+        )
+    )
+
+
+# Register SIGTERM handler
+signal.signal(signal.SIGTERM, handle_sigterm)
 
 
 def get_landmask_gdf():
