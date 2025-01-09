@@ -149,6 +149,23 @@ class CloudRunInferenceClient:
         - This function constructs the inference payload by encoding the image and specifying the geographic bounds and any additional inference parameters through `self.model_dict`.
         """
 
+        def _status_code_warning(attempt, status_code):
+            return structured_log(
+                "Error getting inference; Retrying . . .",
+                severity="WARNING",
+                attempt=attempt,
+                status_code=status_code,
+            )
+
+        def _exception_warning(attempt, exception):
+            return structured_log(
+                "Error getting inference; Retrying . . .",
+                severity="WARNING",
+                attempt=attempt,
+                exception=str(exception),
+                traceback=traceback.format_exc(),
+            )
+
         encoded = img_array_to_b64_image(img_array, to_uint8=True)
         inf_stack = [InferenceInput(image=encoded)]
         payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
@@ -163,34 +180,23 @@ class CloudRunInferenceClient:
                 )
                 if res.status_code == 200:
                     return InferenceResultStack(**res.json())
-                else:
-                    if attempt < max_retries:
-                        await asyncio.sleep(retry_delay)  # Wait before retrying
+                self.logger.warning(_status_code_warning(attempt, res.status_code))
             except Exception as e:
-                if attempt < max_retries:
-                    self.logger.warning(
-                        structured_log(
-                            "Error getting inference; Retrying . . .",
-                            severity="WARNING",
-                            attempt=attempt,
-                        )
-                    )
-                    await asyncio.sleep(retry_delay)  # Wait before retrying
+                self.logger.warning(_exception_warning(attempt, e))
 
+            if attempt < max_retries:
+                await asyncio.sleep(retry_delay)  # Wait before retrying
+            else:
                 self.logger.error(
                     structured_log(
                         "Failed to get inference",
                         severity="ERROR",
                         scene_id=self.sceneid,
-                        exception=str(e),
-                        traceback=traceback.format_exc(),
                     )
                 )
 
         # If all attempts fail, raise an exception
-        raise Exception(
-            f"All attempts failed after {max_retries} retries. Last known error: {res.content}"
-        )
+        raise Exception(f"All attempts failed after {max_retries} retries.")
 
     async def get_tile_inference(self, http_client, tile_bounds, rescale=(0, 255)):
         """
