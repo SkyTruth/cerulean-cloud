@@ -57,24 +57,34 @@ landmask_gdf = None
 # Set current step globally
 current_step = "Not started"
 
+# Set scene_id globally
+scene_id = ""
 
-# Handle SIGTERM signal
+
+def flush_logs():
+    """
+    Flush all logger handlers.
+    """
+    for handler in logger.handlers:
+        handler.flush()
+
+
 def handle_sigterm(signum, frame):
     """
     Handle the SIGTERM signal.
     """
-
-    print(f"Current frame: {frame.f_code.co_filename} at line {frame.f_lineno}")
+    global scene_id
 
     logger.warning(
         structured_log(
             "SIGTERM signal received.",
             severity="WARNING",
-            current_step=current_step,
+            scene_id=scene_id,
             file_name=frame.f_code.co_filename,
             line_number=frame.f_lineno,
         )
     )
+    flush_logs()
 
 
 # Register SIGTERM handler
@@ -182,6 +192,32 @@ def ping() -> Dict:
     tags=["Run orchestration"],
     response_model=OrchestratorResult,
 )
+@app.on_event("startup")
+async def startup_event():
+    """log startup event"""
+    global scene_id
+    logger.info(
+        structured_log(
+            "Starting up FastAPI app.",
+            severity="INFO",
+            scene_id=scene_id,
+        )
+    )
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """log shutdown event"""
+    global scene_id
+    logger.info(
+        structured_log(
+            "Shutting down FastAPI app.",
+            severity="INFO",
+            scene_id=scene_id,
+        )
+    )
+
+
 async def orchestrate(
     payload: OrchestratorInput,
     tiler=Depends(get_tiler),
@@ -204,6 +240,8 @@ def is_tile_over_water(tile_bounds: List[float]) -> bool:
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
+    global scene_id
+
     # Orchestrate inference
     start_time = datetime.now()
     logger.info(
