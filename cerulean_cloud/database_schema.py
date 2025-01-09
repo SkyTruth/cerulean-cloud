@@ -374,6 +374,7 @@ class Source(Base):  # noqa
     ext_id = Column(Text, nullable=False)
 
     source_type = relationship("SourceType")
+    tags = relationship("SourceToTag", back_populates="source_relationship")
 
 
 class Tag(Base):  # noqa
@@ -388,6 +389,7 @@ class Tag(Base):  # noqa
     long_name = Column(Text, nullable=False)
     description = Column(Text)
     citation = Column(Text)
+    source_tags = relationship("SourceToTag", back_populates="tag_relationship")
 
 
 class SourceToTag(Base):  # noqa
@@ -397,8 +399,8 @@ class SourceToTag(Base):  # noqa
     tag = Column(ForeignKey("tag.id"), primary_key=True, nullable=False)
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
-    tag = relationship("Tag", back_populates="source_tags")
-    source = relationship("Source", back_populates="tags")
+    tag_relationship = relationship("Tag", back_populates="source_tags")
+    source_relationship = relationship("Source", back_populates="tags")
 
 
 class SourceInfra(Source):  # noqa
