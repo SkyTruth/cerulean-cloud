@@ -192,28 +192,6 @@ def ping() -> Dict:
     tags=["Run orchestration"],
     response_model=OrchestratorResult,
 )
-@app.on_event("startup")
-async def startup_event():
-    """log startup event"""
-    logger.info(
-        structured_log(
-            "Starting up FastAPI app.",
-            severity="INFO",
-        )
-    )
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """log shutdown event"""
-    logger.info(
-        structured_log(
-            "Shutting down FastAPI app.",
-            severity="INFO",
-        )
-    )
-
-
 async def orchestrate(
     payload: OrchestratorInput,
     tiler=Depends(get_tiler),
