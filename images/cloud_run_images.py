@@ -65,6 +65,9 @@ cloud_run_offset_tile_image = docker.Image(
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_offset",
+        cache_from=docker.CacheFromArgs(
+            images=[cloud_run_offset_tile_image_url.apply(lambda url: f"{url}:latest")]
+        ),
         target="final",
     ),
     image_name=cloud_run_offset_tile_image_url,
@@ -75,6 +78,9 @@ cloud_run_orchestrator_image = docker.Image(
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_orchestrator",
+        cache_from=docker.CacheFromArgs(
+            images=[cloud_run_orchestrator_image_url.apply(lambda url: f"{url}:latest")]
+        ),
         target="final",
     ),
     image_name=cloud_run_orchestrator_image_url,
@@ -85,6 +91,9 @@ cloud_run_tipg_image = docker.Image(
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_tipg",
+        cache_from=docker.CacheFromArgs(
+            images=[cloud_run_tipg_image_url.apply(lambda url: f"{url}:latest")]
+        ),
         target="final",
     ),
     image_name=cloud_run_tipg_image_url,
