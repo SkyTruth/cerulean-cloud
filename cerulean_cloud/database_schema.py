@@ -397,8 +397,8 @@ class SourceToTag(Base):  # noqa
     tag = Column(ForeignKey("tag.id"), primary_key=True, nullable=False)
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
-    tag1 = relationship("tag")
-    source1 = relationship("Source")
+    tag = relationship("Tag", back_populates="source_tags")
+    source = relationship("Source", back_populates="tags")
 
 
 class SourceInfra(Source):  # noqa
