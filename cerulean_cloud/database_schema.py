@@ -198,6 +198,20 @@ class SpatialRefSys(Base):  # noqa
     proj4text = Column(String(2048))
 
 
+class Tag(Base):  # noqa
+    __tablename__ = "tag"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('tag_id_seq'::regclass)"),
+    )
+    short_name = Column(Text, nullable=False)
+    long_name = Column(Text, nullable=False)
+    description = Column(Text)
+    citation = Column(Text)
+
+
 class Trigger(Base):  # noqa
     __tablename__ = "trigger"
 
@@ -374,33 +388,6 @@ class Source(Base):  # noqa
     ext_id = Column(Text, nullable=False)
 
     source_type = relationship("SourceType")
-    tags = relationship("SourceToTag", back_populates="source_relationship")
-
-
-class Tag(Base):  # noqa
-    __tablename__ = "tag"
-
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('tag_id_seq'::regclass)"),
-    )
-    short_name = Column(Text, nullable=False)
-    long_name = Column(Text, nullable=False)
-    description = Column(Text)
-    citation = Column(Text)
-    source_tags = relationship("SourceToTag", back_populates="tag_relationship")
-
-
-class SourceToTag(Base):  # noqa
-    __tablename__ = "source_to_tag"
-
-    source = Column(ForeignKey("source.id"), primary_key=True, nullable=False)
-    tag = Column(ForeignKey("tag.id"), primary_key=True, nullable=False)
-    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
-
-    tag_relationship = relationship("Tag", back_populates="source_tags")
-    source_relationship = relationship("Source", back_populates="tags")
 
 
 class SourceInfra(Source):  # noqa
@@ -497,6 +484,17 @@ class Slick(Base):  # noqa
     orchestrator_run1 = relationship("OrchestratorRun")
 
 
+class SourceToTag(Base):  # noqa
+    __tablename__ = "source_to_tag"
+
+    source = Column(ForeignKey("source.id"), primary_key=True, nullable=False)
+    tag = Column(ForeignKey("tag.id"), primary_key=True, nullable=False)
+    create_time = Column(DateTime, nullable=False, server_default=text("now()"))
+
+    source1 = relationship("Source")
+    tag1 = relationship("Tag")
+
+
 class HitlSlick(Base):  # noqa
     __tablename__ = "hitl_slick"
 
@@ -562,6 +560,7 @@ class SlickToSource(Base):  # noqa
     hitl_confidence = Column(Float(53))
     hitl_user = Column(ForeignKey("users.id"))
     hitl_time = Column(DateTime)
+    hitl_notes = Column(Text)
 
     users = relationship("Users")
     slick1 = relationship("Slick")

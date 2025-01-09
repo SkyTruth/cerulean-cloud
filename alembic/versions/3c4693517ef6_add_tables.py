@@ -323,7 +323,7 @@ def upgrade() -> None:
             "type", sa.BigInteger, sa.ForeignKey("source_type.id"), nullable=False
         ),
         sa.Column("st_name", sa.Text, nullable=False),
-        sa.Column("ext_id", sa.Text),
+        sa.Column("ext_id", sa.Text, nullable=False),
     )
 
     op.create_table(
