@@ -1,16 +1,21 @@
 """Client code to interact with the database"""
 
+import logging
 import os
+import sys
+import traceback
 from typing import Optional
 
 import pandas as pd
+import sqlalchemy.exc
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
 from sqlalchemy import and_, or_, select, update
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
+from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 
 
 class InstanceNotFoundError(Exception):
@@ -19,24 +24,58 @@ class InstanceNotFoundError(Exception):
     pass
 
 
-def get_engine(db_url: str = os.getenv("DB_URL")):
-    """get database engine"""
-    # Connect args ref: https://docs.sqlalchemy.org/en/20/core/engines.html#use-the-connect-args-dictionary-parameter
-    # Note: statement timeout is assumed to be in MILIseconds if no unit is
-    # specified (as is the case here)
-    # Ref: https://www.postgresql.org/docs/current/runtime-config-client.html#GUC-STATEMENT-TIMEOUT
-    # Note: specifying a 1 minute timeout per statement, since each orchestrator
-    # run may attempt to execute many statements
+def get_database_url() -> str:
+    """
+    Retrieve the database URL from the environment variable.
+
+    Raises:
+        EnvironmentError: If the DB_URL environment variable is not set.
+
+    Returns:
+        str: The database URL.
+    """
+    database_url = os.getenv("DB_URL")
+    if not database_url:
+        raise EnvironmentError("DB_URL environment variable is not set.")
+    return database_url
+
+
+def create_new_engine(db_url: str) -> AsyncEngine:
+    """
+    Create a new AsyncEngine instance.
+
+    Args:
+        db_url (str): The database URL.
+
+    Returns:
+        AsyncEngine: The SQLAlchemy AsyncEngine instance.
+    """
     return create_async_engine(
         db_url,
         echo=False,
-        # connect_args={"options": f"-c statement_timeout={1000 * 60}"},
         connect_args={"command_timeout": 60},
-        pool_size=1,  # Default pool size
-        max_overflow=0,  # Default max overflow
-        pool_timeout=300,  # Default pool timeout
-        pool_recycle=600,  # Default pool recycle
+        pool_size=1,
+        max_overflow=0,
+        pool_timeout=300,
+        pool_recycle=600,
     )
+
+
+def get_engine(db_url: Optional[str] = None) -> AsyncEngine:
+    """
+    Create and return a new database engine.
+
+    Args:
+        db_url (Optional[str]): The database URL. If provided, a new engine is created.
+
+    Raises:
+        EnvironmentError: If db_url is not provided and DB_URL is not set.
+
+    Returns:
+        AsyncEngine: The SQLAlchemy AsyncEngine instance.
+    """
+    db_url = db_url if db_url else get_database_url()
+    return create_new_engine(db_url)
 
 
 async def get(sess, kls, error_if_absent=True, **kwargs):
@@ -99,14 +138,42 @@ class DatabaseClient:
         """init"""
         self.engine = engine
 
+        # Configure logger
+        self.logger = logging.getLogger("DatabaseClient")
+        handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
     async def __aenter__(self):
         """open session"""
-        self.session = AsyncSession(self.engine, expire_on_commit=False)
-        return self
+        try:
+            self.session = AsyncSession(self.engine, expire_on_commit=False)
+            return self
+        except sqlalchemy.exc.OperationalError as oe:
+            self.logger.error(
+                structured_log(
+                    "Failed to start database session",
+                    severity="ERROR",
+                    exception=str(oe),
+                    traceback=traceback.format_exc(),
+                )
+            )
+            raise
 
     async def __aexit__(self, exc_type, exc_value, exc_traceback):
         """close session"""
-        await self.session.close()
+        try:
+            await self.session.close()
+        except Exception as e:
+            self.logger.error(
+                structured_log(
+                    "Error occurred while closing the database session",
+                    severity="ERROR",
+                    exception=str(e),
+                    traceback=traceback.format_exc(),
+                )
+            )
+            raise
 
     async def get_trigger(self, trigger: Optional[int] = None):
         """get trigger from id"""
@@ -122,7 +189,18 @@ class DatabaseClient:
 
     async def get_db_model(self, model_path: str):
         """get model from path"""
-        return await get(self.session, db.Model, file_path=model_path)
+        try:
+            return await get(self.session, db.Model, file_path=model_path)
+        except Exception as e:
+            self.logger.error(
+                structured_log(
+                    "Error occurred while getting the database model",
+                    severity="ERROR",
+                    exception=str(e),
+                    traceback=traceback.format_exc(),
+                )
+            )
+            raise
 
     async def get_layer(self, short_name: str):
         """get layer from short_name"""
@@ -136,21 +214,34 @@ class DatabaseClient:
         elif isinstance(shape_s1, MultiPolygon):
             geom = from_shape(shape_s1.geoms[0])
 
-        s1_grd = await get_or_insert(
-            self.session,
-            db.Sentinel1Grd,
-            scene_id=sceneid,
-            absolute_orbit_number=scene_info["absoluteOrbitNumber"],
-            mode=scene_info["mode"],
-            polarization=scene_info["polarization"],
-            scihub_ingestion_time=parse(scene_info["sciHubIngestion"], ignoretz=True),
-            start_time=parse(scene_info["startTime"]),
-            end_time=parse(scene_info["stopTime"]),
-            meta=scene_info,
-            url=titiler_url,
-            geometry=geom,
-        )
-        return s1_grd
+        try:
+            s1_grd = await get_or_insert(
+                self.session,
+                db.Sentinel1Grd,
+                scene_id=sceneid,
+                absolute_orbit_number=scene_info["absoluteOrbitNumber"],
+                mode=scene_info["mode"],
+                polarization=scene_info["polarization"],
+                scihub_ingestion_time=parse(
+                    scene_info["sciHubIngestion"], ignoretz=True
+                ),
+                start_time=parse(scene_info["startTime"]),
+                end_time=parse(scene_info["stopTime"]),
+                meta=scene_info,
+                url=titiler_url,
+                geometry=geom,
+            )
+            return s1_grd
+        except Exception as e:
+            self.logger.error(
+                structured_log(
+                    "Failed to get S1 record",
+                    severity="ERROR",
+                    exception=str(e),
+                    traceback=traceback.format_exc(),
+                )
+            )
+            raise
 
     async def add_orchestrator(
         self,
@@ -186,7 +277,17 @@ class DatabaseClient:
             model1=model,
             sentinel1_grd1=sentinel1_grd,
         )
+        await self.session.flush()
+        await self.session.refresh(orchestrator_run)
         return orchestrator_run
+
+    async def get_orchestrator(self, orchestrator_run_id):
+        """Retrieve one or none orchestrator_run objects"""
+        return await get(
+            self.session,
+            db.OrchestratorRun,
+            id=orchestrator_run_id,
+        )
 
     async def add_slick(
         self,
@@ -372,7 +473,18 @@ class DatabaseClient:
         )
 
         # Execute the update query and get the result
-        result = await self.session.execute(update_query)
+        try:
+            result = await self.session.execute(update_query)
+        except Exception as e:
+            self.logger.error(
+                structured_log(
+                    "Failed to deactivate stale slicks",
+                    severity="ERROR",
+                    exception=str(e),
+                    traceback=traceback.format_exc(),
+                )
+            )
+            raise
 
         # Return the number of rows updated
         return result.rowcount

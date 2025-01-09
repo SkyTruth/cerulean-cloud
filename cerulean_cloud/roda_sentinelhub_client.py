@@ -1,10 +1,16 @@
 """client code to interact with roda http proxy to s3 s1 bucket"""
+import logging
 import posixpath
+import sys
+import time
+import traceback
 import urllib.parse as urlib
 from typing import Dict
 
 import httpx
 from rio_tiler_pds.sentinel.utils import s1_sceneid_parser
+
+from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 
 
 class RodaSentinelHubClient:
@@ -18,7 +24,13 @@ class RodaSentinelHubClient:
         self.client = httpx.AsyncClient()
         self.timeout = timeout
 
-    async def get_product_info(self, sceneid: str) -> Dict:
+        # Configure logger
+        self.logger = logging.getLogger("SentinelHubClient")
+        handler = logging.StreamHandler(sys.stdout)
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
+    async def get_product_info(self, sceneid: str, retries: int = 3) -> Dict:
         """Get S1 product info
 
         Args:
@@ -42,7 +54,31 @@ class RodaSentinelHubClient:
         url = urlib.urljoin(self.url, url_path)
         url += "/productInfo.json"
 
-        print(url)
+        for attempt in range(1, retries + 1):
+            try:
+                resp = await self.client.get(url, timeout=self.timeout)
+                resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
+                return resp.json()
+            except Exception as e:
+                if attempt == retries:
+                    self.logger.error(
+                        structured_log(
+                            "Failed to retrieve product info from SentinelHub",
+                            severity="ERROR",
+                            scene_id=sceneid,
+                            url=url,
+                            exception=str(e),
+                            traceback=traceback.format_exc(),
+                        )
+                    )
+                    raise
+                self.logger.warning(
+                    structured_log(
+                        "Error retrieving product info from SentinelHub",
+                        severity="WARNING",
+                        scene_id=sceneid,
+                    )
+                )
+                time.sleep(5**attempt)
 
-        resp = await self.client.get(url, timeout=self.timeout)
-        return resp.json()
+        raise RuntimeError("Unexpected error: Failed to get SentinelHub product info.")
