@@ -241,6 +241,7 @@ async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
     global scene_id
+    scene_id = payload.sceneid
 
     # Orchestrate inference
     start_time = datetime.now()
