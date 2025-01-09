@@ -58,7 +58,7 @@ landmask_gdf = None
 current_step = "Not started"
 
 # Set scene_id globally
-scene_id = ""
+scene_id = "unknown"
 
 
 def flush_logs():
@@ -195,12 +195,10 @@ def ping() -> Dict:
 @app.on_event("startup")
 async def startup_event():
     """log startup event"""
-    global scene_id
     logger.info(
         structured_log(
             "Starting up FastAPI app.",
             severity="INFO",
-            scene_id=scene_id,
         )
     )
 
@@ -208,12 +206,10 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """log shutdown event"""
-    global scene_id
     logger.info(
         structured_log(
             "Shutting down FastAPI app.",
             severity="INFO",
-            scene_id=scene_id,
         )
     )
 
