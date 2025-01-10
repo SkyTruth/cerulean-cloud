@@ -54,9 +54,6 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
 landmask_gdf = None
 
-# Set current step globally
-current_step = "Not started"
-
 # Set scene_id globally
 scene_id = "unknown"
 
@@ -248,8 +245,7 @@ async def _orchestrate(
                 "Model zoom level warning",
                 severity="WARNING",
                 scene_id=payload.sceneid,
-                training_zoom=model_dict["zoom_level"],
-                zoom=zoom,
+                description=f"Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}",
             )
         )
     if model_dict["tile_width_px"] != scale * 256:
@@ -258,11 +254,13 @@ async def _orchestrate(
                 "Model resolution warning",
                 severity="WARNING",
                 scene_id=payload.sceneid,
-                training_resolution=model_dict["tile_width_px"],
-                resolution=scale * 256,
+                description=f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}",
             )
         )
 
+    # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
+    # When scene traverses the anti-meridian, scene_bounds are nonsensical
+    # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
     logger.info(
         structured_log(
             "Getting scene bounds",
@@ -488,21 +486,22 @@ async def _orchestrate(
                 features=tileset_fc_list, min_overlaps_to_keep=1
             )
             features = final_ensemble.get("features", [])
-            n_feats = len(features)
+            n_features = len(features)
 
-            n_background = 0
-            if final_ensemble.get("features"):
+            # number of features that are over land (excluded from final feature list)
+            n_background_slicks = 0
+            if features:
                 LAND_MASK_BUFFER_M = 1000
                 logger.info(
                     structured_log(
                         "Removing all slicks near land",
                         severity="INFO",
                         scene_id=payload.sceneid,
-                        n_features=n_feats,
-                        land_buffer_m=LAND_MASK_BUFFER_M,
+                        n_features=n_features,
+                        LAND_MASK_BUFFER_M=LAND_MASK_BUFFER_M,
                     )
                 )
-                for feat in final_ensemble.get("features"):
+                for feat in features:
                     buffered_gdf = gpd.GeoDataFrame(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
@@ -518,26 +517,28 @@ async def _orchestrate(
                         how="inner",
                         predicate="intersects",
                     )
+                    # when the feature does not intersect land, update inf_idx and increase n_background_slicks
                     if not intersecting_land.empty:
                         feat["properties"]["inf_idx"] = model.background_class_idx
-                        n_background += 1
+                        n_background_slicks += 1
 
                 logger.info(
                     structured_log(
                         "Adding slicks to database",
                         severity="INFO",
                         scene_id=payload.sceneid,
-                        land_buffer_m=LAND_MASK_BUFFER_M,
-                        n_background_slicks=n_background,
-                        n_slicks=len(features) - n_background,
+                        LAND_MASK_BUFFER_M=LAND_MASK_BUFFER_M,
+                        n_background_slicks=n_background_slicks,
+                        n_slicks=n_features - n_background_slicks,
                     )
                 )
+                del features
                 # Removed all preprocessing of features from within the
                 # database session to avoid holidng locks on the
                 # table while performing un-related calculations.
                 async with db_client.session.begin():
                     for feat in final_ensemble.get("features"):
-                        slick = await db_client.add_slick(
+                        _ = await db_client.add_slick(
                             orchestrator_run,
                             sentinel1_grd.start_time,
                             feat.get("geometry"),
@@ -549,7 +550,6 @@ async def _orchestrate(
                                 "Added slick",
                                 severity="INFO",
                                 scene_id=payload.sceneid,
-                                slick=slick.id,  # TODO: this is null - is there a slick attribute to use?
                             )
                         )
 
