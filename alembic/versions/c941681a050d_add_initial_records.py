@@ -225,7 +225,13 @@ def upgrade() -> None:
             database_schema.Tag(
                 short_name="obs",
                 long_name="Obsolete",
-                description="Sources that should be referenced by other records instead.",
+                description="Sources that should be referenced by other records instead",
+            ),
+            database_schema.Tag(
+                short_name="lng",
+                long_name="LNG",
+                description="Vessels that are suspected to be LNG carriers",
+                citation="Global Fishing Watch",
             ),
         ]
         session.add_all(tags)
