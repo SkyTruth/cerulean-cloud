@@ -4,7 +4,7 @@
 import numpy as np
 
 # TEMPORAL PARAMETERS FOR AIS
-HOURS_BEFORE = 6
+HOURS_BEFORE = 8
 HOURS_AFTER = 2
 TIMESTEPS_PER_HOUR = 6
 NUM_TIMESTEPS = HOURS_BEFORE * TIMESTEPS_PER_HOUR
@@ -27,17 +27,17 @@ T_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 # WEIGHTING PARAMETERS FOR AIS
-W_TEMPORAL = 1.0
+W_TEMPORAL = 4.0  # Chosen based on analysis
 W_OVERLAP = 1.0
 W_DISTANCE = 2.0
 AIS_REF_DIST = 4000.0
 
 # COLLATION PARAMETERS
 # https://skytruth.atlassian.net/browse/TECH-2371
-INFRA_MEAN = 0.58
-INFRA_STD = 0.19
-VESSEL_MEAN = 0.64
-VESSEL_STD = 0.122
+INFRA_MEAN = 0.225  # Chosen based on analysis
+INFRA_STD = 0.15  # Chosen based on analysis
+VESSEL_MEAN = 0.537  # Chosen based on analysis
+VESSEL_STD = 0.168  # Chosen based on analysis
 
 # ANALYSIS PARAMETERS FOR INFRASTRUCTURE
 NUM_VERTICES = 10
