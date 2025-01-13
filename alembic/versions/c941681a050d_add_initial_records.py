@@ -215,6 +215,27 @@ def upgrade() -> None:
         ]
         session.add_all(source_types)
 
+        tags = [
+            database_schema.Tag(
+                short_name="fxo",
+                long_name="FxO",
+                description="Vessels that have been identified as FPSOs or FSOs",
+                citation="SkyTruth: fxo_masterlist_uncompressed_v1_20241029.csv",
+            ),
+            database_schema.Tag(
+                short_name="obs",
+                long_name="Obsolete",
+                description="Sources that should be referenced by other records instead",
+            ),
+            database_schema.Tag(
+                short_name="lng",
+                long_name="LNG",
+                description="Vessels that are suspected to be LNG carriers",
+                citation="Global Fishing Watch",
+            ),
+        ]
+        session.add_all(tags)
+
         frequencies = [
             database_schema.Frequency(
                 short_name="REALTIME",
