@@ -31,12 +31,10 @@ def compute_distance_score(
     # Only use the longest curve
 
     frechet_scores = list()
-    print("Processing ", len(curves), "curves...")
     for _, slick_curve in curves.to_crs(crs_meters).iterrows():
 
         curve = slick_curve["geometry"]  # curves.to_crs(crs_meters).iloc[0]["geometry"]
         curve_length = slick_curve["length"]
-        # print("Working with ", type(curve))
         # get the trajectory coordinates as points in descending time order from collect
         traj_gdf = (
             traj.to_point_gdf()
