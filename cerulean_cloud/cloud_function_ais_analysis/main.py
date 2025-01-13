@@ -13,6 +13,10 @@ from utils.analyzer import ASA_MAPPING
 
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 
+# Initialize the database engine globally to reuse across requests
+# This improves performance by avoiding the overhead of creating a new engine for each request
+DB_ENGINE = get_engine()
+
 
 def verify_api_key(request):
     """Function to verify API key"""
@@ -57,7 +61,10 @@ def main(request):
     verify_api_key(request)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    res = loop.run_until_complete(handle_asa_request(request))
+    try:
+        res = loop.run_until_complete(handle_asa_request(request))
+    finally:
+        loop.close()  # Ensure the event loop is properly closed
     return res
 
 

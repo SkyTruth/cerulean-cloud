@@ -1,8 +1,12 @@
 """Clients for other cloud run functions"""
 
 import asyncio
+import gc  # Import garbage collection module
 import json
+import logging
 import os
+import sys
+import traceback
 import zipfile
 from base64 import b64encode
 from datetime import datetime
@@ -11,6 +15,7 @@ from typing import List, Tuple
 
 import httpx
 import numpy as np
+import psutil
 import rasterio
 import skimage
 from rasterio.enums import Resampling
@@ -23,10 +28,11 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResultStack,
     PredictPayload,
 )
+from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 
 
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
-    """convert input b64image to torch tensor"""
+    """Convert input image array to base64-encoded image."""
     if to_uint8 and not img_array.dtype == np.uint8:
         print(
             f"WARNING: changing from dtype {img_array.dtype} to uint8 without scaling!"
@@ -47,7 +53,7 @@ def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
 
 
 class CloudRunInferenceClient:
-    """Client for inference cloud run"""
+    """Client for inference cloud run."""
 
     def __init__(
         self,
@@ -60,15 +66,34 @@ class CloudRunInferenceClient:
         scale: int,
         model_dict,
     ):
-        """init"""
+        """Initialize the inference client."""
         self.url = url
         self.titiler_client = titiler_client
         self.sceneid = sceneid
+        self.scale = scale  # 1=256, 2=512, 3=...
+        self.model_dict = model_dict
+
+        # Configure logger
+        self.logger = logging.getLogger("InferenceClient")
+        handler = logging.StreamHandler(sys.stdout)  # Write logs to stdout
+        self.logger.addHandler(handler)
+        self.logger.setLevel(logging.INFO)
+
+        # Handle auxiliary datasets and ensure they are properly managed
         self.aux_datasets = handle_aux_datasets(
             layers, self.sceneid, tileset_envelope_bounds, image_hw_pixels
         )
-        self.scale = scale  # 1=256, 2=512, 3=...
-        self.model_dict = model_dict
+
+        # Log memory usage and aux_datasets size
+        self.logger.info(
+            structured_log(
+                "MEMORY USAGE 1",
+                severity="INFO",
+                scene_id=self.sceneid,
+                aux_datasets_size_mb=sys.getsizeof(self.aux_datasets) / (1024**2),
+                memory_usage_mb=psutil.Process().memory_info().rss / (1024**2),
+            )
+        )
 
     async def fetch_and_process_image(
         self, tile_bounds, rescale=(0, 255), num_channels=1
@@ -87,18 +112,30 @@ class CloudRunInferenceClient:
         """
 
         hw = self.scale * 256
-        img_array = await self.titiler_client.get_offset_tile(
-            self.sceneid,
-            *tile_bounds,
-            width=hw,
-            height=hw,
-            scale=self.scale,
-            rescale=rescale,
-        )
+        try:
+            img_array = await self.titiler_client.get_offset_tile(
+                self.sceneid,
+                *tile_bounds,
+                width=hw,
+                height=hw,
+                scale=self.scale,
+                rescale=rescale,
+            )
 
-        img_array = reshape_as_raster(img_array)
-        img_array = img_array[0:num_channels, :, :]
-        return img_array
+            img_array = reshape_as_raster(img_array)
+            img_array = img_array[0:num_channels, :, :]
+            return img_array
+        except Exception as e:
+            self.logger.warning(
+                structured_log(
+                    "Error retrieving tile array",
+                    severity="WARNING",
+                    scene_id=self.sceneid,
+                    tile_bounds=json.dumps(tile_bounds),
+                    exception=str(e),
+                )
+            )
+            return None
 
     async def process_auxiliary_datasets(self, img_array, tile_bounds):
         """
@@ -117,6 +154,9 @@ class CloudRunInferenceClient:
             window = rasterio.windows.from_bounds(*tile_bounds, transform=src.transform)
             height, width = img_array.shape[1:]
             aux_ds = src.read(window=window, out_shape=(src.count, height, width))
+
+        del src
+        gc.collect()
         return np.concatenate([img_array, aux_ds], axis=0)
 
     async def send_inference_request_and_handle_response(self, http_client, img_array):
@@ -134,9 +174,6 @@ class CloudRunInferenceClient:
 
         Raises:
         - Exception: If the request fails or the service returns an unexpected status code, with details provided in the exception message.
-
-        Note:
-        - This function constructs the inference payload by encoding the image and specifying the geographic bounds and any additional inference parameters through `self.model_dict`.
         """
 
         encoded = img_array_to_b64_image(img_array, to_uint8=True)
@@ -146,28 +183,33 @@ class CloudRunInferenceClient:
         max_retries = 2  # Total attempts including the first try
         retry_delay = 5  # Delay in seconds between retries
 
-        for attempt in range(max_retries):
+        for attempt in range(1, max_retries + 1):
             try:
                 res = await http_client.post(
                     self.url + "/predict", json=payload.dict(), timeout=None
                 )
-                if res.status_code == 200:
-                    return InferenceResultStack(**res.json())
-                else:
-                    print(
-                        f"Attempt {attempt + 1}: Failed with status code {res.status_code}. Retrying..."
-                    )
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(retry_delay)  # Wait before retrying
+                return InferenceResultStack(**res.json())
             except Exception as e:
-                print(f"Attempt {attempt + 1}: Exception occurred: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)  # Wait before retrying
+                if attempt == max_retries:
+                    self.logger.error(
+                        structured_log(
+                            "Failed to get inference",
+                            severity="ERROR",
+                            scene_id=self.sceneid,
+                            exception=str(e),
+                            traceback=traceback.format_exc(),
+                        )
+                    )
+                    raise
 
-        # If all attempts fail, raise an exception
-        raise Exception(
-            f"All attempts failed after {max_retries} retries. Last known error: {res.content}"
-        )
+                self.logger.warning(
+                    structured_log(
+                        "Error getting inference; Retrying . . .",
+                        severity="WARNING",
+                        attempt=attempt,
+                    )
+                )
+                await asyncio.sleep(retry_delay)  # Wait before retrying
 
     async def get_tile_inference(self, http_client, tile_bounds, rescale=(0, 255)):
         """
@@ -186,13 +228,37 @@ class CloudRunInferenceClient:
         """
 
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
-        if not np.any(img_array):
+        if img_array is None:
             return InferenceResultStack(stack=[])
+        elif not np.any(img_array):
+            self.logger.warning(
+                structured_log(
+                    "Empty image",
+                    severity="WARNING",
+                    scene_id=self.sceneid,
+                    tile_bounds=json.dumps(tile_bounds),
+                )
+            )
+            return InferenceResultStack(stack=[])
+
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
-        return await self.send_inference_request_and_handle_response(
+        res = await self.send_inference_request_and_handle_response(
             http_client, img_array
         )
+        del img_array
+        gc.collect()
+
+        self.logger.info(
+            structured_log(
+                "Generated image",
+                severity="INFO",
+                scene_id=self.sceneid,
+                tile_bounds=json.dumps(tile_bounds),
+            )
+        )
+
+        return res
 
     async def run_parallel_inference(self, tileset):
         """
@@ -204,24 +270,71 @@ class CloudRunInferenceClient:
         Returns:
         - list: List of inference results, with exceptions filtered out.
         """
-        async with httpx.AsyncClient(
+
+        self.logger.info(
+            structured_log(
+                "Starting parallel inference",
+                severity="INFO",
+                scene_id=self.sceneid,
+                n_tiles=len(tileset),
+            )
+        )
+
+        async_http_client = httpx.AsyncClient(
             headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
-        ) as async_http_client:
+        )
+        try:
             tasks = [
                 self.get_tile_inference(
                     http_client=async_http_client, tile_bounds=tile_bounds
                 )
                 for tile_bounds in tileset
             ]
+        except Exception as e:
+            self.logger.error(
+                structured_log(
+                    "Failed to complete parallel inference",
+                    severity="ERROR",
+                    scene_id=self.sceneid,
+                    exception=str(e),
+                    traceback=traceback.format_exc(),
+                )
+            )
+
+        try:
             inferences = await asyncio.gather(*tasks, return_exceptions=False)
             # False means this process will error out if any subtask errors out
             # True means this process will return a list including errors if any subtask errors out
-        return inferences
+
+            # If processing is successful, return inference
+            return inferences
+        except NameError as e:
+            # If get_tile_inference tasks fail (local `task` variable does not exist), return ValueError
+            raise ValueError(f"Failed inference: {e}")
+        except Exception as e:
+            # If asyncio.gather tasks fail, raise ValueError
+            raise ValueError(f"Failed to gather inference: {e}")
+        finally:
+            self.logger.info(
+                structured_log(
+                    "MEMORY USAGE 2",
+                    severity="INFO",
+                    scene_id=self.sceneid,
+                    aux_datasets_size_mb=sys.getsizeof(self.aux_datasets) / (1024**2),
+                    memory_usage_mb=psutil.Process().memory_info().rss / (1024**2),
+                )
+            )
+            # Cleanup: close and delete aux_datasets
+            if self.aux_datasets:
+                del self.aux_datasets
+                gc.collect()
+
+            # close and clean up the async client
+            await async_http_client.aclose()
 
 
 def get_scene_date_month(scene_id: str) -> str:
-    """From a scene id, fetch the month of the scene"""
-    # i.e. S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5
+    """From a scene id, fetch the month of the scene."""
     date_time_str = scene_id[17:32]
     date_time_obj = datetime.strptime(date_time_str, "%Y%m%dT%H%M%S")
     date_time_obj = date_time_obj.replace(day=1, hour=0, minute=0, second=0)
@@ -235,7 +348,7 @@ def get_ship_density(
     max_dens=100,
     url="http://gmtds.maplarge.com/Api/ProcessDirect?",
 ) -> np.ndarray:
-    """fetch ship density from gmtds service"""
+    """Fetch ship density from gmtds service."""
     h, w = img_shape
     bbox_wms = bounds[0], bounds[2], bounds[1], bounds[-1]
 
@@ -322,6 +435,10 @@ def get_ship_density(
 
     dens_array = ar / (max_dens / 255)
     dens_array[dens_array >= 255] = 255
+
+    del tempbuf, zipfile_ob, cont, r, ar
+    gc.collect()
+
     return np.squeeze(dens_array.astype("uint8"))
 
 
@@ -331,7 +448,7 @@ def get_dist_array(
     raster_ds: str,
     max_distance: int = 60000,
 ):
-    """fetch distance array from pre computed distance raster dataset"""
+    """Fetch distance array from pre-computed distance raster dataset."""
     with COGReader(raster_ds) as image:
         height, width = img_shape[0:2]
         img = image.part(
@@ -340,6 +457,7 @@ def get_dist_array(
             width=width,
         )
         data = img.data_as_image()
+
     if (data == 0).all():
         data = np.ones(img_shape) * 255
     else:
@@ -350,13 +468,17 @@ def get_dist_array(
         data, (*img_shape[0:2], 1), order=1, preserve_range=True
     )  # resampling interpolation must match training data prep
     upsampled = np.squeeze(upsampled)
+
+    del data, img
+    gc.collect()
+
     return upsampled.astype(np.uint8)
 
 
 def handle_aux_datasets(
     layers, scene_id, tileset_envelope_bounds, image_hw_pixels, **kwargs
 ):
-    """handle aux datasets"""
+    """Handle auxiliary datasets."""
     if layers[0].short_name != "VV":
         raise NotImplementedError(
             f"VV Layer must come first. Instead found: {layers[0].short_name}"
@@ -389,6 +511,9 @@ def handle_aux_datasets(
                     [aux_dataset_channels, ar], axis=2
                 )
 
+            del ar
+            gc.collect()
+
         aux_memfile = MemoryFile()
         if aux_dataset_channels is not None:
             height, width = aux_dataset_channels.shape[0:2]
@@ -407,6 +532,9 @@ def handle_aux_datasets(
                 crs="EPSG:4326",
             ) as dataset:
                 dataset.write(reshape_as_raster(aux_dataset_channels))
+
+        del aux_dataset_channels
+        gc.collect()
 
         return aux_memfile
     else:
