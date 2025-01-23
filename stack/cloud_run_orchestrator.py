@@ -19,7 +19,7 @@ stack = pulumi.get_stack()
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
-git_tag = next((tag.name for tag in repo.tags if tag.commit == repo.head.commit), None)
+git_tag = repo.git.describe("--tags", "--abbrev=0")
 
 
 # Assign access to cloud SQL
