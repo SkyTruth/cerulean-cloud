@@ -65,13 +65,13 @@ def upgrade() -> None:
         signature="source_plus",
         definition="""
             SELECT
+                sts.slick as slick_id,
+                sk.machine_confidence as slick_confidence,
                 s.ext_id as mmsi_or_structure_id,
                 st.short_name as source_type,
-                sts.slick as slick_id,
-                sts.rank as association_rank,
-                sts.collated_score as association_confidence,
-                sk.machine_confidence as slick_confidence,
-                sts.git_tag as git_tag,
+                sts.collated_score as source_confidence,
+                sts.rank as source_rank,
+                sts.git_hash as git_tag,
                 'https://cerulean.skytruth.org/?ref=api&slick_id=' || sk.id::text AS slick_url,
                 'https://cerulean.skytruth.org/?ref=api&mmsi=' || s.ext_id AS source_url
 
