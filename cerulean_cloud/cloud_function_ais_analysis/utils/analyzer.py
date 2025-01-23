@@ -930,6 +930,6 @@ class DarkAnalyzer(SourceAnalyzer):
 ASA_MAPPING = {
     1: AISAnalyzer,
     2: InfrastructureAnalyzer,
-    # 3: DarkAnalyzer,
+    3: DarkAnalyzer,
     # 4: NaturalAnalyzer,
 }

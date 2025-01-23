@@ -390,6 +390,18 @@ class Source(Base):  # noqa
     source_type = relationship("SourceType")
 
 
+class SourceDark(Source):  # noqa
+    __tablename__ = "source_dark"
+
+    source_id = Column(ForeignKey("source.id"), primary_key=True)
+    geometry = Column(
+        Geography("POINT", 4326, from_text="ST_GeogFromText", name="geography"),
+        nullable=False,
+    )
+    scene_id = Column(Text)
+    length_m = Column(Text)
+
+
 class SourceInfra(Source):  # noqa
     __tablename__ = "source_infra"
 
