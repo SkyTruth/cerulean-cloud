@@ -26,7 +26,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResultStack,
     PredictPayload,
 )
-from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
+from cerulean_cloud.utils import structured_log
 
 
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:

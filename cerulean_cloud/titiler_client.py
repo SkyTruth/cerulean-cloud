@@ -13,8 +13,8 @@ import numpy as np
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
 
-from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
 from cerulean_cloud.tiling import TMS
+from cerulean_cloud.utils import structured_log
 
 TMS_TITLE = TMS.identifier
 

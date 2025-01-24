@@ -32,7 +32,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResult,
     InferenceResultStack,
 )
-from cerulean_cloud.cloud_run_orchestrator.utils import structured_log
+from cerulean_cloud.utils import structured_log
 
 
 class BaseModel:

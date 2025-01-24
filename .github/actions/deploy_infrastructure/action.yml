@@ -84,7 +84,7 @@ runs:
         mkdir -p cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/cloud_run_orchestrator/
         cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
         cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
-        cp cerulean_cloud/cloud_run_orchestrator/utils.py  cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/cloud_run_orchestrator/utils.py
+        cp cerulean_cloud/utils.py  cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/utils.py
         cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
 
     - name: Deploy Infrastructure
