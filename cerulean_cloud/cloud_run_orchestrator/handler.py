@@ -353,10 +353,10 @@ async def _orchestrate(
         # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
         # WARNING this will return success, but there will be not trace in the DB of your request (i.e. in S1 or Orchestrator tables)
         # XXX TODO
-        logger.info(
+        logger.warning(
             structured_log(
-                "NO TILES TO BE PROCESSED (SUCCESS)",
-                severity="INFO",
+                "IS_OCEAN() MISMATCH: NO TILES TO BE PROCESSED (SUCCESS BUT NO DB ENTRY)",
+                severity="WARNING",
                 scene_id=payload.sceneid,
             )
         )
