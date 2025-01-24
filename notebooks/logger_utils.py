@@ -252,7 +252,7 @@ def generate_log_file(
         file.write(log_str)
 
 
-def get_scene_log_stats(project_id, service_name, revision_name, scene_id):
+def get_scene_log_stats(project_id, service_name, revision_name, start_time, scene_id):
     """
     Retrieve and analyze log statistics for a specific scene from Google Cloud Logging.
 
@@ -269,9 +269,18 @@ def get_scene_log_stats(project_id, service_name, revision_name, scene_id):
     json_payload = {"scene_id": scene_id}
 
     query = log_query(
-        service_name, revision_name=revision_name, jsonPayload=json_payload
+        service_name,
+        revision_name=revision_name,
+        start_time=start_time,
+        jsonPayload=json_payload,
     )
     logs = query_logger(project_id, query)
+    if logs.empty:
+        print(
+            f"There are no logs associated with {scene_id} for revision {revision_name}"
+        )
+        return logs
+
     logs["json_message"] = logs["json_payload"].apply(lambda x: x["message"])
     started = "unknown"
     try:
