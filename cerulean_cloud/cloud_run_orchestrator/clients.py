@@ -129,7 +129,9 @@ class CloudRunInferenceClient:
             aux_ds = src.read(window=window, out_shape=(src.count, height, width))
         return np.concatenate([img_array, aux_ds], axis=0)
 
-    async def send_inference_request_and_handle_response(self, http_client, img_array):
+    async def send_inference_request_and_handle_response(
+        self, http_client, img_array, scene_id
+    ):
         """
         Sends an asynchronous request to an inference service with the processed image data and handles the response.
         This involves encoding the image array to a base64 format, constructing the inference payload, and interpreting the service response.
@@ -153,6 +155,7 @@ class CloudRunInferenceClient:
             return structured_log(
                 "Error getting inference; Retrying . . .",
                 severity="WARNING",
+                scene_id=scene_id,
                 attempt=attempt,
                 status_code=status_code,
             )
@@ -161,6 +164,7 @@ class CloudRunInferenceClient:
             return structured_log(
                 "Error getting inference; Retrying . . .",
                 severity="WARNING",
+                scene_id=scene_id,
                 attempt=attempt,
                 exception=str(exception),
                 traceback=traceback.format_exc(),
@@ -168,7 +172,9 @@ class CloudRunInferenceClient:
 
         encoded = img_array_to_b64_image(img_array, to_uint8=True)
         inf_stack = [InferenceInput(image=encoded)]
-        payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
+        payload = PredictPayload(
+            inf_stack=inf_stack, model_dict=self.model_dict, scene_id=scene_id
+        )
 
         max_retries = 2  # Total attempts including the first try
         retry_delay = 5  # Delay in seconds between retries
@@ -230,7 +236,7 @@ class CloudRunInferenceClient:
         )
 
         return await self.send_inference_request_and_handle_response(
-            http_client, img_array
+            http_client, img_array, self.scene_id
         )
 
     async def run_parallel_inference(self, tileset):

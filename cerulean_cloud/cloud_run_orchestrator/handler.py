@@ -459,7 +459,7 @@ async def _orchestrate(
                     model_type=model_dict["type"],
                 )
             )
-            model = get_model(model_dict, scene_id=payload.sceneid)
+            model = get_model(model_dict)
 
             logger.info(
                 structured_log(
@@ -472,7 +472,9 @@ async def _orchestrate(
             ):
                 if tileset_results and tileset_bounds:
                     fc = model.postprocess_tileset(
-                        tileset_results, [[b] for b in tileset_bounds]
+                        tileset_results,
+                        [[b] for b in tileset_bounds],
+                        scene_id=payload.sceneid,
                     )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
                     tileset_fc_list.append(fc)
 
@@ -483,7 +485,9 @@ async def _orchestrate(
                 )
             )
             final_ensemble = model.nms_feature_reduction(
-                features=tileset_fc_list, min_overlaps_to_keep=1
+                features=tileset_fc_list,
+                min_overlaps_to_keep=1,
+                scene_id=payload.sceneid,
             )
             features = final_ensemble.get("features", [])
             n_features = len(features)

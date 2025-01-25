@@ -43,4 +43,4 @@ def predict(request: Request, payload: PredictPayload) -> InferenceResultStack:
     model = get_model(payload.model_dict)
     record_timing(request, note="Model loaded")
 
-    return model.predict(payload.inf_stack)
+    return model.predict(payload.inf_stack, payload.scene_id)
