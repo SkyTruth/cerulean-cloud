@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import os
-import sys
 import traceback
 import zipfile
 from base64 import b64encode
@@ -26,7 +25,8 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResultStack,
     PredictPayload,
 )
-from cerulean_cloud.utils import structured_log
+
+logger = logging.getLogger(__name__)
 
 
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
@@ -73,12 +73,6 @@ class CloudRunInferenceClient:
         )
         self.scale = scale  # 1=256, 2=512, 3=...
         self.model_dict = model_dict
-
-        # Configure logger
-        self.logger = logging.getLogger("InferenceClient")
-        handler = logging.StreamHandler(sys.stdout)  # Write logs to stdout
-        self.logger.addHandler(handler)
-        self.logger.setLevel(logging.INFO)
 
     async def fetch_and_process_image(
         self, tile_bounds, rescale=(0, 255), num_channels=1
@@ -152,23 +146,19 @@ class CloudRunInferenceClient:
         """
 
         def _status_code_warning(attempt, status_code):
-            return structured_log(
-                "Error getting inference; Retrying . . .",
-                severity="WARNING",
-                scene_id=scene_id,
-                attempt=attempt,
-                status_code=status_code,
-            )
+            return {
+                "message": "Error getting inference; Retrying . . .",
+                "attempt": attempt,
+                "status_code": status_code,
+            }
 
         def _exception_warning(attempt, exception):
-            return structured_log(
-                "Error getting inference; Retrying . . .",
-                severity="WARNING",
-                scene_id=scene_id,
-                attempt=attempt,
-                exception=str(exception),
-                traceback=traceback.format_exc(),
-            )
+            return {
+                "message": "Error getting inference; Retrying . . .",
+                "attempt": attempt,
+                "exception": str(exception),
+                "traceback": traceback.format_exc(),
+            }
 
         encoded = img_array_to_b64_image(img_array, to_uint8=True)
         inf_stack = [InferenceInput(image=encoded)]
@@ -186,20 +176,14 @@ class CloudRunInferenceClient:
                 )
                 if res.status_code == 200:
                     return InferenceResultStack(**res.json())
-                self.logger.warning(_status_code_warning(attempt, res.status_code))
+                logger.warning(_status_code_warning(attempt, res.status_code))
             except Exception as e:
-                self.logger.warning(_exception_warning(attempt, e))
+                logger.warning(_exception_warning(attempt, e))
 
             if attempt < max_retries:
                 await asyncio.sleep(retry_delay)  # Wait before retrying
             else:
-                self.logger.error(
-                    structured_log(
-                        "Failed to get inference",
-                        severity="ERROR",
-                        scene_id=self.sceneid,
-                    )
-                )
+                logger.error("Failed to get inference")
 
         # If all attempts fail, raise an exception
         raise Exception(f"All attempts failed after {max_retries} retries.")
@@ -226,13 +210,11 @@ class CloudRunInferenceClient:
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
 
-        self.logger.info(
-            structured_log(
-                "Generated image",
-                severity="INFO",
-                scene_id=self.sceneid,
-                tile_bounds=json.dumps(tile_bounds),
-            )
+        logger.info(
+            {
+                "message": "Generated image",
+                "tile_bounds": json.dumps(tile_bounds),
+            }
         )
 
         return await self.send_inference_request_and_handle_response(
@@ -250,13 +232,11 @@ class CloudRunInferenceClient:
         - list: List of inference results, with exceptions filtered out.
         """
 
-        self.logger.info(
-            structured_log(
-                "Starting parallel inference",
-                severity="INFO",
-                scene_id=self.sceneid,
-                n_tiles=len(tileset),
-            )
+        logger.info(
+            {
+                "message": "Starting parallel inference",
+                "n_tiles": len(tileset),
+            }
         )
 
         async with httpx.AsyncClient(
