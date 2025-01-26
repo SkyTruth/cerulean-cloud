@@ -200,7 +200,7 @@ def is_tile_over_water(tile_bounds: List[float]) -> bool:
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
-    context_dict_var.set({"scene_id": payload.scene_id})  # Set the scene_id for logging
+    context_dict_var.set({"scene_id": payload.sceneid})  # Set the scene_id for logging
 
     # Orchestrate inference
     start_time = datetime.now()
