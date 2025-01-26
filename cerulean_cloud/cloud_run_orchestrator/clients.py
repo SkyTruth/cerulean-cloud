@@ -63,9 +63,9 @@ class CloudRunInferenceClient:
         """init"""
         self.url = url
         self.titiler_client = titiler_client
-        self.sceneid = scene_id
+        self.scene_id = scene_id
         self.aux_datasets = handle_aux_datasets(
-            layers, self.sceneid, tileset_envelope_bounds, image_hw_pixels
+            layers, self.scene_id, tileset_envelope_bounds, image_hw_pixels
         )
         self.scale = scale  # 1=256, 2=512, 3=...
         self.model_dict = model_dict
@@ -88,7 +88,7 @@ class CloudRunInferenceClient:
 
         hw = self.scale * 256
         img_array = await self.titiler_client.get_offset_tile(
-            self.sceneid,
+            self.scene_id,
             *tile_bounds,
             width=hw,
             height=hw,

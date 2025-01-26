@@ -187,7 +187,7 @@ def handler_queue(filtered_scenes, trigger_id):
             }
         }
 
-        payload = {"sceneid": scene, "trigger": trigger_id, "dry_run": dry_run}
+        payload = {"scene_id": scene, "trigger": trigger_id, "dry_run": dry_run}
         print(payload)
         # Add the payload to the request.
         if payload is not None:
