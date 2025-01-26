@@ -123,9 +123,7 @@ class CloudRunInferenceClient:
             aux_ds = src.read(window=window, out_shape=(src.count, height, width))
         return np.concatenate([img_array, aux_ds], axis=0)
 
-    async def send_inference_request_and_handle_response(
-        self, http_client, img_array, scene_id
-    ):
+    async def send_inference_request_and_handle_response(self, http_client, img_array):
         """
         Sends an asynchronous request to an inference service with the processed image data and handles the response.
         This involves encoding the image array to a base64 format, constructing the inference payload, and interpreting the service response.
