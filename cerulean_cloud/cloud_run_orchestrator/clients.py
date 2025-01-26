@@ -163,7 +163,7 @@ class CloudRunInferenceClient:
         encoded = img_array_to_b64_image(img_array, to_uint8=True)
         inf_stack = [InferenceInput(image=encoded)]
         payload = PredictPayload(
-            inf_stack=inf_stack, model_dict=self.model_dict, scene_id=scene_id
+            inf_stack=inf_stack, model_dict=self.model_dict, scene_id=self.sceneid
         )
 
         max_retries = 2  # Total attempts including the first try
@@ -218,7 +218,7 @@ class CloudRunInferenceClient:
         )
 
         return await self.send_inference_request_and_handle_response(
-            http_client, img_array, self.scene_id
+            http_client, img_array
         )
 
     async def run_parallel_inference(self, tileset):
