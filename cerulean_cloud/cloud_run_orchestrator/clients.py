@@ -26,7 +26,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     PredictPayload,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("cerulean_cloud")
 
 
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:

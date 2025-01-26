@@ -16,7 +16,7 @@ from cerulean_cloud.tiling import TMS
 
 TMS_TITLE = TMS.identifier
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("cerulean_cloud")
 
 
 class TitilerClient:

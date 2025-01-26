@@ -25,7 +25,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"])
 add_timing_middleware(app, prefix="app")
 
 # Configure the logger once at startup
-configure_structured_logger(__name__)
+configure_structured_logger("cerulean_cloud")
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])

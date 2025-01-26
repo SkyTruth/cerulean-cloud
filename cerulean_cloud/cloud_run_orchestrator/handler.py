@@ -41,7 +41,7 @@ from cerulean_cloud.titiler_client import TitilerClient
 from cerulean_cloud.utils import configure_structured_logger, context_dict_var
 
 # Configure logger
-logger = configure_structured_logger(__name__)
+logger = configure_structured_logger("cerulean_cloud")
 
 
 app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])

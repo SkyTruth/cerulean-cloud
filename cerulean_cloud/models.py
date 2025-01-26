@@ -32,7 +32,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResultStack,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("cerulean_cloud")
 
 
 class BaseModel:
