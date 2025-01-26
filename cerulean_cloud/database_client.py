@@ -128,7 +128,9 @@ class DatabaseClient:
         """get layer from short_name"""
         return await get(self.session, db.Layer, short_name=short_name)
 
-    async def get_sentinel1_grd(self, sceneid: str, scene_info: dict, titiler_url: str):
+    async def get_sentinel1_grd(
+        self, scene_id: str, scene_info: dict, titiler_url: str
+    ):
         """get sentinel1 record"""
         shape_s1 = shape(scene_info["footprint"])
         if isinstance(shape_s1, Polygon):
@@ -139,7 +141,7 @@ class DatabaseClient:
         s1_grd = await get_or_insert(
             self.session,
             db.Sentinel1Grd,
-            scene_id=sceneid,
+            scene_id=scene_id,
             absolute_orbit_number=scene_info["absoluteOrbitNumber"],
             mode=scene_info["mode"],
             polarization=scene_info["polarization"],

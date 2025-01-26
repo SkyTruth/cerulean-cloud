@@ -53,7 +53,7 @@ class CloudRunInferenceClient:
         self,
         url: str,
         titiler_client,
-        sceneid: str,
+        scene_id: str,
         tileset_envelope_bounds: List[float],
         image_hw_pixels: Tuple[int, int],
         layers: List,
@@ -63,7 +63,7 @@ class CloudRunInferenceClient:
         """init"""
         self.url = url
         self.titiler_client = titiler_client
-        self.sceneid = sceneid
+        self.sceneid = scene_id
         self.aux_datasets = handle_aux_datasets(
             layers, self.sceneid, tileset_envelope_bounds, image_hw_pixels
         )

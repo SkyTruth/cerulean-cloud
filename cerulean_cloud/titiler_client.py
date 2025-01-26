@@ -26,11 +26,11 @@ class TitilerClient:
         )
         self.timeout = timeout
 
-    async def get_bounds(self, sceneid: str) -> List[float]:
+    async def get_bounds(self, scene_id: str) -> List[float]:
         """fetch bounds of a scene
 
         Args:
-            sceneid (str): A valid S1 scene id
+            scene_id (str): A valid S1 scene id
                             i.e. S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF
 
         Returns:
@@ -42,18 +42,18 @@ class TitilerClient:
         """
         try:
             url = urlib.urljoin(self.url, "bounds")
-            url += f"?sceneid={sceneid}"
+            url += f"?scene_id={scene_id}"
             resp = await self.client.get(url, timeout=self.timeout)
             resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
             return resp.json()["bounds"]
         except Exception:
             raise
 
-    async def get_statistics(self, sceneid: str, band: str = "vv") -> Dict:
+    async def get_statistics(self, scene_id: str, band: str = "vv") -> Dict:
         """fetch bounds of a scene
 
         Args:
-            sceneid (str): A valid S1 scene id
+            scene_id (str): A valid S1 scene id
                             i.e. S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF
             band (str, optional): Which bands to include in the output. Defaults to "vv".
 
@@ -62,14 +62,14 @@ class TitilerClient:
                 includes keys such as min, max, mean, count, sum, std...
         """
         url = urlib.urljoin(self.url, "statistics")
-        url += f"?sceneid={sceneid}"
+        url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
         resp = await self.client.get(url, timeout=self.timeout)
         return resp.json()[band]
 
     def get_base_tile_url(
         self,
-        sceneid: str,
+        scene_id: str,
         band: str = "vv",
         img_format: Optional[str] = None,
         scale: int = 1,
@@ -81,7 +81,7 @@ class TitilerClient:
         """Forge titiler URL with scene id and stats.
 
         Args:
-            sceneid (str): A valid S1 scene id
+            scene_id (str): A valid S1 scene id
                             i.e. S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF
             band (str, optional): Which bands to include in the output.. Defaults to "vv".
             img_format (Optional[str], optional): ile format of the output from the tiler. Defaults to None.
@@ -95,7 +95,7 @@ class TitilerClient:
             str: URL to get XYZ server for a specific scene.
         """
         url = urlib.urljoin(self.url, f"tiles/{z}/{x}/{y}")
-        url += f"?sceneid={sceneid}"
+        url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
         url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
@@ -105,7 +105,7 @@ class TitilerClient:
 
     async def get_base_tile(
         self,
-        sceneid: str,
+        scene_id: str,
         tile: mercantile.Tile,
         band: str = "vv",
         img_format: str = "png",
@@ -115,7 +115,7 @@ class TitilerClient:
         """get base tile as numpy array
 
         Args:
-            sceneid (str): A valid S1 scene id
+            scene_id (str): A valid S1 scene id
                             i.e. S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF
             tile (mercantile.Tile): The Tile instance to fetch
             band (str, optional): Which bands to include in the output. Defaults to "vv".
@@ -127,7 +127,7 @@ class TitilerClient:
             np.ndarray: The requested tile of the scene as a numpy array.
         """
         url = urlib.urljoin(self.url, f"tiles/{TMS_TITLE}/{tile.z}/{tile.x}/{tile.y}")
-        url += f"?sceneid={sceneid}"
+        url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
         url += f"&format={img_format}"
         url += f"&scale={scale}"
@@ -142,7 +142,7 @@ class TitilerClient:
 
     async def get_offset_tile(
         self,
-        sceneid: str,
+        scene_id: str,
         minx: float,
         miny: float,
         maxx: float,
@@ -157,7 +157,7 @@ class TitilerClient:
         """get offset tile as numpy array (with bounds)
 
         Args:
-            sceneid (str): A valid S1 scene id
+            scene_id (str): A valid S1 scene id
                             i.e. S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF
             minx (float): Bounding box of the image.
             miny (float): Bounding box of the image.
@@ -175,7 +175,7 @@ class TitilerClient:
         url = urlib.urljoin(
             self.url, f"crop/{minx},{miny},{maxx},{maxy}/{width}x{height}.{img_format}"
         )
-        url += f"?sceneid={sceneid}"
+        url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
         url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"

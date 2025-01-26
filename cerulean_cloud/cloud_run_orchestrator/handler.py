@@ -169,7 +169,7 @@ async def _orchestrate(
     # Orchestrate inference
     start_time = datetime.now()
     print(f"Start time: {start_time}")
-    print(f"{start_time}: Orchestrating for sceneid {payload.sceneid}")
+    print(f"{start_time}: Orchestrating for scene_id {payload.scene_id}")
 
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
@@ -199,9 +199,9 @@ async def _orchestrate(
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
     # When scene traverses the anti-meridian, scene_bounds are nonsensical
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
-    scene_bounds = await titiler_client.get_bounds(payload.sceneid)
-    scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
-    scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+    scene_bounds = await titiler_client.get_bounds(payload.scene_id)
+    scene_stats = await titiler_client.get_statistics(payload.scene_id, band="vv")
+    scene_info = await roda_sentinelhub_client.get_product_info(payload.scene_id)
     print(f"{start_time}: scene_bounds: {scene_bounds}")
     print(f"{start_time}: scene_stats: {scene_stats}")
     print(f"{start_time}: scene_info: {scene_info}")
@@ -228,7 +228,7 @@ async def _orchestrate(
     except ValueError as e:
         # XXX BUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
         print(
-            f"{start_time}: WARNING: FAILURE {payload.sceneid} touches antimeridian, and is_tile_over_water() failed!"
+            f"{start_time}: WARNING: FAILURE {payload.scene_id} touches antimeridian, and is_tile_over_water() failed!"
         )
         return OrchestratorResult(status=str(e))
 
@@ -242,7 +242,7 @@ async def _orchestrate(
         # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
         # WARNING this will return success, but there will be not trace in the DB of your request (i.e. in S1 or Orchestrator tables)
         # XXX TODO
-        print(f"{start_time}: No tiles to be processed over water {payload.sceneid}")
+        print(f"{start_time}: No tiles to be processed over water {payload.scene_id}")
         return OrchestratorResult(status="Success (no oceanic tiles)")
 
     if payload.dry_run:
@@ -258,18 +258,18 @@ async def _orchestrate(
                 await db_client.get_layer(layer) for layer in model_dict["layers"]
             ]
             sentinel1_grd = await db_client.get_sentinel1_grd(
-                payload.sceneid,
+                payload.scene_id,
                 scene_info,
                 titiler_client.get_base_tile_url(
-                    payload.sceneid,
+                    payload.scene_id,
                     rescale=(0, 255),
                 ),
             )
             stale_slick_count = await db_client.deactivate_stale_slicks_from_scene_id(
-                payload.sceneid
+                payload.scene_id
             )
             print(
-                f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
+                f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.scene_id}."
             )
             orchestrator_run = await db_client.add_orchestrator(
                 start_time,
@@ -297,7 +297,7 @@ async def _orchestrate(
             cloud_run_inference = CloudRunInferenceClient(
                 url=os.getenv("INFERENCE_URL"),
                 titiler_client=titiler_client,
-                sceneid=payload.sceneid,
+                scene_id=payload.scene_id,
                 tileset_envelope_bounds=tileset_envelope_bounds,
                 image_hw_pixels=tileset_hw_pixels,
                 layers=layers,
