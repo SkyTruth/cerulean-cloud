@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import logging
 import os
+import traceback
 import zipfile
 from base64 import b64encode
 from datetime import datetime
@@ -23,6 +25,8 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResultStack,
     PredictPayload,
 )
+
+logger = logging.getLogger("cerulean_cloud")
 
 
 def img_array_to_b64_image(img_array: np.ndarray, to_uint8=False) -> str:
@@ -139,35 +143,48 @@ class CloudRunInferenceClient:
         - This function constructs the inference payload by encoding the image and specifying the geographic bounds and any additional inference parameters through `self.model_dict`.
         """
 
+        def _status_code_warning(attempt, status_code):
+            return {
+                "message": "Error getting inference; Retrying . . .",
+                "attempt": attempt,
+                "status_code": status_code,
+            }
+
+        def _exception_warning(attempt, exception):
+            return {
+                "message": "Error getting inference; Retrying . . .",
+                "attempt": attempt,
+                "exception": str(exception),
+                "traceback": traceback.format_exc(),
+            }
+
         encoded = img_array_to_b64_image(img_array, to_uint8=True)
         inf_stack = [InferenceInput(image=encoded)]
-        payload = PredictPayload(inf_stack=inf_stack, model_dict=self.model_dict)
+        payload = PredictPayload(
+            inf_stack=inf_stack, model_dict=self.model_dict, scene_id=self.sceneid
+        )
 
         max_retries = 2  # Total attempts including the first try
         retry_delay = 5  # Delay in seconds between retries
 
-        for attempt in range(max_retries):
+        for attempt in range(1, max_retries + 1):
             try:
                 res = await http_client.post(
                     self.url + "/predict", json=payload.dict(), timeout=None
                 )
                 if res.status_code == 200:
                     return InferenceResultStack(**res.json())
-                else:
-                    print(
-                        f"Attempt {attempt + 1}: Failed with status code {res.status_code}. Retrying..."
-                    )
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(retry_delay)  # Wait before retrying
+                logger.warning(_status_code_warning(attempt, res.status_code))
             except Exception as e:
-                print(f"Attempt {attempt + 1}: Exception occurred: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)  # Wait before retrying
+                logger.warning(_exception_warning(attempt, e))
+
+            if attempt < max_retries:
+                await asyncio.sleep(retry_delay)  # Wait before retrying
+            else:
+                logger.error("Failed to get inference")
 
         # If all attempts fail, raise an exception
-        raise Exception(
-            f"All attempts failed after {max_retries} retries. Last known error: {res.content}"
-        )
+        raise Exception(f"All attempts failed after {max_retries} retries.")
 
     async def get_tile_inference(self, http_client, tile_bounds, rescale=(0, 255)):
         """
@@ -190,6 +207,14 @@ class CloudRunInferenceClient:
             return InferenceResultStack(stack=[])
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
+
+        logger.info(
+            {
+                "message": "Generated image",
+                "tile_bounds": json.dumps(tile_bounds),
+            }
+        )
+
         return await self.send_inference_request_and_handle_response(
             http_client, img_array
         )
@@ -204,6 +229,14 @@ class CloudRunInferenceClient:
         Returns:
         - list: List of inference results, with exceptions filtered out.
         """
+
+        logger.info(
+            {
+                "message": "Starting parallel inference",
+                "n_tiles": len(tileset),
+            }
+        )
+
         async with httpx.AsyncClient(
             headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
         ) as async_http_client:
