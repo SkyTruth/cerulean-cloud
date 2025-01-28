@@ -15,7 +15,10 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     PredictPayload,
 )
 from cerulean_cloud.models import get_model
-from cerulean_cloud.utils import configure_structured_logger, context_dict_var
+from cerulean_cloud.structured_logger import (
+    configure_structured_logger,
+    context_dict_var,
+)
 
 # mypy: ignore-errors
 

@@ -36,9 +36,12 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 from cerulean_cloud.models import get_model
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
+from cerulean_cloud.structured_logger import (
+    configure_structured_logger,
+    context_dict_var,
+)
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
-from cerulean_cloud.utils import configure_structured_logger, context_dict_var
 
 # Configure logger
 logger = configure_structured_logger("cerulean_cloud")
