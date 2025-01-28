@@ -4,6 +4,7 @@ Utils for interacting with CloudRun Logs
 
 import datetime
 import json
+import re
 
 import pandas as pd
 from google.cloud import logging
@@ -360,7 +361,7 @@ def get_scene_log_stats(project_id, service_name, revision_name, start_time, sce
         end_time, dt, success = "unknown", "unknown", "unknown"
 
     print(f"scene ID={scene_id}")
-    print(f"Initiated Orchestrator at {start_time} - {started:.2f} minutes ago")
+    print(f"Initiated Orchestrator at {start_time} - {started} minutes ago")
     print(
         f"{n_tiles_before_filter} tiles before filter; {n_tiles_after_filter} tiles after filter"
     )
@@ -377,3 +378,48 @@ def get_scene_log_stats(project_id, service_name, revision_name, start_time, sce
         print("Not complete")
 
     return logs
+
+
+def get_latest_revision(project_id, service_name):
+    """
+    Retrieve the latest revision name for the given Cloud Run service.
+
+    If no revision name is provided, this function queries the log entries
+    for the specified service and determines the latest revision based on
+    the revision name's numerical suffix.
+
+    Args:
+        project_id (str): The Google Cloud project ID.
+        service_name (str): The name of the Cloud Run service.
+
+    Returns:
+        str: The latest revision name, or None if no revisions are found.
+    """
+    query = (
+        'resource.type="cloud_run_revision" '
+        f'resource.labels.service_name="{service_name}"'
+    )
+    client = logging.Client(project=project_id)
+    entries = client.list_entries(
+        filter_=query, order_by=logging.DESCENDING, page_size=100
+    )
+
+    revisions = set()
+    for entry in entries:
+        revision = entry.resource.labels.get("revision_name")
+        if revision:
+            revisions.add(revision)
+
+    if not revisions:
+        return None
+
+    # Assuming revision names end with a numeric suffix, sort accordingly
+    def revision_sort_key(rev):
+        match = re.search(r"-(\d+)-", rev)
+        if match:
+            return int(match.group(1))
+        else:
+            return 0  # Default if no match
+
+    latest_revision = sorted(revisions, key=revision_sort_key)[-1]
+    return latest_revision
