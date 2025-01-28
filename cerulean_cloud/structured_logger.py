@@ -4,12 +4,14 @@ import contextvars
 import datetime
 import json
 import logging
-import re
+
+# import re
 import sys
 from typing import Any, Dict
 
-import pandas as pd
-from google.cloud import logging as google_logging
+# import pandas as pd
+
+# from google.cloud import logging as google_logging
 
 # A ContextVar to store the context_dict for each request
 context_dict_var: contextvars.ContextVar[Dict[str, Any]] = contextvars.ContextVar(
@@ -220,32 +222,32 @@ def logs_to_list(logs):
     return log_entries
 
 
-def query_logger(project_id, query, page_size=1000):
-    """
-    Execute a Google Cloud Logging query and return the results.
+# def query_logger(project_id, query, page_size=1000):
+#     """
+#     Execute a Google Cloud Logging query and return the results.
 
-    Args:
-        project_id (str): The ID of the Google Cloud project.
-        query (str): The filter query string for retrieving logs.
-        page_size (int, optional): The number of log entries to fetch per page. Defaults to 1000.
+#     Args:
+#         project_id (str): The ID of the Google Cloud project.
+#         query (str): The filter query string for retrieving logs.
+#         page_size (int, optional): The number of log entries to fetch per page. Defaults to 1000.
 
-    Returns:
-        pd.DataFrame or list: The log entries as a Pandas DataFrame
-    """
-    client = google_logging.Client(project=project_id)
+#     Returns:
+#         pd.DataFrame or list: The log entries as a Pandas DataFrame
+#     """
+#     client = google_logging.Client(project=project_id)
 
-    logs = client.list_entries(
-        filter_=query, order_by=google_logging.DESCENDING, page_size=page_size
-    )
-    log_entries = pd.DataFrame(logs_to_list(logs))
-    if "json_payload" in log_entries.columns:
-        log_entries["scene_id"] = log_entries["json_payload"].apply(
-            lambda x: x["scene_id"] if x is not None and "scene_id" in x else None
-        )
-        log_entries["message"] = log_entries["json_payload"].apply(
-            lambda x: x["message"] if x is not None and "message" in x else None
-        )
-    return log_entries
+#     logs = client.list_entries(
+#         filter_=query, order_by=google_logging.DESCENDING, page_size=page_size
+#     )
+#     log_entries = pd.DataFrame(logs_to_list(logs))
+#     if "json_payload" in log_entries.columns:
+#         log_entries["scene_id"] = log_entries["json_payload"].apply(
+#             lambda x: x["scene_id"] if x is not None and "scene_id" in x else None
+#         )
+#         log_entries["message"] = log_entries["json_payload"].apply(
+#             lambda x: x["message"] if x is not None and "message" in x else None
+#         )
+#     return log_entries
 
 
 def generate_log_file(
@@ -323,168 +325,168 @@ def generate_log_file(
         file.write(log_str)
 
 
-def get_scene_log_stats(project_id, service_name, revision_name, start_time, scene_id):
-    """
-    Retrieve and analyze log statistics for a specific scene from Google Cloud Logging.
+# def get_scene_log_stats(project_id, service_name, revision_name, start_time, scene_id):
+#     """
+#     Retrieve and analyze log statistics for a specific scene from Google Cloud Logging.
 
-    Args:
-        project_id (str): The Google Cloud project ID.
-        service_name (str): The name of the Cloud Run service.
-        revision_name (str): The name of the Cloud Run revision.
-        scene_id (str): The unique identifier of the scene to query logs for.
+#     Args:
+#         project_id (str): The Google Cloud project ID.
+#         service_name (str): The name of the Cloud Run service.
+#         revision_name (str): The name of the Cloud Run revision.
+#         scene_id (str): The unique identifier of the scene to query logs for.
 
-    Returns:
-        pandas.DataFrame: A DataFrame containing all logs for the specified scene.
+#     Returns:
+#         pandas.DataFrame: A DataFrame containing all logs for the specified scene.
 
-    """
-    json_payload = {"scene_id": scene_id}
+#     """
+#     json_payload = {"scene_id": scene_id}
 
-    query = log_query(
-        service_name,
-        revision_name=revision_name,
-        start_time=start_time,
-        jsonPayload=json_payload,
-    )
-    logs = query_logger(project_id, query)
-    if logs.empty:
-        print(
-            f"There are no logs associated with {scene_id} for revision {revision_name}"
-        )
-        return logs
+#     query = log_query(
+#         service_name,
+#         revision_name=revision_name,
+#         start_time=start_time,
+#         jsonPayload=json_payload,
+#     )
+#     logs = query_logger(project_id, query)
+#     if logs.empty:
+#         print(
+#             f"There are no logs associated with {scene_id} for revision {revision_name}"
+#         )
+#         return logs
 
-    logs["json_message"] = logs["json_payload"].apply(lambda x: x["message"])
-    started = "unknown"
-    try:
-        start_time = logs[logs["json_message"] == "Initiating Orchestrator"].iloc[0][
-            "json_payload"
-        ]["start_time"]
-        started = (
-            datetime.datetime.now(datetime.timezone.utc)
-            - datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        ).total_seconds() / 60
-    except Exception:
-        start_time = "unknown"
-        started = "unknown"
-    try:
-        n_tiles_before_filter = logs[
-            logs["json_message"] == "Removing invalid tiles (land filter)"
-        ].iloc[0]["json_payload"]["n_tiles"]
-    except Exception:
-        n_tiles_before_filter = "unknown"
-    try:
-        n_tiles_after_filter = ", ".join(
-            [
-                str(l["json_payload"]["n_tiles"])
-                for _, l in logs[
-                    logs["json_message"] == "Starting parallel inference"
-                ].iterrows()
-            ]
-        )
-    except Exception:
-        n_tiles_after_filter = "unknown"
-    try:
-        n_empty_images = len(logs[logs["json_message"] == "Empty image"])
-    except Exception:
-        n_empty_images = "unknown"
-    try:
-        n_images = len(logs[logs["json_message"] == "Generated image"])
-    except Exception:
-        n_images = "unknown"
-    try:
-        n_stale_slicks = logs[
-            logs["json_message"] == "Deactivating slicks from stale runs."
-        ].iloc[0]["json_payload"]["n_stale_slicks"]
-    except Exception:
-        n_stale_slicks = "unknown"
-    try:
-        n_slicks_before_filter = logs[
-            logs["json_message"] == "Removing all slicks near land"
-        ].iloc[0]["json_payload"]["n_features"]
-    except Exception:
-        n_slicks_before_filter = "unknown"
-    try:
-        n_slicks_after_filter = logs[
-            logs["json_message"] == "Adding slicks to database"
-        ].iloc[0]["json_payload"]["n_slicks"]
-    except Exception:
-        n_slicks_after_filter = "unknown"
-    try:
-        n_slicks_added = len(logs[logs["json_message"] == "Added slick"])
-    except Exception:
-        n_slicks_added = "unknown"
-    try:
-        end_time = logs[logs["json_message"] == "Orchestration complete!"].iloc[0][
-            "json_payload"
-        ]["timestamp"]
-        dt = logs[logs["json_message"] == "Orchestration complete!"].iloc[0][
-            "json_payload"
-        ]["duration_minutes"]
-        success = logs[logs["json_message"] == "Orchestration complete!"].iloc[0][
-            "json_payload"
-        ]["success"]
-    except Exception:
-        end_time, dt, success = "unknown", "unknown", "unknown"
+#     logs["json_message"] = logs["json_payload"].apply(lambda x: x["message"])
+#     started = "unknown"
+#     try:
+#         start_time = logs[logs["json_message"] == "Initiating Orchestrator"].iloc[0][
+#             "json_payload"
+#         ]["start_time"]
+#         started = (
+#             datetime.datetime.now(datetime.timezone.utc)
+#             - datetime.datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+#         ).total_seconds() / 60
+#     except Exception:
+#         start_time = "unknown"
+#         started = "unknown"
+#     try:
+#         n_tiles_before_filter = logs[
+#             logs["json_message"] == "Removing invalid tiles (land filter)"
+#         ].iloc[0]["json_payload"]["n_tiles"]
+#     except Exception:
+#         n_tiles_before_filter = "unknown"
+#     try:
+#         n_tiles_after_filter = ", ".join(
+#             [
+#                 str(l["json_payload"]["n_tiles"])
+#                 for _, l in logs[
+#                     logs["json_message"] == "Starting parallel inference"
+#                 ].iterrows()
+#             ]
+#         )
+#     except Exception:
+#         n_tiles_after_filter = "unknown"
+#     try:
+#         n_empty_images = len(logs[logs["json_message"] == "Empty image"])
+#     except Exception:
+#         n_empty_images = "unknown"
+#     try:
+#         n_images = len(logs[logs["json_message"] == "Generated image"])
+#     except Exception:
+#         n_images = "unknown"
+#     try:
+#         n_stale_slicks = logs[
+#             logs["json_message"] == "Deactivating slicks from stale runs."
+#         ].iloc[0]["json_payload"]["n_stale_slicks"]
+#     except Exception:
+#         n_stale_slicks = "unknown"
+#     try:
+#         n_slicks_before_filter = logs[
+#             logs["json_message"] == "Removing all slicks near land"
+#         ].iloc[0]["json_payload"]["n_features"]
+#     except Exception:
+#         n_slicks_before_filter = "unknown"
+#     try:
+#         n_slicks_after_filter = logs[
+#             logs["json_message"] == "Adding slicks to database"
+#         ].iloc[0]["json_payload"]["n_slicks"]
+#     except Exception:
+#         n_slicks_after_filter = "unknown"
+#     try:
+#         n_slicks_added = len(logs[logs["json_message"] == "Added slick"])
+#     except Exception:
+#         n_slicks_added = "unknown"
+#     try:
+#         end_time = logs[logs["json_message"] == "Orchestration complete!"].iloc[0][
+#             "json_payload"
+#         ]["timestamp"]
+#         dt = logs[logs["json_message"] == "Orchestration complete!"].iloc[0][
+#             "json_payload"
+#         ]["duration_minutes"]
+#         success = logs[logs["json_message"] == "Orchestration complete!"].iloc[0][
+#             "json_payload"
+#         ]["success"]
+#     except Exception:
+#         end_time, dt, success = "unknown", "unknown", "unknown"
 
-    print(f"scene ID={scene_id}")
-    print(f"Initiated Orchestrator at {start_time} - {started} minutes ago")
-    print(
-        f"{n_tiles_before_filter} tiles before filter; {n_tiles_after_filter} tiles after filter"
-    )
-    print(f"generated {n_images} images and {n_empty_images} empty images")
-    print(f"deactivated {n_stale_slicks} stale slicks")
-    print(
-        f"{n_slicks_before_filter} slicks before filter; {n_slicks_after_filter} slicks after filter"
-    )
-    print(f"added {n_slicks_added} slicks")
-    if success != "unknown":
-        print(f"orchestration complete at {end_time}; in {round(dt*100)/100} minutes")
-        print(f"Success: {success}")
-    else:
-        print("Not complete")
+#     print(f"scene ID={scene_id}")
+#     print(f"Initiated Orchestrator at {start_time} - {started} minutes ago")
+#     print(
+#         f"{n_tiles_before_filter} tiles before filter; {n_tiles_after_filter} tiles after filter"
+#     )
+#     print(f"generated {n_images} images and {n_empty_images} empty images")
+#     print(f"deactivated {n_stale_slicks} stale slicks")
+#     print(
+#         f"{n_slicks_before_filter} slicks before filter; {n_slicks_after_filter} slicks after filter"
+#     )
+#     print(f"added {n_slicks_added} slicks")
+#     if success != "unknown":
+#         print(f"orchestration complete at {end_time}; in {round(dt*100)/100} minutes")
+#         print(f"Success: {success}")
+#     else:
+#         print("Not complete")
 
-    return logs
+#     return logs
 
 
-def get_latest_revision(project_id, service_name):
-    """
-    Retrieve the latest revision name for the given Cloud Run service.
+# def get_latest_revision(project_id, service_name):
+#     """
+#     Retrieve the latest revision name for the given Cloud Run service.
 
-    If no revision name is provided, this function queries the log entries
-    for the specified service and determines the latest revision based on
-    the revision name's numerical suffix.
+#     If no revision name is provided, this function queries the log entries
+#     for the specified service and determines the latest revision based on
+#     the revision name's numerical suffix.
 
-    Args:
-        project_id (str): The Google Cloud project ID.
-        service_name (str): The name of the Cloud Run service.
+#     Args:
+#         project_id (str): The Google Cloud project ID.
+#         service_name (str): The name of the Cloud Run service.
 
-    Returns:
-        str: The latest revision name, or None if no revisions are found.
-    """
-    query = (
-        'resource.type="cloud_run_revision" '
-        f'resource.labels.service_name="{service_name}"'
-    )
-    client = google_logging.Client(project=project_id)
-    entries = client.list_entries(
-        filter_=query, order_by=google_logging.DESCENDING, page_size=100
-    )
+#     Returns:
+#         str: The latest revision name, or None if no revisions are found.
+#     """
+#     query = (
+#         'resource.type="cloud_run_revision" '
+#         f'resource.labels.service_name="{service_name}"'
+#     )
+#     client = google_logging.Client(project=project_id)
+#     entries = client.list_entries(
+#         filter_=query, order_by=google_logging.DESCENDING, page_size=100
+#     )
 
-    revisions = set()
-    for entry in entries:
-        revision = entry.resource.labels.get("revision_name")
-        if revision:
-            revisions.add(revision)
+#     revisions = set()
+#     for entry in entries:
+#         revision = entry.resource.labels.get("revision_name")
+#         if revision:
+#             revisions.add(revision)
 
-    if not revisions:
-        return None
+#     if not revisions:
+#         return None
 
-    # Assuming revision names end with a numeric suffix, sort accordingly
-    def revision_sort_key(rev):
-        match = re.search(r"-(\d+)-", rev)
-        if match:
-            return int(match.group(1))
-        else:
-            return 0  # Default if no match
+#     # Assuming revision names end with a numeric suffix, sort accordingly
+#     def revision_sort_key(rev):
+#         match = re.search(r"-(\d+)-", rev)
+#         if match:
+#             return int(match.group(1))
+#         else:
+#             return 0  # Default if no match
 
-    latest_revision = sorted(revisions, key=revision_sort_key)[-1]
-    return latest_revision
+#     latest_revision = sorted(revisions, key=revision_sort_key)[-1]
+#     return latest_revision
