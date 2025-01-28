@@ -1,6 +1,7 @@
 """
 Utils for interacting with CloudRun Logs
 """
+
 import datetime
 import json
 
@@ -39,13 +40,17 @@ def jsonify_log_entries(entry):
     """
     return {
         "timestamp": entry.timestamp,
-        "resource_revision_name": entry.resource.labels["revision_name"]
-        if entry.resource.labels is not None
-        and "revision_name" in entry.resource.labels
-        else None,
-        "instanceId": entry.labels["instanceId"]
-        if entry.labels is not None and "instanceId" in entry.labels
-        else None,
+        "resource_revision_name": (
+            entry.resource.labels["revision_name"]
+            if entry.resource.labels is not None
+            and "revision_name" in entry.resource.labels
+            else None
+        ),
+        "instanceId": (
+            entry.labels["instanceId"]
+            if entry.labels is not None and "instanceId" in entry.labels
+            else None
+        ),
         "severity": entry.severity,
         "text_payload": entry.payload if isinstance(entry.payload, str) else None,
         "json_payload": entry.payload if isinstance(entry.payload, dict) else None,
