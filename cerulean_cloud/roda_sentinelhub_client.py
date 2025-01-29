@@ -43,7 +43,5 @@ class RodaSentinelHubClient:
         url = urlib.urljoin(self.url, url_path)
         url += "/productInfo.json"
 
-        print(url)
-
         resp = await self.client.get(url, timeout=self.timeout)
         return resp.json()

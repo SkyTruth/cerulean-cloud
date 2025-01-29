@@ -1,6 +1,8 @@
 """client code to interact with titiler for sentinel 1"""
 
+import logging
 import os
+import traceback
 import urllib.parse as urlib
 from typing import Dict, List, Optional, Tuple
 
@@ -13,6 +15,8 @@ from rasterio.plot import reshape_as_image
 from cerulean_cloud.tiling import TMS
 
 TMS_TITLE = TMS.identifier
+
+logger = logging.getLogger("cerulean_cloud")
 
 
 class TitilerClient:
@@ -40,13 +44,21 @@ class TitilerClient:
         Raises:
             HTTPException: For various HTTP related errors including authentication issues.
         """
+        url = urlib.urljoin(self.url, "bounds")
+        url += f"?scene_id={scene_id}"
         try:
-            url = urlib.urljoin(self.url, "bounds")
-            url += f"?scene_id={scene_id}"
             resp = await self.client.get(url, timeout=self.timeout)
             resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
             return resp.json()["bounds"]
-        except Exception:
+        except Exception as e:
+            logger.error(
+                {
+                    "message": "Failed to retrieve scene bounds",
+                    "url": url,
+                    "exception": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
             raise
 
     async def get_statistics(self, scene_id: str, band: str = "vv") -> Dict:
@@ -64,8 +76,20 @@ class TitilerClient:
         url = urlib.urljoin(self.url, "statistics")
         url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
-        resp = await self.client.get(url, timeout=self.timeout)
-        return resp.json()[band]
+        try:
+            resp = await self.client.get(url, timeout=self.timeout)
+            resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
+            return resp.json()[band]
+        except Exception as e:
+            logger.error(
+                {
+                    "message": "Failed to retrieve scene statistics",
+                    "url": url,
+                    "exception": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            raise
 
     def get_base_tile_url(
         self,

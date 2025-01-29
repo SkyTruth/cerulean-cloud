@@ -20,6 +20,7 @@ class PredictPayload(BaseModel):
 
     inf_stack: List[InferenceInput]
     model_dict: Dict[str, Any]
+    scene_id: str
 
 
 class InferenceResult(BaseModel):
