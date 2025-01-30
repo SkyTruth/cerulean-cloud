@@ -6,10 +6,12 @@ import asyncio
 import json
 import os
 import urllib.parse as urlparse
+import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from typing import Optional
 
 import asyncpg
+import boto3
 import shapely.geometry as sh  # https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
 from flask import abort
 from google.cloud import tasks_v2
@@ -142,23 +144,62 @@ def handle_notification(request_json, ocean_poly):
         sns = r["Sns"]
         msg = json.loads(sns["Message"])
 
-        if not (msg["id"][4:6] == "IW"):
+        if not (msg["mode"] == "IW"):
             # Check Beam Mode
             # XXX This is workaround a bug in Titiler.get_bounds (404 not found) that fails if the beam mode is not IW
             continue
-        if not (msg["id"][10] == "H"):
+        if not (msg["resolution"] == "H"):
             # Check High Definition
             continue
-        if not (msg["id"][15] == "V"):
+        if not (msg["polarization"][1] == "V"):
             # Check Polarization
             # XXX This is hardcoded in the server, where we look for a vv.grd file
             continue
-        scene_poly = sh.polygon.Polygon(msg["footprint"]["coordinates"][0][0])
+
+        sns_coords = msg["footprint"]["coordinates"][0][0]
+        # The following section was added to fix a bug in the SNS topic where the coordinates are not in the correct order
+        sns_coords_valence = sum([c[0] for c in sns_coords]) > sum(
+            [c[1] for c in sns_coords]
+        )
+
+        manifest_coords = get_manifest_coords(msg["id"])
+        manifest_coords_valence = sum([c[0] for c in manifest_coords]) > sum(
+            [c[1] for c in manifest_coords]
+        )
+
+        if manifest_coords_valence == sns_coords_valence:
+            sns_coords = [(lon, lat) for lat, lon in sns_coords]
+
+        scene_poly = sh.polygon.Polygon(sns_coords)
+
         if not (scene_poly.intersects(ocean_poly)):
             # Check Oceanic
             continue
         filtered_scenes.append(msg["id"])
     return filtered_scenes
+
+
+def get_manifest_coords(scene_id):
+    """get manifest coords"""
+    obj = boto3.client("s3").get_object(
+        Bucket="sentinel-s1-l1c",
+        Key=f"GRD/{scene_id[17:21]}/{str(int(scene_id[21:23]))}/{str(int(scene_id[23:25]))}/IW/DV/{scene_id}/manifest.safe",
+        RequestPayer="requester",
+    )
+
+    namespaces = {
+        "xfdu": "urn:ccsds:schema:xfdu:1",
+        "gml": "http://www.opengis.net/gml",
+        "safe": "http://www.esa.int/safe/sentinel-1.0",
+    }
+
+    root = ET.fromstring(obj["Body"].read())
+    coordinates_element = root.find(".//safe:footPrint/gml:coordinates", namespaces)
+    coordinates_text = coordinates_element.text.strip()
+    coordinates_pairs = [
+        tuple(map(float, coord.split(","))) for coord in coordinates_text.split()
+    ]
+    return coordinates_pairs
 
 
 def handler_queue(filtered_scenes, trigger_id):
