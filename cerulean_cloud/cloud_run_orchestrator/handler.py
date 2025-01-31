@@ -9,7 +9,10 @@ needs env vars:
 - INFERENCE_URL
 """
 
+import json
 import os
+import signal
+import traceback
 import urllib.parse as urlparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
@@ -33,14 +36,48 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 from cerulean_cloud.models import get_model
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
+from cerulean_cloud.structured_logger import (
+    configure_structured_logger,
+    context_dict_var,
+)
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
+
+# Configure logger
+logger = configure_structured_logger("cerulean_cloud")
+
 
 app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth)])
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
 landmask_gdf = None
+
+
+def flush_logs():
+    """
+    Flush all logger handlers.
+    """
+    for handler in logger.handlers:
+        handler.flush()
+
+
+def handle_sigterm(signum, frame):
+    """
+    Handle the SIGTERM signal.
+    """
+    logger.error(
+        {
+            "message": "SIGTERM signal received",
+            "file_name": frame.f_code.co_filename,
+            "line_number": frame.f_lineno,
+        }
+    )
+    flush_logs()
+
+
+# Register SIGTERM handler
+signal.signal(signal.SIGTERM, handle_sigterm)
 
 
 def get_landmask_gdf():
@@ -166,10 +203,16 @@ def is_tile_over_water(tile_bounds: List[float]) -> bool:
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
+    context_dict_var.set({"scene_id": payload.sceneid})  # Set the scene_id for logging
+
     # Orchestrate inference
     start_time = datetime.now()
-    print(f"Start time: {start_time}")
-    print(f"{start_time}: Orchestrating for sceneid {payload.sceneid}")
+    logger.info(
+        {
+            "message": "Initiating Orchestrator",
+            "start_time": start_time.isoformat() + "Z",
+        }
+    )
 
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
@@ -184,27 +227,44 @@ async def _orchestrate(
             }
     zoom = payload.zoom or model_dict["zoom_level"]
     scale = payload.scale or model_dict["scale"]
-    print(f"{start_time}: zoom: {zoom}")
-    print(f"{start_time}: scale: {scale}")
 
     if model_dict["zoom_level"] != zoom:
-        print(
-            f"{start_time}: WARNING: Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}"
+        logger.warning(
+            {
+                "message": "Model zoom level warning",
+                "description": f"Model was trained on zoom level {model_dict['zoom_level']} but is being run on {zoom}",
+            }
         )
     if model_dict["tile_width_px"] != scale * 256:
-        print(
-            f"{start_time}: WARNING: Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}"
+        logger.warning(
+            {
+                "message": "Model resolution warning",
+                "description": f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}",
+            }
         )
 
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
     # When scene traverses the anti-meridian, scene_bounds are nonsensical
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
+    logger.info("Getting scene bounds")
     scene_bounds = await titiler_client.get_bounds(payload.sceneid)
+
+    logger.info("Getting scene statistics")
     scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+
+    logger.info("Getting SentinalHUB product info")
     scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
-    print(f"{start_time}: scene_bounds: {scene_bounds}")
-    print(f"{start_time}: scene_stats: {scene_stats}")
-    print(f"{start_time}: scene_info: {scene_info}")
+
+    logger.info(
+        {
+            "message": "Generating tilesets",
+            "zoom": zoom,
+            "scale": scale,
+            "scene_bounds": json.dumps(scene_bounds),
+            "scene_stats": json.dumps(scene_stats),
+            "scene_info": json.dumps(scene_info),
+        }
+    )
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
     n_basetiles = len(base_tiles)
@@ -219,35 +279,47 @@ async def _orchestrate(
     tileset_hw_pixels = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
     tileset_envelope_bounds = group_bounds_from_list_of_bounds(tileset_list[0])
 
+    logger.info(
+        {
+            "message": "Removing invalid tiles (land filter)",
+            "n_tiles": n_offsettiles,
+        }
+    )
+
     # Filter out land tiles
-    print(f"{start_time}: Tileset contains before landfilter: {n_offsettiles} tiles")
     try:
         tileset_list = [
             [b for b in tileset if is_tile_over_water(b)] for tileset in tileset_list
         ]
+        logger.info(
+            {
+                "message": "Removed tiles over land",
+                "n_tilesets": len(tileset_list[0]),
+            }
+        )
     except ValueError as e:
         # XXX BUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
-        print(
-            f"{start_time}: WARNING: FAILURE {payload.sceneid} touches antimeridian, and is_tile_over_water() failed!"
+
+        logger.error(
+            {
+                "message": "FAILURE - scene touches antimeridian, and is_tile_over_water() failed!",
+                "traceback": traceback.format_exc(),
+            }
         )
         return OrchestratorResult(status=str(e))
-
-    n_offsettiles_after = len(tileset_list[0])
-
-    print(
-        f"{start_time}: Tileset contains after landfilter: ~{n_offsettiles_after} tiles"
-    )
 
     if not any(set for set in tileset_list):
         # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
         # WARNING this will return success, but there will be not trace in the DB of your request (i.e. in S1 or Orchestrator tables)
         # XXX TODO
-        print(f"{start_time}: No tiles to be processed over water {payload.sceneid}")
+        logger.info(
+            "IS_OCEAN() MISMATCH: NO TILES TO BE PROCESSED (SUCCESS BUT NO DB ENTRY)"
+        )
         return OrchestratorResult(status="Success (no oceanic tiles)")
 
     if payload.dry_run:
         # Only tests code above this point, without actually adding any new data to the database, or running inference.
-        print(f"{start_time}: WARNING: Operating as a DRY RUN!!")
+        logger.info("DRY RUN (SUCCESS)")
         return OrchestratorResult(status="Success (dry run)")
 
     # write to DB
@@ -268,8 +340,11 @@ async def _orchestrate(
             stale_slick_count = await db_client.deactivate_stale_slicks_from_scene_id(
                 payload.sceneid
             )
-            print(
-                f"{start_time}: Deactivating {stale_slick_count} slicks from stale runs on {payload.sceneid}."
+            logger.info(
+                {
+                    "message": "Deactivating slicks from stale runs.",
+                    "n_stale_slicks": stale_slick_count,
+                }
             )
             orchestrator_run = await db_client.add_orchestrator(
                 start_time,
@@ -293,7 +368,7 @@ async def _orchestrate(
 
         success = True
         try:
-            print(f"{start_time}: Instantiating inference client.")
+            logger.info("Instantiating inference client")
             cloud_run_inference = CloudRunInferenceClient(
                 url=os.getenv("INFERENCE_URL"),
                 titiler_client=titiler_client,
@@ -306,17 +381,23 @@ async def _orchestrate(
             )
 
             # Perform inferences
-            print(f"Inference starting: {start_time}")
+            logger.info("Inference starting")
             tileset_results_list = [
                 await cloud_run_inference.run_parallel_inference(tileset)
                 for tileset in tileset_list
             ]
 
             # Stitch inferences
-            print(f"Stitching results: {start_time}")
+            logger.info(
+                {
+                    "message": "Initializing model",
+                    "model_type": model_dict["type"],
+                }
+            )
             model = get_model(model_dict)
-            tileset_fc_list = []
 
+            logger.info("Stitching result")
+            tileset_fc_list = []
             for tileset_results, tileset_bounds in zip(
                 tileset_results_list, tileset_list
             ):
@@ -327,17 +408,25 @@ async def _orchestrate(
                     tileset_fc_list.append(fc)
 
             # Ensemble inferences
-            print(f"Ensembling results: {start_time}")
+            logger.info("Ensembling results")
             final_ensemble = model.nms_feature_reduction(
                 features=tileset_fc_list, min_overlaps_to_keep=1
             )
+            features = final_ensemble.get("features", [])
+            n_features = len(features)
 
-            if final_ensemble.get("features"):
+            # number of features that are over land (excluded from final feature list)
+            n_background_slicks = 0
+            if features:
                 LAND_MASK_BUFFER_M = 1000
-                print(
-                    f"{start_time}: Removing all slicks within {LAND_MASK_BUFFER_M}m of land"
+                logger.info(
+                    {
+                        "message": "Removing all slicks near land",
+                        "n_features": n_features,
+                        "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
+                    }
                 )
-                for feat in final_ensemble.get("features"):
+                for feat in features:
                     buffered_gdf = gpd.GeoDataFrame(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
@@ -353,35 +442,59 @@ async def _orchestrate(
                         how="inner",
                         predicate="intersects",
                     )
+                    # when the feature does not intersect land, update inf_idx and increase n_background_slicks
                     if not intersecting_land.empty:
                         feat["properties"]["inf_idx"] = model.background_class_idx
+                        n_background_slicks += 1
+
+                logger.info(
+                    {
+                        "message": "Adding slicks to database",
+                        "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
+                        "n_background_slicks": n_background_slicks,
+                        "n_slicks": n_features - n_background_slicks,
+                    }
+                )
+                del features
                 # Removed all preprocessing of features from within the
                 # database session to avoid holidng locks on the
                 # table while performing un-related calculations.
                 async with db_client.session.begin():
                     for feat in final_ensemble.get("features"):
-                        slick = await db_client.add_slick(
+                        _ = await db_client.add_slick(
                             orchestrator_run,
                             sentinel1_grd.start_time,
                             feat.get("geometry"),
                             feat.get("properties").get("inf_idx"),
                             feat.get("properties").get("machine_confidence"),
                         )
-                        print(f"{start_time}: Added slick: {slick}")
+                        logger.info("Added slick")
 
-                print(f"{start_time}: Queueing up Automatic AIS Analysis")
+                logger.info("Queueing up Automatic AIS Analysis")
                 add_to_asa_queue(sentinel1_grd.scene_id)
 
         except Exception as e:
             success = False
             exc = e
-            print(f"{start_time}: {e}")
+            logger.error(
+                {
+                    "message": "Failed to process inference on scene",
+                    "exception": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
         async with db_client.session.begin():
             end_time = datetime.now()
             orchestrator_run.success = success
             orchestrator_run.inference_end_time = end_time
-            print(f"{start_time}: End time: {end_time}")
-            print(f"{start_time}: Orchestration success: {success}")
+            logger.info(
+                {
+                    "message": "Orchestration complete!",
+                    "timestamp": end_time.isoformat() + "Z",
+                    "success": success,
+                    "duration_minutes": (end_time - start_time).total_seconds() / 60,
+                }
+            )
         if success is False:
             raise exc
     return OrchestratorResult(status="Success")
