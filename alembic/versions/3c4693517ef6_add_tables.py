@@ -374,7 +374,7 @@ def upgrade() -> None:
     op.create_table(
         "tag",
         sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("short_name", sa.Text, nullable=False),
+        sa.Column("short_name", sa.Text, nullable=False, unique=True),
         sa.Column("long_name", sa.Text, nullable=False),
         sa.Column("description", sa.Text),
         sa.Column("citation", sa.Text),
