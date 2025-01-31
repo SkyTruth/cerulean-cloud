@@ -142,14 +142,14 @@ def handle_notification(request_json, ocean_poly):
         sns = r["Sns"]
         msg = json.loads(sns["Message"])
 
-        if not (msg["id"][4:6] == "IW"):
+        if not (msg["mode"] == "IW"):
             # Check Beam Mode
             # XXX This is workaround a bug in Titiler.get_bounds (404 not found) that fails if the beam mode is not IW
             continue
-        if not (msg["id"][10] == "H"):
+        if not (msg["resolution"] == "H"):
             # Check High Definition
             continue
-        if not (msg["id"][15] == "V"):
+        if not (msg["polarization"][1] == "V"):
             # Check Polarization
             # XXX This is hardcoded in the server, where we look for a vv.grd file
             continue

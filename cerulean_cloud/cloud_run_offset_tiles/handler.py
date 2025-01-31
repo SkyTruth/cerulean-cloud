@@ -15,6 +15,10 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     PredictPayload,
 )
 from cerulean_cloud.models import get_model
+from cerulean_cloud.structured_logger import (
+    configure_structured_logger,
+    context_dict_var,
+)
 
 # mypy: ignore-errors
 
@@ -22,6 +26,9 @@ app = FastAPI(title="Cloud Run for offset tiles", dependencies=[Depends(api_key_
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 add_timing_middleware(app, prefix="app")
+
+# Configure the logger once at startup
+configure_structured_logger("cerulean_cloud")
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
@@ -39,6 +46,7 @@ def ping() -> Dict:
 def predict(request: Request, payload: PredictPayload) -> InferenceResultStack:
     """Run prediction using the loaded model."""
     record_timing(request, note="Started")
+    context_dict_var.set({"scene_id": payload.scene_id})  # Set the scene_id for logging
 
     model = get_model(payload.model_dict)
     record_timing(request, note="Model loaded")

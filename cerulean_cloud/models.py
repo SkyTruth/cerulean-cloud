@@ -8,6 +8,7 @@ and stitch together inference outputs for geospatial analysis.
 import json
 import logging
 import os
+import traceback
 from base64 import b64decode, b64encode
 from io import BytesIO
 from typing import List, Union
@@ -31,9 +32,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceResultStack,
 )
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logger = logging.getLogger("cerulean_cloud")
 
 
 class BaseModel:
@@ -72,7 +71,13 @@ class BaseModel:
                 self.model = torch.jit.load(self.model_path_local, map_location="cpu")
                 self.model.eval()
         except Exception as e:
-            logging.error("Error loading model: %s", e, exc_info=True)
+            logger.error(
+                {
+                    "message": "Error loading model",
+                    "exception": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
             raise
 
     def predict(self, inf_stack: List[InferenceInput]) -> InferenceResultStack:
@@ -82,7 +87,12 @@ class BaseModel:
         Args:
             inf_stack: The input data stack for inference.
         """
-        logging.info(f"Stack has {len(inf_stack)} images")
+        logger.info(
+            {
+                "message": "Predicting images",
+                "n_images": len(inf_stack),
+            }
+        )
 
         self.load()  # Load model into memory
         preprocessed_tensors = self.preprocess_tiles(inf_stack)
@@ -150,6 +160,13 @@ class BaseModel:
         Returns:
         - A geojson FeatureCollection containing the retained features.
         """
+
+        logger.info(
+            {
+                "message": "NMS: initializing feature list",
+                "feature_type": type(features).__name__,
+            }
+        )
         feature_list = []
         if isinstance(features, geojson.FeatureCollection):
             feature_list.extend(features["features"])
@@ -167,6 +184,13 @@ class BaseModel:
         ]
 
         # Precompute the areas of all features to optimize geometry operations
+        logger.info(
+            {
+                "message": "NMS: precomputing areas",
+                "n_features": len(feature_list),
+            }
+        )
+
         gdf = gpd.GeoDataFrame(
             [feature["properties"] for feature in feature_list],
             geometry=[
@@ -176,6 +200,13 @@ class BaseModel:
             ],
             crs="EPSG:4326",
         )
+
+        logger.info(
+            {
+                "message": "NMS: reprojecting features",
+                "n_features": len(gdf),
+            }
+        )
         gdf = reproject_to_utm(gdf)
         gdf["area"] = gdf.area
 
@@ -183,10 +214,23 @@ class BaseModel:
         feats_to_remove = []
 
         # If the feature has fewer overlaps than required, mark it for removal
+        logger.info(
+            {
+                "message": "NMS: finding overlaps",
+                "n_features": len(gdf),
+            }
+        )
         gdf["overlaps"] = gdf.apply(
             lambda x: sum(x.geometry.intersects(y) for y in gdf.geometry) - 1, axis=1
         )
         feats_to_remove.extend(gdf[gdf["overlaps"] < min_overlaps_to_keep].index)
+
+        logger.info(
+            {
+                "message": "NMS: removing intersecting features",
+                "n_features": len(gdf),
+            }
+        )
 
         for i, feat_i in gdf.iterrows():
             # Compare the current feature against all subsequent features
@@ -244,7 +288,12 @@ class MASKRCNNModel(BaseModel):
             b64_image_to_array(record.image, tensor=True, to_float=True)
             for record in inf_stack
         ]
-        logging.info(f"Images have shape {stack_tensors[0].shape}")
+        logger.info(
+            {
+                "message": "Stacked tensors",
+                "image_shape": stack_tensors[0].shape,
+            }
+        )
         return stack_tensors
 
     def process_tiles(self, stack_tensors):
@@ -328,12 +377,27 @@ class MASKRCNNModel(BaseModel):
             geojson.FeatureCollection: A geojson feature collection representing the processed and combined geographical data.
         """
 
-        logging.info("Reducing feature count on tiles")
+        logger.info("Reducing feature count on tiles")
         scene_polys = self.reduce_tile_features(tileset_results, tileset_bounds)
-        logging.info("Stitching tiles into scene")
+
+        logger.info(
+            {
+                "message": "Stitching tiles into scene",
+                "n_tiles": len(tileset_results),
+            }
+        )
         feature_collection = self.stitch(scene_polys)
-        logging.info("Reducing feature count on scene")
+
+        logger.info("Reducing feature count on scene")
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        n_feats = len(reduced_feature_collection.get("features", []))
+
+        logger.info(
+            {
+                "message": "Generated features",
+                "n_features": n_feats,
+            }
+        )
         return reduced_feature_collection
 
     def reduce_tile_features(
@@ -729,10 +793,21 @@ class FASTAIUNETModel(BaseModel):
                 for record in inf_stack
             ]
             batch_tensor = torch.cat(stack_tensors, dim=0).to(self.device)
-            logging.info(f"Batch tensor shape: {batch_tensor.shape}")
+            logger.info(
+                {
+                    "message": "Generated batch tensor",
+                    "tensor_shape": batch_tensor.shape,
+                }
+            )
             return batch_tensor  # Only the tensor batch is needed for the model
         except Exception as e:
-            logging.error("Error in preprocessing: %s", e, exc_info=True)
+            logger.error(
+                {
+                    "message": "Failure in preprocessing",
+                    "exception": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
             raise
 
     def process_tiles(self, preprocessed_tensors):
@@ -806,12 +881,33 @@ class FASTAIUNETModel(BaseModel):
         Args:
             tileset_results: The list of InferenceResultStacks to stitch together.
         """
-        logging.info("Stitching tiles into scene")
+        logger.info(
+            {
+                "message": "Stitching tiles into scene",
+                "n_tiles": len(tileset_results),
+            }
+        )
         scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
-        logging.info("Finding instances in scene")
+
+        logger.info("Finding instances in scene")
         feature_collection = self.instantiate(scene_array_probs, transform)
-        logging.info("Reducing feature count on scene")
+        n_feats = len(feature_collection.get("features", []))
+
+        logger.info(
+            {
+                "message": "Generated features. Reducing feature count on scene",
+                "n_features": n_feats,
+            }
+        )
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        n_feats = len(reduced_feature_collection.get("features", []))
+
+        logger.info(
+            {
+                "message": "Reduced features",
+                "n_features": n_feats,
+            }
+        )
         return reduced_feature_collection
 
     def stitch(
@@ -1042,10 +1138,7 @@ class FASTAIUNETModel(BaseModel):
         return features
 
 
-def get_model(
-    model_dict,
-    model_path_local=os.getenv("MODEL_PATH_LOCAL"),
-):
+def get_model(model_dict, model_path_local=os.getenv("MODEL_PATH_LOCAL")):
     """
     Factory function to get the appropriate model instance based on inference parameters.
 
@@ -1057,7 +1150,12 @@ def get_model(
         An instance of the appropriate model class.
     """
     model_type = model_dict["type"]
-    logging.info(f"Model type is {model_type}")
+    logger.info(
+        {
+            "message": "Model type selected",
+            "model_type": model_type,
+        }
+    )
 
     if model_type == "MASKRCNN":
         return MASKRCNNModel(model_dict, model_path_local)
@@ -1122,8 +1220,14 @@ def b64_image_to_array(image: str, tensor: bool = False, to_float=False):
             np_img = dtype_to_float(np_img)
         return torch.tensor(np_img) if tensor else np_img
     except Exception as e:
-        logging.error(f"Failed to convert base64 image to array: {e}")
-        raise
+        logger.error(
+            {
+                "message": "Failed to convert base64 image to array",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
+        )
+        raise e
 
 
 def normalize_and_clamp(x, mean, std, min_val=-3, max_val=3, device="cpu"):
