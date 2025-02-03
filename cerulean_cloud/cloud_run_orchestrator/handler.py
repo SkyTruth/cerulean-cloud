@@ -246,30 +246,14 @@ async def _orchestrate(
     # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
     # When scene traverses the anti-meridian, scene_bounds are nonsensical
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
-    try:
-        logger.info("Getting scene bounds")
-        scene_bounds = await titiler_client.get_bounds(payload.sceneid)
+    logger.info("Getting scene bounds")
+    scene_bounds = await titiler_client.get_bounds(payload.sceneid)
 
-        logger.info("Getting scene statistics")
-        scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
-    except Exception as e:
-        logger.error(
-            "TiTiler client error",
-            exception=str(e),
-            traceback=traceback.format_exc(),
-        )
-        return OrchestratorResult(status=str(e))
+    logger.info("Getting scene statistics")
+    scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
 
-    try:
-        logger.info("Getting SentinalHUB product info")
-        scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
-    except Exception as e:
-        logger.error(
-            "Roda Sentinel Hub error",
-            exception=str(e),
-            traceback=traceback.format_exc(),
-        )
-        return OrchestratorResult(status=str(e))
+    logger.info("Getting SentinalHUB product info")
+    scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
 
     logger.info(
         {
