@@ -5,9 +5,6 @@ import pulumi_docker as docker
 import pulumi_gcp as gcp
 from google.cloud import storage
 
-project = pulumi.get_project()
-stack = pulumi.get_stack()
-
 
 def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset:
     """Gets a file from GCS and saves it to local, returning a pulumi file asset
@@ -31,7 +28,14 @@ def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset
 
 def construct_name_images(resource_name: str) -> str:
     """construct resource names from project and stack"""
-    return f"{project}-images-{stack}-{resource_name}"
+    project = pulumi.get_project()
+    stack = pulumi.get_stack()
+    # If the project name already ends with "images", don’t add another.
+    if project.endswith("images"):
+        base = project
+    else:
+        base = f"{project}-images"
+    return f"{base}-{stack}-{resource_name}"
 
 
 config = pulumi.Config()
