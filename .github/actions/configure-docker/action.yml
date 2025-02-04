@@ -40,3 +40,8 @@ runs:
       shell: bash
       run: |
         sudo systemctl start docker
+    - id: configure-artifact-registry
+      name: Configure Artifact Registry Authentication
+      shell: bash
+      run: |
+        gcloud auth configure-docker europe-west1-docker.pkg.dev -q

@@ -5,9 +5,6 @@ import pulumi_docker as docker
 import pulumi_gcp as gcp
 from google.cloud import storage
 
-project = pulumi.get_project()
-stack = pulumi.get_stack()
-
 
 def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset:
     """Gets a file from GCS and saves it to local, returning a pulumi file asset
@@ -29,9 +26,16 @@ def get_file_from_gcs(bucket: str, name: str, out_path: str) -> pulumi.FileAsset
     return pulumi.FileAsset(out_path)
 
 
-def construct_name(resource_name: str) -> str:
+def construct_name_images(resource_name: str) -> str:
     """construct resource names from project and stack"""
-    return f"{project}-{stack}-{resource_name}"
+    project = pulumi.get_project()
+    stack = pulumi.get_stack()
+    # If the project name already ends with "images", don’t add another.
+    if project.endswith("images"):
+        base = project
+    else:
+        base = f"{project}-images"
+    return f"{base}-{stack}-{resource_name}"
 
 
 config = pulumi.Config()
@@ -39,19 +43,26 @@ config = pulumi.Config()
 weights_bucket = config.require("weights_bucket")
 weights_name = config.require("weights_name")
 
-
-registry = gcp.container.Registry(construct_name("registry"), location="EU")
-registry_url = registry.id.apply(
-    lambda _: gcp.container.get_registry_repository().repository_url
+# Create an Artifact Registry repository (DOCKER format) in europe-west1.
+repository = gcp.artifactregistry.Repository(
+    construct_name_images("registry"),
+    repository_id=construct_name_images("registry"),
+    format="DOCKER",
+    location="europe-west1",
+)
+# Artifact Registry Docker images are hosted at:
+# {location}-docker.pkg.dev/{project}/{repository}
+registry_url = pulumi.Output.concat(
+    "europe-west1-docker.pkg.dev/", gcp.config.project, "/", repository.repository_id
 )
 cloud_run_offset_tile_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cr-offset-tile-image')}"
+    lambda url: f"{url}/{construct_name_images('cr-offset-tile-image')}"
 )
 cloud_run_orchestrator_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cr-orchestrator-image')}"
+    lambda url: f"{url}/{construct_name_images('cr-orchestrator-image')}"
 )
 cloud_run_tipg_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name('cr-tipg-image')}"
+    lambda url: f"{url}/{construct_name_images('cr-tipg-image')}"
 )
 registry_info = None  # use gcloud for authentication.
 
@@ -61,7 +72,7 @@ model_weights = get_file_from_gcs(
     out_path="../cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
 )
 cloud_run_offset_tile_image = docker.Image(
-    construct_name("cr-offset-tile-image"),
+    construct_name_images("cr-offset-tile-image"),
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_offset",
@@ -71,7 +82,7 @@ cloud_run_offset_tile_image = docker.Image(
     registry=registry_info,
 )
 cloud_run_orchestrator_image = docker.Image(
-    construct_name("cr-orchestrator-image"),
+    construct_name_images("cr-orchestrator-image"),
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_orchestrator",
@@ -81,7 +92,7 @@ cloud_run_orchestrator_image = docker.Image(
     registry=registry_info,
 )
 cloud_run_tipg_image = docker.Image(
-    construct_name("cr-tipg-image"),
+    construct_name_images("cr-tipg-image"),
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_tipg",
