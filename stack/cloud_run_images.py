@@ -8,12 +8,6 @@ project = pulumi.get_project()
 stack = pulumi.get_stack()
 
 
-# Use the same naming as in the first file.
-def construct_name(resource_name: str) -> str:
-    """construct resource names from project and stack"""
-    return f"{project}-{stack}-{resource_name}"
-
-
 def construct_name_images(resource_name: str) -> str:
     """construct resource names from project and stack for images"""
     return f"{project}-images-{stack}-{resource_name}"
@@ -21,7 +15,7 @@ def construct_name_images(resource_name: str) -> str:
 
 # Define the Artifact Registry domain and repository.
 artifact_registry_domain = "europe-west1-docker.pkg.dev"
-repository_name = construct_name("registry")
+repository_name = construct_name_images("registry")
 artifact_registry_url = (
     f"{artifact_registry_domain}/{gcp.config.project}/{repository_name}"
 )
@@ -34,13 +28,13 @@ docker_provider = docker.Provider(
 
 # Compute the full image URLs (note no longer using gcp.container.get_registry_image).
 cloud_run_offset_tile_image_url = (
-    f"{artifact_registry_url}/{construct_name('cr-offset-tile-image')}:latest"
+    f"{artifact_registry_url}/{construct_name_images('cr-offset-tile-image')}:latest"
 )
 cloud_run_orchestrator_image_url = (
-    f"{artifact_registry_url}/{construct_name('cr-orchestrator-image')}:latest"
+    f"{artifact_registry_url}/{construct_name_images('cr-orchestrator-image')}:latest"
 )
 cloud_run_tipg_image_url = (
-    f"{artifact_registry_url}/{construct_name('cr-tipg-image')}:latest"
+    f"{artifact_registry_url}/{construct_name_images('cr-tipg-image')}:latest"
 )
 
 cloud_run_offset_tile_registry_image = docker.get_registry_image(
