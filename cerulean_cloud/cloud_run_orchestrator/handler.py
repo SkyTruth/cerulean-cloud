@@ -251,9 +251,6 @@ async def orchestrate(
             memory_usage_after_cleanup_mb=after,
             n_unreachable_objects=unreachable_objects,
         )
-    return await _orchestrate(
-        payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
-    )
 
 
 def is_tile_over_water(tile_bounds: List[float]) -> bool:
