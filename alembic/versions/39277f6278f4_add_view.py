@@ -69,7 +69,7 @@ def upgrade() -> None:
                 sk.machine_confidence as slick_confidence,
                 s.ext_id as mmsi_or_structure_id,
                 st.short_name as source_type,
-                sts.collated_score as source_confidence,
+                sts.collated_score as source_collated_score,
                 sts.rank as source_rank,
                 sts.git_hash as git_tag,
                 'https://cerulean.skytruth.org/slicks/' || sk.id::text ||'?ref=api' AS slick_url,
