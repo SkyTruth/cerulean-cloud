@@ -69,15 +69,19 @@ def cleanup():
 
         unreachable_objects = gc.collect()
         logger.info(
-            "Garbage Collection Complete",
-            n_unreachable_objects=unreachable_objects,
+            {
+                "message": "Garbage Collection Complete",
+                "n_unreachable_objects": unreachable_objects,
+            }
         )
 
     except Exception as e:
         logger.warning(
-            "Error during cleanup",
-            exception=str(e),
-            traceback=traceback.format_exc(),
+            {
+                "message": "Error during cleanup",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
         )
     finally:
         logger.info(
@@ -233,9 +237,11 @@ async def orchestrate(
     except Exception as e:
         # Handle unexpected errors
         logger.error(
-            "Unexpected error during orchestration",
-            exception=str(e),
-            traceback=traceback.format_exc(),
+            {
+                "message": "Unexpected error during orchestration",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -246,10 +252,12 @@ async def orchestrate(
         unreachable_objects = gc.collect()  # Force garbage collection
         after = psutil.Process().memory_info().rss / (1024**2)
         logger.info(
-            "Garbage clean up",
-            memory_usage_before_cleanup_mb=before,
-            memory_usage_after_cleanup_mb=after,
-            n_unreachable_objects=unreachable_objects,
+            {
+                "message": "Garbage clean up",
+                "memory_usage_before_cleanup_mb": before,
+                "memory_usage_after_cleanup_mb": after,
+                "n_unreachable_objects": unreachable_objects,
+            }
         )
 
 
@@ -313,9 +321,11 @@ async def _orchestrate(
         scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
     except Exception as e:
         logger.error(
-            "TiTiler client error",
-            exception=str(e),
-            traceback=traceback.format_exc(),
+            {
+                "message": "TiTiler client error",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
         )
         return OrchestratorResult(status=str(e))
 
@@ -324,9 +334,11 @@ async def _orchestrate(
         scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
     except Exception as e:
         logger.error(
-            "Roda Sentinel Hub error",
-            exception=str(e),
-            traceback=traceback.format_exc(),
+            {
+                "message": "Roda Sentinel Hub error",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
         )
         return OrchestratorResult(status=str(e))
 
