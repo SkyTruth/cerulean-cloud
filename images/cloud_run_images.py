@@ -39,10 +39,17 @@ config = pulumi.Config()
 weights_bucket = config.require("weights_bucket")
 weights_name = config.require("weights_name")
 
-
-registry = gcp.container.Registry(construct_name("registry"), location="EU")
-registry_url = registry.id.apply(
-    lambda _: gcp.container.get_registry_repository().repository_url
+# Create an Artifact Registry repository (DOCKER format) in europe-west1.
+repository = gcp.artifactregistry.Repository(
+    construct_name("registry"),
+    repository_id=construct_name("registry"),
+    format="DOCKER",
+    location="europe-west1",
+)
+# Artifact Registry Docker images are hosted at:
+# {location}-docker.pkg.dev/{project}/{repository}
+registry_url = pulumi.Output.concat(
+    "europe-west1-docker.pkg.dev/", gcp.config.project, "/", repository.repository_id
 )
 cloud_run_offset_tile_image_url = registry_url.apply(
     lambda url: f"{url}/{construct_name('cr-offset-tile-image')}"
