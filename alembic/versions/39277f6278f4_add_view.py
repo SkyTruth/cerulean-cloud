@@ -73,7 +73,7 @@ def upgrade() -> None:
                 sts.rank as source_rank,
                 sts.git_hash as git_tag,
                 'https://cerulean.skytruth.org/slicks/' || sk.id::text ||'?ref=api' AS slick_url,
-                'https://cerulean.skytruth.org/?ref=api&mmsi=' || s.ext_id AS source_url
+                'https://cerulean.skytruth.org/?ref=api&' || st.ext_id_name || '=' || s.ext_id AS source_url
             FROM
                 slick_to_source sts
             INNER JOIN
