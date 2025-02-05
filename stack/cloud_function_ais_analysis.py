@@ -1,5 +1,6 @@
 """cloud function to find slick culprits from AIS tracks"""
 
+import os
 import time
 
 import database
@@ -38,6 +39,15 @@ queue = cloudtasks.Queue(
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
+
+shallow_path = os.path.join(repo.git_dir, "shallow")
+if os.path.exists(shallow_path):
+    # Unshallow the repository to get full commit history
+    repo.git.fetch("--unshallow")
+# Make sure we have all tags
+repo.git.fetch("--tags")
+
+
 git_tag = next(
     tag.name
     for commit in repo.iter_commits()
