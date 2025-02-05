@@ -68,7 +68,7 @@ async def test_create_s1l(setup_database, engine):
         async with db_client.session.begin():
             with open("test/test_cerulean_cloud/fixtures/productInfo.json") as src:
                 info = json.load(src)
-            sentinel1_grd = await db_client.get_sentinel1_grd(
+            sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
                 info["id"],
                 info,
                 titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
@@ -111,7 +111,7 @@ async def test_create_slick(setup_database, engine):
             db_client.session.add(
                 database_schema.Model(file_path="model_path", name="model_path")
             )
-            sentinel1_grd = await db_client.get_sentinel1_grd(
+            sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
                 info["id"],
                 info,
                 titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
@@ -164,7 +164,7 @@ async def test_update_orchestrator(setup_database, engine):
             db_client.session.add(
                 database_schema.Model(file_path="model_path", name="model_path")
             )
-            sentinel1_grd = await db_client.get_sentinel1_grd(
+            sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
                 info["id"],
                 info,
                 titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
