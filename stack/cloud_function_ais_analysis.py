@@ -38,6 +38,7 @@ queue = cloudtasks.Queue(
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
+repo.git.fetch("--tags")
 git_tag = repo.git.describe("--tags", "--abbrev=0")
 
 function_name = construct_name("cf-ais")

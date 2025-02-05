@@ -19,6 +19,7 @@ stack = pulumi.get_stack()
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
+repo.git.fetch("--tags")
 git_tag = repo.git.describe("--tags", "--abbrev=0")
 
 
