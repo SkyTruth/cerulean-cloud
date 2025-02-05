@@ -1,9 +1,11 @@
 """Clients for other cloud run functions"""
 
 import asyncio
+import gc
 import json
 import logging
 import os
+import sys
 import traceback
 import zipfile
 from base64 import b64encode
@@ -70,6 +72,14 @@ class CloudRunInferenceClient:
         self.sceneid = sceneid
         self.aux_datasets = handle_aux_datasets(
             layers, self.sceneid, tileset_envelope_bounds, image_hw_pixels
+        )
+
+        # Log memory usage and aux_datasets size
+        logger.debug(
+            {
+                "message": "AUX datasets size",
+                "aux_datasets_size_mb": sys.getsizeof(self.aux_datasets) / (1024**2),
+            }
         )
         self.scale = scale  # 1=256, 2=512, 3=...
         self.model_dict = model_dict
@@ -240,13 +250,48 @@ class CloudRunInferenceClient:
         async with httpx.AsyncClient(
             headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
         ) as async_http_client:
-            tasks = [
-                self.get_tile_inference(
-                    http_client=async_http_client, tile_bounds=tile_bounds
+            try:
+                tasks = [
+                    self.get_tile_inference(
+                        http_client=async_http_client, tile_bounds=tile_bounds
+                    )
+                    for tile_bounds in tileset
+                ]
+            except Exception as e:
+                self.logger.error(
+                    {
+                        "message": "Failed to complete parallel inference",
+                        "exception": str(e),
+                        "traceback": traceback.format_exc(),
+                    }
                 )
-                for tile_bounds in tileset
-            ]
-            inferences = await asyncio.gather(*tasks, return_exceptions=False)
+
+            try:
+                inferences = await asyncio.gather(*tasks, return_exceptions=False)
+
+                # If processing is successful, return inference
+                return inferences
+            except NameError as e:
+                # If get_tile_inference tasks fail (local `task` variable does not exist), return ValueError
+                raise ValueError(f"Failed inference: {e}")
+            except Exception as e:
+                # If asyncio.gather tasks fail, raise ValueError
+                raise ValueError(f"Failed to gather inference: {e}")
+            finally:
+                logger.debug(
+                    {
+                        "message": "AUX datasets size",
+                        "aux_datasets_size_mb": sys.getsizeof(self.aux_datasets)
+                        / (1024**2),
+                    }
+                )
+                # Cleanup: close and delete aux_datasets
+                if self.aux_datasets:
+                    del self.aux_datasets
+                    gc.collect()
+
+                # close and clean up the async client
+                await async_http_client.aclose()
             # False means this process will error out if any subtask errors out
             # True means this process will return a list including errors if any subtask errors out
         return inferences

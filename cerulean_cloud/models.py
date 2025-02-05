@@ -8,6 +8,7 @@ and stitch together inference outputs for geospatial analysis.
 import json
 import logging
 import os
+import sys
 import traceback
 from base64 import b64decode, b64encode
 from io import BytesIO
@@ -891,6 +892,15 @@ class FASTAIUNETModel(BaseModel):
 
         logger.info("Finding instances in scene")
         feature_collection = self.instantiate(scene_array_probs, transform)
+        logger.debug(
+            {
+                "message": "DEBUG variable memory allocations",
+                "size_of_features_mb": sys.getsizeof(feature_collection) * 10e-6,
+                "size_of_probs_mb": sys.getsizeof(scene_array_probs) * 10e-6,
+                "size_of_transform": sys.getsizeof(transform) * 10e-6,
+            }
+        )
+        del scene_array_probs, transform
         n_feats = len(feature_collection.get("features", []))
 
         logger.info(
@@ -900,6 +910,7 @@ class FASTAIUNETModel(BaseModel):
             }
         )
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
+        del feature_collection
         n_feats = len(reduced_feature_collection.get("features", []))
 
         logger.info(
@@ -908,6 +919,7 @@ class FASTAIUNETModel(BaseModel):
                 "n_features": n_feats,
             }
         )
+
         return reduced_feature_collection
 
     def stitch(
