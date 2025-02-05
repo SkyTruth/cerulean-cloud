@@ -30,7 +30,7 @@ def get_mock_layer(short_name, source_url=""):
     return mock_layer
 
 
-async def mock_get_base_tile(self, sceneid, tile, scale, rescale):
+async def mock_get_base_tile(self, scene_id, tile, scale, rescale):
     with rasterio.open("test/test_cerulean_cloud/fixtures/example_tile.png") as src:
         img_array = reshape_as_image(src.read())
 
@@ -38,7 +38,7 @@ async def mock_get_base_tile(self, sceneid, tile, scale, rescale):
 
 
 async def mock_get_offset_tile(
-    self, sceneid, minx, miny, maxx, maxy, width, height, rescale
+    self, scene_id, minx, miny, maxx, maxy, width, height, rescale
 ):
     with rasterio.open("test/test_cerulean_cloud/fixtures/example_tile.png") as src:
         img_array = reshape_as_image(src.read())
@@ -58,7 +58,7 @@ def fixture_cloud_inference_tile(httpx_mock):
     return CloudRunInferenceClient(
         url="http://inferenceurl.com",
         titiler_client=titiler_client,
-        sceneid="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
+        scene_id="S1A_IW_GRDH_1SDV_20200802T141646_20200802T141711_033729_03E8C7_E4F5",
         tileset_envelope_bounds=[
             55.69982872351191,
             24.566447533809654,

@@ -206,7 +206,7 @@ class Tag(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('tag_id_seq'::regclass)"),
     )
-    short_name = Column(Text, nullable=False)
+    short_name = Column(Text, nullable=False, unique=True)
     long_name = Column(Text, nullable=False)
     description = Column(Text)
     citation = Column(Text)
@@ -559,6 +559,7 @@ class SlickToSource(Base):  # noqa
     source = Column(ForeignKey("source.id"), nullable=False)
     active = Column(Boolean, nullable=False)
     git_hash = Column(Text)
+    git_tag = Column(Text)
     coincidence_score = Column(Float(53))
     collated_score = Column(Float(53))
     rank = Column(BigInteger)
