@@ -9,6 +9,7 @@ import sys
 from typing import Any, Dict
 
 import pandas as pd
+import psutil
 from google.cloud import logging as google_logging
 
 # A ContextVar to store the context_dict for each request
@@ -36,6 +37,10 @@ class StructuredLogFilter(logging.Filter):
 
         # Inject severity based on the logging level
         log_dict["severity"] = record.levelname
+
+        # temporary log current memory allcoation
+        # TODO: remove after testing
+        log_dict["perc_ram_used"] = psutil.virtual_memory()[2]
 
         # Inject any context if available
         if context_dict:
