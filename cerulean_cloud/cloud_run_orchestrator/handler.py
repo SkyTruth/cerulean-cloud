@@ -13,7 +13,6 @@ import gc
 import json
 import os
 import signal
-import sys
 import traceback
 import urllib.parse as urlparse
 from datetime import datetime, timedelta
@@ -111,9 +110,6 @@ def handle_sigterm(signum, frame):
 
     cleanup()
     flush_logs()
-
-    # Exit the process cleanly
-    sys.exit(0)
 
 
 # Register SIGTERM handler
