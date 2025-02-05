@@ -266,11 +266,11 @@ class CloudRunInferenceClient:
                     }
                 )
 
+            inferences = None
             try:
+                # False means this process will error out if any subtask errors out
+                # True means this process will return a list including errors if any subtask errors out
                 inferences = await asyncio.gather(*tasks, return_exceptions=False)
-
-                # If processing is successful, return inference
-                return inferences
             except NameError as e:
                 # If get_tile_inference tasks fail (local `task` variable does not exist), return ValueError
                 raise ValueError(f"Failed inference: {e}")
@@ -292,9 +292,8 @@ class CloudRunInferenceClient:
 
                 # close and clean up the async client
                 await async_http_client.aclose()
-            # False means this process will error out if any subtask errors out
-            # True means this process will return a list including errors if any subtask errors out
-        return inferences
+
+            return inferences
 
 
 def get_scene_date_month(scene_id: str) -> str:
