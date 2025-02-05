@@ -38,8 +38,12 @@ queue = cloudtasks.Queue(
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
-repo.git.fetch("--tags")
-git_tag = repo.git.describe("--tags", "--abbrev=0")
+git_tag = next(
+    tag.name
+    for commit in repo.iter_commits()
+    for tag in repo.tags
+    if tag.commit.hexsha == commit.hexsha
+)
 
 function_name = construct_name("cf-ais")
 config_values = {
