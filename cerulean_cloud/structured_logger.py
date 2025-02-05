@@ -9,7 +9,6 @@ import sys
 from typing import Any, Dict
 
 import pandas as pd
-import psutil
 from google.cloud import logging as google_logging
 
 # A ContextVar to store the context_dict for each request
@@ -249,7 +248,6 @@ def query_logger(project_id, query, page_size=1000):
             else x["text_payload"],
             axis=1,
         )
-        log_entries["perc_ram_used"] = psutil.virtual_memory()[2]
 
     return log_entries
 
