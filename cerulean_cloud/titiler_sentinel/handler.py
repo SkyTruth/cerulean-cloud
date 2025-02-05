@@ -31,7 +31,7 @@ from typing import Dict
 from auth import api_key_auth
 from fastapi import Depends, FastAPI, Query
 from mangum import Mangum
-from rio_tiler_pds.errors import InvalidSentinelscene_id
+from rio_tiler_pds.errors import InvalidSentinelSceneId
 from rio_tiler_pds.sentinel.aws import S1L1CReader
 from starlette import status
 from starlette.middleware.cors import CORSMiddleware
@@ -47,7 +47,7 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 add_exception_handlers(
     app,
     {
-        InvalidSentinelscene_id: status.HTTP_404_NOT_FOUND,
+        InvalidSentinelSceneId: status.HTTP_404_NOT_FOUND,
     },
 )
 
