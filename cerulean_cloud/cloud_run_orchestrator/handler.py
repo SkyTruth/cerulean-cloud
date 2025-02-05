@@ -329,7 +329,7 @@ async def _orchestrate(
             layers = [
                 await db_client.get_layer(layer) for layer in model_dict["layers"]
             ]
-            sentinel1_grd = await db_client.get_sentinel1_grd(
+            sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
                 payload.scene_id,
                 scene_info,
                 titiler_client.get_base_tile_url(

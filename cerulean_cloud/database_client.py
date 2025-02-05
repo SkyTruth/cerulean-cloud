@@ -128,17 +128,21 @@ class DatabaseClient:
         """get layer from short_name"""
         return await get(self.session, db.Layer, short_name=short_name)
 
-    async def get_sentinel1_grd(
+    async def get_or_insert_sentinel1_grd(
         self, scene_id: str, scene_info: dict, titiler_url: str
     ):
-        """get sentinel1 record"""
+        """get or insert sentinel1 record"""
+        existing = await get(
+            self.session, db.Sentinel1Grd, error_if_absent=False, scene_id=scene_id
+        )
+        if existing:
+            return existing
         shape_s1 = shape(scene_info["footprint"])
         if isinstance(shape_s1, Polygon):
             geom = from_shape(shape_s1)
         elif isinstance(shape_s1, MultiPolygon):
             geom = from_shape(shape_s1.geoms[0])
-
-        s1_grd = await get_or_insert(
+        s1_grd = await insert(
             self.session,
             db.Sentinel1Grd,
             scene_id=scene_id,
