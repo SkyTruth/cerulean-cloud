@@ -13,6 +13,7 @@ import gc
 import json
 import os
 import signal
+import sys
 import traceback
 import urllib.parse as urlparse
 from datetime import datetime, timedelta
@@ -463,8 +464,18 @@ async def _orchestrate(
                 model_dict=model_dict,
             )
 
+            # Log memory usage and aux_datasets size
+            logger.info(
+                {
+                    "message": "Inference starting",
+                    "aux_datasets_size_mb": sys.getsizeof(
+                        cloud_run_inference.aux_datasets
+                    )
+                    / (1024**2),
+                }
+            )
+
             # Perform inferences
-            logger.info("Inference starting")
             tileset_results_list = [
                 await cloud_run_inference.run_parallel_inference(tileset)
                 for tileset in tileset_list

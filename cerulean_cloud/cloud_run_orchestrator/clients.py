@@ -73,14 +73,6 @@ class CloudRunInferenceClient:
         self.aux_datasets = handle_aux_datasets(
             layers, self.sceneid, tileset_envelope_bounds, image_hw_pixels
         )
-
-        # Log memory usage and aux_datasets size
-        logger.debug(
-            {
-                "message": "AUX datasets size",
-                "aux_datasets_size_mb": sys.getsizeof(self.aux_datasets) / (1024**2),
-            }
-        )
         self.scale = scale  # 1=256, 2=512, 3=...
         self.model_dict = model_dict
 
@@ -258,7 +250,7 @@ class CloudRunInferenceClient:
                     for tile_bounds in tileset
                 ]
             except Exception as e:
-                self.logger.error(
+                logger.error(
                     {
                         "message": "Failed to complete parallel inference",
                         "exception": str(e),
@@ -278,9 +270,9 @@ class CloudRunInferenceClient:
                 # If asyncio.gather tasks fail, raise ValueError
                 raise ValueError(f"Failed to gather inference: {e}")
             finally:
-                logger.debug(
+                logger.info(
                     {
-                        "message": "AUX datasets size",
+                        "message": "Cleaning up after parallel inference",
                         "aux_datasets_size_mb": sys.getsizeof(self.aux_datasets)
                         / (1024**2),
                     }

@@ -892,7 +892,7 @@ class FASTAIUNETModel(BaseModel):
 
         logger.info("Finding instances in scene")
         feature_collection = self.instantiate(scene_array_probs, transform)
-        logger.debug(
+        logger.info(
             {
                 "message": "DEBUG variable memory allocations",
                 "size_of_features_mb": sys.getsizeof(feature_collection) * 10e-6,
