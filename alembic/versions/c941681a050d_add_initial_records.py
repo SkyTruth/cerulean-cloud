@@ -228,12 +228,6 @@ def upgrade() -> None:
                 ext_id_name="seep_id",
                 citation="SkyTruth",
             ),
-            database_schema.SourceType(
-                table_name="source_dark",
-                long_name="Dark Vessel Source",
-                short_name="DARK",
-                citation="SAR Detections from GFW",
-            ),
         ]
         session.add_all(source_types)
 
