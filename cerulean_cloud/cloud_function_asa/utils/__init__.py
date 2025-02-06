@@ -1,1 +1,1 @@
-"""module for AIS utilities"""
+"""module for Automatic Source Association utilities"""

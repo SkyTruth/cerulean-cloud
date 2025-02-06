@@ -165,8 +165,8 @@ default = gcp.cloudrun.Service(
                             value=cloud_function_asa.queue.name,
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="AIS_IS_DRY_RUN",
-                            value=pulumi.Config("cerulean-cloud").require("dryrun_ais"),
+                            name="ASA_IS_DRY_RUN",
+                            value=pulumi.Config("cerulean-cloud").require("dryrun_asa"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="FUNCTION_URL",

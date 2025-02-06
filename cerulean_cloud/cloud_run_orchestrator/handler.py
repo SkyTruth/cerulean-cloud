@@ -470,7 +470,7 @@ async def _orchestrate(
                         )
                         logger.info("Added slick")
 
-                logger.info("Queueing up Automatic AIS Analysis")
+                logger.info("Queueing up Automatic Source Association")
                 add_to_asa_queue(sentinel1_grd.scene_id)
 
         except Exception as e:
