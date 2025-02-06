@@ -64,10 +64,10 @@ config_values = {
 
 # The Cloud Function source code itself needs to be zipped up into an
 # archive, which we create using the pulumi.AssetArchive primitive.
-PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_ais_analysis"
+PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_asa"
 package = pulumi_create_zip(
     dir_to_zip=PATH_TO_SOURCE_CODE,
-    zip_filepath="../cloud_function_ais_analysis.zip",
+    zip_filepath="../cloud_function_asa.zip",
 )
 archive = package.apply(lambda x: pulumi.FileAsset(x))
 

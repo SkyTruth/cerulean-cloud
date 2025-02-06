@@ -4,7 +4,7 @@ Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 
 import os
 
-import cloud_function_ais_analysis
+import cloud_function_asa
 import cloud_run_images
 import cloud_run_offset_tile
 import git
@@ -162,7 +162,7 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="ASA_QUEUE",
-                            value=cloud_function_ais_analysis.queue.name,
+                            value=cloud_function_asa.queue.name,
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="AIS_IS_DRY_RUN",
@@ -170,7 +170,7 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="FUNCTION_URL",
-                            value=cloud_function_ais_analysis.fxn.https_trigger_url,
+                            value=cloud_function_asa.fxn.https_trigger_url,
                         ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="2000m")),
