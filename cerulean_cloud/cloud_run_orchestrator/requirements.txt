@@ -31,3 +31,4 @@ scipy
 scikit-image
 pydantic<2.0
 google-cloud-logging==3.11.3
+psutil
