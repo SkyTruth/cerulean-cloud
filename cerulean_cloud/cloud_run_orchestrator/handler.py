@@ -566,6 +566,8 @@ async def _orchestrate(
 
                 logger.info("Queueing up Automatic AIS Analysis")
                 add_to_asa_queue(sentinel1_grd.scene_id)
+            else:
+                logger.info("No features generated")
 
         except Exception as e:
             success = False
