@@ -927,9 +927,31 @@ class DarkAnalyzer(SourceAnalyzer):
         pass
 
 
+class NaturalAnalyzer(SourceAnalyzer):
+    """
+    Analyzer for natural seeps.
+    Currently a placeholder for future implementation.
+    """
+
+    def __init__(self, s1_scene, **kwargs):
+        """
+        Initialize the NaturalAnalyzer.
+        """
+        super().__init__(s1_scene, **kwargs)
+        self.source_type = 4
+        # Initialize attributes specific to natural seep analysis
+
+    def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
+        """
+        Implement the analysis logic for natural seeps.
+        """
+        self.slick_gdf = slick_gdf
+        pass
+
+
 ASA_MAPPING = {
     1: AISAnalyzer,
     2: InfrastructureAnalyzer,
     3: DarkAnalyzer,
-    # 4: NaturalAnalyzer,
+    4: NaturalAnalyzer,
 }

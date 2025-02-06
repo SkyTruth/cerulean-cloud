@@ -358,6 +358,15 @@ def upgrade() -> None:
         sa.Column("geometry", Geography("POINT"), nullable=False),
         sa.Column("scene_id", sa.Text),
         sa.Column("length_m", sa.Text),
+        sa.Column("detection_probability", sa.Float),
+    )
+
+    op.create_table(
+        "source_natural",
+        sa.Column(
+            "source_id", sa.BigInteger, sa.ForeignKey("source.id"), primary_key=True
+        ),
+        sa.Column("geometry", Geography("POINT"), nullable=False),
     )
 
     op.create_table(
