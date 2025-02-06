@@ -17,6 +17,8 @@ context_dict_var: contextvars.ContextVar[Dict[str, Any]] = contextvars.ContextVa
     "context_dict", default={}
 )
 
+track_memory_usage = True
+
 
 class StructuredLogFilter(logging.Filter):
     """
@@ -38,9 +40,9 @@ class StructuredLogFilter(logging.Filter):
         # Inject severity based on the logging level
         log_dict["severity"] = record.levelname
 
-        # temporary log current memory allcoation
-        # TODO: remove after testing
-        log_dict["perc_ram_used"] = psutil.virtual_memory()[2]
+        # log current memory allcoation if track_memory_usage = True
+        if track_memory_usage:
+            log_dict["perc_ram_used"] = psutil.virtual_memory()[2]
 
         # Inject any context if available
         if context_dict:
