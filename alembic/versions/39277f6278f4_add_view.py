@@ -84,6 +84,7 @@ def upgrade() -> None:
                 source_type st ON st.id = s.type
             WHERE
                 sts.active = TRUE
+            ORDER BY sts.slick DESC, sts.rank
     """,
     )
     op.create_entity(source_plus)
