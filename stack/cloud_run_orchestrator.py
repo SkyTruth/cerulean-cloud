@@ -4,7 +4,7 @@ Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 
 import os
 
-import cloud_function_ais_analysis
+import cloud_function_asa
 import cloud_run_images
 import cloud_run_offset_tile
 import git
@@ -19,21 +19,21 @@ stack = pulumi.get_stack()
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
+head_tags = [tag for tag in repo.tags if tag.commit.hexsha == git_sha]
 
-shallow_path = os.path.join(repo.git_dir, "shallow")
-if os.path.exists(shallow_path):
-    # Unshallow the repository to get full commit history
-    repo.git.fetch("--unshallow")
-# Make sure we have all tags
-repo.git.fetch("--tags")
-
-git_tag = next(
-    tag.name
-    for commit in repo.iter_commits()
-    for tag in repo.tags
-    if tag.commit.hexsha == commit.hexsha
-)
-
+if len(head_tags) > 0:
+    git_tag = head_tags[0].name
+else:  # Unshallow the repository to get full commit history
+    shallow_path = os.path.join(repo.git_dir, "shallow")
+    if os.path.exists(shallow_path):
+        repo.git.fetch("--unshallow")
+    repo.git.fetch("--tags")
+    git_tag = next(
+        tag.name
+        for commit in repo.iter_commits()
+        for tag in repo.tags
+        if tag.commit.hexsha == commit.hexsha
+    )
 
 # Assign access to cloud SQL
 cloud_function_service_account = gcp.serviceaccount.Account(
@@ -162,15 +162,15 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="ASA_QUEUE",
-                            value=cloud_function_ais_analysis.queue.name,
+                            value=cloud_function_asa.queue.name,
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="AIS_IS_DRY_RUN",
-                            value=pulumi.Config("cerulean-cloud").require("dryrun_ais"),
+                            name="ASA_IS_DRY_RUN",
+                            value=pulumi.Config("cerulean-cloud").require("dryrun_asa"),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="FUNCTION_URL",
-                            value=cloud_function_ais_analysis.fxn.https_trigger_url,
+                            value=cloud_function_asa.fxn.https_trigger_url,
                         ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="2000m")),

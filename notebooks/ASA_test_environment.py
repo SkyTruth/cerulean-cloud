@@ -24,7 +24,7 @@ from matplotlib.patches import Patch
 load_dotenv(".env")
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
-from cerulean_cloud.cloud_function_ais_analysis.utils.analyzer import (  # noqa: E402; DarkAnalyzer,
+from cerulean_cloud.cloud_function_asa.utils.analyzer import (  # noqa: E402
     ASA_MAPPING,
     InfrastructureAnalyzer,
     SourceAnalyzer,

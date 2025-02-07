@@ -314,6 +314,7 @@ def upgrade() -> None:
         sa.Column("long_name", sa.Text),
         sa.Column("short_name", sa.Text),
         sa.Column("citation", sa.Text),
+        sa.Column("ext_id_name", sa.Text),
     )
 
     op.create_table(

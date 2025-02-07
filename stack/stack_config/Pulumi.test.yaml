@@ -2,7 +2,7 @@ encryptionsalt: v1:/dV9M1NH8EA=:v1:IPmnUfz0q6E6S8y7:fl72KMTy2rm7uY4bZzP4p790z9k8
 config:
   ais:credentials: world-fishing-827-service-account-json
   aws:region: eu-central-1
-  cerulean-cloud:dryrun_ais: "" # Make empty "" to turn on AIS analysis
+  cerulean-cloud:dryrun_asa: "" # Make empty "" to turn on Automatic Source Association
   cerulean-cloud:dryrun_historical: "True" # Make empty "" to turn on historical runs
   cerulean-cloud:dryrun_relevancy: "True" # Make empty "" to turn on recurring runs
   cerulean-cloud:keyname: test-cerulean-cloud-api-key
