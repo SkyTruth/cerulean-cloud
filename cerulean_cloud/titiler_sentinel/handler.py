@@ -11,11 +11,11 @@ Docs:
   - MultiBandTilerFactory: https://developmentseed.org/titiler/advanced/tiler_factories/#titilercorefactorymultibandtilerfactory
 
 Input:
-All endpoints created by the `MultiBandTilerFactory` will require `sceneid={sentinel 1 scene id}` as query parameters.
+All endpoints created by the `MultiBandTilerFactory` will require `scene_id={sentinel 1 scene id}` as query parameters.
 
-  - Get Info: "{endpoint}/info?sceneid=S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
-  - Get Available Bands: "{endpoint}/bands?sceneid=S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
-  - Get Statistics (for band HH): "{endpoint}/statistics?sceneid=S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF&bands=hh"
+  - Get Info: "{endpoint}/info?scene_id=S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
+  - Get Available Bands: "{endpoint}/bands?scene_id=S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"
+  - Get Statistics (for band HH): "{endpoint}/statistics?scene_id=S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF&bands=hh"
 
 Important:
 The sentinel-1 data are stored in a `requester-pays` bucket, to be able to access the data you'll need to set `AWS_REQUEST_PAYER="requester"` in your environment.
@@ -71,9 +71,9 @@ app.add_middleware(
 )
 
 
-def DatasetPathParams(sceneid: str = Query(..., description="Scene Id")) -> str:
+def DatasetPathParams(scene_id: str = Query(..., description="Scene Id")) -> str:
     """scene id"""
-    return sceneid
+    return scene_id
 
 
 S1Endpoints = MultiBandTilerFactory(  # type: ignore
@@ -85,7 +85,7 @@ S1Endpoints = MultiBandTilerFactory(  # type: ignore
 @S1Endpoints.router.get("/viewer", response_class=HTMLResponse)
 def viewer(
     request: Request,
-    sceneid=Depends(S1Endpoints.path_dependency),
+    scene_id=Depends(S1Endpoints.path_dependency),
 ):
     """Viewer."""
     viewer_template = Jinja2Templates(
@@ -97,11 +97,11 @@ def viewer(
         context={
             "request": request,
             "tilejson_endpoint": S1Endpoints.url_for(request, "tilejson")
-            + f"?sceneid={sceneid}",
+            + f"?scene_id={scene_id}",
             "info_endpoint": S1Endpoints.url_for(request, "info")
-            + f"?sceneid={sceneid}",
+            + f"?scene_id={scene_id}",
             "stats_endpoint": S1Endpoints.url_for(request, "statistics")
-            + f"?sceneid={sceneid}",
+            + f"?scene_id={scene_id}",
         },
         media_type="text/html",
     )

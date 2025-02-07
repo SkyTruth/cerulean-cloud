@@ -1,4 +1,5 @@
 """client code to interact with roda http proxy to s3 s1 bucket"""
+
 import posixpath
 import urllib.parse as urlib
 from typing import Dict
@@ -18,17 +19,17 @@ class RodaSentinelHubClient:
         self.client = httpx.AsyncClient()
         self.timeout = timeout
 
-    async def get_product_info(self, sceneid: str) -> Dict:
+    async def get_product_info(self, scene_id: str) -> Dict:
         """Get S1 product info
 
         Args:
-            sceneid (str): A valid S1 scene id
+            scene_id (str): A valid S1 scene id
                             i.e. S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF
 
         Returns:
             dict: a dictionary containing S1 product info
         """
-        parsed_scene = s1_sceneid_parser(sceneid)
+        parsed_scene = s1_sceneid_parser(scene_id)
         url_path = posixpath.join(
             parsed_scene["product"],
             parsed_scene["acquisitionYear"],

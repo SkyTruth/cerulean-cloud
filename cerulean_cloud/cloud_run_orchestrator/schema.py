@@ -1,4 +1,5 @@
 """schema for orchestration enpoint"""
+
 from typing import Optional
 
 # import geojson
@@ -10,7 +11,7 @@ class OrchestratorInput(BaseModel):
     Input values for orchestrator
     """
 
-    sceneid: str
+    scene_id: str
     trigger: Optional[int]
     zoom: Optional[int] = None
     scale: Optional[int] = None

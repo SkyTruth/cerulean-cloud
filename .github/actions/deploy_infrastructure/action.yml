@@ -80,11 +80,11 @@ runs:
     - name: Copy Shared File
       shell: bash
       run: |
-        mkdir -p cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/
-        cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_client.py
-        cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/database_schema.py
-        cp cerulean_cloud/structured_logger.py  cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/structured_logger.py
-        cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_ais_analysis/cerulean_cloud/__init__.py
+        mkdir -p cerulean_cloud/cloud_function_asa/cerulean_cloud/
+        cp cerulean_cloud/database_client.py cerulean_cloud/cloud_function_asa/cerulean_cloud/database_client.py
+        cp cerulean_cloud/database_schema.py cerulean_cloud/cloud_function_asa/cerulean_cloud/database_schema.py
+        cp cerulean_cloud/structured_logger.py  cerulean_cloud/cloud_function_asa/cerulean_cloud/structured_logger.py
+        cp cerulean_cloud/__init__.py cerulean_cloud/cloud_function_asa/cerulean_cloud/__init__.py
 
     - name: Deploy Infrastructure
       uses: pulumi/actions@v5

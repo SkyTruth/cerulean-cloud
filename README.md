@@ -274,9 +274,9 @@ SCENES = [
     "S1A_IW_GRDH_1SDV_20230302T001557_20230302T001622_047458_05B29B_DF03", # MEXICO
     "S1A_IW_GRDH_1SDV_20230618T232014_20230618T232039_049047_05E5E0_718C", # USA
 ]
-for sceneid in SCENES:
+for scene_id in SCENES:
 	orchestrator_result = httpx.post(URL+"/orchestrate",
-									json={"sceneid": f"{sceneid}"},
+									json={"scene_id": f"{scene_id}"},
 									timeout=None,
 									headers={"Authorization": f"Bearer {API_KEY}"})
 	print(orchestrator_result)

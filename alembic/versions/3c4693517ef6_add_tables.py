@@ -314,6 +314,7 @@ def upgrade() -> None:
         sa.Column("long_name", sa.Text),
         sa.Column("short_name", sa.Text),
         sa.Column("citation", sa.Text),
+        sa.Column("ext_id_name", sa.Text),
     )
 
     op.create_table(
@@ -356,6 +357,7 @@ def upgrade() -> None:
         sa.Column("source", sa.BigInteger, sa.ForeignKey("source.id"), nullable=False),
         sa.Column("active", sa.Boolean, nullable=False),
         sa.Column("git_hash", sa.Text),
+        sa.Column("git_tag", sa.Text),
         sa.Column("coincidence_score", sa.Float),
         sa.Column("collated_score", sa.Float),
         sa.Column("rank", sa.BigInteger),

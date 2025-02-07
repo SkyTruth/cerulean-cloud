@@ -34,7 +34,8 @@ def upgrade() -> None:
         aoi_agg.aoi_type_2_ids,
         aoi_agg.aoi_type_3_ids,
         source_agg.source_type_1_ids,
-        source_agg.source_type_2_ids
+        source_agg.source_type_2_ids,
+        'https://cerulean.skytruth.org/slicks/' || slick.id::text ||'?ref=api' AS slick_url
     FROM slick
     JOIN orchestrator_run ON orchestrator_run.id = slick.orchestrator_run
     JOIN sentinel1_grd ON sentinel1_grd.id = orchestrator_run.sentinel1_grd
@@ -59,6 +60,34 @@ def upgrade() -> None:
     )
     op.create_entity(slick_plus)
 
+    source_plus = PGView(
+        schema="public",
+        signature="source_plus",
+        definition="""
+            SELECT
+                sts.slick as slick_id,
+                sk.machine_confidence as slick_confidence,
+                s.ext_id as mmsi_or_structure_id,
+                st.short_name as source_type,
+                sts.collated_score as source_collated_score,
+                sts.rank as source_rank,
+                sts.git_hash as git_tag,
+                'https://cerulean.skytruth.org/slicks/' || sk.id::text ||'?ref=api' AS slick_url,
+                'https://cerulean.skytruth.org/?ref=api&' || st.ext_id_name || '=' || s.ext_id AS source_url
+            FROM
+                slick_to_source sts
+            INNER JOIN
+                source s ON sts.source = s.id
+            INNER JOIN
+                slick sk ON sts.slick = sk.id AND sk.active = TRUE
+            INNER JOIN
+                source_type st ON st.id = s.type
+            WHERE
+                sts.active = TRUE
+    """,
+    )
+    op.create_entity(source_plus)
+
 
 def downgrade() -> None:
     """remove views"""
@@ -66,3 +95,8 @@ def downgrade() -> None:
         schema="public", signature="slick_plus", definition="// not needed"
     )
     op.drop_entity(slick_plus)
+
+    source_plus = PGView(
+        schema="public", signature="source_plus", definition="// not needed"
+    )
+    op.drop_entity(source_plus)

@@ -163,7 +163,7 @@ async def mock_get_product_info(*args, **kwargs):
 async def test_orchestrator(
     httpx_mock, fixture_titiler_client, fixture_roda_sentinelhub_client, monkeypatch
 ):
-    payload = OrchestratorInput(sceneid=S1_ID)
+    payload = OrchestratorInput(scene_id=S1_ID)
     with open(
         "test/test_cerulean_cloud/fixtures/MLXF_ais__sq_07a7fea65ceb3429c1ac249f4187f414_9c69e5b4361b6bc412a41f85cdec01ee.zip",
         "rb",
@@ -282,7 +282,7 @@ def custom_response(url, data, timeout):
 )
 async def test_orchestrator_live():
     payload = OrchestratorInput(
-        sceneid=S1_ID
+        scene_id=S1_ID
     )  # "S1A_IW_GRDH_1SDV_20201121T225759_20201121T225828_035353_04216C_62EA")
     titiler_client = TitilerClient(
         "https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/"
