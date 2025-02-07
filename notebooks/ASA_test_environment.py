@@ -340,7 +340,9 @@ slick_ids = [
     # 3573155,  # T&T
     # 3571486,  # missing from GFW
     # 3581392,  # low score ais?
-    3581329,  # vessel
+    # 3581329,  # vessel
+    # 3694255,  # vessel
+    3792775,  # BUSY AIS
 ]
 
 accumulated_sources = []
@@ -351,7 +353,7 @@ for slick_id in slick_ids:
 
     source_types = []
     source_types += [1]  # ais
-    source_types += [2]  # infra
+    # source_types += [2]  # infra
     if not (  # If the last analyzer is for the same scene, reuse it
         analyzers
         and next(iter(analyzers.items()))[1].s1_scene.scene_id == s1_scene.scene_id
@@ -359,7 +361,7 @@ for slick_id in slick_ids:
         analyzers = {s_type: ASA_MAPPING[s_type](s1_scene) for s_type in source_types}
 
     ranked_sources = pd.DataFrame(
-        columns=["type", "st_name", "coincidence_score", "collated_score"]
+        columns=["type", "ext_id", "coincidence_score", "collated_score"]
     )
     for s_type, analyzer in analyzers.items():
         res = analyzer.compute_coincidence_scores(slick_gdf)

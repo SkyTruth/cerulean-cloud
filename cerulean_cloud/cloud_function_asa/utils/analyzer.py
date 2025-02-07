@@ -538,54 +538,81 @@ class AISAnalyzer(SourceAnalyzer):
 
     def build_trajectories(self):
         """
-        Builds trajectories from AIS data.
+        Builds trajectories from AIS data using vectorized interpolation and fixes
+        JSON serialization issues with timestamps.
         """
-        # print("Building trajectories")
-        ais_trajectories = list()
-        for st_name, group in self.ais_gdf.groupby("ssvid"):
-            # Duplicate the row if there's only one point
-            if len(group) == 1:
-                group = pd.concat([group] * 2).reset_index(drop=True)
+        # Precompute the time vector in numeric form (seconds since epoch).
+        # Assumes self.time_vec is a list (or array) of pd.Timestamp objects.
+        time_vec = self.time_vec
+        time_numeric = np.array([t.timestamp() for t in time_vec])
 
-            # Build trajectory
+        ais_trajectories = []
+
+        # Group the AIS GeoDataFrame by vessel identifier "ssvid".
+        for ssvid, group in self.ais_gdf.groupby("ssvid"):
+            # If the vessel has only one point, duplicate it to allow interpolation.
+            if len(group) == 1:
+                group = pd.concat([group, group]).reset_index(drop=True)
+
+            # Convert timestamps to UTC and remove timezone information.
             group["timestamp"] = (
                 group["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
             )
-            traj = mpd.Trajectory(df=group, traj_id=st_name, t="timestamp")
+            group = group.sort_values("timestamp").reset_index(drop=True)
 
-            # Interpolate to times in time_vec
-            times = list()
-            positions = list()
-            for t in self.time_vec:
-                pos = traj.interpolate_position_at(t)
-                times.append(t)
-                positions.append(pos)
-            gdf = gpd.GeoDataFrame(
-                {"timestamp": times, "geometry": positions}, crs="4326"
+            # Convert the vessel’s timestamps to numeric values (seconds since epoch).
+            group_times = (
+                group["timestamp"].values.astype("datetime64[ns]").astype(np.int64)
+                / 1e9
             )
 
-            # Store as trajectory
-            interpolated_traj = mpd.Trajectory(
-                gdf,
-                traj_id=st_name,
-                t="timestamp",
+            # Extract x and y coordinates from the geometry column (assumes Point geometries).
+            group_x = group["geometry"].x.values
+            group_y = group["geometry"].y.values
+
+            # Use numpy.interp to compute the interpolated x and y coordinates at all time points.
+            interp_x = np.interp(time_numeric, group_times, group_x)
+            interp_y = np.interp(time_numeric, group_times, group_y)
+
+            # Create the interpolated Points using GeoPandas' vectorized points_from_xy.
+            interp_points = gpd.points_from_xy(interp_x, interp_y)
+
+            # Build a GeoDataFrame for the interpolated trajectory.
+            interp_gdf = gpd.GeoDataFrame(
+                {"timestamp": time_vec, "geometry": interp_points}, crs="EPSG:4326"
             )
-            gdf["timestamp"] = gdf["timestamp"].apply(lambda x: x.isoformat())
+
+            # Create the trajectory from the interpolated GeoDataFrame.
+            interpolated_traj = mpd.Trajectory(interp_gdf, traj_id=ssvid, t="timestamp")
+
+            # Set extra attributes from the original group.
             interpolated_traj.ext_name = group.iloc[0]["shipname"]
             interpolated_traj.ext_shiptype = group.iloc[0]["best_shiptype"]
             interpolated_traj.flag = group.iloc[0]["flag"]
 
-            # Calculate display feature collection
-            s1_time = pd.Timestamp(times[-1])
+            # Build the display feature collection.
+            # We take the original points up to the last time in our time vector.
+            s1_time = time_vec[-1]
             display_gdf = group[group["timestamp"] <= s1_time].copy()
+            # Convert timestamps in display_gdf to ISO formatted strings.
             display_gdf["timestamp"] = display_gdf["timestamp"].apply(
-                lambda x: x.isoformat()
+                lambda x: x.isoformat() if hasattr(x, "isoformat") else x
             )
+            # If the vessel's last timestamp is beyond s1_time, add the last interpolated point.
             if group["timestamp"].iloc[-1] > s1_time:
-                display_gdf = pd.concat(
-                    [display_gdf, gdf.iloc[[-1]]], ignore_index=True
+                # Get the last row from interp_gdf and ensure its timestamp is a string.
+                last_row = interp_gdf.iloc[[-1]].copy()
+                last_row["timestamp"] = last_row["timestamp"].apply(
+                    lambda x: x.isoformat() if hasattr(x, "isoformat") else x
                 )
+                display_gdf = pd.concat([display_gdf, last_row], ignore_index=True)
 
+            # Finally, make sure that *all* timestamps are strings.
+            display_gdf["timestamp"] = display_gdf["timestamp"].apply(
+                lambda x: x if isinstance(x, str) else x.isoformat()
+            )
+
+            # Create a GeoJSON feature collection from the display_gdf.
             interpolated_traj.geojson_fc = {
                 "type": "FeatureCollection",
                 "features": json.loads(display_gdf.to_json())["features"],
