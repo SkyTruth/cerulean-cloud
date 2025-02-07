@@ -29,6 +29,7 @@ def compute_distance_score(
         float: frechet distance between traj and curve
     """
     # Only use the longest curve
+    curves = curves.sort_values("length", ascending=False)
     curve = curves.to_crs(crs_meters).iloc[0]["geometry"]
 
     # get the trajectory coordinates as points in descending time order from collect

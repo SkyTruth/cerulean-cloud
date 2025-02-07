@@ -55,12 +55,15 @@ from .constants import (
     DARK_STD,
     THETA_DECAY,
     DARK_REF_DIST,
+    W_ARF_DARK,
+    W_ARF_VESSEL,
 )
 from .scoring import (
     compute_distance_score,
     compute_overlap_score,
     compute_temporal_score,
     compute_total_score,
+    compute_aspect_ratio_factor,
 )
 
 
@@ -466,6 +469,7 @@ class AISAnalyzer(SourceAnalyzer):
         self.w_temporal = kwargs.get("w_temporal", W_TEMPORAL)
         self.w_overlap = kwargs.get("w_overlap", W_OVERLAP)
         self.w_distance = kwargs.get("w_distance", W_DISTANCE)
+        self.w_aspect_ratio_factor = kwargs.get("w_aspect_ratio_factor", W_ARF_VESSEL)
         self.ais_ref_dist = kwargs.get("ais_ref_dist", AIS_REF_DIST)
         self.coinc_mean = kwargs.get("coinc_mean", VESSEL_MEAN)
         self.coinc_std = kwargs.get("coinc_std", VESSEL_STD)
@@ -648,7 +652,7 @@ class AISAnalyzer(SourceAnalyzer):
     def slick_to_curves(
         self,
         buf_size: int = 2000,
-        smoothing_factor: float = 1e9,
+        smoothing_factor: float = 1e10,
     ):
         """
         From a set of oil slick detections, estimate curves that go through the detections
@@ -766,11 +770,11 @@ class AISAnalyzer(SourceAnalyzer):
                 )
             slick_curves.append(curve)
 
+        self.slick_clean["areas"] = slick_clean.geometry.area
+        self.slick_clean = self.slick_clean.to_crs(self.slick_gdf.crs)
         slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=self.crs_meters)
         slick_curves_gdf["length"] = slick_curves_gdf.geometry.length
-        slick_curves_gdf = slick_curves_gdf.sort_values(
-            "length", ascending=False
-        ).to_crs("4326")
+        slick_curves_gdf = slick_curves_gdf.to_crs("4326")
 
         self.slick_curves = slick_curves_gdf
 
@@ -846,14 +850,20 @@ class AISAnalyzer(SourceAnalyzer):
                     t, self.slick_curves, self.crs_meters, self.ais_ref_dist
                 )
 
+                aspect_ratio_factor_score = compute_aspect_ratio_factor(
+                    self.slick_curves, self.slick_clean
+                )
+
                 # Compute total score from these three metrics
                 coincidence_score = compute_total_score(
                     temporal_score,
                     overlap_score,
                     distance_score,
+                    aspect_ratio_factor_score,
                     self.w_temporal,
                     self.w_overlap,
                     self.w_distance,
+                    self.w_aspect_ratio_factor,
                 )
 
                 print(
@@ -938,6 +948,7 @@ class DarkAnalyzer(InfrastructureAnalyzer):
         self.coinc_mean = kwargs.get("coinc_mean", DARK_MEAN)
         self.coinc_std = kwargs.get("coinc_std", DARK_STD)
         self.cutoff_radius = kwargs.get("cutoff_radius", DARK_REF_DIST)
+        self.w_aspect_ratio_factor = kwargs.get("w_aspect_ratio_factor", W_ARF_DARK)
 
     def scaled_inner_angles(self, a, b, c_set):
         """
@@ -1169,14 +1180,20 @@ class DarkAnalyzer(InfrastructureAnalyzer):
             }
         )
 
-        aspect_ratio_factor = self.compute_ARF(self.slick_gdf)
+        aspect_ratio_factor = compute_aspect_ratio_factor(
+            self.slick_curves, self.slick_clean
+        )
 
         self.results = self.results[self.results["coincidence_score"] > 0]
+
+        self.results["coincidence_score"] = (
+            self.w_aspect_ratio_factor * aspect_ratio_factor
+            + self.results["coincidence_score"]
+        ) / (1 + self.w_aspect_ratio_factor)
+
         self.results["collated_score"] = (
-            aspect_ratio_factor
-            * (self.results["coincidence_score"] - self.coinc_mean)
-            / self.coinc_std
-        )
+            self.results["coincidence_score"] - self.coinc_mean
+        ) / self.coinc_std
         return self.results
 
     def slick_to_curves(
@@ -1207,7 +1224,6 @@ class DarkAnalyzer(InfrastructureAnalyzer):
         self.slick_clean = slick_clean.to_crs(self.slick_gdf.crs)
         # find a centerline through detections
         slick_curves = list()
-        interp_dists = list()
         for _, row in slick_clean.iterrows():
 
             # create centerline -> MultiLineString
@@ -1215,7 +1231,6 @@ class DarkAnalyzer(InfrastructureAnalyzer):
             interp_dist = min(
                 100, polygon_perimeter / 1000
             )  # Use a minimum of 1000 points for voronoi calculation
-            interp_dists.append(interp_dist)
             cl = centerline.geometry.Centerline(
                 row.geometry, interpolation_distance=interp_dist
             )
@@ -1304,27 +1319,12 @@ class DarkAnalyzer(InfrastructureAnalyzer):
             slick_curves.append(curve)
 
         self.slick_clean["areas"] = slick_clean.geometry.area
-        self.slick_clean["interp_dist"] = interp_dists
         self.slick_clean = self.slick_clean.to_crs(self.slick_gdf.crs)
         slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=self.crs_meters)
         slick_curves_gdf["length"] = slick_curves_gdf.geometry.length
         slick_curves_gdf = slick_curves_gdf.to_crs("4326")
 
         self.slick_curves = slick_curves_gdf
-
-    def SLWBEAR(self, curve, slick_clean):
-        L = curve["length"].values
-        A = slick_clean["areas"].values
-        return np.sum(L**3 / A) / np.sum(L)
-
-    def ARF(self, curve, slick_clean, ar_ref=16):
-        slwbear = self.SLWBEAR(curve, slick_clean)
-        return 1 - math.exp((1 - slwbear) / ar_ref)
-
-    def compute_ARF(self, slick_gdf):
-        self.slick_gdf = slick_gdf
-        self.slick_to_curves()
-        return self.ARF(self.slick_curves, self.slick_clean)
 
 
 ASA_MAPPING = {
