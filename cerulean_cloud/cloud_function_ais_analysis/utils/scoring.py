@@ -9,6 +9,7 @@ import movingpandas as mpd
 import shapely.geometry
 import shapely.ops
 from shapely import frechet_distance
+import numpy as np
 
 
 def compute_distance_score(
@@ -129,9 +130,11 @@ def compute_total_score(
     temporal_score: float,
     overlap_score: float,
     distance_score: float,
+    aspect_ratio_factor_score: float,
     w_temporal: float,
     w_overlap: float,
     w_distance: float,
+    w_aspect_ratio_factor: float,
 ):
     """
     Compute the weighted total score.
@@ -148,16 +151,45 @@ def compute_total_score(
         float: Weighted total score between 0 and 1.
     """
     # Normalize weights
-    total_weight = w_temporal + w_overlap + w_distance
+    total_weight = w_temporal + w_overlap + w_distance + w_aspect_ratio_factor
     w_temporal /= total_weight
     w_overlap /= total_weight
     w_distance /= total_weight
+    w_aspect_ratio_factor /= total_weight
 
     # Compute weighted sum
     total_score = (
         w_temporal * temporal_score
         + w_overlap * overlap_score
         + w_distance * distance_score
+        + w_aspect_ratio_factor * aspect_ratio_factor_score
     )
 
     return total_score
+
+
+def compute_aspect_ratio_factor(
+    curve: gpd.GeoDataFrame, slick_clean: gpd.GeoDataFrame, ar_ref=16
+) -> float:
+    """
+    Computes the aspect ratio factor for a given geometry.
+
+    Parameters:
+    - curve (gpd.GeoDataFrame): A GeoDataFrame containing line geometries with a 'length' column.
+    - slick_clean (gpd.GeoDataFrame): A GeoDataFrame containing polygon geometries with an 'areas' column.
+    - ar_ref (float, optional): Reference aspect ratio factor. Default is 16.
+
+    Returns:
+    - float: The computed aspect ratio factor.
+
+    Calculation:
+    - Computes SLWBEAR as the sum of (L^3 / A) divided by the sum of L, where:
+      - L = lengths of curve geometries
+      - A = areas of corresponding polygon geometries
+    - Applies an exponential transformation to derive the final aspect ratio factor.
+    """
+
+    L = curve["length"].values
+    A = slick_clean["areas"].values
+    slwbear = np.sum(L**3 / A) / np.sum(L)
+    return 1 - math.exp((1 - slwbear) / ar_ref)
