@@ -538,23 +538,21 @@ class AISAnalyzer(SourceAnalyzer):
 
     def build_trajectories(self):
         """
-        Builds trajectories from AIS data using vectorized interpolation and fixes
-        JSON serialization issues with timestamps.
+        Builds trajectories from AIS data.
         """
+        # print("Building trajectories")
+
         # Precompute the time vector in numeric form (seconds since epoch).
-        # Assumes self.time_vec is a list (or array) of pd.Timestamp objects.
         time_vec = self.time_vec
         time_numeric = np.array([t.timestamp() for t in time_vec])
 
-        ais_trajectories = []
-
-        # Group the AIS GeoDataFrame by vessel identifier "ssvid".
-        for ssvid, group in self.ais_gdf.groupby("ssvid"):
-            # If the vessel has only one point, duplicate it to allow interpolation.
+        ais_trajectories = list()
+        for st_name, group in self.ais_gdf.groupby("ssvid"):
+            # Duplicate the row if there's only one point
             if len(group) == 1:
-                group = pd.concat([group, group]).reset_index(drop=True)
+                group = pd.concat([group] * 2).reset_index(drop=True)
 
-            # Convert timestamps to UTC and remove timezone information.
+            # Build trajectory
             group["timestamp"] = (
                 group["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
             )
@@ -578,41 +576,32 @@ class AISAnalyzer(SourceAnalyzer):
             interp_points = gpd.points_from_xy(interp_x, interp_y)
 
             # Build a GeoDataFrame for the interpolated trajectory.
-            interp_gdf = gpd.GeoDataFrame(
+            gdf = gpd.GeoDataFrame(
                 {"timestamp": time_vec, "geometry": interp_points}, crs="EPSG:4326"
             )
 
             # Create the trajectory from the interpolated GeoDataFrame.
-            interpolated_traj = mpd.Trajectory(interp_gdf, traj_id=ssvid, t="timestamp")
+            interpolated_traj = mpd.Trajectory(gdf, traj_id=st_name, t="timestamp")
 
             # Set extra attributes from the original group.
             interpolated_traj.ext_name = group.iloc[0]["shipname"]
             interpolated_traj.ext_shiptype = group.iloc[0]["best_shiptype"]
             interpolated_traj.flag = group.iloc[0]["flag"]
 
-            # Build the display feature collection.
-            # We take the original points up to the last time in our time vector.
+            # Calculate display feature collection
             s1_time = time_vec[-1]
             display_gdf = group[group["timestamp"] <= s1_time].copy()
-            # Convert timestamps in display_gdf to ISO formatted strings.
             display_gdf["timestamp"] = display_gdf["timestamp"].apply(
-                lambda x: x.isoformat() if hasattr(x, "isoformat") else x
+                lambda x: x.isoformat()
             )
-            # If the vessel's last timestamp is beyond s1_time, add the last interpolated point.
             if group["timestamp"].iloc[-1] > s1_time:
-                # Get the last row from interp_gdf and ensure its timestamp is a string.
-                last_row = interp_gdf.iloc[[-1]].copy()
-                last_row["timestamp"] = last_row["timestamp"].apply(
-                    lambda x: x.isoformat() if hasattr(x, "isoformat") else x
+                display_gdf = pd.concat(
+                    [display_gdf, gdf.iloc[[-1]]], ignore_index=True
                 )
-                display_gdf = pd.concat([display_gdf, last_row], ignore_index=True)
+                display_gdf["timestamp"] = display_gdf["timestamp"].apply(
+                    lambda x: x.isoformat() if isinstance(x, pd.Timestamp) else x
+                )
 
-            # Finally, make sure that *all* timestamps are strings.
-            display_gdf["timestamp"] = display_gdf["timestamp"].apply(
-                lambda x: x if isinstance(x, str) else x.isoformat()
-            )
-
-            # Create a GeoJSON feature collection from the display_gdf.
             interpolated_traj.geojson_fc = {
                 "type": "FeatureCollection",
                 "features": json.loads(display_gdf.to_json())["features"],
