@@ -249,6 +249,7 @@ class DatabaseClient:
             1: [c.name for c in db.SourceVessel.__table__.columns],  # Vessels
             2: [c.name for c in db.SourceInfra.__table__.columns],  # Infrastructure
             3: [c.name for c in db.SourceDark.__table__.columns],  # Dark Vessels
+            4: [c.name for c in db.SourceNatural.__table__.columns],  # Natural Seeps
         }
         insert_dict = {
             k: v

@@ -24,7 +24,7 @@ from matplotlib.patches import Patch
 load_dotenv(".env")
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
-from cerulean_cloud.cloud_function_asa.utils.analyzer import (  # noqa: E402
+from cerulean_cloud.cloud_function_asa.utils.analyzer import (  # noqa: E402; DarkAnalyzer, NaturalAnalyzer
     ASA_MAPPING,
     InfrastructureAnalyzer,
     SourceAnalyzer,
@@ -353,6 +353,7 @@ for slick_id in slick_ids:
     source_types += [1]  # ais
     source_types += [2]  # infra
     # source_types += [3]  # dark
+    # source_types += [4]  # natural
     if not (  # If the last analyzer is for the same scene, reuse it
         analyzers
         and next(iter(analyzers.items()))[1].s1_scene.scene_id == s1_scene.scene_id

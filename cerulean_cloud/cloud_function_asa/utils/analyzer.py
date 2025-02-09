@@ -7,8 +7,6 @@ import os
 import time
 from datetime import datetime, timedelta
 from typing import List, Tuple
-import math
-
 
 import centerline.geometry
 import geopandas as gpd
@@ -35,6 +33,9 @@ from .constants import (
     BUF_VEC,
     CLOSING_BUFFER,
     D_FORMAT,
+    DARK_MEAN,
+    DARK_REF_DIST,
+    DARK_STD,
     DECAY_FACTOR,
     HOURS_AFTER,
     HOURS_BEFORE,
@@ -45,25 +46,22 @@ from .constants import (
     NUM_TIMESTEPS,
     NUM_VERTICES,
     T_FORMAT,
+    THETA_DECAY,
     VESSEL_MEAN,
     VESSEL_STD,
+    W_ARF_DARK,
+    W_ARF_VESSEL,
     W_DISTANCE,
     W_OVERLAP,
     W_TEMPORAL,
     WEIGHT_VEC,
-    DARK_MEAN,
-    DARK_STD,
-    THETA_DECAY,
-    DARK_REF_DIST,
-    W_ARF_DARK,
-    W_ARF_VESSEL,
 )
 from .scoring import (
+    compute_aspect_ratio_factor,
     compute_distance_score,
     compute_overlap_score,
     compute_temporal_score,
     compute_total_score,
-    compute_aspect_ratio_factor,
 )
 
 
@@ -96,7 +94,7 @@ class SourceAnalyzer:
         """
         pass
 
-    def apply_closing_buffer(self, geo_df, closing_buffer):
+    def apply_closing_buffer(self, geo_df: gpd.GeoDataFrame, closing_buffer: float):
         """
         Applies a closing buffer to geometries in the GeoDataFrame.
         """
@@ -667,7 +665,7 @@ class AISAnalyzer(SourceAnalyzer):
         # print("Creating slick curves")
         # clean up the slick detections by dilation followed by erosion
         # this process can merge some polygons but not others, depending on proximity
-        slick_clean = self.slick_gdf.copy()
+        slick_clean: gpd.GeoDataFrame = self.slick_gdf.copy()
         slick_clean = self.apply_closing_buffer(
             slick_clean.to_crs(self.crs_meters), buf_size
         )
@@ -770,8 +768,8 @@ class AISAnalyzer(SourceAnalyzer):
                 )
             slick_curves.append(curve)
 
-        self.slick_clean["areas"] = slick_clean.geometry.area
-        self.slick_clean = self.slick_clean.to_crs(self.slick_gdf.crs)
+        slick_clean["areas"] = slick_clean.geometry.area
+        self.slick_clean = slick_clean.to_crs(self.slick_gdf.crs)
         slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=self.crs_meters)
         slick_curves_gdf["length"] = slick_curves_gdf.geometry.length
         slick_curves_gdf = slick_curves_gdf.to_crs("4326")
@@ -987,6 +985,9 @@ class DarkAnalyzer(InfrastructureAnalyzer):
         return np.array(scaled_angles)
 
     def retrieve_sar_detections(self):
+        """
+        Retrieves SAR detections from GFW.
+        """
         sql = f"""
         -- Step 1: Define the list of scene_ids as a CTE for efficient joining
         WITH scene_ids AS (
@@ -1060,7 +1061,7 @@ class DarkAnalyzer(InfrastructureAnalyzer):
 
         self.dark_vessels_gdf = gpd.GeoDataFrame(df, crs="4326").reset_index(drop=True)
 
-    def compute_coincidence_scores_for_infra(
+    def decayed_points_to_poly_score(
         self,
         infra_gdf: gpd.GeoDataFrame,
         extremity_tree: cKDTree,
@@ -1147,7 +1148,7 @@ class DarkAnalyzer(InfrastructureAnalyzer):
 
         # Build KD-Tree and compute confidence scores
         extremity_tree = cKDTree(all_extremity_points)
-        confidence_filtered = self.compute_coincidence_scores_for_infra(
+        confidence_filtered = self.decayed_points_to_poly_score(
             filtered_infra,
             extremity_tree,
             all_extremity_points,
@@ -1327,9 +1328,31 @@ class DarkAnalyzer(InfrastructureAnalyzer):
         self.slick_curves = slick_curves_gdf
 
 
+class NaturalAnalyzer(SourceAnalyzer):
+    """
+    Analyzer for natural seeps.
+    Currently a placeholder for future implementation.
+    """
+
+    def __init__(self, s1_scene, **kwargs):
+        """
+        Initialize the NaturalAnalyzer.
+        """
+        super().__init__(s1_scene, **kwargs)
+        self.source_type = 4
+        # Initialize attributes specific to natural seep analysis
+
+    def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
+        """
+        Implement the analysis logic for natural seeps.
+        """
+        self.slick_gdf = slick_gdf
+        pass
+
+
 ASA_MAPPING = {
     1: AISAnalyzer,
     2: InfrastructureAnalyzer,
     3: DarkAnalyzer,
-    # 4: NaturalAnalyzer,
+    4: NaturalAnalyzer,
 }
