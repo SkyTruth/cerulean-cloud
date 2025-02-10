@@ -6,10 +6,10 @@ import math
 
 import geopandas as gpd
 import movingpandas as mpd
+import numpy as np
 import shapely.geometry
 import shapely.ops
 from shapely import frechet_distance
-import numpy as np
 
 
 def compute_distance_score(

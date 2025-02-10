@@ -1181,6 +1181,7 @@ class DarkAnalyzer(InfrastructureAnalyzer):
             }
         )
 
+        self.slick_to_curves()
         aspect_ratio_factor = compute_aspect_ratio_factor(
             self.slick_curves, self.slick_clean
         )

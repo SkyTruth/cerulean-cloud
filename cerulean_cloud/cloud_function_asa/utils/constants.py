@@ -35,6 +35,8 @@ AIS_REF_DIST = 4000.0
 
 # COLLATION PARAMETERS
 # https://skytruth.atlassian.net/browse/TECH-2371
+DARK_MEAN = 0.3
+DARK_STD = 0.16
 INFRA_MEAN = 0.3
 INFRA_STD = 0.16
 VESSEL_MEAN = 0.576
