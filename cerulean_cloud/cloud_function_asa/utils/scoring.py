@@ -127,11 +127,11 @@ def compute_overlap_score(
     return overlap_score
 
 
-def compute_total_score(
+def vessel_compute_total_score(
     temporal_score: float,
     overlap_score: float,
     distance_score: float,
-    aspect_ratio_factor_score: float,
+    aspect_ratio_factor: float,
     w_temporal: float,
     w_overlap: float,
     w_distance: float,
@@ -163,14 +163,14 @@ def compute_total_score(
         w_temporal * temporal_score
         + w_overlap * overlap_score
         + w_distance * distance_score
-        + w_aspect_ratio_factor * aspect_ratio_factor_score
+        + w_aspect_ratio_factor * aspect_ratio_factor
     )
 
     return total_score
 
 
 def compute_aspect_ratio_factor(
-    curve: gpd.GeoDataFrame, slick_clean: gpd.GeoDataFrame, ar_ref=16
+    slick_curves: gpd.GeoDataFrame, slick_closed: gpd.GeoDataFrame, ar_ref=16
 ) -> float:
     """
     Computes the aspect ratio factor for a given geometry.
@@ -190,7 +190,28 @@ def compute_aspect_ratio_factor(
     - Applies an exponential transformation to derive the final aspect ratio factor.
     """
 
-    L = curve["length"].values
-    A = slick_clean["areas"].values
+    L = slick_curves["length"].values
+    A = slick_closed["areas"].values
     slwbear = np.sum(L**3 / A) / np.sum(L)
     return 1 - math.exp((1 - slwbear) / ar_ref)
+
+
+def dark_compute_total_score(
+    aspect_ratio_factor: float,
+    coincidence_scores: np.array,
+    w_arf: float,
+    w_coincidence: float,
+) -> float:
+    """
+    Compute the total scores from the ARF value, the weights, and the coincidence scores.
+    """
+    # Normalize weights
+    # total_weight = w_arf + w_coincidence
+    # w_arf /= total_weight
+    # w_coincidence /= total_weight
+    # This doesn't work because it increases ALL nearby dark vessels to have a minimum of the ARF score
+
+    # Compute weighted sum
+    total_scores = aspect_ratio_factor * coincidence_scores
+
+    return total_scores
