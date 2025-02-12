@@ -357,7 +357,7 @@ def upgrade() -> None:
         ),
         sa.Column("geometry", Geography("POINT"), nullable=False),
         sa.Column("scene_id", sa.Text),
-        sa.Column("length_m", sa.Text),
+        sa.Column("length_m", sa.Float),
         sa.Column("detection_probability", sa.Float),
     )
 

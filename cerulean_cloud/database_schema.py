@@ -399,7 +399,7 @@ class SourceDark(Source):  # noqa
         nullable=False,
     )
     scene_id = Column(Text)
-    length_m = Column(Text)
+    length_m = Column(Float)
     detection_probability = Column(Float)
 
 
