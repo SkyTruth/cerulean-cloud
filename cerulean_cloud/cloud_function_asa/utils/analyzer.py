@@ -529,7 +529,7 @@ class AISAnalyzer(SourceAnalyzer):
                         [p.coords[0] for p in t.df["geometry"]]
                     ),
                     "coincidence_score": coincidence_score,
-                    "type": 1,  # Vessel
+                    "type": self.source_type,
                     "ext_name": t.ext_name,
                     "ext_shiptype": t.ext_shiptype,
                     "flag": t.flag,
@@ -862,7 +862,7 @@ class InfrastructureAnalyzer(PointAnalyzer):
             df = df[df["label"] == "oil"]
         df["st_name"] = df["structure_id"].apply(str)
         df["ext_id"] = df["structure_id"].apply(str)
-        df["type"] = 2  # infra
+        df["type"] = self.source_type
 
         datetime_fields = ["structure_start_date", "structure_end_date"]
         for field in datetime_fields:
@@ -1015,7 +1015,6 @@ class DarkAnalyzer(PointAnalyzer):
         FROM `world-fishing-827.pipe_sar_v1_published.detect_scene_match_pipe_v3` AS match
         INNER JOIN scene_ids
             ON match.scene_id = scene_ids.scene_id
-        WHERE match.ssvid IS NULL  -- Filter out non-null ssvid here
         ),
 
         -- Step 3: Optimize the unique_infra CTE with pre-filtering using a bounding box
@@ -1032,12 +1031,13 @@ class DarkAnalyzer(PointAnalyzer):
             -- Define a rough bounding box around detection points to limit infra records
             ON ABS(infra.lat - match.detect_lat) < 0.001  -- Approx ~100 meters latitude
             AND ABS(infra.lon - match.detect_lon) < 0.001  -- Approx ~100 meters longitude
-        WHERE infra.structure_id IS NULL  -- Filter out infra rows with non-null structure_id here
         )
 
         -- Step 4: Final SELECT with optimized joins and distance calculation
         SELECT
         match.scene_id AS scene_id,
+        match.ssvid AS ssvid,
+        infra.structure_id AS structure_id,
         pred.presence AS detection_probability,
         match.detect_lat AS detect_lat,
         match.detect_lon AS detect_lon,
@@ -1066,6 +1066,20 @@ class DarkAnalyzer(PointAnalyzer):
             lambda row: shapely.geometry.Point(row["detect_lon"], row["detect_lat"]),
             axis=1,
         )
+
+        # XXX need a better solution for a unique name here.
+        # This code chooses the ssvid, or if that is null, the structure_id, or if that is null, the length_m.
+        def make_unique_id(row):
+            if pd.notna(row["ssvid"]):
+                return "V" + str(row["ssvid"])
+            elif pd.notna(row["structure_id"]):
+                return "I" + str(row["structure_id"])
+            else:
+                return "D" + str(row["length_m"])
+
+        df["st_name"] = df.apply(make_unique_id, axis=1)
+        df["ext_id"] = df["st_name"]
+        df["type"] = self.source_type
 
         self.dark_objects_gdf = gpd.GeoDataFrame(df, crs="4326").reset_index(drop=True)
 

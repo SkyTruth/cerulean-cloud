@@ -226,7 +226,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
             vmin=0,
             vmax=1,
             alpha=0.8,
-            edgecolor="black" if black else None,
+            edgecolor="blue" if black else None,
             label="Infrastructure Points",
         )
     else:
@@ -243,7 +243,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
             vmin=0,
             vmax=1,
             alpha=0.8,
-            edgecolor="black" if black else None,
+            edgecolor="green" if black else None,
             label="Dark Vessels",
         )
     else:
@@ -297,14 +297,14 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
     max_dark_coincidence = 0
 
     # Add colorbar for infrastructure points if available
-    if scatter_infra is not None:
+    if scatter_infra is not None and not black:
         cbar_infra = plt.colorbar(scatter_infra, ax=ax, fraction=0.046, pad=0.04)
         cbar_infra.set_label("Infra Coincidence")
         if len(infra_analyzer.coincidence_scores):
             max_infra_coincidence = round(infra_analyzer.coincidence_scores.max(), 2)
 
     # Add colorbar for dark vessel points if available
-    if scatter_dark is not None:
+    if scatter_dark is not None and not black:
         cbar_dark = plt.colorbar(scatter_dark, ax=ax, fraction=0.046, pad=0.04)
         cbar_dark.set_label("Dark Coincidence")
         if len(dark_analyzer.coincidence_scores):
@@ -372,10 +372,19 @@ slick_ids = [
     # 3573155,  # T&T
     # 3571486,  # missing from GFW
     # 3581392,  # low score ais?
-    3581329,  # vessel
+    # 3581329,  # vessel
     # 3819454, # infra
     # 3820550, # infra
     # 3830066,  # infra
+    # 3581639,  # dark
+    # 3687248,  # dark
+    # 3582305,  # dark tricky
+    # 3581812,  # dark easy
+    # 3581500,  # dark easy
+    # 3581468,  # dark easy
+    # 3318875,  # dark tricky
+    # 3582208,  # dark easy
+    3581669,  # dark tricky
 ]
 
 accumulated_sources = []
@@ -421,17 +430,21 @@ for slick_id in slick_ids:
     plot(analyzers, slick_id)
 
     print(
-        ranked_sources[["type", "ext_id", "coincidence_score", "collated_score"]].head()
+        ranked_sources[["type", "ext_id", "coincidence_score", "collated_score"]].head(
+            8
+        )
     )
 
 # print(accumulated_sources)
 # %%
+# Plot out all potential infra sources
 fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
 coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)
 plot({2: infra_analyzer}, slick_id, False)
 
 # %%
+# Plot out all potential dark sources
 fake_dark_gdf = generate_infrastructure_points(slick_gdf, 50000)
 dark_analyzer = DarkAnalyzer(s1_scene, dark_vessels_gdf=fake_dark_gdf)
 coincidence_scores = dark_analyzer.compute_coincidence_scores(slick_gdf)
