@@ -351,6 +351,25 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "source_dark",
+        sa.Column(
+            "source_id", sa.BigInteger, sa.ForeignKey("source.id"), primary_key=True
+        ),
+        sa.Column("geometry", Geography("POINT"), nullable=False),
+        sa.Column("scene_id", sa.Text),
+        sa.Column("length_m", sa.Float),
+        sa.Column("detection_probability", sa.Float),
+    )
+
+    op.create_table(
+        "source_natural",
+        sa.Column(
+            "source_id", sa.BigInteger, sa.ForeignKey("source.id"), primary_key=True
+        ),
+        sa.Column("geometry", Geography("POINT"), nullable=False),
+    )
+
+    op.create_table(
         "slick_to_source",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
@@ -412,6 +431,7 @@ def downgrade() -> None:
     op.drop_table("source_to_tag")
     op.drop_table("tag")
     op.drop_table("slick_to_source")
+    op.drop_table("source_dark")
     op.drop_table("source_infra")
     op.drop_table("source_vessel")
     op.drop_table("source")
