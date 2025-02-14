@@ -149,7 +149,9 @@ async def handle_asa_request(request):
                         combined_df.reset_index(drop=True, inplace=True)
                         combined_df["rank"] = combined_df.index + 1
 
-                        only_record_top = 5  # XXXMAGIC
+                        # Might want to increase this to save the top 3 per Source Type
+                        only_record_top = 2 * len(ASA_MAPPING)
+
                         async with db_client.session.begin():
                             for idx, source_row in combined_df.iterrows():
                                 if pd.isna(source_row["slick_to_source_id"]):
