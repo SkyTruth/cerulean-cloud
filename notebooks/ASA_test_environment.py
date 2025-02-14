@@ -436,12 +436,6 @@ for slick_id in slick_ids:
     )
 
 # print(accumulated_sources)
-# %%
-# Plot out all potential infra sources
-fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
-infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
-coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)
-plot({2: infra_analyzer}, slick_id, False)
 
 # %%
 # Plot out all potential dark sources
@@ -449,4 +443,12 @@ fake_dark_gdf = generate_infrastructure_points(slick_gdf, 50000)
 dark_analyzer = DarkAnalyzer(s1_scene, dark_vessels_gdf=fake_dark_gdf)
 coincidence_scores = dark_analyzer.compute_coincidence_scores(slick_gdf)
 plot({3: dark_analyzer}, slick_id, False)
+
+# %%
+# Plot out all potential infra sources
+fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
+infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
+coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)
+plot({2: infra_analyzer}, slick_id, False)
+
 # %%

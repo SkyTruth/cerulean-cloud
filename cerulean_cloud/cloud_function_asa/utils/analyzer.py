@@ -1015,6 +1015,7 @@ class DarkAnalyzer(PointAnalyzer):
         FROM `world-fishing-827.pipe_sar_v1_published.detect_scene_match_pipe_v3` AS match
         INNER JOIN scene_ids
             ON match.scene_id = scene_ids.scene_id
+        WHERE match.score < .01 -- either no match or low confidence match
         ),
 
         -- Step 3: Optimize the unique_infra CTE with pre-filtering using a bounding box
@@ -1025,8 +1026,7 @@ class DarkAnalyzer(PointAnalyzer):
             PARTITION BY infra.structure_id
             ORDER BY infra.label_confidence DESC  -- Assuming you want the highest confidence
             ) AS rn
-        FROM
-            `world-fishing-827.pipe_sar_v1_published.published_infrastructure` AS infra
+        FROM `world-fishing-827.pipe_sar_v1_published.published_infrastructure` AS infra
         INNER JOIN filtered_matches AS match
             -- Define a rough bounding box around detection points to limit infra records
             ON ABS(infra.lat - match.detect_lat) < 0.001  -- Approx ~100 meters latitude
@@ -1035,25 +1035,25 @@ class DarkAnalyzer(PointAnalyzer):
 
         -- Step 4: Final SELECT with optimized joins and distance calculation
         SELECT
-        match.scene_id AS scene_id,
-        match.ssvid AS ssvid,
-        infra.structure_id AS structure_id,
-        pred.presence AS detection_probability,
-        match.detect_lat AS detect_lat,
-        match.detect_lon AS detect_lon,
-        pred.length_m AS length_m,
-        FROM
-        `world-fishing-827.pipe_sar_v1_published.detect_scene_pred` AS pred
-        INNER JOIN
-        filtered_matches AS match
+            match.scene_id AS scene_id,
+            match.ssvid AS ssvid,
+            infra.structure_id AS structure_id,
+            pred.presence AS detection_probability,
+            match.detect_lat AS detect_lat,
+            match.detect_lon AS detect_lon,
+            pred.length_m AS length_m,
+        FROM `world-fishing-827.pipe_sar_v1_published.detect_scene_pred` AS pred
+        INNER JOIN filtered_matches AS match
             ON pred.detect_id = match.detect_id
-        LEFT JOIN
-        unique_infra AS infra
+        LEFT JOIN unique_infra AS infra
             ON infra.rn = 1
             AND ST_DISTANCE(
                 ST_GEOGPOINT(match.detect_lon, match.detect_lat),
                 ST_GEOGPOINT(infra.lon, infra.lat)
                 ) < 100  -- Distance in meters
+        WHERE pred.length_m > 30 -- only keep detections with length > 30m
+        AND pred.presence > 0.99 -- only keep detections with high confidence
+        AND infra.structure_id IS NULL -- ignore infra detections because they are captured by the infrastructure analyzer
         """
 
         df = pandas_gbq.read_gbq(
@@ -1070,12 +1070,12 @@ class DarkAnalyzer(PointAnalyzer):
         # XXX need a better solution for a unique name here.
         # This code chooses the ssvid, or if that is null, the structure_id, or if that is null, the length_m.
         def make_unique_id(row):
-            if pd.notna(row["ssvid"]):
-                return "V" + str(row["ssvid"])
-            elif pd.notna(row["structure_id"]):
-                return "I" + str(row["structure_id"])
-            else:
-                return "D" + str(row["length_m"])
+            # if pd.notna(row["ssvid"]):
+            #     return "V" + str(row["ssvid"])
+            # elif pd.notna(row["structure_id"]):
+            #     return "I" + str(row["structure_id"])
+            # else:
+            return "D" + str(row["length_m"])
 
         df["st_name"] = df.apply(make_unique_id, axis=1)
         df["ext_id"] = df["st_name"]
