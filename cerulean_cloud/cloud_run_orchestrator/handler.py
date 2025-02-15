@@ -645,7 +645,7 @@ def calculate_splines(
 
     aspect_ratio_factor = compute_aspect_ratio_factor(slick_curves_gdf, ar_ref=16)
 
-    return slick_curves_gdf.to_json(), aspect_ratio_factor
+    return json.loads(slick_curves_gdf.to_json()), aspect_ratio_factor
 
 
 def compute_aspect_ratio_factor(slick_curves: gpd.GeoDataFrame, ar_ref=16) -> float:
