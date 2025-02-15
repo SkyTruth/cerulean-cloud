@@ -201,6 +201,8 @@ class DatabaseClient:
         slick_shape,
         inference_idx,
         machine_confidence,
+        splines,
+        aspect_ratio_factor,
     ):
         """add a slick"""
         # use buffer(0) to attempt to fix any invalid geometries
@@ -217,6 +219,8 @@ class DatabaseClient:
             active=True,
             orchestrator_run1=orchestrator_run,
             machine_confidence=machine_confidence,
+            splines=splines,
+            aspect_ratio_factor=aspect_ratio_factor,
         )
         return slick
 

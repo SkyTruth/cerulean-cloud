@@ -10,6 +10,7 @@ needs env vars:
 """
 
 import json
+import math
 import os
 import signal
 import traceback
@@ -17,14 +18,16 @@ import urllib.parse as urlparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
+import centerline.geometry
 import geopandas as gpd
 import morecantile
 import numpy as np
+import scipy.interpolate
 import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
-from shapely.geometry import shape
+from shapely.geometry import LineString, MultiLineString, shape
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
@@ -427,25 +430,30 @@ async def _orchestrate(
                     }
                 )
                 for feat in features:
-                    buffered_gdf = gpd.GeoDataFrame(
+                    slick_gdf = gpd.GeoDataFrame(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
-                    crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
-                    buffered_gdf["geometry"] = (
-                        buffered_gdf.to_crs(crs_meters)
-                        .buffer(LAND_MASK_BUFFER_M)
-                        .to_crs("4326")
+                    crs_meters = slick_gdf.estimate_utm_crs(datum_name="WGS 84")
+                    slick_gdf_m = slick_gdf.to_crs(crs_meters)
+                    buffered_geom = slick_gdf_m.buffer(LAND_MASK_BUFFER_M).to_crs(
+                        "4326"
                     )
                     intersecting_land = gpd.sjoin(
                         get_landmask_gdf(),
-                        buffered_gdf,
+                        buffered_geom,
                         how="inner",
                         predicate="intersects",
                     )
-                    # when the feature does not intersect land, update inf_idx and increase n_background_slicks
+                    # when the feature intersects land, update inf_idx and increase n_background_slicks
                     if not intersecting_land.empty:
                         feat["properties"]["inf_idx"] = model.background_class_idx
                         n_background_slicks += 1
+
+                    splines_geojson, aspect_ratio_factor = calculate_splines(
+                        slick_gdf, crs_meters
+                    )
+                    feat["properties"]["splines"] = splines_geojson
+                    feat["properties"]["aspect_ratio_factor"] = aspect_ratio_factor
 
                 logger.info(
                     {
@@ -467,6 +475,8 @@ async def _orchestrate(
                             feat.get("geometry"),
                             feat.get("properties").get("inf_idx"),
                             feat.get("properties").get("machine_confidence"),
+                            feat.get("properties").get("splines"),
+                            feat.get("properties").get("aspect_ratio_factor"),
                         )
                         logger.info("Added slick")
 
@@ -498,3 +508,151 @@ async def _orchestrate(
         if success is False:
             raise exc
     return OrchestratorResult(status="Success")
+
+
+def calculate_splines(
+    slick_gdf: gpd.GeoDataFrame,
+    crs_meters: str,
+    close_buffer: int = 2000,
+    smoothing_factor: float = 1e10,
+):
+    """
+    From a set of polygons representing oil slick detections, estimate curves that go through the detections
+    This process transforms a set of slick detections into LineStrings for each detection
+
+    Inputs:
+        slick_gdf: GeoDataFrame of slick detections
+        crs_meters: crs of slick center in meters
+        close_buffer: buffer size for cleaning up slick detections
+        smoothing_factor: smoothing factor for smoothing centerline
+    Returns:
+        GeoDataFrame of slick curves
+    """
+    # clean up the slick detections by dilation followed by erosion
+    # this process can merge some polygons but not others, depending on proximity
+    slick_closed = (
+        slick_gdf.to_crs(crs_meters).buffer(close_buffer).buffer(-close_buffer)
+    )
+
+    # split slicks into individual polygons
+    slick_closed = slick_closed.explode(ignore_index=True, index_parts=False)
+
+    # find a centerline through detections
+    slick_curves = list()
+    for _, item in slick_closed.items():
+        # create centerline -> MultiLineString
+        polygon_perimeter = item.length  # Perimeter of the polygon
+        interp_dist = min(
+            100, polygon_perimeter / 1000
+        )  # Use a minimum of 1000 points for voronoi calculation
+        cl = centerline.geometry.Centerline(item, interpolation_distance=interp_dist)
+
+        # grab coordinates from centerline
+        x = list()
+        y = list()
+        if isinstance(cl.geometry, MultiLineString):
+            # iterate through each linestring
+            for geom in cl.geometry.geoms:
+                x.extend(geom.coords.xy[0])
+                y.extend(geom.coords.xy[1])
+        else:
+            x.extend(cl.geometry.coords.xy[0])
+            y.extend(cl.geometry.coords.xy[1])
+
+        # sort coordinates in both X and Y directions
+        coords = [(xc, yc) for xc, yc in zip(x, y)]
+        coords_sort_x = sorted(coords, key=lambda coord: coord[0])
+        coords_sort_y = sorted(coords, key=lambda coord: coord[1])
+
+        # remove coordinate duplicates, preserving sorted order
+        coords_seen_x = set()
+        coords_unique_x = list()
+        for coord in coords_sort_x:
+            if coord not in coords_seen_x:
+                coords_unique_x.append(coord)
+                coords_seen_x.add(coord)
+
+        coords_seen_y = set()
+        coords_unique_y = list()
+        for coord in coords_sort_y:
+            if coord not in coords_seen_y:
+                coords_unique_y.append(coord)
+                coords_seen_y.add(coord)
+
+        # grab x and y coordinates for spline fit
+        x_fit_sort_x = [coord[0] for coord in coords_unique_x]
+        x_fit_sort_y = [coord[0] for coord in coords_unique_y]
+        y_fit_sort_x = [coord[1] for coord in coords_unique_x]
+        y_fit_sort_y = [coord[1] for coord in coords_unique_y]
+
+        # Check if there are enough points for spline fitting
+        min_points_required = 4  # for cubic spline, k=3, need at least 4 points
+        if len(coords_unique_x) >= min_points_required:
+            # fit a B-spline to the centerline
+            tck_sort_x, fp_sort_x, _, _ = scipy.interpolate.splrep(
+                x_fit_sort_x,
+                y_fit_sort_x,
+                k=3,
+                s=smoothing_factor,
+                full_output=True,
+            )
+            tck_sort_y, fp_sort_y, _, _ = scipy.interpolate.splrep(
+                y_fit_sort_y,
+                x_fit_sort_y,
+                k=3,
+                s=smoothing_factor,
+                full_output=True,
+            )
+
+            # choose the spline that has the lowest fit error
+            if fp_sort_x <= fp_sort_y:
+                tck = tck_sort_x
+                x_fit = x_fit_sort_x
+                y_fit = y_fit_sort_x
+
+                num_points = max(round((x_fit[-1] - x_fit[0]) / 100), 5)
+                x_new = np.linspace(x_fit[0], x_fit[-1], 10)
+                y_new = scipy.interpolate.BSpline(*tck)(x_new)
+            else:
+                tck = tck_sort_y
+                x_fit = x_fit_sort_y
+                y_fit = y_fit_sort_y
+
+                num_points = max(round((y_fit[-1] - y_fit[0]) / 100), 5)
+                y_new = np.linspace(y_fit[0], y_fit[-1], num_points)
+                x_new = scipy.interpolate.BSpline(*tck)(y_new)
+
+            # store as LineString
+            curve = LineString(zip(x_new, y_new))
+        else:
+            curve = LineString([coords_unique_x[0], coords_unique_x[-1]])
+        slick_curves.append(curve)
+
+    slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=crs_meters).to_crs(
+        "4326"
+    )
+    slick_curves_gdf["area"] = slick_closed.geometry.area
+    slick_curves_gdf["length"] = [c.length for c in slick_curves]
+
+    aspect_ratio_factor = compute_aspect_ratio_factor(slick_curves_gdf, ar_ref=16)
+
+    return slick_curves_gdf.to_json(), aspect_ratio_factor
+
+
+def compute_aspect_ratio_factor(slick_curves: gpd.GeoDataFrame, ar_ref=16) -> float:
+    """
+    Computes the aspect ratio factor for a given geometry.
+
+    Parameters:
+        slick_curves (gpd.GeoDataFrame): A GeoDataFrame containing line geometries with a 'length' and 'area' column.
+        ar_ref (float, optional): Reference aspect ratio factor. Default is 16.
+
+    Returns:
+        float: The computed aspect ratio factor, between 0 and 1, where 0 is a square and 1 is an infinite line
+    """
+
+    L = slick_curves["length"].values
+    A = slick_curves["area"].values
+    slwbear = np.average(L**2 / A, weights=L)
+    # Note slwbear is between 1 and infinity, so the following transformation moves it between 0 and 1
+    return 1 - math.exp((1 - slwbear) / ar_ref)

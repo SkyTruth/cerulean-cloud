@@ -494,6 +494,8 @@ class Slick(Base):  # noqa
     machine_confidence = Column(Float(53))
     precursor_slicks = Column(ARRAY(BigInteger()))
     notes = Column(Text)
+    splines = Column(JSON)
+    aspect_ratio_factor = Column(Float(53))
     length = Column(Float(53))
     area = Column(Float(53))
     perimeter = Column(Float(53))

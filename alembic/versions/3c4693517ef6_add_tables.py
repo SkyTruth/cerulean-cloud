@@ -148,6 +148,8 @@ def upgrade() -> None:
         sa.Column("machine_confidence", sa.Float),
         sa.Column("precursor_slicks", ARRAY(sa.BigInteger)),
         sa.Column("notes", sa.Text),
+        sa.Column("splines", sa.JSON),
+        sa.Column("aspect_ratio_factor", sa.Float),
         sa.Column("length", sa.Float),
         sa.Column("area", sa.Float),
         sa.Column("perimeter", sa.Float),

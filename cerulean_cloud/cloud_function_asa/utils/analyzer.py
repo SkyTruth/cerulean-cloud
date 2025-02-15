@@ -8,7 +8,6 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Tuple
 
-import centerline.geometry
 import geopandas as gpd
 import mapbox_vector_tile
 import morecantile
@@ -17,14 +16,19 @@ import numpy as np
 import pandas as pd
 import pandas_gbq
 import requests
-import scipy.interpolate
-import scipy.spatial.distance
-import shapely
 from geoalchemy2.shape import to_shape
 from google.oauth2.service_account import Credentials
 from pyproj import CRS
 from scipy.spatial import cKDTree
-from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, mapping
+from shapely.geometry import (
+    GeometryCollection,
+    LineString,
+    MultiPolygon,
+    Point,
+    Polygon,
+    mapping,
+)
+from shapely.ops import unary_union
 
 from . import constants as c
 from .scoring import (
@@ -84,135 +88,6 @@ class SourceAnalyzer:
             geo_df["geometry"].buffer(closing_buffer).buffer(-closing_buffer)
         )
         return geo_df
-
-    def slick_to_curves(
-        self,
-        slick_gdf: gpd.GeoDataFrame,
-        buf_size: int = 2000,
-        smoothing_factor: float = 1e10,
-    ):
-        """
-        From a set of polygons representing oil slick detections, estimate curves that go through the detections
-        This process transforms a set of slick detections into LineStrings for each detection
-
-        Inputs:
-            buf_size: buffer size for cleaning up slick detections
-            smoothing_factor: smoothing factor for smoothing centerline
-        Returns:
-            GeoDataFrame of slick curves
-        """
-        # print("Creating slick curves")
-        # clean up the slick detections by dilation followed by erosion
-        # this process can merge some polygons but not others, depending on proximity
-        slick_closed = self.apply_closing_buffer(
-            slick_gdf.to_crs(self.crs_meters), buf_size
-        )
-
-        # split slicks into individual polygons
-        slick_closed = slick_closed.explode(ignore_index=True, index_parts=False)
-
-        # find a centerline through detections
-        slick_curves = list()
-        for _, row in slick_closed.iterrows():
-            # create centerline -> MultiLineString
-            polygon_perimeter = row.geometry.length  # Perimeter of the polygon
-            interp_dist = min(
-                100, polygon_perimeter / 1000
-            )  # Use a minimum of 1000 points for voronoi calculation
-            cl = centerline.geometry.Centerline(
-                row.geometry, interpolation_distance=interp_dist
-            )
-
-            # grab coordinates from centerline
-            x = list()
-            y = list()
-            if isinstance(cl.geometry, shapely.geometry.MultiLineString):
-                # iterate through each linestring
-                for geom in cl.geometry.geoms:
-                    x.extend(geom.coords.xy[0])
-                    y.extend(geom.coords.xy[1])
-            else:
-                x.extend(cl.geometry.coords.xy[0])
-                y.extend(cl.geometry.coords.xy[1])
-
-            # sort coordinates in both X and Y directions
-            coords = [(xc, yc) for xc, yc in zip(x, y)]
-            coords_sort_x = sorted(coords, key=lambda coord: coord[0])
-            coords_sort_y = sorted(coords, key=lambda coord: coord[1])
-
-            # remove coordinate duplicates, preserving sorted order
-            coords_seen_x = set()
-            coords_unique_x = list()
-            for coord in coords_sort_x:
-                if coord not in coords_seen_x:
-                    coords_unique_x.append(coord)
-                    coords_seen_x.add(coord)
-
-            coords_seen_y = set()
-            coords_unique_y = list()
-            for coord in coords_sort_y:
-                if coord not in coords_seen_y:
-                    coords_unique_y.append(coord)
-                    coords_seen_y.add(coord)
-
-            # grab x and y coordinates for spline fit
-            x_fit_sort_x = [coord[0] for coord in coords_unique_x]
-            x_fit_sort_y = [coord[0] for coord in coords_unique_y]
-            y_fit_sort_x = [coord[1] for coord in coords_unique_x]
-            y_fit_sort_y = [coord[1] for coord in coords_unique_y]
-
-            # Check if there are enough points for spline fitting
-            min_points_required = 4  # for cubic spline, k=3, need at least 4 points
-            if len(coords_unique_x) >= min_points_required:
-                # fit a B-spline to the centerline
-                tck_sort_x, fp_sort_x, _, _ = scipy.interpolate.splrep(
-                    x_fit_sort_x,
-                    y_fit_sort_x,
-                    k=3,
-                    s=smoothing_factor,
-                    full_output=True,
-                )
-                tck_sort_y, fp_sort_y, _, _ = scipy.interpolate.splrep(
-                    y_fit_sort_y,
-                    x_fit_sort_y,
-                    k=3,
-                    s=smoothing_factor,
-                    full_output=True,
-                )
-
-                # choose the spline that has the lowest fit error
-                if fp_sort_x <= fp_sort_y:
-                    tck = tck_sort_x
-                    x_fit = x_fit_sort_x
-                    y_fit = y_fit_sort_x
-
-                    num_points = max(round((x_fit[-1] - x_fit[0]) / 100), 5)
-                    x_new = np.linspace(x_fit[0], x_fit[-1], 10)
-                    y_new = scipy.interpolate.BSpline(*tck)(x_new)
-                else:
-                    tck = tck_sort_y
-                    x_fit = x_fit_sort_y
-                    y_fit = y_fit_sort_y
-
-                    num_points = max(round((y_fit[-1] - y_fit[0]) / 100), 5)
-                    y_new = np.linspace(y_fit[0], y_fit[-1], num_points)
-                    x_new = scipy.interpolate.BSpline(*tck)(y_new)
-
-                # store as LineString
-                curve = shapely.geometry.LineString(zip(x_new, y_new))
-            else:
-                curve = shapely.geometry.LineString(
-                    [coords_unique_x[0], coords_unique_x[-1]]
-                )
-            slick_curves.append(curve)
-
-        slick_closed["areas"] = slick_closed.geometry.area
-        self.slick_closed = slick_closed.to_crs(slick_gdf.crs)
-        slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=self.crs_meters)
-        slick_curves_gdf["length"] = slick_curves_gdf.geometry.length
-        slick_curves_gdf = slick_curves_gdf.to_crs("4326")
-
-        self.slick_curves = slick_curves_gdf
 
 
 class AISAnalyzer(SourceAnalyzer):
@@ -312,9 +187,7 @@ class AISAnalyzer(SourceAnalyzer):
             project_id=self.ais_project_id,
             credentials=self.credentials,
         )
-        df["geometry"] = df.apply(
-            lambda row: shapely.geometry.Point(row["lon"], row["lat"]), axis=1
-        )
+        df["geometry"] = df.apply(lambda row: Point(row["lon"], row["lat"]), axis=1)
         self.ais_gdf = (
             gpd.GeoDataFrame(df, crs="4326")
             .sort_values(by=["ssvid", "timestamp"])
@@ -407,8 +280,7 @@ class AISAnalyzer(SourceAnalyzer):
 
             # Create convex hulls from sequential circles
             convex_hulls = [
-                shapely.geometry.MultiPolygon([a, b]).convex_hull
-                for a, b in zip(ps[:-1], ps[1:])
+                MultiPolygon([a, b]).convex_hull for a, b in zip(ps[:-1], ps[1:])
             ]
 
             # Weight convex hulls
@@ -419,9 +291,7 @@ class AISAnalyzer(SourceAnalyzer):
             ais_weighted.append(weighted)
 
             # Create connected polygon from hulls
-            ais_buf.append(
-                {"geometry": shapely.ops.unary_union(convex_hulls), "st_name": traj.id}
-            )
+            ais_buf.append({"geometry": unary_union(convex_hulls), "st_name": traj.id})
 
         self.ais_buffered = gpd.GeoDataFrame(ais_buf, crs="4326")
         self.ais_weighted = ais_weighted
@@ -525,9 +395,7 @@ class AISAnalyzer(SourceAnalyzer):
                 entry = {
                     "st_name": t.id,
                     "ext_id": str(t.id),
-                    "geometry": shapely.geometry.LineString(
-                        [p.coords[0] for p in t.df["geometry"]]
-                    ),
+                    "geometry": LineString([p.coords[0] for p in t.df["geometry"]]),
                     "coincidence_score": coincidence_score,
                     "type": self.source_type,
                     "ext_name": t.ext_name,
@@ -603,14 +471,14 @@ class PointAnalyzer(SourceAnalyzer):
 
     def filter_points(
         self,
-        combined_geometry_m: shapely.geometry.Polygon,
+        combined_geometry_m: Polygon,
         points_gdf: gpd.GeoDataFrame,
     ):
         """
         Filters points based on their proximity to the combined geometry.
 
         Args:
-            combined_geometry (shapely.geometry.Polygon): The combined geometry to filter points by.
+            combined_geometry (Polygon): The combined geometry to filter points by.
             points_gdf (gpd.GeoDataFrame): The points to filter.
 
         Returns:
@@ -634,7 +502,7 @@ class PointAnalyzer(SourceAnalyzer):
     def aggregate_extrema_and_area_fractions(
         self,
         polygons: List[Polygon],
-        combined_geometry: shapely.geometry.Polygon,
+        combined_geometry: Polygon,
         largest_polygon_area: float,
         min_area_threshold: float = 0.1,
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -796,7 +664,7 @@ class PointAnalyzer(SourceAnalyzer):
         Creates a GeoJSON feature from a Shapely geometry.
 
         Args:
-            geom (shapely.geometry.Polygon): The geometry to convert to GeoJSON.
+            geom (Polygon): The geometry to convert to GeoJSON.
 
         Returns:
             dict: The GeoJSON feature.
@@ -1063,7 +931,7 @@ class DarkAnalyzer(PointAnalyzer):
         )
 
         df["geometry"] = df.apply(
-            lambda row: shapely.geometry.Point(row["detect_lon"], row["detect_lat"]),
+            lambda row: Point(row["detect_lon"], row["detect_lat"]),
             axis=1,
         )
 

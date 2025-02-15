@@ -168,33 +168,6 @@ def vessel_compute_total_score(
     return total_score
 
 
-def compute_aspect_ratio_factor(
-    slick_curves: gpd.GeoDataFrame, slick_closed: gpd.GeoDataFrame, ar_ref=16
-) -> float:
-    """
-    Computes the aspect ratio factor for a given geometry.
-
-    Parameters:
-    - curve (gpd.GeoDataFrame): A GeoDataFrame containing line geometries with a 'length' column.
-    - slick_clean (gpd.GeoDataFrame): A GeoDataFrame containing polygon geometries with an 'areas' column.
-    - ar_ref (float, optional): Reference aspect ratio factor. Default is 16.
-
-    Returns:
-    - float: The computed aspect ratio factor.
-
-    Calculation:
-    - Computes SLWBEAR as the sum of (L^3 / A) divided by the sum of L, where:
-      - L = lengths of curve geometries
-      - A = areas of corresponding polygon geometries
-    - Applies an exponential transformation to derive the final aspect ratio factor.
-    """
-
-    L = slick_curves["length"].values
-    A = slick_closed["areas"].values
-    slwbear = np.sum(L**3 / A) / np.sum(L)
-    return 1 - math.exp((1 - slwbear) / ar_ref)
-
-
 def dark_compute_total_score(
     aspect_ratio_factor: float,
     coincidence_scores: np.array,
