@@ -434,13 +434,14 @@ async def _orchestrate(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
                     crs_meters = slick_gdf.estimate_utm_crs(datum_name="WGS 84")
-                    slick_gdf_m = slick_gdf.to_crs(crs_meters)
-                    buffered_geom = slick_gdf_m.buffer(LAND_MASK_BUFFER_M).to_crs(
-                        "4326"
+                    buffered_gdf = gpd.GeoDataFrame(
+                        geometry=slick_gdf.to_crs(crs_meters)
+                        .buffer(LAND_MASK_BUFFER_M)
+                        .to_crs("4326")
                     )
                     intersecting_land = gpd.sjoin(
                         get_landmask_gdf(),
-                        buffered_geom,
+                        buffered_gdf,
                         how="inner",
                         predicate="intersects",
                     )
@@ -449,8 +450,16 @@ async def _orchestrate(
                         feat["properties"]["inf_idx"] = model.background_class_idx
                         n_background_slicks += 1
 
+                    logger.info("Calculating splines")
                     splines_geojson, aspect_ratio_factor = calculate_splines(
                         slick_gdf, crs_meters
+                    )
+                    logger.info(
+                        {
+                            "message": "Splines calculated",
+                            "aspect_ratio_factor": aspect_ratio_factor,
+                            "splines_geojson": splines_geojson,
+                        }
                     )
                     feat["properties"]["splines"] = splines_geojson
                     feat["properties"]["aspect_ratio_factor"] = aspect_ratio_factor
