@@ -473,12 +473,9 @@ def test_calculate_splines():
     # Call calculate_splines with the prepared GeoDataFrame.
     splines_json, arf = calculate_splines(gdf, "EPSG:3857", close_buffer=close_buffer)
 
-    # Parse the returned GeoJSON.
-    spline_feature_collection = json.loads(splines_json)
-
     # Ensure that the feature collection has features.
-    assert "features" in spline_feature_collection
-    features = spline_feature_collection["features"]
+    assert "features" in splines_json
+    features = splines_json["features"]
 
     # Check that at least one feature was created.
     assert len(features) >= 1, "No spline features were created."
