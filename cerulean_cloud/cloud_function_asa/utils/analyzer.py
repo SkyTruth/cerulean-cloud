@@ -32,11 +32,9 @@ from shapely.ops import unary_union
 
 from . import constants as c
 from .scoring import (
-    compute_aspect_ratio_factor,
     compute_distance_score,
     compute_overlap_score,
     compute_temporal_score,
-    dark_compute_total_score,
     vessel_compute_total_score,
 )
 
@@ -89,6 +87,14 @@ class SourceAnalyzer:
         )
         return geo_df
 
+    def load_slick_curves(self):
+        """
+        Loads the slick curves from the GeoDataFrame.
+        """
+        self.slick_curves = gpd.GeoDataFrame.from_features(
+            json.loads(self.slick_gdf)["features"], crs="EPSG:4326"
+        )
+
 
 class AISAnalyzer(SourceAnalyzer):
     """
@@ -121,7 +127,6 @@ class AISAnalyzer(SourceAnalyzer):
         self.w_temporal = kwargs.get("w_temporal", c.VESSEL_W_TEMPORAL)
         self.w_overlap = kwargs.get("w_overlap", c.VESSEL_W_OVERLAP)
         self.w_distance = kwargs.get("w_distance", c.VESSEL_W_DISTANCE)
-        self.w_aspect_ratio_factor = kwargs.get("w_aspect_ratio_factor", c.VESSEL_W_ARF)
         self.ais_ref_dist = kwargs.get("ais_ref_dist", c.VESSEL_REF_DIST)
         self.coinc_mean = kwargs.get("coinc_mean", c.VESSEL_MEAN)
         self.coinc_std = kwargs.get("coinc_std", c.VESSEL_STD)
@@ -368,20 +373,14 @@ class AISAnalyzer(SourceAnalyzer):
                     t, self.slick_curves, self.crs_meters, self.ais_ref_dist
                 )
 
-                aspect_ratio_factor = compute_aspect_ratio_factor(
-                    self.slick_curves, self.slick_closed
-                )
-
                 # Compute total score from these three metrics
                 coincidence_score = vessel_compute_total_score(
                     temporal_score,
                     overlap_score,
                     distance_score,
-                    aspect_ratio_factor,
                     self.w_temporal,
                     self.w_overlap,
                     self.w_distance,
-                    self.w_aspect_ratio_factor,
                 )
 
                 print(
@@ -415,9 +414,9 @@ class AISAnalyzer(SourceAnalyzer):
         """
         self.results = gpd.GeoDataFrame()
 
-        self.slick_curves = None
         self.slick_gdf = slick_gdf
-
+        if self.slick_curves is None:
+            self.load_slick_curves()
         if self.ais_gdf is None:
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
@@ -863,8 +862,6 @@ class DarkAnalyzer(PointAnalyzer):
         self.coinc_mean = kwargs.get("coinc_mean", c.DARK_MEAN)
         self.coinc_std = kwargs.get("coinc_std", c.DARK_STD)
         self.cutoff_radius = kwargs.get("cutoff_radius", c.DARK_CUTOFF_RADIUS)
-        self.w_aspect_ratio_factor = kwargs.get("w_aspect_ratio_factor", c.DARK_W_ARF)
-        self.w_coincidence = kwargs.get("w_coincidence", c.DARK_W_COINCIDENCE)
         self.num_vertices = kwargs.get("num_vertices", c.DARK_NUM_VERTICES)
 
     def retrieve_sar_detection_data(self):
@@ -990,17 +987,7 @@ class DarkAnalyzer(PointAnalyzer):
             np.array(combined_geometry.centroid.coords[0]),
         )
 
-        self.slick_to_curves(self.slick_gdf)
-        aspect_ratio_factor = compute_aspect_ratio_factor(
-            self.slick_curves, self.slick_closed
-        )
-        total_scores = dark_compute_total_score(
-            aspect_ratio_factor,
-            confidence_filtered,
-            self.w_aspect_ratio_factor,
-            self.w_coincidence,
-        )
-        self.coincidence_scores[filtered_dark_objects.index] = total_scores
+        self.coincidence_scores[filtered_dark_objects.index] = confidence_filtered
 
         # Return a DataFrame with geojson, coincidence_scores, and collated_score
         results = self.dark_objects_gdf.copy()

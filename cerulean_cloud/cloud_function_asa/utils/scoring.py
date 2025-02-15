@@ -6,7 +6,6 @@ import math
 
 import geopandas as gpd
 import movingpandas as mpd
-import numpy as np
 import shapely.geometry
 import shapely.ops
 from shapely import frechet_distance
@@ -131,11 +130,9 @@ def vessel_compute_total_score(
     temporal_score: float,
     overlap_score: float,
     distance_score: float,
-    aspect_ratio_factor: float,
     w_temporal: float,
     w_overlap: float,
     w_distance: float,
-    w_aspect_ratio_factor: float,
 ):
     """
     Compute the weighted total score.
@@ -152,39 +149,16 @@ def vessel_compute_total_score(
         float: Weighted total score between 0 and 1.
     """
     # Normalize weights
-    total_weight = w_temporal + w_overlap + w_distance  # + w_aspect_ratio_factor
+    total_weight = w_temporal + w_overlap + w_distance
     w_temporal /= total_weight
     w_overlap /= total_weight
     w_distance /= total_weight
-    # w_aspect_ratio_factor /= total_weight
 
     # Compute weighted sum
     total_score = (
         w_temporal * temporal_score
         + w_overlap * overlap_score
         + w_distance * distance_score
-    ) * aspect_ratio_factor
+    )
 
     return total_score
-
-
-def dark_compute_total_score(
-    aspect_ratio_factor: float,
-    coincidence_scores: np.array,
-    w_arf: float,
-    w_coincidence: float,
-) -> float:
-    """
-    Compute the total scores from the ARF value, the weights, and the coincidence scores.
-    """
-    # Normalize weights
-    # total_weight = w_arf + w_coincidence
-    # w_arf /= total_weight
-    # w_coincidence /= total_weight
-    # This doesn't work because it increases ALL nearby dark vessels to have a minimum of the ARF score
-
-    # Compute weighted sum
-    # total_scores = w_arf * aspect_ratio_factor + w_coincidence * coincidence_scores
-    total_scores = aspect_ratio_factor * coincidence_scores
-
-    return total_scores
