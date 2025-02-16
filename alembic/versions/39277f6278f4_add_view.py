@@ -26,6 +26,7 @@ def upgrade() -> None:
     SELECT
         slick.*,
         slick.length^2 / slick.area / slick.polsby_popper as linearity,
+        slick.aspect_ratio_factor,
         sentinel1_grd.scene_id AS s1_scene_id,
         sentinel1_grd.geometry AS s1_geometry,
         cls.short_name AS cls_short_name,
