@@ -32,7 +32,9 @@ from cerulean_cloud.cloud_function_asa.utils.analyzer import (  # noqa: E402; Na
 )
 
 
-def download_geojson(id, download_path=os.getenv("ASA_DOWNLOAD_PATH")):
+def download_geojson(
+    id, download_path=os.getenv("ASA_DOWNLOAD_PATH"), use_test_db=False
+):
     """
     Downloads a GeoJSON file from the specified URL if it hasn't been downloaded already.
 
@@ -44,6 +46,8 @@ def download_geojson(id, download_path=os.getenv("ASA_DOWNLOAD_PATH")):
     - geojson_file_path (str): The file path to the downloaded GeoJSON.
     """
     url = f"https://api.cerulean.skytruth.org/collections/public.slick_plus/items?id={id}&f=geojson"
+    if use_test_db:
+        url = f"https://cerulean-cloud-test-cr-tipg-5qkjkyomta-ew.a.run.app/collections/public.slick_plus/items?id={id}&f=geojson"
     geojson_file_path = os.path.join(download_path, f"{id}.geojson")
 
     if not os.path.exists(geojson_file_path):

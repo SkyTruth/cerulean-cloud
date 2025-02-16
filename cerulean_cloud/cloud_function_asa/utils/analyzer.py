@@ -92,7 +92,7 @@ class SourceAnalyzer:
         Loads the slick curves from the GeoDataFrame.
         """
         self.slick_curves = gpd.GeoDataFrame.from_features(
-            json.loads(self.slick_gdf)["features"], crs="EPSG:4326"
+            json.loads(self.slick_gdf["splines"].iloc[0])["features"], crs="EPSG:4326"
         )
 
 
@@ -421,8 +421,6 @@ class AISAnalyzer(SourceAnalyzer):
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
             return pd.DataFrame()
-
-        self.slick_to_curves(self.slick_gdf)
         if self.ais_trajectories is None:
             self.build_trajectories()
         if self.ais_buffered is None:
