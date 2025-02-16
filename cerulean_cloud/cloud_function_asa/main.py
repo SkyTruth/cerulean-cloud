@@ -122,7 +122,10 @@ async def handle_asa_request(request):
 
                     # Convert slick geometry to GeoDataFrame
                     slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
-                    slick_gdf = gpd.GeoDataFrame({"geometry": [slick_geom]}, crs="4326")
+                    slick_gdf = gpd.GeoDataFrame(
+                        {"geometry": [slick_geom], "splines": [slick.splines]},
+                        crs="4326",
+                    )
                     fresh_ranked_sources = pd.DataFrame()
 
                     for analyzer in analyzers_to_run:

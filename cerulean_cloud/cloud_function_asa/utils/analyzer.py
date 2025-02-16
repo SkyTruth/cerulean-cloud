@@ -92,7 +92,7 @@ class SourceAnalyzer:
         Loads the slick curves from the GeoDataFrame.
         """
         self.slick_curves = gpd.GeoDataFrame.from_features(
-            json.loads(self.slick_gdf["splines"].iloc[0])["features"], crs="EPSG:4326"
+            self.slick_gdf["splines"].iloc[0]["features"], crs="EPSG:4326"
         )
 
 
