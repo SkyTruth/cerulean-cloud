@@ -304,7 +304,7 @@ class DatabaseClient:
         """
         query = (
             select(db.Slick)
-            .distinct()
+            .distinct(db.Slick.id)  # distinct on the primary key
             .outerjoin(db.SlickToSource, db.Slick.id == db.SlickToSource.slick)
             .join(db.OrchestratorRun)
             .join(db.Sentinel1Grd)
