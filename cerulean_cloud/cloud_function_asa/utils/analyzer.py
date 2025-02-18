@@ -718,7 +718,7 @@ class PointAnalyzer(SourceAnalyzer):
 
     def scaled_inner_angles(self, a, b, c_set):
         """
-        Calculate scaled inner angles at vertex A for a triangle formed by points A, B, and each point in C.
+        Calculate scaled inner angles at vertex C for a triangle formed by points A, B, and each point in C.
 
         Parameters:
             a: Tuple representing the vertex A (x1, y1).
@@ -726,7 +726,7 @@ class PointAnalyzer(SourceAnalyzer):
             c_set: List or array of tuples representing the points in C (x3, y3).
 
         Returns:
-            A NumPy array of scaled angles at vertex A for each point in C.
+            A NumPy array of scaled angles at vertex C for each point in C.
         """
         # Convert A and B to numpy arrays
         a = np.array(a)
@@ -735,20 +735,20 @@ class PointAnalyzer(SourceAnalyzer):
         # Convert C set to a NumPy array
         c_set = np.array(c_set)
 
-        # Vectors AB and AC
-        ab = b - a  # Vector AB (constant for all C points)
-        ac = c_set - a  # Vector AC for each point in C
+        # Vectors BC and AC
+        bc = b - c_set  # Vector BC for each point in C
+        ac = a - c_set  # Vector AC for each point in C
 
         # Dot products and magnitudes
-        dot_products = np.sum(ac * ab, axis=1)  # Dot product of AB and each AC
-        magnitude_ab = np.linalg.norm(ab)  # Magnitude of AB (constant)
-        magnitudes_ac = np.linalg.norm(ac, axis=1)  # Magnitudes of all AC vectors
+        dot_products = np.sum(bc * ac, axis=1)  # Dot product of BC and AC
+        magnitude_bc = np.linalg.norm(bc, axis=1)  # Magnitudes of all BC vectors
+        magnitude_ac = np.linalg.norm(ac, axis=1)  # Magnitudes of all AC vectors
 
         # Calculate angles in radians
-        angles_radians = np.arccos(dot_products / (magnitude_ab * magnitudes_ac))
+        angles_radians = np.arccos(dot_products / (magnitude_bc * magnitude_ac))
 
         # Scale angles to range 0-1
-        scaled_angles = angles_radians / np.pi
+        scaled_angles = 1 - (angles_radians / np.pi)
 
         return np.array(scaled_angles)
 
