@@ -433,9 +433,9 @@ def test_nms_feature_reduction_handles_invalid_geometry(base_model_instance):
 
     # Check if the result contains only the valid feature
     assert len(result["features"]) == 1, "Should retain only one valid feature"
-    assert (
-        result["features"][0]["properties"]["machine_confidence"] == 0.95
-    ), "The retained feature should have a confidence of 0.95"
+    assert result["features"][0]["properties"]["machine_confidence"] == 0.95, (
+        "The retained feature should have a confidence of 0.95"
+    )
 
 
 def test_get_tag():

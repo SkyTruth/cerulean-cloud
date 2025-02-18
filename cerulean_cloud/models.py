@@ -743,8 +743,9 @@ class MASKRCNNModel(BaseModel):
         if len(shps) == 1:  # Only the background class was observed
             return geojson.Feature([])
         geoms, inf_idxs = zip(*[s for s in shps if s[1] != self.background_class_idx])
-        multipoly, inf_idx = MultiPolygon([shape(g) for g in geoms]), (
-            inf_idxs[0] if inf_idxs else 0
+        multipoly, inf_idx = (
+            MultiPolygon([shape(g) for g in geoms]),
+            (inf_idxs[0] if inf_idxs else 0),
         )
         return (
             geojson.Feature(
