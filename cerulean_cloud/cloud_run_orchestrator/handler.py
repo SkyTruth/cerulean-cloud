@@ -22,8 +22,9 @@ from typing import Dict, List, Tuple
 import geopandas as gpd
 import morecantile
 import numpy as np
+import psutil
 import supermercado
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
 from shapely.geometry import shape
@@ -223,9 +224,36 @@ async def orchestrate(
     db_engine=Depends(get_database_engine),
 ) -> Dict:
     """orchestrate"""
-    return await _orchestrate(
-        payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
-    )
+
+    try:
+        return await _orchestrate(
+            payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
+        )
+    except Exception as e:
+        # Handle unexpected errors
+        logger.error(
+            {
+                "message": "Unexpected error during orchestration",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred. Please try again later.",
+        ) from e
+    finally:
+        before = psutil.Process().memory_info().rss / (1024**2)
+        unreachable_objects = gc.collect()  # Force garbage collection
+        after = psutil.Process().memory_info().rss / (1024**2)
+        logger.info(
+            {
+                "message": "Garbage clean up",
+                "memory_usage_before_cleanup_mb": before,
+                "memory_usage_after_cleanup_mb": after,
+                "n_unreachable_objects": unreachable_objects,
+            }
+        )
 
 
 def is_tile_over_water(tile_bounds: List[float]) -> bool:
