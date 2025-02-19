@@ -1,4 +1,5 @@
 """alembic env"""
+
 import os
 from logging.config import fileConfig
 

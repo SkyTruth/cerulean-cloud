@@ -314,7 +314,7 @@ async def _orchestrate(
         logger.warning(
             {
                 "message": "Model resolution warning",
-                "description": f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}",
+                "description": f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale * 256}",
             }
         )
 
