@@ -217,13 +217,6 @@ class CloudRunInferenceClient:
         if self.aux_datasets:
             img_array = await self.process_auxiliary_datasets(img_array, tile_bounds)
 
-        logger.info(
-            {
-                "message": "Processing inference request",
-                "size_of_img_array_mb": sys.getsizeof(img_array) * 10e-6,
-            }
-        )
-
         return await self.send_inference_request_and_handle_response(
             http_client, img_array
         )
