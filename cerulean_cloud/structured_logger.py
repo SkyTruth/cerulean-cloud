@@ -254,10 +254,13 @@ def query_logger(project_id, query, page_size=1000):
     log_entries = pd.DataFrame(logs_to_list(logs))
     if "json_payload" in log_entries.columns:
         log_entries["scene_id"] = log_entries["json_payload"].apply(
-            lambda x: x["scene_id"] if x is not None and "scene_id" in x else None
+            lambda x: x.get("scene_id") if isinstance(x, dict) else None
         )
-        log_entries["message"] = log_entries["json_payload"].apply(
-            lambda x: x["message"] if x is not None and "message" in x else None
+        log_entries["message"] = log_entries.apply(
+            lambda x: x["json_payload"].get("message", x["text_payload"])
+            if isinstance(x["json_payload"], dict)
+            else x["text_payload"],
+            axis=1,
         )
     return log_entries
 
