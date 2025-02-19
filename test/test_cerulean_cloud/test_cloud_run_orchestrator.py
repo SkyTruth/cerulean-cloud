@@ -436,9 +436,9 @@ def test_nms_feature_reduction_handles_invalid_geometry(base_model_instance):
 
     # Check if the result contains only the valid feature
     assert len(result["features"]) == 1, "Should retain only one valid feature"
-    assert (
-        result["features"][0]["properties"]["machine_confidence"] == 0.95
-    ), "The retained feature should have a confidence of 0.95"
+    assert result["features"][0]["properties"]["machine_confidence"] == 0.95, (
+        "The retained feature should have a confidence of 0.95"
+    )
 
 
 def test_get_tag():
@@ -498,9 +498,9 @@ def test_calculate_splines():
     # Check that the aspect ratio factor is approximately equal to the expected value.
     # The expected value here is from your sample output. Allow a small tolerance.
     expected_arf = 0.42581
-    assert math.isclose(
-        arf, expected_arf, rel_tol=1e-4
-    ), f"Aspect ratio factor {arf} differs from expected {expected_arf}."
+    assert math.isclose(arf, expected_arf, rel_tol=1e-4), (
+        f"Aspect ratio factor {arf} differs from expected {expected_arf}."
+    )
 
     # (Optional) Uncomment to see a plot when running the test locally.
     # fig, ax = plt.subplots(figsize=(10, 6))

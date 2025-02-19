@@ -66,6 +66,7 @@ def upgrade() -> None:
         signature="source_plus",
         definition="""
             SELECT
+                sk.geometry as geometry,
                 sts.slick as slick_id,
                 sk.machine_confidence as slick_confidence,
                 s.ext_id as mmsi_or_structure_id,

@@ -1,4 +1,5 @@
 """Generic auth module for fast API using hardcoded api key"""
+
 import os
 
 from fastapi import Depends, HTTPException, status

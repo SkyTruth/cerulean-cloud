@@ -1,51 +1,8 @@
 repos:
-    -
-        repo: https://github.com/pre-commit/mirrors-isort
-        rev: v5.10.1
-        hooks:
-            - id: isort
-              language_version: python
-              args: ["--profile", "black"]
-    -
-        repo: 'https://github.com/psf/black'
-        rev: 22.3.0
-        hooks:
-            - id: black
-              args: ['--safe']
-              language_version: python
-    -
-        repo: https://github.com/PyCQA/flake8
-        rev: 7.1.1
-        hooks:
-            - id: flake8
-              language_version: python
-              args: [
-                  # E501 let black handle all line length decisions
-                  # W503 black conflicts with "line break before operator" rule
-                  # E203 black conflicts with "whitespace before ':'" rule
-                  '--ignore=E501,W503,E203']
-    -
-        repo: 'https://github.com/PyCQA/pydocstyle'
-        # 2.1.1
-        rev: 6.3.0
-        hooks:
-            - id: pydocstyle
-              language_version: python
-              args: [
-                 # Check for docstring presence only
-                 '--select=D1',
-                 # Don't require docstrings for tests
-                 '--match=(?!test).*\.py']
-
-    -
-        repo: https://github.com/pre-commit/mirrors-mypy
-        rev: 'v1.13.0'
-        hooks:
-            - id: mypy
-              args: [
-                '--install-types',
-                '--non-interactive',
-                '--no-strict-optional',
-                '--ignore-missing-imports',
-                '--disable-error-code=attr-defined'
-              ]
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.6
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+        language_version: python
+      - id: ruff-format

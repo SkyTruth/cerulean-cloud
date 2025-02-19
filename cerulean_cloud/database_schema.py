@@ -1,4 +1,4 @@
-""""
+"""
 0. Make any changes you want to EVERYWHERE ELSE that has #EditTheDatabase, but NOT here
 1. Copy this comment
 2. Run:
