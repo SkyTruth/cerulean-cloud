@@ -278,17 +278,28 @@ async def _orchestrate(
         }
     )
 
-    async with DatabaseClient(db_engine) as db_client:
-        async with db_client.session.begin():
-            db_model = await db_client.get_db_model(os.getenv("MODEL"))
-            model_dict = {
-                column.name: (
-                    getattr(db_model, column.name).isoformat()
-                    if isinstance(getattr(db_model, column.name), datetime)
-                    else getattr(db_model, column.name)
-                )
-                for column in db_model.__table__.columns
+    try:
+        async with DatabaseClient(db_engine) as db_client:
+            async with db_client.session.begin():
+                db_model = await db_client.get_db_model(os.getenv("MODEL"))
+                model_dict = {
+                    column.name: (
+                        getattr(db_model, column.name).isoformat()
+                        if isinstance(getattr(db_model, column.name), datetime)
+                        else getattr(db_model, column.name)
+                    )
+                    for column in db_model.__table__.columns
+                }
+    except Exception as e:
+        logger.error(
+            {
+                "message": "Failed to get DB model",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
             }
+        )
+        return OrchestratorResult(status=str(e))
+
     zoom = payload.zoom or model_dict["zoom_level"]
     scale = payload.scale or model_dict["scale"]
 
@@ -407,152 +418,200 @@ async def _orchestrate(
         return OrchestratorResult(status="Success (dry run)")
 
     # write to DB
-    async with DatabaseClient(db_engine) as db_client:
-        async with db_client.session.begin():
-            trigger = await db_client.get_trigger(trigger=payload.trigger)
-            layers = [
-                await db_client.get_layer(layer) for layer in model_dict["layers"]
-            ]
-            sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
-                payload.scene_id,
-                scene_info,
-                titiler_client.get_base_tile_url(
+    try:
+        async with DatabaseClient(db_engine) as db_client:
+            async with db_client.session.begin():
+                trigger = await db_client.get_trigger(trigger=payload.trigger)
+                layers = [
+                    await db_client.get_layer(layer) for layer in model_dict["layers"]
+                ]
+                sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
                     payload.scene_id,
-                    rescale=(0, 255),
-                ),
-            )
-            stale_slick_count = await db_client.deactivate_stale_slicks_from_scene_id(
-                payload.scene_id
-            )
-            logger.info(
-                {
-                    "message": "Deactivating slicks from stale runs.",
-                    "n_stale_slicks": stale_slick_count,
-                }
-            )
-            orchestrator_run = await db_client.add_orchestrator(
-                start_time,
-                start_time,
-                n_basetiles,
-                n_offsettiles,
-                os.getenv("GIT_HASH"),
-                os.getenv("GIT_TAG"),
-                make_cloud_log_url(
-                    os.getenv("CLOUD_RUN_NAME"),
+                    scene_info,
+                    titiler_client.get_base_tile_url(
+                        payload.scene_id,
+                        rescale=(0, 255),
+                    ),
+                )
+                stale_slick_count = (
+                    await db_client.deactivate_stale_slicks_from_scene_id(
+                        payload.scene_id
+                    )
+                )
+                logger.info(
+                    {
+                        "message": "Deactivating slicks from stale runs.",
+                        "n_stale_slicks": stale_slick_count,
+                    }
+                )
+                orchestrator_run = await db_client.add_orchestrator(
                     start_time,
-                    os.getenv("PROJECT_ID"),
-                ),
-                zoom,
-                scale,
-                scene_bounds,
-                trigger,
-                db_model,
-                sentinel1_grd,
-            )
+                    start_time,
+                    n_basetiles,
+                    n_offsettiles,
+                    os.getenv("GIT_HASH"),
+                    os.getenv("GIT_TAG"),
+                    make_cloud_log_url(
+                        os.getenv("CLOUD_RUN_NAME"),
+                        start_time,
+                        os.getenv("PROJECT_ID"),
+                    ),
+                    zoom,
+                    scale,
+                    scene_bounds,
+                    trigger,
+                    db_model,
+                    sentinel1_grd,
+                )
+    except Exception as e:
+        logger.error(
+            {
+                "message": "Failed to write to DB",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
+        )
+        return OrchestratorResult(status=str(e))
 
-        success = True
+    success = True
+
+    logger.info("Instantiating inference client")
+    cloud_run_inference = CloudRunInferenceClient(
+        url=os.getenv("INFERENCE_URL"),
+        titiler_client=titiler_client,
+        scene_id=payload.scene_id,
+        tileset_envelope_bounds=tileset_envelope_bounds,
+        image_hw_pixels=tileset_hw_pixels,
+        layers=layers,
+        scale=scale,
+        model_dict=model_dict,
+    )
+
+    # Log memory usage and aux_datasets size
+    logger.info(
+        {
+            "message": "Inference starting",
+            "aux_datasets_size_mb": sys.getsizeof(cloud_run_inference.aux_datasets)
+            / (1024**2),
+        }
+    )
+
+    try:
+        # Perform inferences
+        tileset_results_list = [
+            await cloud_run_inference.run_parallel_inference(tileset)
+            for tileset in tileset_list
+        ]
+    except Exception as e:
+        success = False
+        exc = e
+        logger.error(
+            {
+                "message": "Failed to process inference on scene",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
+        )
+        return OrchestratorResult(status=str(e))
+
+    # Stitch inferences
+    logger.info(
+        {
+            "message": "Initializing model",
+            "model_type": model_dict["type"],
+        }
+    )
+    model = get_model(model_dict)
+
+    logger.info("Stitching result")
+
+    try:
+        tileset_fc_list = []
+        for tileset_results, tileset_bounds in zip(tileset_results_list, tileset_list):
+            if tileset_results and tileset_bounds:
+                fc = model.postprocess_tileset(
+                    tileset_results, [[b] for b in tileset_bounds]
+                )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+                tileset_fc_list.append(fc)
+    except Exception as e:
+        success = False
+        exc = e
+        logger.error(
+            {
+                "message": "Failed to stitch results",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
+        )
+        return OrchestratorResult(status=str(e))
+
+    # Ensemble inferences
+    logger.info("Ensembling results")
+    try:
+        final_ensemble = model.nms_feature_reduction(
+            features=tileset_fc_list, min_overlaps_to_keep=1
+        )
+        features = final_ensemble.get("features", [])
+        n_features = len(features)
+    except Exception as e:
+        success = False
+        exc = e
+        logger.error(
+            {
+                "message": "Failed to ensemble results",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
+        )
+        return OrchestratorResult(status=str(e))
+
+    # number of features that are over land (excluded from final feature list)
+    n_background_slicks = 0
+    if features:
+        LAND_MASK_BUFFER_M = 1000
+        logger.info(
+            {
+                "message": "Removing all slicks near land",
+                "n_features": n_features,
+                "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
+            }
+        )
+        for feat in features:
+            buffered_gdf = gpd.GeoDataFrame(
+                geometry=[shape(feat["geometry"])], crs="4326"
+            )
+            crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
+            buffered_gdf["geometry"] = (
+                buffered_gdf.to_crs(crs_meters)
+                .buffer(LAND_MASK_BUFFER_M)
+                .to_crs("4326")
+            )
+            intersecting_land = gpd.sjoin(
+                get_landmask_gdf(),
+                buffered_gdf,
+                how="inner",
+                predicate="intersects",
+            )
+            # when the feature does not intersect land, update inf_idx and increase n_background_slicks
+            if not intersecting_land.empty:
+                feat["properties"]["inf_idx"] = model.background_class_idx
+                n_background_slicks += 1
+
+        logger.info(
+            {
+                "message": "Adding slicks to database",
+                "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
+                "n_background_slicks": n_background_slicks,
+                "n_slicks": n_features - n_background_slicks,
+            }
+        )
+        del features
+        # Removed all preprocessing of features from within the
+        # database session to avoid holidng locks on the
+        # table while performing un-related calculations.
+
         try:
-            logger.info("Instantiating inference client")
-            cloud_run_inference = CloudRunInferenceClient(
-                url=os.getenv("INFERENCE_URL"),
-                titiler_client=titiler_client,
-                scene_id=payload.scene_id,
-                tileset_envelope_bounds=tileset_envelope_bounds,
-                image_hw_pixels=tileset_hw_pixels,
-                layers=layers,
-                scale=scale,
-                model_dict=model_dict,
-            )
-
-            # Log memory usage and aux_datasets size
-            logger.info(
-                {
-                    "message": "Inference starting",
-                    "aux_datasets_size_mb": sys.getsizeof(
-                        cloud_run_inference.aux_datasets
-                    )
-                    / (1024**2),
-                }
-            )
-
-            # Perform inferences
-            tileset_results_list = [
-                await cloud_run_inference.run_parallel_inference(tileset)
-                for tileset in tileset_list
-            ]
-
-            # Stitch inferences
-            logger.info(
-                {
-                    "message": "Initializing model",
-                    "model_type": model_dict["type"],
-                }
-            )
-            model = get_model(model_dict)
-
-            logger.info("Stitching result")
-            tileset_fc_list = []
-            for tileset_results, tileset_bounds in zip(
-                tileset_results_list, tileset_list
-            ):
-                if tileset_results and tileset_bounds:
-                    fc = model.postprocess_tileset(
-                        tileset_results, [[b] for b in tileset_bounds]
-                    )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
-                    tileset_fc_list.append(fc)
-
-            # Ensemble inferences
-            logger.info("Ensembling results")
-            final_ensemble = model.nms_feature_reduction(
-                features=tileset_fc_list, min_overlaps_to_keep=1
-            )
-            features = final_ensemble.get("features", [])
-            n_features = len(features)
-
-            # number of features that are over land (excluded from final feature list)
-            n_background_slicks = 0
-            if features:
-                LAND_MASK_BUFFER_M = 1000
-                logger.info(
-                    {
-                        "message": "Removing all slicks near land",
-                        "n_features": n_features,
-                        "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
-                    }
-                )
-                for feat in features:
-                    buffered_gdf = gpd.GeoDataFrame(
-                        geometry=[shape(feat["geometry"])], crs="4326"
-                    )
-                    crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
-                    buffered_gdf["geometry"] = (
-                        buffered_gdf.to_crs(crs_meters)
-                        .buffer(LAND_MASK_BUFFER_M)
-                        .to_crs("4326")
-                    )
-                    intersecting_land = gpd.sjoin(
-                        get_landmask_gdf(),
-                        buffered_gdf,
-                        how="inner",
-                        predicate="intersects",
-                    )
-                    # when the feature does not intersect land, update inf_idx and increase n_background_slicks
-                    if not intersecting_land.empty:
-                        feat["properties"]["inf_idx"] = model.background_class_idx
-                        n_background_slicks += 1
-
-                logger.info(
-                    {
-                        "message": "Adding slicks to database",
-                        "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
-                        "n_background_slicks": n_background_slicks,
-                        "n_slicks": n_features - n_background_slicks,
-                    }
-                )
-                del features
-                # Removed all preprocessing of features from within the
-                # database session to avoid holidng locks on the
-                # table while performing un-related calculations.
+            async with DatabaseClient(db_engine) as db_client:
                 async with db_client.session.begin():
                     for feat in final_ensemble.get("features"):
                         _ = await db_client.add_slick(
@@ -563,34 +622,46 @@ async def _orchestrate(
                             feat.get("properties").get("machine_confidence"),
                         )
                         logger.info("Added slick")
-
-                logger.info("Queueing up Automatic Source Association")
-                add_to_asa_queue(sentinel1_grd.scene_id)
-            else:
-                logger.info("No features generated")
-
         except Exception as e:
             success = False
             exc = e
             logger.error(
                 {
-                    "message": "Failed to process inference on scene",
+                    "message": "Failed to add slick to database",
                     "exception": str(e),
                     "traceback": traceback.format_exc(),
                 }
             )
-        async with db_client.session.begin():
-            end_time = datetime.now()
-            orchestrator_run.success = success
-            orchestrator_run.inference_end_time = end_time
-            logger.info(
+            return OrchestratorResult(status=str(e))
+
+        logger.info("Queueing up Automatic Source Association")
+        try:
+            add_to_asa_queue(sentinel1_grd.scene_id)
+        except Exception as e:
+            success = False
+            exc = e
+            logger.error(
                 {
-                    "message": "Orchestration complete!",
-                    "timestamp": end_time.isoformat() + "Z",
-                    "success": success,
-                    "duration_minutes": (end_time - start_time).total_seconds() / 60,
+                    "message": "Failed automatic source association",
+                    "exception": str(e),
+                    "traceback": traceback.format_exc(),
                 }
             )
-        if success is False:
-            raise exc
+            return OrchestratorResult(status=str(e))
+    else:
+        logger.info("No features generated")
+
+    end_time = datetime.now()
+    orchestrator_run.success = success
+    orchestrator_run.inference_end_time = end_time
+    logger.info(
+        {
+            "message": "Orchestration complete!",
+            "timestamp": end_time.isoformat() + "Z",
+            "success": success,
+            "duration_minutes": (end_time - start_time).total_seconds() / 60,
+        }
+    )
+    if success is False:
+        raise exc
     return OrchestratorResult(status="Success")
