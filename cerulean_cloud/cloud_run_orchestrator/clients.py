@@ -258,6 +258,8 @@ class CloudRunInferenceClient:
                     }
                 )
 
+            logger.info("Gathering inferences")
+
             inferences = None
             try:
                 # False means this process will error out if any subtask errors out
