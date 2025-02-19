@@ -323,10 +323,10 @@ async def _orchestrate(
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
     try:
         logger.info("Getting scene bounds")
-        scene_bounds = await titiler_client.get_bounds(payload.sceneid)
+        scene_bounds = await titiler_client.get_bounds(payload.scene_id)
 
         logger.info("Getting scene statistics")
-        scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+        scene_stats = await titiler_client.get_statistics(payload.scene_id, band="vv")
     except Exception as e:
         logger.error(
             {
@@ -339,7 +339,7 @@ async def _orchestrate(
 
     try:
         logger.info("Getting SentinalHUB product info")
-        scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+        scene_info = await roda_sentinelhub_client.get_product_info(payload.scene_id)
     except Exception as e:
         logger.error(
             {
