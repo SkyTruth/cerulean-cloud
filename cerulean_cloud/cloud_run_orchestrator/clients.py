@@ -204,6 +204,13 @@ class CloudRunInferenceClient:
         - This function integrates several steps: fetching the image, processing it, adding auxiliary data, and sending it for inference. It also includes a check to optionally skip empty tiles.
         """
 
+        logger.info(
+            {
+                "message": "Generating image",
+                "tile_bounds": json.dumps(tile_bounds),
+            }
+        )
+
         img_array = await self.fetch_and_process_image(tile_bounds, rescale)
         if not np.any(img_array):
             return InferenceResultStack(stack=[])
@@ -212,8 +219,8 @@ class CloudRunInferenceClient:
 
         logger.info(
             {
-                "message": "Generated image",
-                "tile_bounds": json.dumps(tile_bounds),
+                "message": "Processing inference request",
+                "size_of_img_array_mb": sys.getsizeof(img_array) * 10e-6,
             }
         )
 
@@ -258,8 +265,6 @@ class CloudRunInferenceClient:
                     }
                 )
 
-            logger.info("Gathering inferences")
-
             inferences = None
             try:
                 # False means this process will error out if any subtask errors out
@@ -270,7 +275,7 @@ class CloudRunInferenceClient:
                 raise ValueError(f"Failed inference: {e}")
             except Exception as e:
                 # If asyncio.gather tasks fail, raise ValueError
-                raise ValueError(f"Failed to gather inference: {e}")
+                raise ValueError(f"Failed to complete parallel inference: {e}")
             finally:
                 logger.info(
                     {

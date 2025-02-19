@@ -5,6 +5,7 @@ These classes are designed to load models, make predictions, stack results,
 and stitch together inference outputs for geospatial analysis.
 """
 
+import gc
 import json
 import logging
 import os
@@ -34,40 +35,6 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 )
 
 logger = logging.getLogger("cerulean_cloud")
-
-
-# TODO: remove this (and replace with torch.cuda.empty_cache() throughout) after debugging
-def clear_torch_cache():
-    """
-    Clears the PyTorch CUDA memory cache and returns memory usage statistics.
-
-    This function checks the amount of GPU memory allocated and reserved
-    before and after calling `torch.cuda.empty_cache()`. The empty cache
-    operation frees up unused memory but does not reduce allocated memory
-    still in use by active tensors.
-
-    Returns:
-        tuple: A tuple containing:
-            - allocated_before (int): Memory actively used before clearing (bytes).
-            - reserved_before (int): Total reserved memory before clearing (bytes).
-            - allocated_after (int): Memory actively used after clearing (bytes).
-            - reserved_after (int): Total reserved memory after clearing (bytes).
-
-    Example:
-        >>> before, reserved, after, reserved_after = clear_torch_cache()
-        >>> print(f"Memory before: {before / 1e6:.2f} MB, after: {after / 1e6:.2f} MB")
-    """
-    allocated_before = torch.cuda.memory_allocated()
-    reserved_before = (
-        torch.cuda.memory_reserved()
-    )  # Total memory reserved (allocated + cached)
-
-    torch.cuda.empty_cache()
-
-    allocated_after = torch.cuda.memory_allocated()
-    reserved_after = torch.cuda.memory_reserved()
-
-    return allocated_before, reserved_before, allocated_after, reserved_after
 
 
 class BaseModel:
@@ -223,7 +190,7 @@ class BaseModel:
             {
                 "message": "NMS: precomputing areas",
                 "n_features": len(feature_list),
-                "size_of_feature_list": sys.getsizeof(feature_list) * 10e-6,
+                "size_of_feature_list_mb": sys.getsizeof(feature_list) * 10e-6,
             }
         )
 
@@ -241,7 +208,7 @@ class BaseModel:
             {
                 "message": "NMS: reprojecting features",
                 "n_features": len(gdf),
-                "size_of_gdf": sys.getsizeof(gdf) * 10e-6,
+                "size_of_gdf_mb": sys.getsizeof(gdf) * 10e-6,
             }
         )
         gdf = reproject_to_utm(gdf)
@@ -432,23 +399,6 @@ class MASKRCNNModel(BaseModel):
             }
         )
         del scene_polys
-
-        # torch.cuda.empty_cache()
-        (
-            allocated_before,
-            reserved_before,
-            allocated_after,
-            reserved_after,
-        ) = clear_torch_cache()
-        logger.info(
-            {
-                "message": "DEBUG more variable memory allocations",
-                "size_of_allocated_before_mb": sys.getsizeof(allocated_before) * 10e-6,
-                "size_of_reserved_before_mb": sys.getsizeof(reserved_before) * 10e-6,
-                "size_of_allocated_after_mb": sys.getsizeof(allocated_after) * 10e-6,
-                "size_of_reserved_after_mb": sys.getsizeof(reserved_after) * 10e-6,
-            }
-        )
 
         logger.info("Reducing feature count on scene")
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
@@ -962,49 +912,22 @@ class FASTAIUNETModel(BaseModel):
             }
         )
         del scene_array_probs, transform
-        # torch.cuda.empty_cache()
-        (
-            allocated_before,
-            reserved_before,
-            allocated_after,
-            reserved_after,
-        ) = clear_torch_cache()
-        logger.info(
-            {
-                "message": "DEBUG more variable memory allocations",
-                "size_of_allocated_before_mb": sys.getsizeof(allocated_before) * 10e-6,
-                "size_of_reserved_before_mb": sys.getsizeof(reserved_before) * 10e-6,
-                "size_of_allocated_after_mb": sys.getsizeof(allocated_after) * 10e-6,
-                "size_of_reserved_after_mb": sys.getsizeof(reserved_after) * 10e-6,
-            }
-        )
+        gc.collect()
+        torch.cuda.empty_cache()
         n_feats = len(feature_collection.get("features", []))
 
         logger.info(
             {
                 "message": "Generated features. Reducing feature count on scene",
                 "n_features": n_feats,
-                "size_of_feature_collection": sys.getsizeof(feature_collection) * 10e-6,
+                "size_of_feature_collection_mb": sys.getsizeof(feature_collection)
+                * 10e-6,
             }
         )
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
         del feature_collection
-        # torch.cuda.empty_cache()
-        (
-            allocated_before,
-            reserved_before,
-            allocated_after,
-            reserved_after,
-        ) = clear_torch_cache()
-        logger.info(
-            {
-                "message": "DEBUG more variable memory allocations",
-                "size_of_allocated_before_mb": sys.getsizeof(allocated_before) * 10e-6,
-                "size_of_reserved_before_mb": sys.getsizeof(reserved_before) * 10e-6,
-                "size_of_allocated_after_mb": sys.getsizeof(allocated_after) * 10e-6,
-                "size_of_reserved_after_mb": sys.getsizeof(reserved_after) * 10e-6,
-            }
-        )
+        gc.collect()
+        torch.cuda.empty_cache()
 
         n_feats = len(reduced_feature_collection.get("features", []))
 
