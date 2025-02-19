@@ -27,6 +27,7 @@ from rasterio.io import MemoryFile
 from rasterio.transform import Affine
 from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
+from shapely.strtree import STRtree
 
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
     InferenceInput,
@@ -224,9 +225,9 @@ class BaseModel:
                 "n_features": len(gdf),
             }
         )
-        gdf["overlaps"] = gdf.apply(
-            lambda x: sum(x.geometry.intersects(y) for y in gdf.geometry) - 1, axis=1
-        )
+
+        tree = STRtree(gdf.geometry)
+        gdf["overlaps"] = [len(tree.query(geom)) - 1 for geom in gdf.geometry]
         feats_to_remove.extend(gdf[gdf["overlaps"] < min_overlaps_to_keep].index)
 
         logger.info(
