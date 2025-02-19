@@ -487,33 +487,6 @@ async def _orchestrate(
         model_dict=model_dict,
     )
 
-    # Log memory usage and aux_datasets size
-    logger.info(
-        {
-            "message": "Inference starting",
-            "aux_datasets_size_mb": sys.getsizeof(cloud_run_inference.aux_datasets)
-            / (1024**2),
-        }
-    )
-
-    try:
-        # Perform inferences
-        tileset_results_list = [
-            await cloud_run_inference.run_parallel_inference(tileset)
-            for tileset in tileset_list
-        ]
-    except Exception as e:
-        success = False
-        exc = e
-        logger.error(
-            {
-                "message": "Failed to process inference on scene",
-                "exception": str(e),
-                "traceback": traceback.format_exc(),
-            }
-        )
-        return OrchestratorResult(status=str(e))
-
     # Stitch inferences
     logger.info(
         {
@@ -523,36 +496,69 @@ async def _orchestrate(
     )
     model = get_model(model_dict)
 
-    logger.info("Stitching result")
+    # Log memory usage and aux_datasets size
+    logger.info(
+        {
+            "message": "Inference starting",
+            "aux_datasets_size_mb": sys.getsizeof(cloud_run_inference.aux_datasets)
+            / (1024**2),
+        }
+    )
 
-    try:
-        tileset_fc_list = []
-        for tileset_results, tileset_bounds in zip(tileset_results_list, tileset_list):
-            if tileset_results and tileset_bounds:
+    tileset_fc_list = []
+    for tileset_bounds in tileset_list:
+        try:
+            tileset_results = await cloud_run_inference.run_parallel_inference(
+                tileset_bounds
+            )
+        except Exception as e:
+            success = False
+            exc = e
+            logger.error(
+                {
+                    "message": "Failed to process inference on scene",
+                    "exception": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            return OrchestratorResult(status=str(e))
+
+        if tileset_results and tileset_bounds:
+            try:
                 fc = model.postprocess_tileset(
                     tileset_results, [[b] for b in tileset_bounds]
                 )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
                 tileset_fc_list.append(fc)
-    except Exception as e:
-        success = False
-        exc = e
-        logger.error(
-            {
-                "message": "Failed to stitch results",
-                "exception": str(e),
-                "traceback": traceback.format_exc(),
-            }
-        )
-        return OrchestratorResult(status=str(e))
+                del fc
+            except Exception as e:
+                success = False
+                exc = e
+                logger.error(
+                    {
+                        "message": "Failed to postprocess tileset",
+                        "exception": str(e),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
+                return OrchestratorResult(status=str(e))
+        del tileset_results
+        gc.collect()
 
     # Ensemble inferences
-    logger.info("Ensembling results")
+    logger.info(
+        {
+            "message": "Ensembling results",
+            "aux_datasets_size_mb": sys.getsizeof(tileset_fc_list) / (1024**2),
+        }
+    )
     try:
         final_ensemble = model.nms_feature_reduction(
             features=tileset_fc_list, min_overlaps_to_keep=1
         )
         features = final_ensemble.get("features", [])
         n_features = len(features)
+        del tileset_fc_list, final_ensemble
+        gc.collect()
     except Exception as e:
         success = False
         exc = e
@@ -613,7 +619,7 @@ async def _orchestrate(
         try:
             async with DatabaseClient(db_engine) as db_client:
                 async with db_client.session.begin():
-                    for feat in final_ensemble.get("features"):
+                    for feat in features:
                         _ = await db_client.add_slick(
                             orchestrator_run,
                             sentinel1_grd.start_time,
