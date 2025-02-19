@@ -911,7 +911,7 @@ class FASTAIUNETModel(BaseModel):
                 "size_of_transform_mb": sys.getsizeof(transform) * 10e-6,
             }
         )
-        del scene_array_probs, transform
+        scene_array_probs = None
         gc.collect()
         torch.cuda.empty_cache()
         n_feats = len(feature_collection.get("features", []))

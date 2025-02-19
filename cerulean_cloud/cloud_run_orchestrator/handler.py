@@ -611,7 +611,6 @@ async def _orchestrate(
                 "n_slicks": n_features - n_background_slicks,
             }
         )
-        del features
         # Removed all preprocessing of features from within the
         # database session to avoid holidng locks on the
         # table while performing un-related calculations.
@@ -628,6 +627,8 @@ async def _orchestrate(
                             feat.get("properties").get("machine_confidence"),
                         )
                         logger.info("Added slick")
+
+            del features
         except Exception as e:
             success = False
             exc = e
