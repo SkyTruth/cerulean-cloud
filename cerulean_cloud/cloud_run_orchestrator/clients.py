@@ -57,7 +57,7 @@ class CloudRunInferenceClient:
         self,
         url: str,
         titiler_client,
-        sceneid: str,
+        scene_id: str,
         tileset_envelope_bounds: List[float],
         image_hw_pixels: Tuple[int, int],
         layers: List,
@@ -67,9 +67,9 @@ class CloudRunInferenceClient:
         """init"""
         self.url = url
         self.titiler_client = titiler_client
-        self.sceneid = sceneid
+        self.scene_id = scene_id
         self.aux_datasets = handle_aux_datasets(
-            layers, self.sceneid, tileset_envelope_bounds, image_hw_pixels
+            layers, self.scene_id, tileset_envelope_bounds, image_hw_pixels
         )
         self.scale = scale  # 1=256, 2=512, 3=...
         self.model_dict = model_dict
@@ -92,7 +92,7 @@ class CloudRunInferenceClient:
 
         hw = self.scale * 256
         img_array = await self.titiler_client.get_offset_tile(
-            self.sceneid,
+            self.scene_id,
             *tile_bounds,
             width=hw,
             height=hw,
@@ -161,7 +161,7 @@ class CloudRunInferenceClient:
         encoded = img_array_to_b64_image(img_array, to_uint8=True)
         inf_stack = [InferenceInput(image=encoded)]
         payload = PredictPayload(
-            inf_stack=inf_stack, model_dict=self.model_dict, scene_id=self.sceneid
+            inf_stack=inf_stack, model_dict=self.model_dict, scene_id=self.scene_id
         )
 
         max_retries = 2  # Total attempts including the first try

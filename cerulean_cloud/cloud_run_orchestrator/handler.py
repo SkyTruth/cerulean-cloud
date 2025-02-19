@@ -27,7 +27,7 @@ from global_land_mask import globe
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
-from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_asa_queue
+from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
@@ -203,7 +203,7 @@ def is_tile_over_water(tile_bounds: List[float]) -> bool:
 async def _orchestrate(
     payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
 ):
-    context_dict_var.set({"scene_id": payload.sceneid})  # Set the scene_id for logging
+    context_dict_var.set({"scene_id": payload.scene_id})  # Set the scene_id for logging
 
     # Orchestrate inference
     start_time = datetime.now()
@@ -239,7 +239,7 @@ async def _orchestrate(
         logger.warning(
             {
                 "message": "Model resolution warning",
-                "description": f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}",
+                "description": f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale * 256}",
             }
         )
 
@@ -247,13 +247,13 @@ async def _orchestrate(
     # When scene traverses the anti-meridian, scene_bounds are nonsensical
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
     logger.info("Getting scene bounds")
-    scene_bounds = await titiler_client.get_bounds(payload.sceneid)
+    scene_bounds = await titiler_client.get_bounds(payload.scene_id)
 
     logger.info("Getting scene statistics")
-    scene_stats = await titiler_client.get_statistics(payload.sceneid, band="vv")
+    scene_stats = await titiler_client.get_statistics(payload.scene_id, band="vv")
 
     logger.info("Getting SentinalHUB product info")
-    scene_info = await roda_sentinelhub_client.get_product_info(payload.sceneid)
+    scene_info = await roda_sentinelhub_client.get_product_info(payload.scene_id)
 
     logger.info(
         {
@@ -329,16 +329,16 @@ async def _orchestrate(
             layers = [
                 await db_client.get_layer(layer) for layer in model_dict["layers"]
             ]
-            sentinel1_grd = await db_client.get_sentinel1_grd(
-                payload.sceneid,
+            sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
+                payload.scene_id,
                 scene_info,
                 titiler_client.get_base_tile_url(
-                    payload.sceneid,
+                    payload.scene_id,
                     rescale=(0, 255),
                 ),
             )
             stale_slick_count = await db_client.deactivate_stale_slicks_from_scene_id(
-                payload.sceneid
+                payload.scene_id
             )
             logger.info(
                 {
@@ -372,7 +372,7 @@ async def _orchestrate(
             cloud_run_inference = CloudRunInferenceClient(
                 url=os.getenv("INFERENCE_URL"),
                 titiler_client=titiler_client,
-                sceneid=payload.sceneid,
+                scene_id=payload.scene_id,
                 tileset_envelope_bounds=tileset_envelope_bounds,
                 image_hw_pixels=tileset_hw_pixels,
                 layers=layers,
@@ -470,7 +470,7 @@ async def _orchestrate(
                         )
                         logger.info("Added slick")
 
-                logger.info("Queueing up Automatic AIS Analysis")
+                logger.info("Queueing up Automatic Source Association")
                 add_to_asa_queue(sentinel1_grd.scene_id)
 
         except Exception as e:

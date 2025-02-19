@@ -1,4 +1,5 @@
 """handler for SNS topic, to cloud function"""
+
 import json
 import os
 from http.client import HTTPSConnection

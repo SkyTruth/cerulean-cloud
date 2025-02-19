@@ -172,7 +172,7 @@ def handle_search(request_json, ocean_poly):
     for i, page_results in enumerate(
         dag.search_iter_page(**default_search_criteria, items_per_page=25)
     ):
-        print(f"Got a hand on {len(page_results)} products on page {i+1}")
+        print(f"Got a hand on {len(page_results)} products on page {i + 1}")
         all_results.extend(page_results)
 
     search_results = all_results
@@ -217,7 +217,7 @@ def handler_queue(filtered_scenes, trigger_id):
             }
         }
 
-        payload = {"sceneid": scene, "trigger": trigger_id, "dry_run": dry_run}
+        payload = {"scene_id": scene, "trigger": trigger_id, "dry_run": dry_run}
         print(payload)
         # Add the payload to the request.
         if payload is not None:

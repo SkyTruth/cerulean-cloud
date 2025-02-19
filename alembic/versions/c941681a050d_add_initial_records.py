@@ -204,12 +204,28 @@ def upgrade() -> None:
                 table_name="source_vessel",
                 long_name="Vessel Source",
                 short_name="VESSEL",
+                ext_id_name="mmsi",
                 citation="AIS from GFW",
             ),
             database_schema.SourceType(
                 table_name="source_infra",
                 long_name="Infrastructure Source",
                 short_name="INFRA",
+                ext_id_name="structure_id",
+                citation="S1 Detections from GFW",
+            ),
+            database_schema.SourceType(
+                table_name="source_dark",
+                long_name="Dark Vessel Source",
+                short_name="DARK",
+                ext_id_name="dark_id",
+                citation="S1 Detections from GFW",
+            ),
+            database_schema.SourceType(
+                table_name="source_natural",
+                long_name="Natural Seep Source",
+                short_name="NATURAL",
+                ext_id_name="seep_id",
                 citation="SkyTruth",
             ),
         ]

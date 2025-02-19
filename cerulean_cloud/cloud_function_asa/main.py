@@ -1,5 +1,4 @@
-"""cloud function AIS analysis handler
-"""
+"""cloud function Automatic Source Association handler"""
 
 import asyncio
 import os
@@ -166,6 +165,7 @@ async def handle_asa_request(request):
                                             slick=slick.id,
                                             active=True,
                                             git_hash=os.getenv("GIT_HASH"),
+                                            git_tag=os.getenv("GIT_TAG"),
                                             coincidence_score=source_row[
                                                 "coincidence_score"
                                             ],
