@@ -9,6 +9,7 @@ needs env vars:
 - INFERENCE_URL
 """
 
+import gc
 import json
 import os
 import signal
@@ -54,6 +55,37 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"])
 landmask_gdf = None
 
 
+def cleanup():
+    """
+    Cleanup resources when SIGTERM is received.
+    """
+    try:
+        logger.info(
+            "Freeing up resources",
+        )
+
+        unreachable_objects = gc.collect()
+        logger.info(
+            {
+                "message": "Garbage Collection Complete",
+                "n_unreachable_objects": unreachable_objects,
+            }
+        )
+
+    except Exception as e:
+        logger.warning(
+            {
+                "message": "Error during cleanup",
+                "exception": str(e),
+                "traceback": traceback.format_exc(),
+            }
+        )
+    finally:
+        logger.info(
+            "Exiting gracefully.",
+        )
+
+
 def flush_logs():
     """
     Flush all logger handlers.
@@ -66,13 +98,14 @@ def handle_sigterm(signum, frame):
     """
     Handle the SIGTERM signal.
     """
-    logger.error(
+    logger.warning(
         {
             "message": "SIGTERM signal received",
             "file_name": frame.f_code.co_filename,
             "line_number": frame.f_lineno,
         }
     )
+    cleanup()
     flush_logs()
 
 
