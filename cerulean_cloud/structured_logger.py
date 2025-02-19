@@ -363,9 +363,14 @@ def get_scene_log_stats(project_id, service_name, revision_name, start_time, sce
         jsonPayload=json_payload,
     )
     logs = query_logger(project_id, query)
-    if logs.empty:
+    try:
+        most_recent_orchestration_time = logs[
+            logs["message"] == "Initiating Orchestrator"
+        ].iloc[0]["timestamp"]
+        logs = logs[logs["timestamp"] >= most_recent_orchestration_time]
+    except (IndexError, KeyError, TypeError) as e:
         print(
-            f"There are no logs associated with {scene_id} for revision {revision_name}"
+            f"There are no logs associated with {scene_id} for revision {revision_name}: {e}"
         )
         return logs
 

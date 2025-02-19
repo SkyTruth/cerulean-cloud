@@ -906,28 +906,20 @@ class FASTAIUNETModel(BaseModel):
         logger.info(
             {
                 "message": "DEBUG variable memory allocations",
-                "size_of_features_mb": sys.getsizeof(feature_collection) * 10e-6,
                 "size_of_probs_mb": sys.getsizeof(scene_array_probs) * 10e-6,
-                "size_of_transform_mb": sys.getsizeof(transform) * 10e-6,
             }
         )
         scene_array_probs = None
         gc.collect()
-        torch.cuda.empty_cache()
         n_feats = len(feature_collection.get("features", []))
 
         logger.info(
             {
                 "message": "Generated features. Reducing feature count on scene",
                 "n_features": n_feats,
-                "size_of_feature_collection_mb": sys.getsizeof(feature_collection)
-                * 10e-6,
             }
         )
         reduced_feature_collection = self.nms_feature_reduction(feature_collection)
-        del feature_collection
-        gc.collect()
-        torch.cuda.empty_cache()
 
         n_feats = len(reduced_feature_collection.get("features", []))
 
