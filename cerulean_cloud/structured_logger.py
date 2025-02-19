@@ -9,7 +9,6 @@ import sys
 from typing import Any, Dict
 
 import pandas as pd
-import psutil
 from google.cloud import logging as google_logging
 
 # A ContextVar to store the context_dict for each request
@@ -42,7 +41,14 @@ class StructuredLogFilter(logging.Filter):
 
         # log current memory allcoation if track_memory_usage = True
         if track_memory_usage:
-            log_dict["perc_ram_used"] = psutil.virtual_memory()[2]
+            import psutil
+
+            mem = psutil.virtual_memory()
+
+            # Get memory usage in GiB
+            log_dict["ram_used_GiB"] = mem.used / (1024**3)
+            # Get percent memory used
+            log_dict["perc_ram_used"] = mem.percent
 
         # Inject any context if available
         if context_dict:
