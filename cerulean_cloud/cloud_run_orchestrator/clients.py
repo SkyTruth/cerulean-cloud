@@ -1,9 +1,11 @@
 """Clients for other cloud run functions"""
 
 import asyncio
+import gc
 import json
 import logging
 import os
+import sys
 import traceback
 import zipfile
 from base64 import b64encode
@@ -237,18 +239,38 @@ class CloudRunInferenceClient:
             }
         )
 
-        async with httpx.AsyncClient(
-            headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
-        ) as async_http_client:
-            tasks = [
-                self.get_tile_inference(
-                    http_client=async_http_client, tile_bounds=tile_bounds
-                )
-                for tile_bounds in tileset
-            ]
-            inferences = await asyncio.gather(*tasks, return_exceptions=False)
-            # False means this process will error out if any subtask errors out
-            # True means this process will return a list including errors if any subtask errors out
+        try:
+            async with httpx.AsyncClient(
+                headers={"Authorization": f"Bearer {os.getenv('API_KEY')}"}
+            ) as async_http_client:
+                tasks = [
+                    self.get_tile_inference(
+                        http_client=async_http_client, tile_bounds=tile_bounds
+                    )
+                    for tile_bounds in tileset
+                ]
+                inferences = await asyncio.gather(*tasks, return_exceptions=False)
+                # False means this process will error out if any subtask errors out
+                # True means this process will return a list including errors if any subtask errors out
+        except Exception as e:
+            # If asyncio.gather tasks fail, raise ValueError
+            raise ValueError(f"Failed to complete parallel inference: {e}")
+        finally:
+            logger.info(
+                {
+                    "message": "Cleaning up after parallel inference",
+                    "aux_datasets_size_mb": sys.getsizeof(self.aux_datasets)
+                    / (1024**2),
+                }
+            )
+            # Cleanup: close and delete aux_datasets
+            if self.aux_datasets:
+                del self.aux_datasets
+            gc.collect()
+
+            # close and clean up the async client
+            await async_http_client.aclose()
+
         return inferences
 
 
