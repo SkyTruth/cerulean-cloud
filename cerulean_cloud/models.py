@@ -5,6 +5,7 @@ These classes are designed to load models, make predictions, stack results,
 and stitch together inference outputs for geospatial analysis.
 """
 
+import gc
 import json
 import logging
 import os
@@ -892,6 +893,10 @@ class FASTAIUNETModel(BaseModel):
 
         logger.info("Finding instances in scene")
         feature_collection = self.instantiate(scene_array_probs, transform)
+
+        # free up space (del scene_array_probs does not clear numpy memory for some reason...)
+        scene_array_probs = None
+        gc.collect()
         n_feats = len(feature_collection.get("features", []))
 
         logger.info(
