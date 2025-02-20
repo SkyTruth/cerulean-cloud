@@ -504,25 +504,44 @@ async def _orchestrate(
         }
     )
 
-    tileset_results_list = [
-        await cloud_run_inference.run_parallel_inference(tileset)
-        for tileset in tileset_list
-    ]
-
-    logger.info(
-        {
-            "message": "Stitching result",
-            "tileset_results_list_size_mb": sys.getsizeof(tileset_results_list),
-        }
-    )
     tileset_fc_list = []
-    for tileset_results, tileset_bounds in zip(tileset_results_list, tileset_list):
+    for tileset_bounds in tileset_list:
+        try:
+            tileset_results = await cloud_run_inference.run_parallel_inference(
+                tileset_bounds
+            )
+        except Exception as e:
+            success = False
+            exc = e
+            logger.error(
+                {
+                    "message": "Failed to process inference on scene",
+                    "exception": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            )
+            return OrchestratorResult(status=str(e))
+
         if tileset_results and tileset_bounds:
-            fc = model.postprocess_tileset(
-                tileset_results, [[b] for b in tileset_bounds]
-            )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
-            tileset_fc_list.append(fc)
-            del fc
+            try:
+                fc = model.postprocess_tileset(
+                    tileset_results, [[b] for b in tileset_bounds]
+                )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+                tileset_fc_list.append(fc)
+                del fc
+            except Exception as e:
+                success = False
+                exc = e
+                logger.error(
+                    {
+                        "message": "Failed to postprocess tileset",
+                        "exception": str(e),
+                        "traceback": traceback.format_exc(),
+                    }
+                )
+                return OrchestratorResult(status=str(e))
+        del tileset_results
+        gc.collect()
 
     # Ensemble inferences
     logger.info(
@@ -531,8 +550,9 @@ async def _orchestrate(
             "tileset_fc_list_size_mb": sys.getsizeof(tileset_fc_list) / (1024**2),
         }
     )
-    del tileset_results_list, tileset_list, tileset_results, tileset_bounds
+    del tileset_list, tileset_bounds
     gc.collect()
+
     try:
         final_ensemble = model.nms_feature_reduction(
             features=tileset_fc_list, min_overlaps_to_keep=1
