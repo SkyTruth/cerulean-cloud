@@ -62,7 +62,6 @@ def cleanup():
     Cleanup resources when SIGTERM is received.
     """
     try:
-
         logger.info(
             "Freeing up resources",
         )
@@ -658,17 +657,18 @@ async def _orchestrate(
     else:
         logger.info("No features generated")
 
-    end_time = datetime.now()
-    orchestrator_run.success = success
-    orchestrator_run.inference_end_time = end_time
-    logger.info(
-        {
-            "message": "Orchestration complete!",
-            "timestamp": end_time.isoformat() + "Z",
-            "success": success,
-            "duration_minutes": (end_time - start_time).total_seconds() / 60,
-        }
-    )
+    async with db_client.session.begin():
+        end_time = datetime.now()
+        orchestrator_run.success = success
+        orchestrator_run.inference_end_time = end_time
+        logger.info(
+            {
+                "message": "Orchestration complete!",
+                "timestamp": end_time.isoformat() + "Z",
+                "success": success,
+                "duration_minutes": (end_time - start_time).total_seconds() / 60,
+            }
+        )
     if success is False:
         raise exc
     return OrchestratorResult(status="Success")
