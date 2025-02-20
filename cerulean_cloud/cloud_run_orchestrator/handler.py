@@ -564,18 +564,18 @@ async def _orchestrate(
             logger.info("Queueing up Automatic Source Association")
             add_to_asa_queue(sentinel1_grd.scene_id)
 
+        end_time = datetime.now()
         async with db_client.session.begin():
-            end_time = datetime.now()
             orchestrator_run.success = success
             orchestrator_run.inference_end_time = end_time
-            logger.info(
-                {
-                    "message": "Orchestration complete!",
-                    "timestamp": end_time.isoformat() + "Z",
-                    "success": success,
-                    "duration_minutes": (end_time - start_time).total_seconds() / 60,
-                }
-            )
+        logger.info(
+            {
+                "message": "Orchestration complete!",
+                "timestamp": end_time.isoformat() + "Z",
+                "success": success,
+                "duration_minutes": (end_time - start_time).total_seconds() / 60,
+            }
+        )
         if success is False:
             raise exc
     return OrchestratorResult(status="Success")
