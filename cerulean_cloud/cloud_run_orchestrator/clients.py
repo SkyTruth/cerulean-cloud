@@ -1,9 +1,11 @@
 """Clients for other cloud run functions"""
 
 import asyncio
+import gc
 import json
 import logging
 import os
+import sys
 import traceback
 import zipfile
 from base64 import b64encode
@@ -246,10 +248,35 @@ class CloudRunInferenceClient:
                 )
                 for tile_bounds in tileset
             ]
-            inferences = await asyncio.gather(*tasks, return_exceptions=False)
-            # False means this process will error out if any subtask errors out
-            # True means this process will return a list including errors if any subtask errors out
-        return inferences
+
+            inferences = None
+            try:
+                # False means this process will error out if any subtask errors out
+                # True means this process will return a list including errors if any subtask errors out
+                inferences = await asyncio.gather(*tasks, return_exceptions=False)
+            except NameError as e:
+                # If get_tile_inference tasks fail (local `task` variable does not exist), return ValueError
+                raise ValueError(f"Failed inference: {e}")
+            except Exception as e:
+                # If asyncio.gather tasks fail, raise ValueError
+                raise ValueError(f"Failed to complete parallel inference: {e}")
+            finally:
+                logger.info(
+                    {
+                        "message": "Cleaning up after parallel inference",
+                        "aux_datasets_size_mb": sys.getsizeof(self.aux_datasets)
+                        / (1024**2),
+                    }
+                )
+                # Cleanup: close and delete aux_datasets
+                if self.aux_datasets:
+                    del self.aux_datasets
+                    gc.collect()
+
+                # close and clean up the async client
+                await async_http_client.aclose()
+
+            return inferences
 
 
 def get_scene_date_month(scene_id: str) -> str:
