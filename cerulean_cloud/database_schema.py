@@ -1,4 +1,4 @@
-""""
+"""
 0. Make any changes you want to EVERYWHERE ELSE that has #EditTheDatabase, but NOT here
 1. Copy this comment
 2. Run:
@@ -150,6 +150,14 @@ class Model(Base):  # noqa
     update_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
 
+class Permission(Base):  # noqa
+    __tablename__ = "permission"
+
+    id = Column(BigInteger, primary_key=True)
+    short_name = Column(Text, nullable=False, unique=True)
+    long_name = Column(Text, nullable=False)
+
+
 class Sentinel1Grd(Base):  # noqa
     __tablename__ = "sentinel1_grd"
 
@@ -210,6 +218,10 @@ class Tag(Base):  # noqa
     long_name = Column(Text, nullable=False)
     description = Column(Text)
     citation = Column(Text)
+    owner = Column(BigInteger)
+    read_perm = Column(BigInteger)
+    write_perm = Column(BigInteger)
+    public = Column(Boolean, nullable=False)
 
 
 class Trigger(Base):  # noqa

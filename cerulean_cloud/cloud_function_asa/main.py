@@ -1,5 +1,4 @@
-"""cloud function Automatic Source Association handler
-"""
+"""cloud function Automatic Source Association handler"""
 
 import asyncio
 import os

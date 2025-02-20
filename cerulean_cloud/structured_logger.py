@@ -374,8 +374,8 @@ def get_scene_log_stats(project_id, service_name, revision_name, start_time, sce
     try:
         n_tiles_after_filter = ", ".join(
             [
-                str(l["json_payload"]["n_tiles"])
-                for _, l in logs[
+                str(log["json_payload"]["n_tiles"])
+                for _, log in logs[
                     logs["json_message"] == "Starting parallel inference"
                 ].iterrows()
             ]
@@ -437,7 +437,9 @@ def get_scene_log_stats(project_id, service_name, revision_name, start_time, sce
     )
     print(f"added {n_slicks_added} slicks")
     if success != "unknown":
-        print(f"orchestration complete at {end_time}; in {round(dt*100)/100} minutes")
+        print(
+            f"orchestration complete at {end_time}; in {round(dt * 100) / 100} minutes"
+        )
         print(f"Success: {success}")
     else:
         print("Not complete")

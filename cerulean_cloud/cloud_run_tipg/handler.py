@@ -9,6 +9,7 @@ Make sure to set in your environment:
 - DATABASE_URL
 
 """
+
 import json
 import logging
 import os
