@@ -441,13 +441,6 @@ async def _orchestrate(
                 model_dict=model_dict,
             )
 
-            # Perform inferences
-            logger.info("Inference starting")
-            tileset_results_list = [
-                await cloud_run_inference.run_parallel_inference(tileset)
-                for tileset in tileset_list
-            ]
-
             # Stitch inferences
             logger.info(
                 {
@@ -457,26 +450,55 @@ async def _orchestrate(
             )
             model = get_model(model_dict)
 
-            logger.info("Stitching result")
+            # Log memory usage and aux_datasets size
+            logger.info(
+                {
+                    "message": "Inference starting",
+                    "aux_datasets_size_mb": sys.getsizeof(
+                        cloud_run_inference.aux_datasets
+                    )
+                    / (1024**2),
+                }
+            )
+
             tileset_fc_list = []
-            for tileset_results, tileset_bounds in zip(
-                tileset_results_list, tileset_list
-            ):
-                if tileset_results and tileset_bounds:
-                    fc = model.postprocess_tileset(
-                        tileset_results, [[b] for b in tileset_bounds]
-                    )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
-                    tileset_fc_list.append(fc)
-                    logger.info(
+            for tileset_bounds in tileset_list:
+                try:
+                    tileset_results = await cloud_run_inference.run_parallel_inference(
+                        tileset_bounds
+                    )
+                except Exception as e:
+                    success = False
+                    exc = e
+                    logger.error(
                         {
-                            "message": "DEBUG variable memory allocations",
-                            "size_of_probs_mb": sys.getsizeof(fc) * 10e-6,
-                            "size_of_tileset_results_mb": sys.getsizeof(tileset_results)
-                            * 10e-6,
+                            "message": "Failed to process inference on scene",
+                            "exception": str(e),
+                            "traceback": traceback.format_exc(),
                         }
                     )
-                    del fc
-                    gc.collect()
+                    return OrchestratorResult(status=str(e))
+
+                if tileset_results and tileset_bounds:
+                    try:
+                        fc = model.postprocess_tileset(
+                            tileset_results, [[b] for b in tileset_bounds]
+                        )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+                        tileset_fc_list.append(fc)
+                        del fc
+                    except Exception as e:
+                        success = False
+                        exc = e
+                        logger.error(
+                            {
+                                "message": "Failed to postprocess tileset",
+                                "exception": str(e),
+                                "traceback": traceback.format_exc(),
+                            }
+                        )
+                        return OrchestratorResult(status=str(e))
+                del tileset_results
+                gc.collect()
 
             # Ensemble inferences
             logger.info("Ensembling results")
