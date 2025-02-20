@@ -374,12 +374,23 @@ def upgrade() -> None:
     )
 
     op.create_table(
+        "permission",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("short_name", sa.Text, nullable=False, unique=True),
+        sa.Column("long_name", sa.Text, nullable=False),
+    )
+
+    op.create_table(
         "tag",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("short_name", sa.Text, nullable=False, unique=True),
         sa.Column("long_name", sa.Text, nullable=False),
         sa.Column("description", sa.Text),
         sa.Column("citation", sa.Text),
+        sa.Column("owner", sa.BigInteger, sa.ForeignKey("users.id")),
+        sa.Column("read_perm", sa.BigInteger, sa.ForeignKey("permission.id")),
+        sa.Column("write_perm", sa.BigInteger, sa.ForeignKey("permission.id")),
+        sa.Column("public", sa.Boolean, nullable=False),
     )
 
     op.create_table(
@@ -411,6 +422,7 @@ def downgrade() -> None:
     op.drop_table("hitl_slick")
     op.drop_table("source_to_tag")
     op.drop_table("tag")
+    op.drop_table("permission")
     op.drop_table("slick_to_source")
     op.drop_table("source_infra")
     op.drop_table("source_vessel")
