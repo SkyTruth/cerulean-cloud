@@ -13,7 +13,6 @@ import gc
 import json
 import os
 import signal
-import sys
 import traceback
 import urllib.parse as urlparse
 from datetime import datetime, timedelta
@@ -224,7 +223,6 @@ async def orchestrate(
     db_engine=Depends(get_database_engine),
 ) -> Dict:
     """orchestrate"""
-
     try:
         return await _orchestrate(
             payload, tiler, titiler_client, roda_sentinelhub_client, db_engine
@@ -428,43 +426,113 @@ async def _orchestrate(
                 sentinel1_grd,
             )
 
-    success = True
-    logger.info("Instantiating inference client")
-    cloud_run_inference = CloudRunInferenceClient(
-        url=os.getenv("INFERENCE_URL"),
-        titiler_client=titiler_client,
-        scene_id=payload.scene_id,
-        tileset_envelope_bounds=tileset_envelope_bounds,
-        image_hw_pixels=tileset_hw_pixels,
-        layers=layers,
-        scale=scale,
-        model_dict=model_dict,
-    )
-
-    # Stitch inferences
-    logger.info(
-        {
-            "message": "Initializing model",
-            "model_type": model_dict["type"],
-        }
-    )
-    model = get_model(model_dict)
-
-    # Log memory usage and aux_datasets size
-    logger.info(
-        {
-            "message": "Inference starting",
-            "aux_datasets_size_mb": sys.getsizeof(cloud_run_inference.aux_datasets)
-            / (1024**2),
-        }
-    )
-
-    tileset_fc_list = []
-    for tileset_bounds in tileset_list:
+        success = True
         try:
-            tileset_results = await cloud_run_inference.run_parallel_inference(
-                tileset_bounds
+            logger.info("Instantiating inference client")
+            cloud_run_inference = CloudRunInferenceClient(
+                url=os.getenv("INFERENCE_URL"),
+                titiler_client=titiler_client,
+                scene_id=payload.scene_id,
+                tileset_envelope_bounds=tileset_envelope_bounds,
+                image_hw_pixels=tileset_hw_pixels,
+                layers=layers,
+                scale=scale,
+                model_dict=model_dict,
             )
+
+            # Perform inferences
+            logger.info("Inference starting")
+            tileset_results_list = [
+                await cloud_run_inference.run_parallel_inference(tileset)
+                for tileset in tileset_list
+            ]
+
+            # Stitch inferences
+            logger.info(
+                {
+                    "message": "Initializing model",
+                    "model_type": model_dict["type"],
+                }
+            )
+            model = get_model(model_dict)
+
+            logger.info("Stitching result")
+            tileset_fc_list = []
+            for tileset_results, tileset_bounds in zip(
+                tileset_results_list, tileset_list
+            ):
+                if tileset_results and tileset_bounds:
+                    fc = model.postprocess_tileset(
+                        tileset_results, [[b] for b in tileset_bounds]
+                    )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
+                    tileset_fc_list.append(fc)
+
+            # Ensemble inferences
+            logger.info("Ensembling results")
+            final_ensemble = model.nms_feature_reduction(
+                features=tileset_fc_list, min_overlaps_to_keep=1
+            )
+            features = final_ensemble.get("features", [])
+            n_features = len(features)
+
+            # number of features that are over land (excluded from final feature list)
+            n_background_slicks = 0
+            if features:
+                LAND_MASK_BUFFER_M = 1000
+                logger.info(
+                    {
+                        "message": "Removing all slicks near land",
+                        "n_features": n_features,
+                        "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
+                    }
+                )
+                for feat in features:
+                    buffered_gdf = gpd.GeoDataFrame(
+                        geometry=[shape(feat["geometry"])], crs="4326"
+                    )
+                    crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
+                    buffered_gdf["geometry"] = (
+                        buffered_gdf.to_crs(crs_meters)
+                        .buffer(LAND_MASK_BUFFER_M)
+                        .to_crs("4326")
+                    )
+                    intersecting_land = gpd.sjoin(
+                        get_landmask_gdf(),
+                        buffered_gdf,
+                        how="inner",
+                        predicate="intersects",
+                    )
+                    # when the feature does not intersect land, update inf_idx and increase n_background_slicks
+                    if not intersecting_land.empty:
+                        feat["properties"]["inf_idx"] = model.background_class_idx
+                        n_background_slicks += 1
+
+                logger.info(
+                    {
+                        "message": "Adding slicks to database",
+                        "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
+                        "n_background_slicks": n_background_slicks,
+                        "n_slicks": n_features - n_background_slicks,
+                    }
+                )
+                del features
+                # Removed all preprocessing of features from within the
+                # database session to avoid holidng locks on the
+                # table while performing un-related calculations.
+                async with db_client.session.begin():
+                    for feat in final_ensemble.get("features"):
+                        _ = await db_client.add_slick(
+                            orchestrator_run,
+                            sentinel1_grd.start_time,
+                            feat.get("geometry"),
+                            feat.get("properties").get("inf_idx"),
+                            feat.get("properties").get("machine_confidence"),
+                        )
+                        logger.info("Added slick")
+
+                logger.info("Queueing up Automatic Source Association")
+                add_to_asa_queue(sentinel1_grd.scene_id)
+
         except Exception as e:
             success = False
             exc = e
@@ -475,107 +543,18 @@ async def _orchestrate(
                     "traceback": traceback.format_exc(),
                 }
             )
-            return OrchestratorResult(status=str(e))
-
-        if tileset_results and tileset_bounds:
-            try:
-                fc = model.postprocess_tileset(
-                    tileset_results, [[b] for b in tileset_bounds]
-                )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
-                tileset_fc_list.append(fc)
-                del fc
-            except Exception as e:
-                success = False
-                exc = e
-                logger.error(
-                    {
-                        "message": "Failed to postprocess tileset",
-                        "exception": str(e),
-                        "traceback": traceback.format_exc(),
-                    }
-                )
-                return OrchestratorResult(status=str(e))
-        del tileset_results
-        gc.collect()
-
-        # Ensemble inferences
-        logger.info("Ensembling results")
-        final_ensemble = model.nms_feature_reduction(
-            features=tileset_fc_list, min_overlaps_to_keep=1
-        )
-        features = final_ensemble.get("features", [])
-        n_features = len(features)
-
-        # number of features that are over land (excluded from final feature list)
-        n_background_slicks = 0
-        if features:
-            LAND_MASK_BUFFER_M = 1000
-            logger.info(
-                {
-                    "message": "Removing all slicks near land",
-                    "n_features": n_features,
-                    "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
-                }
-            )
-            for feat in features:
-                buffered_gdf = gpd.GeoDataFrame(
-                    geometry=[shape(feat["geometry"])], crs="4326"
-                )
-                crs_meters = buffered_gdf.estimate_utm_crs(datum_name="WGS 84")
-                buffered_gdf["geometry"] = (
-                    buffered_gdf.to_crs(crs_meters)
-                    .buffer(LAND_MASK_BUFFER_M)
-                    .to_crs("4326")
-                )
-                intersecting_land = gpd.sjoin(
-                    get_landmask_gdf(),
-                    buffered_gdf,
-                    how="inner",
-                    predicate="intersects",
-                )
-                # when the feature does not intersect land, update inf_idx and increase n_background_slicks
-                if not intersecting_land.empty:
-                    feat["properties"]["inf_idx"] = model.background_class_idx
-                    n_background_slicks += 1
-
-            logger.info(
-                {
-                    "message": "Adding slicks to database",
-                    "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
-                    "n_background_slicks": n_background_slicks,
-                    "n_slicks": n_features - n_background_slicks,
-                }
-            )
-            del features
-            # Removed all preprocessing of features from within the
-            # database session to avoid holidng locks on the
-            # table while performing un-related calculations.
-            async with db_client.session.begin():
-                for feat in final_ensemble.get("features"):
-                    _ = await db_client.add_slick(
-                        orchestrator_run,
-                        sentinel1_grd.start_time,
-                        feat.get("geometry"),
-                        feat.get("properties").get("inf_idx"),
-                        feat.get("properties").get("machine_confidence"),
-                    )
-                    logger.info("Added slick")
-
-            logger.info("Queueing up Automatic Source Association")
-            add_to_asa_queue(sentinel1_grd.scene_id)
-
-        end_time = datetime.now()
         async with db_client.session.begin():
+            end_time = datetime.now()
             orchestrator_run.success = success
             orchestrator_run.inference_end_time = end_time
-        logger.info(
-            {
-                "message": "Orchestration complete!",
-                "timestamp": end_time.isoformat() + "Z",
-                "success": success,
-                "duration_minutes": (end_time - start_time).total_seconds() / 60,
-            }
-        )
+            logger.info(
+                {
+                    "message": "Orchestration complete!",
+                    "timestamp": end_time.isoformat() + "Z",
+                    "success": success,
+                    "duration_minutes": (end_time - start_time).total_seconds() / 60,
+                }
+            )
         if success is False:
             raise exc
     return OrchestratorResult(status="Success")
