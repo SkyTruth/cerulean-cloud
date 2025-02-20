@@ -509,7 +509,6 @@ async def _orchestrate(
         for tileset in tileset_list
     ]
 
-    logger.info()
     logger.info(
         {
             "message": "Stitching result",
