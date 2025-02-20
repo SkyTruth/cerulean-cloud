@@ -1,5 +1,4 @@
-"""cloud function AIS analysis handler
-"""
+"""cloud function Automatic Source Association handler"""
 
 import asyncio
 import os

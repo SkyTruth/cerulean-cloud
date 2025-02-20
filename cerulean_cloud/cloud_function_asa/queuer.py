@@ -1,5 +1,5 @@
 """
-Code for handling queue requests for Automatic AIS Analysis
+Code for handling queue requests for Automatic Source Association
 """
 
 import json
@@ -14,16 +14,16 @@ from google.protobuf import timestamp_pb2
 
 def add_to_asa_queue(scene_id):
     """
-    Adds a new task to Google Cloud Tasks for automatic AIS analysis.
+    Adds a new task to Google Cloud Tasks for Automatic Source Association.
 
     Args:
-        scene_id (str): The ID of the scene for which AIS analysis is needed.
+        scene_id (str): The ID of the scene for which Automatic Source Association is needed.
 
     Returns:
         google.cloud.tasks_v2.types.Task: The created Task object.
 
     Notes:
-        - The function uses Google Cloud Tasks API to schedule the AIS analysis.
+        - The function uses Google Cloud Tasks API to schedule the Automatic Source Association.
         - Multiple retries are scheduled with different delays.
     """
     # Create a client.
@@ -33,7 +33,7 @@ def add_to_asa_queue(scene_id):
     location = os.getenv("GCPREGION")
     queue = os.getenv("ASA_QUEUE")
     url = os.getenv("FUNCTION_URL")
-    dry_run = os.getenv("AIS_IS_DRY_RUN", "").lower() == "true"
+    dry_run = os.getenv("ASA_IS_DRY_RUN", "").lower() == "true"
 
     # Construct the fully qualified queue name.
     parent = client.queue_path(project, location, queue)
@@ -53,10 +53,10 @@ def add_to_asa_queue(scene_id):
         }
     }
 
-    # Number of days that the Automatic AIS Analysis should be run after
+    # Number of days that the Automatic Source Association should be run after
     # Each entry is another retry
-    ais_delays = [0, 3, 7]  # TODO Magic number >>> Where should this live?
-    for delay in ais_delays:
+    asa_delays = [0, 3, 7]  # TODO Magic number >>> Where should this live?
+    for delay in asa_delays:
         d = datetime.now(tz=timezone.utc) + timedelta(days=delay)
 
         # Create Timestamp protobuf.

@@ -1,5 +1,4 @@
-"""database configurations
-"""
+"""database configurations"""
 
 import pulumi
 import pulumi_gcp as gcp

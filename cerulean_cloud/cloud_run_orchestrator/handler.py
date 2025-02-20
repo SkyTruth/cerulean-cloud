@@ -27,7 +27,7 @@ from global_land_mask import globe
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
-from cerulean_cloud.cloud_function_ais_analysis.queuer import add_to_asa_queue
+from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
@@ -239,7 +239,7 @@ async def _orchestrate(
         logger.warning(
             {
                 "message": "Model resolution warning",
-                "description": f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale*256}",
+                "description": f"Model was trained on image tile of resolution {model_dict['tile_width_px']} but is being run on {scale * 256}",
             }
         )
 
@@ -470,7 +470,7 @@ async def _orchestrate(
                         )
                         logger.info("Added slick")
 
-                logger.info("Queueing up Automatic AIS Analysis")
+                logger.info("Queueing up Automatic Source Association")
                 add_to_asa_queue(sentinel1_grd.scene_id)
 
         except Exception as e:

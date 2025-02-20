@@ -1,5 +1,4 @@
-"""Constants for AIS analysis handler
-"""
+"""Constants for Automatic Source Association handler"""
 
 import numpy as np
 
