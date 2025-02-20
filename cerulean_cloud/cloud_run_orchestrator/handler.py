@@ -13,6 +13,7 @@ import gc
 import json
 import os
 import signal
+import sys
 import traceback
 import urllib.parse as urlparse
 from datetime import datetime, timedelta
@@ -466,6 +467,16 @@ async def _orchestrate(
                         tileset_results, [[b] for b in tileset_bounds]
                     )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
                     tileset_fc_list.append(fc)
+                    logger.info(
+                        {
+                            "message": "DEBUG variable memory allocations",
+                            "size_of_probs_mb": sys.getsizeof(fc) * 10e-6,
+                            "size_of_tileset_results_mb": sys.getsizeof(tileset_results)
+                            * 10e-6,
+                        }
+                    )
+                    del fc
+                    gc.collect()
 
             # Ensemble inferences
             logger.info("Ensembling results")

@@ -12,6 +12,7 @@ import os
 import traceback
 from base64 import b64decode, b64encode
 from io import BytesIO
+import sys
 from typing import List, Union
 
 import geojson
@@ -891,7 +892,12 @@ class FASTAIUNETModel(BaseModel):
         )
         scene_array_probs, transform = self.stitch(tileset_results, tileset_bounds)
 
-        logger.info("Finding instances in scene")
+        logger.info(
+            {
+                "message": "Finding instances in scene",
+                "size_of_probs_mb": sys.getsizeof(scene_array_probs) * 10e-6,
+            }
+        )
         feature_collection = self.instantiate(scene_array_probs, transform)
 
         # free up space (del scene_array_probs does not clear numpy memory for some reason...)
