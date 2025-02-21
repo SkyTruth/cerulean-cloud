@@ -120,7 +120,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
 
     Parameters:
     - analyzers (dict): Dictionary containing Analyzer objects with keys 1 and/or 2.
-        - Key 1: AIS Analyzer containing ais_buffered, results, and slick_gdf.
+        - Key 1: AIS Analyzer containing results, and slick_gdf.
         - Key 2: Infrastructure Analyzer containing infra_gdf, coincidence_scores, and slick_gdf.
     - slick_id (int): Identifier for the plot title.
     - black (bool): Whether to use black borders for the infrastructure points.
@@ -150,25 +150,22 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
 
     # Plot the AIS buffered geometries if ais_analyzer is present
     if ais_analyzer is not None:
-        # Ensure 'st_name' exists in both ais_buffered and results
-        if (
-            "st_name" in ais_analyzer.ais_buffered.columns
-            and "st_name" in ais_analyzer.results.columns
-        ):
+        # Ensure 'st_name' exists in results
+        if "st_name" in ais_analyzer.results.columns:
             ranked_results = (
                 ais_analyzer.results.sort_values("collated_score", ascending=False)
                 .reset_index(drop=True)
                 .iloc[:num_ais]
             )
-            # Filter ais_buffered where st_name is in results.st_name
-            filtered_ais_buffered = ais_analyzer.ais_buffered[
-                ais_analyzer.ais_buffered["st_name"].isin(
+            # Filter  where st_name is in results.st_name
+            filtered_ais = ais_analyzer.results[
+                ais_analyzer.results["st_name"].isin(
                     ranked_results["st_name"].values
                 )
             ]
 
             # Get unique st_name values
-            unique_st_names = filtered_ais_buffered["st_name"].unique()
+            unique_st_names = filtered_ais["st_name"].unique()
             num_st_names = len(unique_st_names)
 
             # Assign a unique color to each st_name using a colormap
@@ -178,7 +175,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
             }
 
             # Plot each group of st_name with its corresponding color
-            for st_name, group in filtered_ais_buffered.groupby("st_name"):
+            for st_name, group in filtered_ais.groupby("st_name"):
                 group.plot(
                     ax=ax, color=st_name_to_color[st_name], alpha=0.2, label=st_name
                 )
@@ -190,17 +187,17 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
             ]
         else:
             print(
-                "Warning: 'st_name' column not found in ais_buffered or results. AIS buffered geometries will not be colored by 'st_name'."
+                "Warning: 'st_name' column not found in results. AIS buffered geometries will not be colored by 'st_name'."
             )
-            # Plot AIS buffered geometries without color coding
-            colors = plt.cm.get_cmap("viridis", len(ais_analyzer.ais_buffered))
-            for row in ais_analyzer.ais_buffered.itertuples():
+            # Plot AIS  geometries without color coding
+            colors = plt.cm.get_cmap("viridis", len(ais_analyzer.results))
+            for row in ais_analyzer.results.itertuples():
                 geom = row.geometry
                 gpd.GeoSeries(geom).plot(
                     ax=ax,
                     color=colors(row.Index),
                     alpha=0.8,
-                    label="AIS Buffered" if row.Index == 0 else "",
+                    label="AIS" if row.Index == 0 else "",
                 )
             st_name_patches = []
 

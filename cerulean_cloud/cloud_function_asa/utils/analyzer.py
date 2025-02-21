@@ -29,7 +29,8 @@ from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, mapping
 from .constants import (
     AIS_BUFFER,
     AIS_PROJECT_ID,
-    AIS_REF_DIST,
+    AIS_REF_TIME_OVER,
+    AIS_REF_TIME_UNDER,
     BUF_VEC,
     CLOSING_BUFFER,
     D_FORMAT,
@@ -42,17 +43,17 @@ from .constants import (
     MIN_AREA_THRESHOLD,
     NUM_TIMESTEPS,
     NUM_VERTICES,
+    SPREAD_RATE,
     T_FORMAT,
     VESSEL_MEAN,
     VESSEL_STD,
-    W_DISTANCE,
-    W_OVERLAP,
+    W_PARITY,
+    W_PROXIMITY,
     W_TEMPORAL,
-    WEIGHT_VEC,
 )
 from .scoring import (
-    compute_distance_score,
-    compute_overlap_score,
+    compute_parity_score,
+    compute_proximity_score,
     compute_temporal_score,
     compute_total_score,
 )
@@ -439,7 +440,6 @@ class AISAnalyzer(SourceAnalyzer):
         s1_scene (object): The Sentinel-1 scene object.
         ais_gdf (GeoDataFrame): Retrieved AIS data.
         ais_trajectories (TrajectoryCollection): Collection of vessel trajectories.
-        ais_buffered (GeoDataFrame): Buffered geometries of trajectories.
         ais_weighted (list): List of weighted geometries for each trajectory.
         results (DataFrame): Final association results.
     """
@@ -457,12 +457,13 @@ class AISAnalyzer(SourceAnalyzer):
         self.ais_buffer = kwargs.get("ais_buffer", AIS_BUFFER)
         self.num_timesteps = kwargs.get("num_timesteps", NUM_TIMESTEPS)
         self.buf_vec = kwargs.get("buf_vec", BUF_VEC)
-        self.weight_vec = kwargs.get("weight_vec", WEIGHT_VEC)
         self.ais_project_id = kwargs.get("ais_project_id", AIS_PROJECT_ID)
         self.w_temporal = kwargs.get("w_temporal", W_TEMPORAL)
-        self.w_overlap = kwargs.get("w_overlap", W_OVERLAP)
-        self.w_distance = kwargs.get("w_distance", W_DISTANCE)
-        self.ais_ref_dist = kwargs.get("ais_ref_dist", AIS_REF_DIST)
+        self.w_proximity = kwargs.get("w_proximity", W_PROXIMITY)
+        self.w_parity = kwargs.get("w_parity", W_PARITY)
+        self.ais_ref_time_over = kwargs.get("ais_ref_time_over", AIS_REF_TIME_OVER)
+        self.ais_ref_time_under = kwargs.get("ais_ref_time_under", AIS_REF_TIME_UNDER)
+        self.spread_rate = kwargs.get("spread_rate", SPREAD_RATE)
         self.coinc_mean = kwargs.get("coinc_mean", VESSEL_MEAN)
         self.coinc_std = kwargs.get("coinc_std", VESSEL_STD)
 
@@ -491,7 +492,6 @@ class AISAnalyzer(SourceAnalyzer):
         self.slick_curves = None
         self.ais_gdf = None
         self.ais_trajectories = None
-        self.ais_buffered = None
         self.ais_weighted = None
         self.results = gpd.GeoDataFrame()
 
@@ -594,52 +594,6 @@ class AISAnalyzer(SourceAnalyzer):
             ais_trajectories.append(interpolated_traj)
 
         self.ais_trajectories = mpd.TrajectoryCollection(ais_trajectories)
-
-    def buffer_trajectories(self):
-        """
-        Buffers trajectories.
-        """
-        # print("Buffering trajectories")
-        ais_buf = list()
-        ais_weighted = list()
-        for traj in self.ais_trajectories:
-            # Grab points
-            points = (
-                traj.to_point_gdf()
-                .sort_values(by="timestamp", ascending=False)
-                .to_crs(self.crs_meters)
-                .reset_index()
-            )
-
-            # Create buffered circles at points
-            ps = (
-                points.apply(
-                    lambda row: row.geometry.buffer(self.buf_vec[row.name]), axis=1
-                )
-                .set_crs(self.crs_meters)
-                .to_crs("4326")
-            )
-
-            # Create convex hulls from sequential circles
-            convex_hulls = [
-                shapely.geometry.MultiPolygon([a, b]).convex_hull
-                for a, b in zip(ps[:-1], ps[1:])
-            ]
-
-            # Weight convex hulls
-            weighted = gpd.GeoDataFrame(
-                {"geometry": convex_hulls, "weight": self.weight_vec[:-1]},
-                crs="4326",
-            )
-            ais_weighted.append(weighted)
-
-            # Create connected polygon from hulls
-            ais_buf.append(
-                {"geometry": shapely.ops.unary_union(convex_hulls), "st_name": traj.id}
-            )
-
-        self.ais_buffered = gpd.GeoDataFrame(ais_buf, crs="4326")
-        self.ais_weighted = ais_weighted
 
     def slick_to_curves(
         self,
@@ -791,89 +745,66 @@ class AISAnalyzer(SourceAnalyzer):
             "geojson_fc",
         ]
 
-        # Create a GeoDataFrame of buffered trajectories
-        buffered_trajectories_gdf = self.ais_buffered.copy()
-        buffered_trajectories_gdf["id"] = [t.id for t in self.ais_trajectories]
-        buffered_trajectories_gdf.set_index("id", inplace=True)
-
-        # Perform a spatial join between buffered trajectories and slick geometries
-        matches = gpd.sjoin(
-            buffered_trajectories_gdf,
-            self.slick_gdf,
-            how="inner",
-            predicate="intersects",
-        )
-
-        if matches.empty:
-            print("No trajectories intersect the slicks.")
-            self.results = gpd.GeoDataFrame(columns=columns, crs="4326")
-            return self.results
-
-        # Get unique trajectory IDs that intersect slicks
-        intersecting_traj_ids = matches.index.unique()
-
-        # Filter trajectories and weights based on intersecting IDs
-        ais_filt = [t for t in self.ais_trajectories if t.id in intersecting_traj_ids]
-        weighted_filt = [
-            self.ais_weighted[idx]
-            for idx, t in enumerate(self.ais_trajectories)
-            if t.id in intersecting_traj_ids
-        ]
-        buffered_filt = [buffered_trajectories_gdf.loc[[t.id]] for t in ais_filt]
-
         entries = []
-        # Skip the loop if weighted_filt is empty
-        if weighted_filt:
-            # Create a trajectory collection from filtered trajectories
-            ais_filt = mpd.TrajectoryCollection(ais_filt)
 
-            # Iterate over filtered trajectories
-            for t, w, b in zip(ais_filt, weighted_filt, buffered_filt):
-                # Compute temporal score
-                temporal_score = compute_temporal_score(w, self.slick_gdf)
+        # Get the longest curve
+        longest_curve = self.slick_curves.to_crs(self.crs_meters).iloc[0]["geometry"]
 
-                # Compute overlap score
-                overlap_score = compute_overlap_score(
-                    b, self.slick_gdf, self.crs_meters
-                )
+        # Iterate over all trajectories
+        for traj in self.ais_trajectories:
+            traj_gdf = (
+                traj.to_point_gdf()
+                .sort_values(by="timestamp", ascending=False)
+                .set_crs("4326")
+                .to_crs(self.crs_meters)
+            )
 
-                # Compute distance score between trajectory and slick curve
-                distance_score = compute_distance_score(
-                    t, self.slick_curves, self.crs_meters, self.ais_ref_dist
-                )
+            temporal_score = compute_temporal_score(
+                traj_gdf,
+                longest_curve,
+                self.s1_scene.start_time,
+                self.ais_ref_time_over,
+                self.ais_ref_time_under,
+            )
+            proximity_score = compute_proximity_score(
+                traj_gdf,
+                longest_curve,
+                self.spread_rate,
+                self.s1_scene.start_time,
+            )
+            parity_score = compute_parity_score(
+                traj_gdf,
+                longest_curve,
+            )
 
-                # Compute total score from these three metrics
-                coincidence_score = compute_total_score(
-                    temporal_score,
-                    overlap_score,
-                    distance_score,
-                    self.w_temporal,
-                    self.w_overlap,
-                    self.w_distance,
-                )
+            # Compute total score from these three metrics
+            coincidence_score = compute_total_score(
+                temporal_score,
+                proximity_score,
+                parity_score,
+                self.w_temporal,
+                self.w_proximity,
+                self.w_parity,
+            )
 
-                print(
-                    f"st_name {t.id}: coincidence_score ({round(coincidence_score, 2)}) = "
-                    f"({self.w_overlap} * overlap_score ({round(overlap_score, 2)}) + "
-                    f"{self.w_temporal} * temporal_score ({round(temporal_score, 2)}) + "
-                    f"{self.w_distance} * distance_score ({round(distance_score, 2)})) / "
-                    f"({self.w_overlap + self.w_temporal + self.w_distance})"
-                )
+            print(
+                f"st_name {traj.id}: coincidence_score ({round(coincidence_score, 2)}), temporal_score ({round(temporal_score, 2)}), proximity_score ({round(proximity_score, 2)}), parity_score ({round(parity_score, 2)})"
+            )
 
-                entry = {
-                    "st_name": t.id,
-                    "ext_id": str(t.id),
-                    "geometry": shapely.geometry.LineString(
-                        [p.coords[0] for p in t.df["geometry"]]
-                    ),
-                    "coincidence_score": coincidence_score,
-                    "type": 1,  # Vessel
-                    "ext_name": t.ext_name,
-                    "ext_shiptype": t.ext_shiptype,
-                    "flag": t.flag,
-                    "geojson_fc": t.geojson_fc,
-                }
-                entries.append(entry)
+            entry = {
+                "st_name": traj.id,
+                "ext_id": str(traj.id),
+                "geometry": shapely.geometry.LineString(
+                    [p.coords[0] for p in traj.df["geometry"]]
+                ),
+                "coincidence_score": coincidence_score,
+                "type": 1,  # Vessel
+                "ext_name": traj.ext_name,
+                "ext_shiptype": traj.ext_shiptype,
+                "flag": traj.flag,
+                "geojson_fc": traj.geojson_fc,
+            }
+            entries.append(entry)
 
         sources = gpd.GeoDataFrame(entries, columns=columns, crs="4326")
         self.results = sources[sources["coincidence_score"] > 0]
@@ -896,8 +827,6 @@ class AISAnalyzer(SourceAnalyzer):
         self.slick_to_curves()
         if self.ais_trajectories is None:
             self.build_trajectories()
-        if self.ais_buffered is None:
-            self.buffer_trajectories()
         self.score_trajectories()
         self.results["collated_score"] = (
             self.results["coincidence_score"] - self.coinc_mean
