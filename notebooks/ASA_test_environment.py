@@ -337,7 +337,18 @@ slick_ids = [
     # 3573155,  # T&T
     # 3571486,  # missing from GFW
     # 3581392,  # low score ais?
-    3581329,  # vessel
+    # 3581329,  # vessel
+    # 3581756,  # vessel
+    # 3518524,  # vessel
+    # 3212229,  # infra
+    # 3518454,  # vessel
+    # 3582101,  # vessel
+    # 3581643,  # vessel FAIL
+    # 3518524,  # vessel
+    # 3237854,  # vessel
+    # 3581087,  # vessel
+    3581091,  # vessel
+    
 ]
 
 accumulated_sources = []

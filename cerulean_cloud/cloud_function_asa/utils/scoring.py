@@ -83,7 +83,6 @@ def compute_proximity_score(
         # time_delta is positive, so the tail_timestamp is behind the image_timestamp.
         # This means the trajectory is more likely to be associated with the oil slick.
         ref_dist = spread_rate * time_delta
-    print(f"dist: {dist}, ref_dist: {ref_dist}")
 
     return math.exp(-dist / ref_dist)
 
