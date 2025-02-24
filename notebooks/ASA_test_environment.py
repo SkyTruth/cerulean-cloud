@@ -347,7 +347,8 @@ slick_ids = [
     # 3518524,  # vessel
     # 3237854,  # vessel
     # 3581087,  # vessel
-    3581091,  # vessel
+    # 3581091,  # vessel
+    3573262,  # vessel
     
 ]
 

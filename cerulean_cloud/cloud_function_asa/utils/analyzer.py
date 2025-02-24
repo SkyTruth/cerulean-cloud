@@ -31,7 +31,6 @@ from .constants import (
     AIS_PROJECT_ID,
     AIS_REF_TIME_OVER,
     AIS_REF_TIME_UNDER,
-    BUF_VEC,
     CLOSING_BUFFER,
     D_FORMAT,
     DECAY_FACTOR,
@@ -456,7 +455,6 @@ class AISAnalyzer(SourceAnalyzer):
         self.hours_after = kwargs.get("hours_after", HOURS_AFTER)
         self.ais_buffer = kwargs.get("ais_buffer", AIS_BUFFER)
         self.num_timesteps = kwargs.get("num_timesteps", NUM_TIMESTEPS)
-        self.buf_vec = kwargs.get("buf_vec", BUF_VEC)
         self.ais_project_id = kwargs.get("ais_project_id", AIS_PROJECT_ID)
         self.w_temporal = kwargs.get("w_temporal", W_TEMPORAL)
         self.w_proximity = kwargs.get("w_proximity", W_PROXIMITY)
@@ -474,7 +472,7 @@ class AISAnalyzer(SourceAnalyzer):
         self.ais_end_time = self.s1_scene.start_time + timedelta(hours=self.hours_after)
         self.time_vec = pd.date_range(
             start=self.ais_start_time,
-            end=self.s1_scene.start_time,
+            end=self.ais_end_time,
             periods=self.num_timesteps,
         )
         self.s1_env = gpd.GeoDataFrame(
@@ -539,11 +537,15 @@ class AISAnalyzer(SourceAnalyzer):
     def build_trajectories(self):
         """
         Builds trajectories from AIS data.
+        - A fully interpolated trajectory is created (with datetime timestamps)
+            for scoring.
+        - A truncated version (with timestamps converted to ISO strings) is
+            generated for display.
         """
         # print("Building trajectories")
         ais_trajectories = list()
         for st_name, group in self.ais_gdf.groupby("ssvid"):
-            # Duplicate the row if there's only one point
+            # If only one point is present, duplicate it so interpolation works.
             if len(group) == 1:
                 group = pd.concat([group] * 2).reset_index(drop=True)
 
@@ -552,46 +554,40 @@ class AISAnalyzer(SourceAnalyzer):
                 group["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
             )
             traj = mpd.Trajectory(df=group, traj_id=st_name, t="timestamp")
+            traj.ext_name, traj.ext_shiptype, traj.flag = group.iloc[0][
+                ["shipname", "best_shiptype", "flag"]
+            ]
 
             # Interpolate to times in time_vec
-            times = list()
-            positions = list()
-            for t in self.time_vec:
-                pos = traj.interpolate_position_at(t)
-                times.append(t)
-                positions.append(pos)
-            gdf = gpd.GeoDataFrame(
+            times = self.time_vec
+            positions = [traj.interpolate_position_at(t) for t in times]
+
+            # Build a full GeoDataFrame for scoring (keep timestamps as datetime objects).
+            interp_gdf = gpd.GeoDataFrame(
                 {"timestamp": times, "geometry": positions}, crs="4326"
             )
+            traj.df = interp_gdf
 
-            # Store as trajectory
-            interpolated_traj = mpd.Trajectory(
-                gdf,
-                traj_id=st_name,
-                t="timestamp",
-            )
-            gdf["timestamp"] = gdf["timestamp"].apply(lambda x: x.isoformat())
-            interpolated_traj.ext_name = group.iloc[0]["shipname"]
-            interpolated_traj.ext_shiptype = group.iloc[0]["best_shiptype"]
-            interpolated_traj.flag = group.iloc[0]["flag"]
-
-            # Calculate display feature collection
+            # For display, create a truncated GeoDataFrame.
+            # Here, we use s1_time as the truncation cutoff (last time in the interpolation).
             s1_time = pd.Timestamp(times[-1])
             display_gdf = group[group["timestamp"] <= s1_time].copy()
+
+            # If the original group extends beyond s1_time, add the final interpolated point.
+            if group["timestamp"].iloc[-1] > s1_time:
+                display_gdf = pd.concat(
+                    [display_gdf, interp_gdf.iloc[[-1]]], ignore_index=True
+                )
+            # Convert timestamps to ISO format for display purposes.
             display_gdf["timestamp"] = display_gdf["timestamp"].apply(
                 lambda x: x.isoformat()
             )
-            if group["timestamp"].iloc[-1] > s1_time:
-                display_gdf = pd.concat(
-                    [display_gdf, gdf.iloc[[-1]]], ignore_index=True
-                )
-
-            interpolated_traj.geojson_fc = {
+            traj.geojson_fc = {
                 "type": "FeatureCollection",
                 "features": json.loads(display_gdf.to_json())["features"],
             }
 
-            ais_trajectories.append(interpolated_traj)
+            ais_trajectories.append(traj)
 
         self.ais_trajectories = mpd.TrajectoryCollection(ais_trajectories)
 
@@ -788,7 +784,10 @@ class AISAnalyzer(SourceAnalyzer):
             )
 
             print(
-                f"st_name {traj.id}: coincidence_score ({round(coincidence_score, 2)}), temporal_score ({round(temporal_score, 2)}), proximity_score ({round(proximity_score, 2)}), parity_score ({round(parity_score, 2)})"
+                f"st_name {traj.id}: coincidence_score ({round(coincidence_score, 2)}), "
+                f"temporal_score ({round(temporal_score, 2)}), "
+                f"proximity_score ({round(proximity_score, 2)}), "
+                f"parity_score ({round(parity_score, 2)})"
             )
 
             entry = {
