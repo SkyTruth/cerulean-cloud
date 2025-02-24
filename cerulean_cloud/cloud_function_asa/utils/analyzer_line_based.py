@@ -955,7 +955,7 @@ class PointAnalyzer(SourceAnalyzer):
         return ((start_point, secondary_start_point), (end_point, secondary_end_point))
 
     def select_endpoints_from_centerlines(
-        self, lines, center_point, offset=0.01, gap=0.1
+        self, lines, center_point, offset=0.05, gap=0.05
     ):
         """
         Given a list of LineString geometries and a center point, this function:
