@@ -439,7 +439,6 @@ class AISAnalyzer(SourceAnalyzer):
         s1_scene (object): The Sentinel-1 scene object.
         ais_gdf (GeoDataFrame): Retrieved AIS data.
         ais_trajectories (TrajectoryCollection): Collection of vessel trajectories.
-        ais_weighted (list): List of weighted geometries for each trajectory.
         results (DataFrame): Final association results.
     """
 
@@ -490,7 +489,7 @@ class AISAnalyzer(SourceAnalyzer):
         self.slick_curves = None
         self.ais_gdf = None
         self.ais_trajectories = None
-        self.ais_weighted = None
+        self.ais_filtered = None
         self.results = gpd.GeoDataFrame()
 
     def retrieve_ais_data(self):
@@ -544,7 +543,7 @@ class AISAnalyzer(SourceAnalyzer):
         """
         # print("Building trajectories")
         ais_trajectories = list()
-        for st_name, group in self.ais_gdf.groupby("ssvid"):
+        for st_name, group in self.ais_filtered.groupby("ssvid"):
             # If only one point is present, duplicate it so interpolation works.
             if len(group) == 1:
                 group = pd.concat([group] * 2).reset_index(drop=True)
@@ -720,6 +719,33 @@ class AISAnalyzer(SourceAnalyzer):
 
         self.slick_curves = slick_curves_gdf
 
+    def filter_ais_data(self):
+        """
+        Prune AIS data to only include trajectories that are within the AIS buffer.
+        """
+        search_area = (
+            self.slick_gdf.geometry.to_crs(self.crs_meters)
+            .buffer(self.ais_buffer)
+            .to_crs("4326")
+        )
+
+        # Query the spatial index of ais_gdf using the bounds of the search area
+        candidate_indices = list(
+            self.ais_gdf.sindex.intersection(search_area.total_bounds)
+        )
+
+        # Retrieve candidate AIS points
+        candidate_points = self.ais_gdf.iloc[candidate_indices]
+
+        # Further filter to ensure actual intersection with the buffered area
+        candidate_points = candidate_points[
+            candidate_points.geometry.intersects(search_area.iloc[0])
+        ]
+
+        # Extract unique ssvid values from the candidate points
+        ssvids_of_interest = candidate_points["ssvid"].unique()
+        self.ais_filtered = self.ais_gdf[self.ais_gdf["ssvid"].isin(ssvids_of_interest)]
+
     def score_trajectories(self):
         """
         Measure association by computing multiple metrics between AIS trajectories and slicks
@@ -746,7 +772,7 @@ class AISAnalyzer(SourceAnalyzer):
         # Get the longest curve
         longest_curve = self.slick_curves.to_crs(self.crs_meters).iloc[0]["geometry"]
 
-        # Iterate over all trajectories
+        # Iterate over filtered trajectories
         for traj in self.ais_trajectories:
             traj_gdf = (
                 traj.to_point_gdf()
@@ -816,12 +842,15 @@ class AISAnalyzer(SourceAnalyzer):
         self.results = gpd.GeoDataFrame()
 
         self.slick_curves = None
+        self.ais_filtered = None
         self.slick_gdf = slick_gdf
 
         if self.ais_gdf is None:
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
             return pd.DataFrame()
+        if self.ais_filtered is None:
+            self.filter_ais_data()
 
         self.slick_to_curves()
         if self.ais_trajectories is None:

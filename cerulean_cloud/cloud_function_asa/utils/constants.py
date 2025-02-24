@@ -1,9 +1,7 @@
 """Constants for Automatic Source Association handler"""
 
-import numpy as np
-
 # TEMPORAL PARAMETERS FOR AIS
-HOURS_BEFORE = 6
+HOURS_BEFORE = 12
 HOURS_AFTER = 2
 TIMESTEPS_PER_HOUR = 6
 NUM_TIMESTEPS = HOURS_BEFORE * TIMESTEPS_PER_HOUR
@@ -12,9 +10,6 @@ NUM_TIMESTEPS = HOURS_BEFORE * TIMESTEPS_PER_HOUR
 AIS_PROJECT_ID = "world-fishing-827"
 AIS_BUFFER = 20000  # buffer around GRD envelope to capture AIS
 SPREAD_RATE = 10000  # meters/hour perpendicular to vessel track
-BUF_START = 100
-BUF_END = BUF_START + SPREAD_RATE * HOURS_BEFORE
-BUF_VEC = np.linspace(BUF_START, BUF_END, NUM_TIMESTEPS)
 
 D_FORMAT = "%Y-%m-%d"
 T_FORMAT = "%Y-%m-%d %H:%M:%S"
