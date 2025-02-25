@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 import centerline.geometry
+import networkx as nx
 import geopandas as gpd
 import morecantile
 import numpy as np
@@ -517,6 +518,143 @@ async def _orchestrate(
         if success is False:
             raise exc
     return OrchestratorResult(status="Success")
+
+
+def longest_path_tree(graph):
+    """
+    Finds the longest path in a weighted tree graph and returns a subgraph containing only the longest path.
+
+    Parameters:
+        graph (networkx.Graph): A connected graph (assumed to be a tree).
+
+    Returns:
+        networkx.Graph: A subgraph of the input graph containing only the longest path.
+    """
+
+    def farthest_node(graph, start_node):
+        """
+        Helper function to find the farthest node and its distance from a given start node.
+        """
+        distances = {}
+        stack = [(start_node, 0)]  # (current_node, current_distance)
+        while stack:
+            node, dist = stack.pop()
+            if node not in distances:  # Visit the node
+                distances[node] = dist
+                for neighbor, edge_data in graph[node].items():
+                    stack.append(
+                        (neighbor, dist + edge_data.get("weight", 1))
+                    )  # Default weight is 1
+        farthest = max(distances, key=distances.get)
+        return farthest, distances[farthest]
+
+    # Step 1: Find one endpoint of the longest path
+    start_node = list(graph.nodes)[0]
+    farthest, _ = farthest_node(graph, start_node)
+
+    # Step 2: Find the longest path from the farthest node
+    other_farthest, _ = farthest_node(graph, farthest)
+
+    # Step 3: Extract the path from farthest to other_farthest
+    path_nodes = nx.shortest_path(
+        graph, source=farthest, target=other_farthest, weight="weight"
+    )
+
+    # Create a new graph for the longest path
+    longest_path_graph = nx.Graph()
+    for i in range(len(path_nodes) - 1):
+        u, v = path_nodes[i], path_nodes[i + 1]
+        # Add edge to the new graph with its weight
+        edge_data = graph.get_edge_data(u, v)
+        longest_path_graph.add_edge(u, v, **edge_data)
+
+    return longest_path_graph
+
+
+def find_longest_spine(cl):
+    """
+    Finds the longest contious line from a multiline centerline
+    """
+    # Initialize an empty graph
+    graph = nx.Graph()
+    count = 0
+    # Iterate through each LineString in the MultiLineString
+    for linestring in cl.geometry.geoms:  # Use .geoms to access individual LineStrings
+        coords = list(linestring.coords)
+        for i in range(len(coords) - 1):
+            count += 1
+            graph.add_edge(coords[0], coords[i + 1])
+    spine = longest_path_tree(graph)
+
+    connected_components = [
+        list(component) for component in nx.connected_components(spine)
+    ]
+
+    linestrings = []
+
+    for component in connected_components:
+        subgraph = spine.subgraph(component)  # Extract the subgraph
+        if len(subgraph.edges) > 0:
+            edges = list(nx.dfs_edges(subgraph))  # Depth-first traversal for a path
+            coords = [edges[0][0]]  # Start with the first node
+            coords.extend(edge[1] for edge in edges)  # Add the end points of each edge
+            # Create a LineString from the coordinates
+            linestrings.append(LineString(coords))
+    if len(linestrings) > 1:
+        multilinestring = MultiLineString(linestrings)
+    else:
+        multilinestring = linestrings[0]
+
+    return multilinestring
+
+
+def calculate_centerlines(
+    slick_gdf: gpd.GeoDataFrame,
+    crs_meters: str,
+    close_buffer: int = 2000,
+    smoothing_factor: float = 1e10,
+):
+    """
+    From a set of polygons representing oil slick detections, estimate curves that go through the detections
+    This process transforms a set of slick detections into LineStrings for each detection
+
+    Inputs:
+        slick_gdf: GeoDataFrame of slick detections
+        crs_meters: crs of slick center in meters
+        close_buffer: buffer size for cleaning up slick detections
+        smoothing_factor: smoothing factor for smoothing centerline
+    Returns:
+        GeoDataFrame of slick curves
+    """
+    # clean up the slick detections by dilation followed by erosion
+    # this process can merge some polygons but not others, depending on proximity
+    slick_closed = (
+        slick_gdf.to_crs(crs_meters).buffer(close_buffer).buffer(-close_buffer)
+    )
+
+    # split slicks into individual polygons
+    slick_closed = slick_closed.explode(ignore_index=True, index_parts=False)
+
+    # find a centerline through detections
+    slick_cls = list()
+    for _, item in slick_closed.items():
+        # create centerline -> MultiLineString
+        polygon_perimeter = item.length  # Perimeter of the polygon
+        interp_dist = min(
+            100, polygon_perimeter / 1000
+        )  # Use a minimum of 1000 points for voronoi calculation
+        cl = centerline.geometry.Centerline(item, interpolation_distance=interp_dist)
+        cl.geometry = find_longest_spine(cl)
+        slick_cls.append(cl.geometry)
+
+    slick_centerline_gdf = gpd.GeoDataFrame(geometry=slick_cls, crs=crs_meters).to_crs(
+        "4326"
+    )
+    slick_centerline_gdf["area"] = slick_closed.geometry.area
+    slick_centerline_gdf["length"] = [c.length for c in slick_cls]
+
+    aspect_ratio_factor = compute_aspect_ratio_factor(slick_centerline_gdf, ar_ref=16)
+    return json.loads(slick_centerline_gdf.to_json()), aspect_ratio_factor
 
 
 def calculate_splines(
