@@ -451,18 +451,18 @@ async def _orchestrate(
                         feat["properties"]["inf_idx"] = model.background_class_idx
                         n_background_slicks += 1
 
-                    logger.info("Calculating splines")
-                    splines_geojson, aspect_ratio_factor = calculate_splines(
+                    logger.info("Calculating centerlines")
+                    centerlines_geojson, aspect_ratio_factor = calculate_centerlines(
                         slick_gdf, crs_meters
                     )
                     logger.info(
                         {
-                            "message": "Splines calculated",
+                            "message": "Centerlines calculated",
                             "aspect_ratio_factor": aspect_ratio_factor,
-                            "splines_geojson": splines_geojson,
+                            "centerlines_geojson": centerlines_geojson,
                         }
                     )
-                    feat["properties"]["splines"] = splines_geojson
+                    feat["properties"]["centerlines"] = centerlines_geojson
                     feat["properties"]["aspect_ratio_factor"] = aspect_ratio_factor
 
                 logger.info(
@@ -485,7 +485,7 @@ async def _orchestrate(
                             feat.get("geometry"),
                             feat.get("properties").get("inf_idx"),
                             feat.get("properties").get("machine_confidence"),
-                            feat.get("properties").get("splines"),
+                            feat.get("properties").get("centerlines"),
                             feat.get("properties").get("aspect_ratio_factor"),
                         )
                         logger.info("Added slick")

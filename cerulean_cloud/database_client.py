@@ -201,7 +201,7 @@ class DatabaseClient:
         slick_shape,
         inference_idx,
         machine_confidence,
-        splines,
+        centerlines,
         aspect_ratio_factor,
     ):
         """add a slick"""
@@ -219,7 +219,7 @@ class DatabaseClient:
             active=True,
             orchestrator_run1=orchestrator_run,
             machine_confidence=machine_confidence,
-            splines=splines,
+            centerlines=centerlines,
             aspect_ratio_factor=aspect_ratio_factor,
         )
         return slick

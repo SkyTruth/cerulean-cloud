@@ -24,7 +24,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
-    calculate_splines,
+    calculate_centerlines,
     group_bounds_from_list_of_bounds,
     is_tile_over_water,
     make_cloud_log_url,
@@ -450,7 +450,7 @@ def test_get_tag():
         assert isinstance(git_tag, str)
 
 
-def test_calculate_splines():
+def test_calculate_centerlines():
     # Define three polygons with varying aspect ratios:
     # 1. A square (aspect ratio 1:1)
     square = Polygon([(0, 0), (0, 200), (100, 200), (100, 0)])
@@ -467,15 +467,17 @@ def test_calculate_splines():
     # Create a GeoDataFrame with the MultiPolygon and assign a CRS in meters (EPSG:3857)
     gdf = gpd.GeoDataFrame({"geometry": [multi_poly]}, crs="EPSG:3857")
 
-    # Set the close_buffer parameter used in calculate_splines.
+    # Set the close_buffer parameter used in calculate_centerlines.
     close_buffer = 40
 
-    # Call calculate_splines with the prepared GeoDataFrame.
-    splines_json, arf = calculate_splines(gdf, "EPSG:3857", close_buffer=close_buffer)
+    # Call calculate_centerlines with the prepared GeoDataFrame.
+    centerlines_json, arf = calculate_centerlines(
+        gdf, "EPSG:3857", close_buffer=close_buffer
+    )
 
     # Ensure that the feature collection has features.
-    assert "features" in splines_json
-    features = splines_json["features"]
+    assert "features" in centerlines_json
+    features = centerlines_json["features"]
 
     # Check that at least one feature was created.
     assert len(features) >= 1, "No spline features were created."

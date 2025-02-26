@@ -396,7 +396,7 @@ accumulated_sources = []
 for slick_id in slick_ids:
     geojson_file_path = download_geojson(slick_id)
     slick_gdf = gpd.read_file(geojson_file_path)
-    slick_gdf["splines"] = slick_gdf["splines"].apply(json.loads)
+    slick_gdf["centerlines"] = slick_gdf["centerlines"].apply(json.loads)
     s1_scene = get_s1_scene(slick_gdf.s1_scene_id.iloc[0])
 
     source_types = []
