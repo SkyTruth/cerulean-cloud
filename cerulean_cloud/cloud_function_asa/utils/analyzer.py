@@ -581,41 +581,51 @@ class PointAnalyzer(SourceAnalyzer):
 
         return np.array(selected_points)
 
-    def scaled_inner_angles(self, a, b, c_set):
+    def scaled_inner_angles(self, a, b_set, c_set):
         """
-        Calculate scaled inner angles at vertex C for a triangle formed by points A, B, and each point in C.
+        Calculate scaled inner angles at vertex C for triangles formed by a fixed point A,
+        and corresponding points in b_set and c_set.
+
+        Each triangle is defined by the vertices (A, B, C), and the inner angle at C
+        is computed using the vectors CA (from C to A) and CB (from C to B).
 
         Parameters:
-            a: Tuple representing the vertex A (x1, y1).
-            b: Tuple representing the vertex B (x2, y2).
-            c_set: List or array of tuples representing the points in C (x3, y3).
+            a: Tuple representing point A (x, y) (fixed for all triangles).
+            b_set: List or array of tuples representing point B (x, y) for each triangle.
+            c_set: List or array of tuples representing point C (x, y) for each triangle.
 
         Returns:
-            A NumPy array of scaled angles at vertex C for each point in C.
+            A NumPy array of scaled inner angles at vertex C for each triangle (range: 0-1,
+            where 0 corresponds to 0° and 1 to 180°).
         """
-        # Convert A and B to numpy arrays
+        # Convert inputs to NumPy arrays for vectorized operations
         a = np.array(a)
-        b = np.array(b)
-
-        # Convert C set to a NumPy array
+        b_set = np.array(b_set)
         c_set = np.array(c_set)
 
-        # Vectors BC and AC
-        bc = b - c_set  # Vector BC for each point in C
-        ac = a - c_set  # Vector AC for each point in C
+        # Compute vectors CA and CB for each triangle (vertex C is the reference)
+        ca = a - c_set  # Vector from C to A
+        cb = b_set - c_set  # Vector from C to B
 
-        # Dot products and magnitudes
-        dot_products = np.sum(bc * ac, axis=1)  # Dot product of BC and AC
-        magnitude_bc = np.linalg.norm(bc, axis=1)  # Magnitudes of all BC vectors
-        magnitude_ac = np.linalg.norm(ac, axis=1)  # Magnitudes of all AC vectors
+        # Compute dot products for each pair of vectors
+        dot_products = np.sum(ca * cb, axis=1)
 
-        # Calculate angles in radians
-        angles_radians = np.arccos(dot_products / (magnitude_bc * magnitude_ac))
+        # Compute the magnitudes of each vector
+        norm_ca = np.linalg.norm(ca, axis=1)
+        norm_cb = np.linalg.norm(cb, axis=1)
 
-        # Scale angles to range 0-1
-        scaled_angles = 1 - (angles_radians / np.pi)
+        # Compute the cosine of the angle at vertex C
+        cos_angles = dot_products / (norm_ca * norm_cb)
+        # Clip values to ensure they lie in [-1, 1] to prevent numerical errors in arccos
+        cos_angles = np.clip(cos_angles, -1.0, 1.0)
 
-        return np.array(scaled_angles)
+        # Compute the angle at vertex C in radians
+        angles_radians = np.arccos(cos_angles)
+
+        # Scale the angles to the range 0-1 (0 rad = 0, π rad = 1)
+        scaled_angles = angles_radians / np.pi
+
+        return 1 - scaled_angles
 
     def calc_score_extremities_to_points(
         self,
@@ -623,7 +633,7 @@ class PointAnalyzer(SourceAnalyzer):
         extremity_tree: cKDTree,
         all_extremity_points: np.ndarray,
         all_weights: np.ndarray,
-        center_point: np.ndarray = None,
+        center_points: np.ndarray = None,
     ) -> np.ndarray:
         """
         Computes confidence scores for points based on their proximity to extremity points.
@@ -638,9 +648,10 @@ class PointAnalyzer(SourceAnalyzer):
             if neighbors:
                 neighbor_weights = all_weights[neighbors]
                 neighbor_points = all_extremity_points[neighbors]
-                if self.decay_theta > 0 and center_point is not None:
+                center_points_reduced = center_points[neighbors]
+                if self.decay_theta > 0 and center_points is not None:
                     scaled_angles = self.scaled_inner_angles(
-                        points_coords[i], center_point, neighbor_points
+                        points_coords[i], center_points_reduced, neighbor_points
                     )
                 else:
                     scaled_angles = np.zeros(len(neighbor_points))
@@ -973,7 +984,9 @@ class DarkAnalyzer(PointAnalyzer):
         all_extrema, all_weights = self.aggregate_extrema_and_area_fractions(
             polygons, combined_geometry, largest_polygon_area
         )
-
+        delta_points = np.array(
+            list(combined_geometry.centroid.coords[0]) * len(all_extrema)
+        )
         # Build KD-Tree and compute confidence scores
         extremity_tree = cKDTree(all_extrema)
         confidence_filtered = self.calc_score_extremities_to_points(
@@ -982,7 +995,7 @@ class DarkAnalyzer(PointAnalyzer):
             all_extrema,
             all_weights,
             # XXX HACK OVERALL_CENTROID -- should remove when we switch to using spines
-            np.array(combined_geometry.centroid.coords[0]),
+            delta_points,
         )
 
         self.coincidence_scores[filtered_dark_objects.index] = confidence_filtered
