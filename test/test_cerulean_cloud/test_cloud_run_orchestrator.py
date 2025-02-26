@@ -480,7 +480,7 @@ def test_calculate_centerlines():
     features = centerlines_json["features"]
 
     # Check that at least one feature was created.
-    assert len(features) >= 1, "No spline features were created."
+    assert len(features) >= 1, "No centerline features were created."
 
     # Extract LineString geometries and verify they are indeed LineStrings.
     line_strings = []
@@ -492,10 +492,10 @@ def test_calculate_centerlines():
         line_strings.append(line)
 
     # Optionally, check that the resulting GeoDataFrame (if converted back) is non-empty
-    spline_gdf = gpd.GeoDataFrame({"geometry": line_strings}, crs="EPSG:4326").to_crs(
-        "EPSG:3857"
-    )
-    assert not spline_gdf.empty, "The spline GeoDataFrame is empty."
+    centerline_gdf = gpd.GeoDataFrame(
+        {"geometry": line_strings}, crs="EPSG:4326"
+    ).to_crs("EPSG:3857")
+    assert not centerline_gdf.empty, "The centerline GeoDataFrame is empty."
 
     # Check that the aspect ratio factor is approximately equal to the expected value.
     # The expected value here is from your sample output. Allow a small tolerance.
@@ -507,7 +507,7 @@ def test_calculate_centerlines():
     # (Optional) Uncomment to see a plot when running the test locally.
     # fig, ax = plt.subplots(figsize=(10, 6))
     # self.gdf.boundary.plot(ax=ax, color='blue', linewidth=1.5, label='Original Polygons')
-    # spline_gdf.plot(ax=ax, color='red', linewidth=2, label='Spline Geometry')
-    # ax.set_title("Original Polygons and Calculated Spline")
+    # centerline_gdf.plot(ax=ax, color='red', linewidth=2, label='centerline Geometry')
+    # ax.set_title("Original Polygons and Calculated centerline")
     # ax.legend()
     # plt.show()

@@ -19,11 +19,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 
 import centerline.geometry
-import networkx as nx
 import geopandas as gpd
 import morecantile
+import networkx as nx
 import numpy as np
-import scipy.interpolate
 import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -571,7 +570,7 @@ def longest_path_tree(graph):
     return longest_path_graph
 
 
-def find_longest_spine(cl):
+def find_longest_path(cl):
     """
     Finds the longest contious line from a multiline centerline
     """
@@ -584,16 +583,16 @@ def find_longest_spine(cl):
         for i in range(len(coords) - 1):
             count += 1
             graph.add_edge(coords[0], coords[i + 1])
-    spine = longest_path_tree(graph)
+    longest_path = longest_path_tree(graph)
 
     connected_components = [
-        list(component) for component in nx.connected_components(spine)
+        list(component) for component in nx.connected_components(longest_path)
     ]
 
     linestrings = []
 
     for component in connected_components:
-        subgraph = spine.subgraph(component)  # Extract the subgraph
+        subgraph = longest_path.subgraph(component)  # Extract the subgraph
         if len(subgraph.edges) > 0:
             edges = list(nx.dfs_edges(subgraph))  # Depth-first traversal for a path
             coords = [edges[0][0]]  # Start with the first node
@@ -615,7 +614,7 @@ def calculate_centerlines(
     smoothing_factor: float = 1e10,
 ):
     """
-    From a set of polygons representing oil slick detections, estimate curves that go through the detections
+    From a set of polygons representing oil slick detections, estimate centerlines that go through the detections
     This process transforms a set of slick detections into LineStrings for each detection
 
     Inputs:
@@ -624,7 +623,7 @@ def calculate_centerlines(
         close_buffer: buffer size for cleaning up slick detections
         smoothing_factor: smoothing factor for smoothing centerline
     Returns:
-        GeoDataFrame of slick curves
+        GeoDataFrame of slick centerlines
     """
     # clean up the slick detections by dilation followed by erosion
     # this process can merge some polygons but not others, depending on proximity
@@ -644,7 +643,7 @@ def calculate_centerlines(
             100, polygon_perimeter / 1000
         )  # Use a minimum of 1000 points for voronoi calculation
         cl = centerline.geometry.Centerline(item, interpolation_distance=interp_dist)
-        cl.geometry = find_longest_spine(cl)
+        cl.geometry = find_longest_path(cl)
         slick_cls.append(cl.geometry)
 
     slick_centerline_gdf = gpd.GeoDataFrame(geometry=slick_cls, crs=crs_meters).to_crs(
@@ -657,149 +656,26 @@ def calculate_centerlines(
     return json.loads(slick_centerline_gdf.to_json()), aspect_ratio_factor
 
 
-def calculate_splines(
-    slick_gdf: gpd.GeoDataFrame,
-    crs_meters: str,
-    close_buffer: int = 2000,
-    smoothing_factor: float = 1e10,
-):
-    """
-    From a set of polygons representing oil slick detections, estimate curves that go through the detections
-    This process transforms a set of slick detections into LineStrings for each detection
-
-    Inputs:
-        slick_gdf: GeoDataFrame of slick detections
-        crs_meters: crs of slick center in meters
-        close_buffer: buffer size for cleaning up slick detections
-        smoothing_factor: smoothing factor for smoothing centerline
-    Returns:
-        GeoDataFrame of slick curves
-    """
-    # clean up the slick detections by dilation followed by erosion
-    # this process can merge some polygons but not others, depending on proximity
-    slick_closed = (
-        slick_gdf.to_crs(crs_meters).buffer(close_buffer).buffer(-close_buffer)
-    )
-
-    # split slicks into individual polygons
-    slick_closed = slick_closed.explode(ignore_index=True, index_parts=False)
-
-    # find a centerline through detections
-    slick_curves = list()
-    for _, item in slick_closed.items():
-        # create centerline -> MultiLineString
-        polygon_perimeter = item.length  # Perimeter of the polygon
-        interp_dist = min(
-            100, polygon_perimeter / 1000
-        )  # Use a minimum of 1000 points for voronoi calculation
-        cl = centerline.geometry.Centerline(item, interpolation_distance=interp_dist)
-
-        # grab coordinates from centerline
-        x = list()
-        y = list()
-        if isinstance(cl.geometry, MultiLineString):
-            # iterate through each linestring
-            for geom in cl.geometry.geoms:
-                x.extend(geom.coords.xy[0])
-                y.extend(geom.coords.xy[1])
-        else:
-            x.extend(cl.geometry.coords.xy[0])
-            y.extend(cl.geometry.coords.xy[1])
-
-        # sort coordinates in both X and Y directions
-        coords = [(xc, yc) for xc, yc in zip(x, y)]
-        coords_sort_x = sorted(coords, key=lambda coord: coord[0])
-        coords_sort_y = sorted(coords, key=lambda coord: coord[1])
-
-        # remove coordinate duplicates, preserving sorted order
-        coords_seen_x = set()
-        coords_unique_x = list()
-        for coord in coords_sort_x:
-            if coord not in coords_seen_x:
-                coords_unique_x.append(coord)
-                coords_seen_x.add(coord)
-
-        coords_seen_y = set()
-        coords_unique_y = list()
-        for coord in coords_sort_y:
-            if coord not in coords_seen_y:
-                coords_unique_y.append(coord)
-                coords_seen_y.add(coord)
-
-        # grab x and y coordinates for spline fit
-        x_fit_sort_x = [coord[0] for coord in coords_unique_x]
-        x_fit_sort_y = [coord[0] for coord in coords_unique_y]
-        y_fit_sort_x = [coord[1] for coord in coords_unique_x]
-        y_fit_sort_y = [coord[1] for coord in coords_unique_y]
-
-        # Check if there are enough points for spline fitting
-        min_points_required = 4  # for cubic spline, k=3, need at least 4 points
-        if len(coords_unique_x) >= min_points_required:
-            # fit a B-spline to the centerline
-            tck_sort_x, fp_sort_x, _, _ = scipy.interpolate.splrep(
-                x_fit_sort_x,
-                y_fit_sort_x,
-                k=3,
-                s=smoothing_factor,
-                full_output=True,
-            )
-            tck_sort_y, fp_sort_y, _, _ = scipy.interpolate.splrep(
-                y_fit_sort_y,
-                x_fit_sort_y,
-                k=3,
-                s=smoothing_factor,
-                full_output=True,
-            )
-
-            # choose the spline that has the lowest fit error
-            if fp_sort_x <= fp_sort_y:
-                tck = tck_sort_x
-                x_fit = x_fit_sort_x
-                y_fit = y_fit_sort_x
-
-                num_points = max(round((x_fit[-1] - x_fit[0]) / 100), 5)
-                x_new = np.linspace(x_fit[0], x_fit[-1], 10)
-                y_new = scipy.interpolate.BSpline(*tck)(x_new)
-            else:
-                tck = tck_sort_y
-                x_fit = x_fit_sort_y
-                y_fit = y_fit_sort_y
-
-                num_points = max(round((y_fit[-1] - y_fit[0]) / 100), 5)
-                y_new = np.linspace(y_fit[0], y_fit[-1], num_points)
-                x_new = scipy.interpolate.BSpline(*tck)(y_new)
-
-            # store as LineString
-            curve = LineString(zip(x_new, y_new))
-        else:
-            curve = LineString([coords_unique_x[0], coords_unique_x[-1]])
-        slick_curves.append(curve)
-
-    slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=crs_meters).to_crs(
-        "4326"
-    )
-    slick_curves_gdf["area"] = slick_closed.geometry.area
-    slick_curves_gdf["length"] = [c.length for c in slick_curves]
-
-    aspect_ratio_factor = compute_aspect_ratio_factor(slick_curves_gdf, ar_ref=16)
-
-    return json.loads(slick_curves_gdf.to_json()), aspect_ratio_factor
-
-
-def compute_aspect_ratio_factor(slick_curves: gpd.GeoDataFrame, ar_ref=16) -> float:
+def compute_aspect_ratio_factor(
+    slick_centerlines: gpd.GeoDataFrame, ar_ref=16
+) -> float:
     """
     Computes the aspect ratio factor for a given geometry.
 
     Parameters:
-        slick_curves (gpd.GeoDataFrame): A GeoDataFrame containing line geometries with a 'length' and 'area' column.
+        slick_centerlines (gpd.GeoDataFrame): A GeoDataFrame containing line geometries with a 'length' and 'area' column.
         ar_ref (float, optional): Reference aspect ratio factor. Default is 16.
 
     Returns:
         float: The computed aspect ratio factor, between 0 and 1, where 0 is a square and 1 is an infinite line
     """
 
-    L = slick_curves["length"].values
-    A = slick_curves["area"].values
-    slwbear = np.average(L**2 / A, weights=L)
+    L = slick_centerlines["length"].values
+    A = slick_centerlines["area"].values
+
+    # Centerline Length Weighted Bulk Effective Aspect Ratio
+    clwbear = np.average(L**2 / A, weights=L)
+
     # Note slwbear is between 1 and infinity, so the following transformation moves it between 0 and 1
-    return 1 - math.exp((1 - slwbear) / ar_ref)
+    arf = 1 - math.exp((1 - clwbear) / ar_ref)  # Aspect Ratio Factor
+    return arf

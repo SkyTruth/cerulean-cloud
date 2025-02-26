@@ -87,11 +87,11 @@ class SourceAnalyzer:
         )
         return geo_df
 
-    def load_slick_curves(self):
+    def load_slick_centerlines(self):
         """
-        Loads the slick curves from the GeoDataFrame.
+        Loads the slick centerlines from the GeoDataFrame.
         """
-        self.slick_curves = gpd.GeoDataFrame.from_features(
+        self.slick_centerlines = gpd.GeoDataFrame.from_features(
             self.slick_gdf["centerlines"].iloc[0]["features"], crs="EPSG:4326"
         )
 
@@ -416,7 +416,7 @@ class AISAnalyzer(SourceAnalyzer):
 
         self.slick_gdf = slick_gdf
         if self.slick_curves is None:
-            self.load_slick_curves()
+            self.load_slick_centerlines()
         if self.ais_gdf is None:
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
@@ -989,7 +989,7 @@ class DarkAnalyzer(PointAnalyzer):
         )
         # Build KD-Tree and compute confidence scores
         extremity_tree = cKDTree(all_extrema)
-        confidence_filtered = self.calc_score_extremities_to_points(
+        coincidence_filtered = self.calc_score_extremities_to_points(
             filtered_dark_objects,
             extremity_tree,
             all_extrema,
@@ -998,7 +998,7 @@ class DarkAnalyzer(PointAnalyzer):
             delta_points,
         )
 
-        self.coincidence_scores[filtered_dark_objects.index] = confidence_filtered
+        self.coincidence_scores[filtered_dark_objects.index] = coincidence_filtered
 
         # Return a DataFrame with geojson, coincidence_scores, and collated_score
         results = self.dark_objects_gdf.copy()
