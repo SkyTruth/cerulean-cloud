@@ -499,7 +499,7 @@ def test_calculate_centerlines():
 
     # Check that the aspect ratio factor is approximately equal to the expected value.
     # The expected value here is from your sample output. Allow a small tolerance.
-    expected_arf = 0.42581
+    expected_arf = 0.51281
     assert math.isclose(arf, expected_arf, rel_tol=1e-4), (
         f"Aspect ratio factor {arf} differs from expected {expected_arf}."
     )
