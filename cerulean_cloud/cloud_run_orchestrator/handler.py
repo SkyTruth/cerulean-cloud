@@ -27,7 +27,7 @@ import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
-from shapely.geometry import LineString, MultiLineString, shape
+from shapely.geometry import LineString, shape
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
@@ -519,92 +519,75 @@ async def _orchestrate(
     return OrchestratorResult(status="Success")
 
 
-def longest_path_tree(graph):
+def compute_tree_diameter(graph):
     """
-    Finds the longest path in a weighted tree graph and returns a subgraph containing only the longest path.
+    Computes the longest path (diameter) of a weighted tree graph.
 
-    Parameters:
-        graph (networkx.Graph): A connected graph (assumed to be a tree).
+    Uses two passes of depth-first search (DFS):
+        1. Start from an arbitrary node to find the farthest node (node_a).
+        2. Start from node_a to find the farthest node from it (node_b).
 
     Returns:
-        networkx.Graph: A subgraph of the input graph containing only the longest path.
+        list: An ordered list of nodes (coordinates) representing the longest path.
     """
 
-    def farthest_node(graph, start_node):
-        """
-        Helper function to find the farthest node and its distance from a given start node.
-        """
+    def farthest_node(g, start):
         distances = {}
-        stack = [(start_node, 0)]  # (current_node, current_distance)
+        stack = [(start, 0)]
         while stack:
             node, dist = stack.pop()
-            if node not in distances:  # Visit the node
+            if node not in distances:
                 distances[node] = dist
-                for neighbor, edge_data in graph[node].items():
-                    stack.append(
-                        (neighbor, dist + edge_data.get("weight", 1))
-                    )  # Default weight is 1
+                for neighbor, attr in g[node].items():
+                    weight = attr.get("weight", 1)
+                    stack.append((neighbor, dist + weight))
+        # Pick the node with maximum distance from 'start'
         farthest = max(distances, key=distances.get)
         return farthest, distances[farthest]
 
-    # Step 1: Find one endpoint of the longest path
-    start_node = list(graph.nodes)[0]
-    farthest, _ = farthest_node(graph, start_node)
+    # Choose an arbitrary starting node
+    start = next(iter(graph.nodes))
+    node_a, _ = farthest_node(graph, start)
+    node_b, _ = farthest_node(graph, node_a)
 
-    # Step 2: Find the longest path from the farthest node
-    other_farthest, _ = farthest_node(graph, farthest)
-
-    # Step 3: Extract the path from farthest to other_farthest
-    path_nodes = nx.shortest_path(
-        graph, source=farthest, target=other_farthest, weight="weight"
-    )
-
-    # Create a new graph for the longest path
-    longest_path_graph = nx.Graph()
-    for i in range(len(path_nodes) - 1):
-        u, v = path_nodes[i], path_nodes[i + 1]
-        # Add edge to the new graph with its weight
-        edge_data = graph.get_edge_data(u, v)
-        longest_path_graph.add_edge(u, v, **edge_data)
-
-    return longest_path_graph
+    # In a tree, the unique shortest path between node_a and node_b is the diameter.
+    return nx.shortest_path(graph, source=node_a, target=node_b, weight="weight")
 
 
-def find_longest_path(cl):
+def find_longest_path(centerline_geom):
     """
-    Finds the longest contious line from a multiline centerline
+    Extracts the longest continuous path from a centerline geometry.
+
+    Parameters:
+        centerline_geom (LineString or MultiLineString): The centerline geometry
+            produced by centerline.geometry.Centerline(item), where item is a Polygon.
+
+    Returns:
+        LineString: A LineString representing the longest path (tree diameter).
     """
-    # Initialize an empty graph
-    graph = nx.Graph()
-    count = 0
-    # Iterate through each LineString in the MultiLineString
-    for linestring in cl.geometry.geoms:  # Use .geoms to access individual LineStrings
-        coords = list(linestring.coords)
-        for i in range(len(coords) - 1):
-            count += 1
-            graph.add_edge(coords[0], coords[i + 1])
-    longest_path = longest_path_tree(graph)
-
-    connected_components = [
-        list(component) for component in nx.connected_components(longest_path)
-    ]
-
-    linestrings = []
-
-    for component in connected_components:
-        subgraph = longest_path.subgraph(component)  # Extract the subgraph
-        if len(subgraph.edges) > 0:
-            edges = list(nx.dfs_edges(subgraph))  # Depth-first traversal for a path
-            coords = [edges[0][0]]  # Start with the first node
-            coords.extend(edge[1] for edge in edges)  # Add the end points of each edge
-            # Create a LineString from the coordinates
-            linestrings.append(LineString(coords))
-    if len(linestrings) > 1:
-        multilinestring = MultiLineString(linestrings)
+    # Normalize input: if it's a single LineString, treat it as a list with one element.
+    if centerline_geom.geom_type == "LineString":
+        lines = [centerline_geom]
+    elif centerline_geom.geom_type == "MultiLineString":
+        lines = list(centerline_geom.geoms)
     else:
-        multilinestring = linestrings[0]
+        raise ValueError(f"Unsupported geometry type: {centerline_geom.geom_type}")
 
-    return multilinestring
+    # Build a graph where nodes are coordinates and each edge connects consecutive points.
+    graph = nx.Graph()
+    for line in lines:
+        coords = list(line.coords)
+        for i in range(len(coords) - 1):
+            u, v = coords[i], coords[i + 1]
+            # Use Euclidean distance as the edge weight.
+            weight = ((v[0] - u[0]) ** 2 + (v[1] - u[1]) ** 2) ** 0.5
+            graph.add_edge(u, v, weight=weight)
+
+    # Compute the tree diameter (longest path) of the graph.
+    longest_path_coords = compute_tree_diameter(graph)
+
+    # Convert the ordered node list directly into a LineString.
+    return LineString(longest_path_coords)
 
 
 def calculate_centerlines(
@@ -643,7 +626,7 @@ def calculate_centerlines(
             100, polygon_perimeter / 1000
         )  # Use a minimum of 1000 points for voronoi calculation
         cl = centerline.geometry.Centerline(item, interpolation_distance=interp_dist)
-        cl.geometry = find_longest_path(cl)
+        cl.geometry = find_longest_path(cl.geometry)
         slick_cls.append(cl.geometry)
 
     slick_centerline_gdf = gpd.GeoDataFrame(geometry=slick_cls, crs=crs_meters).to_crs(
