@@ -368,7 +368,7 @@ class AISAnalyzer(SourceAnalyzer):
                     b, self.slick_gdf, self.crs_meters
                 )
 
-                # Compute distance score between trajectory and slick curve
+                # Compute distance score between trajectory and slick centerline
                 distance_score = compute_distance_score(
                     t, self.slick_centerlines, self.crs_meters, self.ais_ref_dist
                 )
