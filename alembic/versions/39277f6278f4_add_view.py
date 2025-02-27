@@ -35,7 +35,7 @@ def upgrade() -> None:
         aoi_agg.aoi_type_3_ids,
         source_agg.source_type_1_ids,
         source_agg.source_type_2_ids,
-        'https://cerulean.skytruth.org/slicks/' || slick.id::text ||'?ref=api' AS slick_url
+        'https://cerulean.skytruth.org/slicks/' || slick.id::text ||'?ref=api&slick_id=' || slick.id AS slick_url
     FROM slick
     JOIN orchestrator_run ON orchestrator_run.id = slick.orchestrator_run
     JOIN sentinel1_grd ON sentinel1_grd.id = orchestrator_run.sentinel1_grd
@@ -65,6 +65,7 @@ def upgrade() -> None:
         signature="source_plus",
         definition="""
             SELECT
+                sk.geometry as geometry,
                 sts.slick as slick_id,
                 sk.machine_confidence as slick_confidence,
                 s.ext_id as mmsi_or_structure_id,
@@ -72,7 +73,7 @@ def upgrade() -> None:
                 sts.collated_score as source_collated_score,
                 sts.rank as source_rank,
                 sts.git_hash as git_tag,
-                'https://cerulean.skytruth.org/slicks/' || sk.id::text ||'?ref=api' AS slick_url,
+                'https://cerulean.skytruth.org/slicks/' || sk.id::text ||'?ref=api&slick_id=' || sk.id AS slick_url,
                 'https://cerulean.skytruth.org/?ref=api&' || st.ext_id_name || '=' || s.ext_id AS source_url
             FROM
                 slick_to_source sts
@@ -84,6 +85,7 @@ def upgrade() -> None:
                 source_type st ON st.id = s.type
             WHERE
                 sts.active = TRUE
+            ORDER BY sts.slick DESC, sts.rank
     """,
     )
     op.create_entity(source_plus)

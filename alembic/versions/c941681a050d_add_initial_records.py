@@ -231,23 +231,51 @@ def upgrade() -> None:
         ]
         session.add_all(source_types)
 
+        permissions = [
+            database_schema.Permission(
+                short_name="own",
+                long_name="Owner Only",
+            ),
+            database_schema.Permission(
+                short_name="org",
+                long_name="Organization Only",
+            ),
+            database_schema.Permission(
+                short_name="any",
+                long_name="Any User",
+            ),
+        ]
+        session.add_all(permissions)
+
         tags = [
             database_schema.Tag(
                 short_name="fxo",
                 long_name="FxO",
                 description="Vessels that have been identified as FPSOs or FSOs",
                 citation="SkyTruth: fxo_masterlist_uncompressed_v1_20241029.csv",
+                owner=1,
+                read_perm=3,
+                write_perm=2,
+                public=True,
             ),
             database_schema.Tag(
                 short_name="obs",
                 long_name="Obsolete",
                 description="Sources that should be referenced by other records instead",
+                owner=1,
+                read_perm=2,
+                write_perm=2,
+                public=False,
             ),
             database_schema.Tag(
                 short_name="lng",
                 long_name="LNG",
                 description="Vessels that are suspected to be LNG carriers",
                 citation="Global Fishing Watch",
+                owner=1,
+                read_perm=3,
+                write_perm=2,
+                public=True,
             ),
         ]
         session.add_all(tags)
