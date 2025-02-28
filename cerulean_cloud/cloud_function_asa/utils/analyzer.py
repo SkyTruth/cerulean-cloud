@@ -984,9 +984,9 @@ class DarkAnalyzer(PointAnalyzer):
         all_extrema, all_weights = self.aggregate_extrema_and_area_fractions(
             polygons, combined_geometry, largest_polygon_area
         )
-        delta_points = np.array(
-            list(combined_geometry.centroid.coords[0]) * len(all_extrema)
-        )
+        point = np.array(combined_geometry.centroid.coords[0])
+        delta_points = np.tile(point, (len(all_extrema), 1))
+
         # Build KD-Tree and compute confidence scores
         extremity_tree = cKDTree(all_extrema)
         coincidence_filtered = self.calc_score_extremities_to_points(
