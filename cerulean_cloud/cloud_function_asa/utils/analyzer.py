@@ -689,6 +689,105 @@ class PointAnalyzer(SourceAnalyzer):
             ],
         }
 
+    def get_both_endpoints_with_secondary(
+        self, line: LineString, gap: float, offset: float
+    ):
+        """
+        Select endpoints from a line from a specified offset and gap in meters
+        """
+        total_length = line.length
+
+        if gap + offset > total_length:
+            raise ValueError("The given distance exceeds the total length of the line.")
+
+        # For the start of the line:
+        start_point = line.interpolate(offset)  # Start point is the first point.
+        secondary_start_point = line.interpolate(
+            offset + gap
+        )  # Move forward from the start.
+
+        # For the end of the line:
+        end_point = line.interpolate(total_length - offset)  # End point of the line.
+        secondary_end_point = line.interpolate(
+            total_length - offset - gap
+        )  # Move backward from the end.
+
+        return ((start_point, secondary_start_point), (end_point, secondary_end_point))
+
+    def select_endpoints_from_centerlines(
+        self, lines, center_point, offset=0.05, gap=0.05
+    ):
+        """
+        Given a list of LineString geometries and a center point, this function:
+        - Extracts endpoints (extrema) from each LineString.
+        - Extracts associated delta points (using the second and second-to-last vertices).
+        - Selects the extrema point farthest from the center_point.
+        - Then selects, from all extrema, the point farthest from that first selected extrema.
+        Returns:
+        selected_extrema: a numpy array containing the selected endpoints.
+        selected_delta: a numpy array containing the corresponding delta points.
+        weights: a numpy array of ones.
+
+        Parameters:
+        lines (list): List of LineString geometries.
+        center_point (np.ndarray or shapely Point): The center point (if a shapely Point, it will be converted to np.array).
+        """
+        # If center_point is a shapely Point, convert it to a NumPy array.
+        if isinstance(center_point, Point):
+            center_point = np.array([center_point.x, center_point.y])
+
+        extrema_points = []
+        delta_points = []
+        length_fractions = []
+
+        for line in lines:
+            coords = list(line.coords)
+            if len(coords) < (offset + gap):
+                continue
+
+            start, end = self.get_both_endpoints_with_secondary(
+                line, gap=gap * line.length, offset=offset * line.length
+            )
+
+            extrema_points.append(start[0].coords[0])
+            extrema_points.append(end[0].coords[0])
+            length_fractions.append(line.length)  # Add weights for front extrema
+            length_fractions.append(line.length)  # Add weights for back extrema
+
+            # If there are enough vertices, grab the “delta” points.
+            # (Here we use the second vertex and the second-to-last vertex.)
+
+            delta_points.append(np.array(start[1].coords[0]))
+            delta_points.append(np.array(end[1].coords[0]))
+
+        # Convert lists to numpy arrays.
+        length_fractions = np.array(length_fractions)
+        length_fractions = length_fractions / max(length_fractions)
+
+        extrema_points = np.array(extrema_points)
+
+        # Only keep delta_points if we have one per extrema.
+        if len(delta_points) == len(extrema_points):
+            delta_points = np.array(delta_points)
+        else:
+            delta_points = None
+
+        all_extrema = np.vstack(extrema_points)
+        all_length_fractions = np.array(length_fractions)
+
+        # Calculate distances from centroid
+        distances_sq = np.sum((all_extrema - center_point) ** 2, axis=1)
+        # Scale weights by area fraction
+        scaled_weights = distances_sq * all_length_fractions
+        # Normalize weights to ensure the maximum weight is 1
+        max_weight = scaled_weights.max()
+        if max_weight != 0:
+            all_weights = scaled_weights / max_weight
+        else:
+            all_weights = np.ones_like(scaled_weights)
+
+        return extrema_points, delta_points, all_weights
+
 
 class InfrastructureAnalyzer(PointAnalyzer):
     """
@@ -872,6 +971,9 @@ class DarkAnalyzer(PointAnalyzer):
         self.coinc_std = kwargs.get("coinc_std", c.DARK_STD)
         self.cutoff_radius = kwargs.get("cutoff_radius", c.DARK_CUTOFF_RADIUS)
         self.num_vertices = kwargs.get("num_vertices", c.DARK_NUM_VERTICES)
+        self.endpoints_offset = kwargs.get("endpoints_offset", 0.05)
+        self.endpoints_gap = kwargs.get("endpoints_gap", 0.05)
+        self.slick_centerlines = None
 
     def retrieve_sar_detection_data(self):
         """
@@ -981,11 +1083,19 @@ class DarkAnalyzer(PointAnalyzer):
             return
 
         # Collect extremity points and compute weights
-        all_extrema, all_weights = self.aggregate_extrema_and_area_fractions(
-            polygons, combined_geometry, largest_polygon_area
+        if self.slick_centerlines is None:
+            self.load_slick_centerlines()
+
+        (
+            all_extrema,
+            delta_points,
+            all_weights,
+        ) = self.select_endpoints_from_centerlines(
+            self.slick_centerlines.to_crs(self.crs_meters).geometry.values,
+            np.array([combined_geometry.centroid.coords[0]]),
+            offset=self.endpoints_offset,
+            gap=self.endpoints_gap,
         )
-        point = np.array(combined_geometry.centroid.coords[0])
-        delta_points = np.tile(point, (len(all_extrema), 1))
 
         # Build KD-Tree and compute confidence scores
         extremity_tree = cKDTree(all_extrema)
@@ -994,7 +1104,6 @@ class DarkAnalyzer(PointAnalyzer):
             extremity_tree,
             all_extrema,
             all_weights,
-            # XXX HACK OVERALL_CENTROID -- should remove when we switch to using spines
             delta_points,
         )
 
