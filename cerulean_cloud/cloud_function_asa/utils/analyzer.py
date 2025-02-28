@@ -448,10 +448,11 @@ class PointAnalyzer(SourceAnalyzer):
         self.decay_theta = 0
         self.num_vertices = 0
 
-    def process_slicks(self, slick_gdf: gpd.GeoDataFrame):
+    def process_slicks(self):
         """
         Processes slicks and returns combined geometry, overall centroid, polygons, and largest polygon area.
         """
+        slick_gdf = self.slick_gdf
         # Reproject to meters
         slick_m = slick_gdf.to_crs(self.crs_meters)
 
@@ -627,38 +628,38 @@ class PointAnalyzer(SourceAnalyzer):
 
         return 1 - scaled_angles
 
-    def calc_score_extremities_to_points(
+    def calc_points_to_extrema_scores(
         self,
         points_gdf: gpd.GeoDataFrame,
-        extremity_tree: cKDTree,
-        all_extremity_points: np.ndarray,
-        all_weights: np.ndarray,
-        center_points: np.ndarray = None,
+        extrema: np.ndarray,
+        weights: np.ndarray,
+        secondary_points: np.ndarray,
     ) -> np.ndarray:
         """
         Computes confidence scores for points based on their proximity to extremity points.
         """
         points_coords = np.array([(geom.x, geom.y) for geom in points_gdf.geometry])
-        extremity_indices = extremity_tree.query_ball_point(
+        coincidence_scores = np.zeros(len(points_coords))
+        if isinstance(secondary_points, tuple):
+            secondary_points = np.tile(secondary_points, (len(extrema), 1))
+
+        point_to_neighbor_idxs = cKDTree(extrema).query_ball_point(
             points_coords, r=self.cutoff_radius
         )
-        coincidence_scores = np.zeros(len(points_coords))
 
-        for i, neighbors in enumerate(extremity_indices):
-            if neighbors:
-                neighbor_weights = all_weights[neighbors]
-                neighbor_points = all_extremity_points[neighbors]
-                center_points_reduced = center_points[neighbors]
-                if self.decay_theta > 0 and center_points is not None:
-                    scaled_angles = self.scaled_inner_angles(
-                        points_coords[i], center_points_reduced, neighbor_points
-                    )
-                else:
-                    scaled_angles = np.zeros(len(neighbor_points))
-                dists = np.linalg.norm(neighbor_points - points_coords[i], axis=1)
+        for i, neighbor_idxs in enumerate(point_to_neighbor_idxs):
+            if neighbor_idxs:
+                extrema_reduced = extrema[neighbor_idxs]
+                weights_reduced = weights[neighbor_idxs]
+                secondary_reduced = secondary_points[neighbor_idxs]
+                dists = np.linalg.norm(extrema_reduced - points_coords[i], axis=1)
+
+                scaled_angles = self.scaled_inner_angles(
+                    points_coords[i], secondary_reduced, extrema_reduced
+                )
 
                 C_i = (
-                    neighbor_weights
+                    weights_reduced
                     * np.exp(-scaled_angles * self.decay_theta)
                     * np.exp(-dists / self.decay_radius)
                 )
@@ -689,104 +690,78 @@ class PointAnalyzer(SourceAnalyzer):
             ],
         }
 
-    def get_both_endpoints_with_secondary(
-        self, line: LineString, gap: float, offset: float
+    def get_endpoint_pairs(
+        self, line: LineString, gap_pct: float, primary_pct: float = 0.0
     ):
         """
-        Select endpoints from a line from a specified offset and gap in meters
+        Select endpoint pairs from a line from a specified offset and gap in meters
         """
-        total_length = line.length
-
-        if gap + offset > total_length:
-            raise ValueError("The given distance exceeds the total length of the line.")
-
-        # For the start of the line:
-        start_point = line.interpolate(offset)  # Start point is the first point.
-        secondary_start_point = line.interpolate(
-            offset + gap
-        )  # Move forward from the start.
-
-        # For the end of the line:
-        end_point = line.interpolate(total_length - offset)  # End point of the line.
-        secondary_end_point = line.interpolate(
-            total_length - offset - gap
-        )  # Move backward from the end.
-
-        return ((start_point, secondary_start_point), (end_point, secondary_end_point))
-
-    def select_endpoints_from_centerlines(
-        self, lines, center_point, offset=0.05, gap=0.05
-    ):
-        """
-        Given a list of LineString geometries and a center point, this function:
-        - Extracts endpoints (extrema) from each LineString.
-        - Extracts associated delta points (using the second and second-to-last vertices).
-        - Selects the extrema point farthest from the center_point.
-        - Then selects, from all extrema, the point farthest from that first selected extrema.
-        Returns:
-        selected_extrema: a numpy array containing the selected endpoints.
-        selected_delta: a numpy array containing the corresponding delta points.
-        weights: a numpy array of ones.
-
-        Parameters:
-        lines (list): List of LineString geometries.
-        center_point (np.ndarray or shapely Point): The center point (if a shapely Point, it will be converted to np.array).
-        """
-        # If center_point is a shapely Point, convert it to a NumPy array.
-        if isinstance(center_point, Point):
-            center_point = np.array([center_point.x, center_point.y])
-
-        extrema_points = []
-        delta_points = []
-        length_fractions = []
-
-        for line in lines:
-            coords = list(line.coords)
-            if len(coords) < (offset + gap):
-                continue
-
-            start, end = self.get_both_endpoints_with_secondary(
-                line, gap=gap * line.length, offset=offset * line.length
+        if not (0 <= primary_pct <= 0.5):
+            raise ValueError(
+                f"primary_pct must be between 0 and 0.5. Primary: {primary_pct}"
+            )
+        if gap_pct + primary_pct > 1:
+            raise ValueError(
+                f"gap_pct + primary_pct must be less than or equal to 1. Gap: {gap_pct}, Primary: {primary_pct}"
             )
 
-            extrema_points.append(start[0].coords[0])
-            extrema_points.append(end[0].coords[0])
-            length_fractions.append(line.length)  # Add weights for front extrema
-            length_fractions.append(line.length)  # Add weights for back extrema
+        total_length = line.length
+        secondary_pct = primary_pct + gap_pct
 
-            # If there are enough vertices, grab the “delta” points.
-            # (Here we use the second vertex and the second-to-last vertex.)
+        # For the start of the line:
+        start_primary = line.interpolate(total_length * primary_pct)
+        start_secondary = line.interpolate(total_length * secondary_pct)
 
-            delta_points.append(np.array(start[1].coords[0]))
-            delta_points.append(np.array(end[1].coords[0]))
+        # For the end of the line:
+        end_primary = line.interpolate(total_length * (1 - primary_pct))
+        end_secondary = line.interpolate(total_length * (1 - secondary_pct))
 
-        # Convert lists to numpy arrays.
-        length_fractions = np.array(length_fractions)
-        length_fractions = length_fractions / max(length_fractions)
+        return ((start_primary, end_primary), (start_secondary, end_secondary))
 
-        extrema_points = np.array(extrema_points)
+    def calc_cl_extrema_and_weights(self, offset=None, gap=None):
+        """
+        Given a list of LineString geometries and a center point, this function:
+        - Extracts endpoints (primary_points) and delta points (secondary_points) from each LineString.
+        - Calculates base weights from distances from centroid.
+        - Scales weights by length fraction.
+        - Normalizes weights to ensure the maximum weight is 1.
 
-        # Only keep delta_points if we have one per extrema.
-        if len(delta_points) == len(extrema_points):
-            delta_points = np.array(delta_points)
-        else:
-            delta_points = None
+        Args:
+            offset (float, optional): The offset from the start of the line to the primary point. Defaults to None.
+            gap (float, optional): The gap between the primary and secondary points. Defaults to None.
+            expects to be called by a class that has a slick_centerlines and combined_geometry attribute.
 
-        all_extrema = np.vstack(extrema_points)
-        all_length_fractions = np.array(length_fractions)
+        Returns:
+            primary_points: a numpy array containing the selected endpoints.
+            secondary_points: a numpy array containing the corresponding delta points.
+            normalized_weights: a numpy array of weights for each point.
+        """
+        cl_array = self.slick_centerlines.to_crs(self.crs_meters).geometry.values
+        center_point = np.array(self.combined_geometry.centroid.coords[0])
+        offset = self.endpoints_offset if offset is None else offset
+        gap = self.endpoints_gap if gap is None else gap
 
-        # Calculate distances from centroid
-        distances_sq = np.sum((all_extrema - center_point) ** 2, axis=1)
-        # Scale weights by area fraction
-        scaled_weights = distances_sq * all_length_fractions
+        primary_points = []
+        secondary_points = []
+        line_lengths = []
+
+        for line in cl_array:
+            primaries, secondaries = self.get_endpoint_pairs(line, gap, offset)
+            primary_points.extend(primaries)
+            secondary_points.extend(secondaries)
+            line_lengths.extend([line.length] * 2)  # Add weights for each extremum
+
+        # Calculate base weights from distances from centroid
+        primary_points_vector = np.vstack(primary_points)
+        base_weights = np.linalg.norm(primary_points_vector - center_point, axis=1) ** 2
+
+        # Scale weights by length fraction
+        line_lengths = np.array(line_lengths)
+        scaled_weights = base_weights * line_lengths
+
         # Normalize weights to ensure the maximum weight is 1
-        max_weight = scaled_weights.max()
-        if max_weight != 0:
-            all_weights = scaled_weights / max_weight
-        else:
-            all_weights = np.ones_like(scaled_weights)
-
-        return extrema_points, delta_points, all_weights
+        normalized_weights = scaled_weights / scaled_weights.max()
+        return primary_points, secondary_points, normalized_weights
 
 
 class InfrastructureAnalyzer(PointAnalyzer):
@@ -902,9 +877,7 @@ class InfrastructureAnalyzer(PointAnalyzer):
         self.coincidence_scores = np.zeros(len(self.infra_gdf))
         self.slick_gdf = slick_gdf
 
-        combined_geometry, polygons, largest_polygon_area = self.process_slicks(
-            self.slick_gdf
-        )
+        combined_geometry, polygons, largest_polygon_area = self.process_slicks()
         filtered_infra = self.filter_points(combined_geometry, self.infra_gdf)
 
         if filtered_infra.empty:
@@ -914,22 +887,14 @@ class InfrastructureAnalyzer(PointAnalyzer):
             return
 
         # Collect extremity points and compute weights
-        all_extrema, all_weights = self.aggregate_extrema_and_area_fractions(
+        extrema, weights = self.aggregate_extrema_and_area_fractions(
             polygons, combined_geometry, largest_polygon_area
         )
-
-        point = np.array(combined_geometry.centroid.coords[0])
-        delta_points = np.tile(point, (all_extrema.shape[0], 1))
+        secondary_point = combined_geometry.centroid.coords[0]
 
         # Build KD-Tree and compute confidence scores
-        extremity_tree = cKDTree(all_extrema)
-        coincidence_filtered = self.calc_score_extremities_to_points(
-            filtered_infra,
-            extremity_tree,
-            all_extrema,
-            all_weights,
-            # XXX HACK OVERALL_CENTROID -- should remove when we switch to using spines
-            delta_points,
+        coincidence_filtered = self.calc_points_to_extrema_scores(
+            filtered_infra, extrema, weights, secondary_point
         )
 
         self.coincidence_scores[filtered_infra.index] = coincidence_filtered
@@ -1071,12 +1036,10 @@ class DarkAnalyzer(PointAnalyzer):
         self.coincidence_scores = np.zeros(len(self.dark_objects_gdf))
         self.slick_gdf = slick_gdf
 
-        combined_geometry, polygons, largest_polygon_area = self.process_slicks(
-            self.slick_gdf
-        )
+        self.combined_geometry, _, _ = self.process_slicks()
 
         filtered_dark_objects = self.filter_points(
-            combined_geometry, self.dark_objects_gdf
+            self.combined_geometry, self.dark_objects_gdf
         )
 
         if filtered_dark_objects.empty:
@@ -1086,28 +1049,13 @@ class DarkAnalyzer(PointAnalyzer):
             return
 
         # Collect extremity points and compute weights
-        if self.slick_centerlines is None:
-            self.load_slick_centerlines()
+        self.load_slick_centerlines()
 
-        (
-            all_extrema,
-            delta_points,
-            all_weights,
-        ) = self.select_endpoints_from_centerlines(
-            self.slick_centerlines.to_crs(self.crs_meters).geometry.values,
-            np.array([combined_geometry.centroid.coords[0]]),
-            offset=self.endpoints_offset,
-            gap=self.endpoints_gap,
-        )
+        extrema, secondary_points, weights = self.calc_cl_extrema_and_weights()
 
         # Build KD-Tree and compute confidence scores
-        extremity_tree = cKDTree(all_extrema)
-        coincidence_filtered = self.calc_score_extremities_to_points(
-            filtered_dark_objects,
-            extremity_tree,
-            all_extrema,
-            all_weights,
-            delta_points,
+        coincidence_filtered = self.calc_points_to_extrema_scores(
+            filtered_dark_objects, extrema, weights, secondary_points
         )
 
         self.coincidence_scores[filtered_dark_objects.index] = coincidence_filtered
