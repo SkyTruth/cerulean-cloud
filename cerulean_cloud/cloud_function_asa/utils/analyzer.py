@@ -919,7 +919,7 @@ class InfrastructureAnalyzer(PointAnalyzer):
         )
 
         point = np.array(combined_geometry.centroid.coords[0])
-        delta_points = np.tile(point, (len(all_extrema), 1))
+        delta_points = np.tile(point, (all_extrema.shape[0], 1))
 
         # Build KD-Tree and compute confidence scores
         extremity_tree = cKDTree(all_extrema)
