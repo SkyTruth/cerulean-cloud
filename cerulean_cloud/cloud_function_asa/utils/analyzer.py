@@ -640,7 +640,7 @@ class PointAnalyzer(SourceAnalyzer):
         """
         points_coords = np.array([(geom.x, geom.y) for geom in points_gdf.geometry])
         coincidence_scores = np.zeros(len(points_coords))
-        if isinstance(secondary_points, tuple):
+        if len(secondary_points) == 1:
             secondary_points = np.tile(secondary_points, (len(extrema), 1))
 
         point_to_neighbor_idxs = cKDTree(extrema).query_ball_point(
@@ -716,9 +716,17 @@ class PointAnalyzer(SourceAnalyzer):
         end_primary = line.interpolate(total_length * (1 - primary_pct))
         end_secondary = line.interpolate(total_length * (1 - secondary_pct))
 
-        return ((start_primary, end_primary), (start_secondary, end_secondary))
+        return (
+            (start_primary.coords[0], end_primary.coords[0]),
+            (start_secondary.coords[0], end_secondary.coords[0]),
+        )
 
-    def calc_cl_extrema_and_weights(self, offset=None, gap=None):
+    def calc_cl_extrema_and_weights(
+        self,
+        offset=None,
+        gap=None,
+        min_length_threshold: float = 0.1,
+    ):
         """
         Given a list of LineString geometries and a center point, this function:
         - Extracts endpoints (primary_points) and delta points (secondary_points) from each LineString.
@@ -743,25 +751,30 @@ class PointAnalyzer(SourceAnalyzer):
 
         primary_points = []
         secondary_points = []
-        line_lengths = []
+        base_weights = []
 
         for line in cl_array:
             primaries, secondaries = self.get_endpoint_pairs(line, gap, offset)
             primary_points.extend(primaries)
             secondary_points.extend(secondaries)
-            line_lengths.extend([line.length] * 2)  # Add weights for each extremum
 
-        # Calculate base weights from distances from centroid
+            # Use the length of the line as weights for both ends of the line
+            base_weights.extend([line.length] * 2)
+
+        # Calculate distance factor based on distances from centroid
         primary_points_vector = np.vstack(primary_points)
-        base_weights = np.linalg.norm(primary_points_vector - center_point, axis=1) ** 2
+        dist_factor = np.linalg.norm(primary_points_vector - center_point, axis=1) ** 2
 
         # Scale weights by length fraction
-        line_lengths = np.array(line_lengths)
-        scaled_weights = base_weights * line_lengths
+        base_weights = [
+            length if length / max(base_weights) > min_length_threshold else 0
+            for length in base_weights
+        ]
+        scaled_weights = base_weights * dist_factor
 
         # Normalize weights to ensure the maximum weight is 1
         normalized_weights = scaled_weights / scaled_weights.max()
-        return primary_points, secondary_points, normalized_weights
+        return np.array(primary_points), np.array(secondary_points), normalized_weights
 
 
 class InfrastructureAnalyzer(PointAnalyzer):
@@ -890,7 +903,7 @@ class InfrastructureAnalyzer(PointAnalyzer):
         extrema, weights = self.aggregate_extrema_and_area_fractions(
             polygons, combined_geometry, largest_polygon_area
         )
-        secondary_point = combined_geometry.centroid.coords[0]
+        secondary_point = np.array([combined_geometry.centroid.coords[0]])
 
         # Build KD-Tree and compute confidence scores
         coincidence_filtered = self.calc_points_to_extrema_scores(
