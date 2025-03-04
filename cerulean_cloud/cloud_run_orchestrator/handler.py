@@ -565,6 +565,11 @@ def find_longest_path(centerline_geom):
     Returns:
         LineString: A LineString representing the longest path (tree diameter).
     """
+
+    def round_point(pt, precision=8):
+        """Round a coordinate tuple to avoid floating point issues."""
+        return tuple(round(coord, precision) for coord in pt)
+
     # Normalize input: if it's a single LineString, treat it as a list with one element.
     if centerline_geom.geom_type == "LineString":
         lines = [centerline_geom]
@@ -578,16 +583,18 @@ def find_longest_path(centerline_geom):
     for line in lines:
         coords = list(line.coords)
         for i in range(len(coords) - 1):
-            u, v = coords[i], coords[i + 1]
+            u, v = round_point(coords[i]), round_point(coords[i + 1])
             # Use Euclidean distance as the edge weight.
             weight = ((v[0] - u[0]) ** 2 + (v[1] - u[1]) ** 2) ** 0.5
             graph.add_edge(u, v, weight=weight)
 
-    # Compute the tree diameter (longest path) of the graph.
-    longest_path_coords = compute_tree_diameter(graph)
-
-    # Convert the ordered node list directly into a LineString.
-    return LineString(longest_path_coords)
+    longest_paths = []
+    for component in list(nx.connected_components(graph)):
+        # In case the bug in Centerline produces disconnected centerlines, we need to compute the diameter of each connected component
+        # Compute the tree diameter (longest path) of the graph.
+        longest_path_coords = compute_tree_diameter(graph.subgraph(component))
+        longest_paths.append(LineString(longest_path_coords))
+    return longest_paths
 
 
 def calculate_centerlines(
@@ -626,8 +633,8 @@ def calculate_centerlines(
             100, polygon_perimeter / 1000
         )  # Use a minimum of 1000 points for voronoi calculation
         cl = centerline.geometry.Centerline(item, interpolation_distance=interp_dist)
-        cl.geometry = find_longest_path(cl.geometry)
-        slick_cls.append(cl.geometry)
+        longest_paths = find_longest_path(cl.geometry)
+        slick_cls.extend(longest_paths)
 
     slick_centerline_gdf = gpd.GeoDataFrame(geometry=slick_cls, crs=crs_meters).to_crs(
         "4326"
