@@ -6,6 +6,7 @@ import time
 import database
 import git
 import pulumi
+import vpc_connector
 from pulumi_gcp import (
     cloudfunctionsv2,
     cloudrun,
@@ -13,7 +14,6 @@ from pulumi_gcp import (
     projects,
     serviceaccount,
     storage,
-    vpcaccess,
 )
 from utils import construct_name, pulumi_create_zip
 
@@ -43,14 +43,6 @@ queue = cloudtasks.Queue(
     stackdriver_logging_config=cloudtasks.QueueStackdriverLoggingConfigArgs(
         sampling_ratio=0.9,
     ),
-)
-
-connector = vpcaccess.Connector(
-    construct_name("asa-vpc-connector"),
-    name="cf-asa-vpc-connector",
-    region=pulumi.Config("gcp").require("region"),
-    network="default",
-    ip_cidr_range="10.8.0.0/28",
 )
 
 repo = git.Repo(search_parent_directories=True)
@@ -155,7 +147,7 @@ fxn = cloudfunctionsv2.Function(
         "timeout_seconds": 540,
         "service_account_email": cloud_function_service_account.email,
         "secret_environment_variables": [gfw_credentials, infra_api_key, api_key],
-        "vpc_connector": connector.id,
+        "vpc_connector": vpc_connector.id,
     },
     opts=pulumi.ResourceOptions(
         depends_on=[cloud_function_service_account_iam],
