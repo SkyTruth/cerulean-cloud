@@ -88,7 +88,7 @@ cloud_function_service_account_iam = projects.IAMMember(
 )
 
 connector = vpcaccess.Connector(
-    construct_name("vpc-connector"),
+    construct_name("sr-vpc-connector"),
     name="cf-sr-vpc-connector",
     region=pulumi.Config("gcp").require("region"),
     network="default",

@@ -54,7 +54,7 @@ apikey = {
 }
 
 connector = vpcaccess.Connector(
-    construct_name("vpc-connector"),
+    construct_name("hr-vpc-connector"),
     name="cf-hr-vpc-connector",
     region=pulumi.Config("gcp").require("region"),
     network="default",

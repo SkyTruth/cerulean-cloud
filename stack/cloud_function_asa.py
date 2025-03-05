@@ -45,9 +45,8 @@ queue = cloudtasks.Queue(
     ),
 )
 
-# Create a Serverless VPC Access Connector.
 connector = vpcaccess.Connector(
-    construct_name("vpc-connector"),
+    construct_name("asa-vpc-connector"),
     name="cf-asa-vpc-connector",
     region=pulumi.Config("gcp").require("region"),
     network="default",
