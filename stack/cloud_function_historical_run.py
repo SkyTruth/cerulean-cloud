@@ -6,7 +6,11 @@ import cloud_function_scene_relevancy
 import cloud_run_orchestrator
 import database
 import pulumi
-from pulumi_gcp import cloudfunctionsv2, storage
+from pulumi_gcp import (
+    cloudfunctionsv2,
+    cloudrun,
+    storage,
+)
 from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
@@ -81,5 +85,14 @@ invoker = cloudfunctionsv2.FunctionIamMember(
     location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
+    member="allUsers",
+)
+
+cloud_run_invoker = cloudrun.IamMember(
+    "cf-historical-run-run-invoker",
+    project=fxn.project,
+    location=fxn.location,
+    service=fxn.name,
+    role="roles/run.invoker",
     member="allUsers",
 )

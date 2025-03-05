@@ -5,7 +5,14 @@ import time
 import cloud_run_orchestrator
 import database
 import pulumi
-from pulumi_gcp import cloudfunctionsv2, cloudtasks, projects, serviceaccount, storage
+from pulumi_gcp import (
+    cloudfunctionsv2,
+    cloudrun,
+    cloudtasks,
+    projects,
+    serviceaccount,
+    storage,
+)
 from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
@@ -119,5 +126,14 @@ invoker = cloudfunctionsv2.FunctionIamMember(
     location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
+    member="allUsers",
+)
+
+cloud_run_invoker = cloudrun.IamMember(
+    "cf-sr-run-invoker",
+    project=fxn.project,
+    location=fxn.location,
+    service=fxn.name,
+    role="roles/run.invoker",
     member="allUsers",
 )
