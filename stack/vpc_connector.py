@@ -8,7 +8,7 @@ vpc_connector = vpcaccess.Connector(
     name="cf-vpc-connector",
     region=pulumi.Config("gcp").require("region"),
     network="default",
-    ip_cidr_range="10.8.0.0/28",
+    ip_cidr_range="10.9.0.0/28",
 )
 
 # Optionally export the ID if needed.
