@@ -146,6 +146,7 @@ fxn = cloudfunctionsv2.Function(
         "timeout_seconds": 540,
         "service_account_email": cloud_function_service_account.email,
         "secret_environment_variables": [gfw_credentials, infra_api_key, api_key],
+        "cloud_sql_instances": [database.instance.connection_name],
     },
     opts=pulumi.ResourceOptions(
         depends_on=[cloud_function_service_account_iam],
