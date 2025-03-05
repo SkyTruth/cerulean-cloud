@@ -6,13 +6,13 @@ import cloud_function_scene_relevancy
 import cloud_run_orchestrator
 import database
 import pulumi
-import vpc_connector
 from pulumi_gcp import (
     cloudfunctionsv2,
     cloudrun,
     storage,
 )
 from utils import construct_name, pulumi_create_zip
+from vpc_connector import vpc_connector
 
 stack = pulumi.get_stack()
 
