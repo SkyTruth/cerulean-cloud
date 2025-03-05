@@ -10,6 +10,7 @@ from pulumi_gcp import (
     cloudfunctionsv2,
     cloudrun,
     storage,
+    vpcaccess,
 )
 from utils import construct_name, pulumi_create_zip
 
@@ -52,6 +53,15 @@ apikey = {
     "project_id": pulumi.Config("gcp").require("project"),
 }
 
+connector = vpcaccess.Connector(
+    construct_name("vpc-connector"),
+    name="cf-hr-vpc-connector",
+    region=pulumi.Config("gcp").require("region"),
+    network="default",
+    ip_cidr_range="10.8.0.0/28",
+)
+
+
 # Create the Cloud Function (Gen2)
 fxn = cloudfunctionsv2.Function(
     function_name,
@@ -73,6 +83,7 @@ fxn = cloudfunctionsv2.Function(
         "timeout_seconds": 500,
         "service_account_email": cloud_function_scene_relevancy.cloud_function_service_account.email,
         "secret_environment_variables": [apikey],
+        "vpc_connector": connector.id,
     },
     opts=pulumi.ResourceOptions(
         depends_on=[cloud_function_scene_relevancy.cloud_function_service_account_iam],
