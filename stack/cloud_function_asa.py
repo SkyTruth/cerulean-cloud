@@ -6,7 +6,7 @@ import time
 import database
 import git
 import pulumi
-from pulumi_gcp import cloudfunctions, cloudtasks, projects, serviceaccount, storage
+from pulumi_gcp import cloudfunctionsv2, cloudtasks, projects, serviceaccount, storage
 from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
@@ -72,7 +72,7 @@ package = pulumi_create_zip(
 archive = package.apply(lambda x: pulumi.FileAsset(x))
 
 # Create the single Cloud Storage object, which contains all of the function's
-# source code. ("main.py" and "requirements.txt".)
+# source code.
 source_archive_object = storage.BucketObject(
     construct_name("source-cf-asa"),
     name=f"handler.py-asa-{time.time():f}",
@@ -96,54 +96,59 @@ cloud_function_service_account_iam = projects.IAMMember(
     ),
 )
 
-gfw_credentials = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
-    key="GOOGLE_APPLICATION_CREDENTIALS",
-    secret=pulumi.Config("ais").require("credentials"),
-    version="latest",
-    project_id=pulumi.Config("gcp").require("project"),
-)
+# Define secret environment variables
+gfw_credentials = {
+    "key": "GOOGLE_APPLICATION_CREDENTIALS",
+    "secret": pulumi.Config("ais").require("credentials"),
+    "version": "latest",
+    "project_id": pulumi.Config("gcp").require("project"),
+}
+infra_api_key = {
+    "key": "INFRA_API_TOKEN",
+    "secret": pulumi.Config("cerulean-cloud").require("infra_keyname"),
+    "version": "latest",
+    "project_id": pulumi.Config("gcp").require("project"),
+}
+api_key = {
+    "key": "API_KEY",
+    "secret": pulumi.Config("cerulean-cloud").require("keyname"),
+    "version": "latest",
+    "project_id": pulumi.Config("gcp").require("project"),
+}
 
-infra_api_key = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
-    key="INFRA_API_TOKEN",
-    secret=pulumi.Config("cerulean-cloud").require("infra_keyname"),
-    version="latest",
-    project_id=pulumi.Config("gcp").require("project"),
-)
 
-api_key = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
-    key="API_KEY",
-    secret=pulumi.Config("cerulean-cloud").require("keyname"),
-    version="latest",
-    project_id=pulumi.Config("gcp").require("project"),
-)
-
-fxn = cloudfunctions.Function(
+# Create the Cloud Function (Gen2)
+fxn = cloudfunctionsv2.Function(
     function_name,
     name=function_name,
-    entry_point="main",
-    environment_variables=config_values,
-    region=pulumi.Config("gcp").require("region"),
-    runtime="python39",
-    source_archive_bucket=bucket.name,
-    source_archive_object=source_archive_object.name,
-    trigger_http=True,
-    service_account_email=cloud_function_service_account.email,
-    available_memory_mb=4096,
-    timeout=540,
-    secret_environment_variables=[
-        gfw_credentials,
-        infra_api_key,
-        api_key,
-    ],
+    location=pulumi.Config("gcp").require("region"),
+    description="Cloud Function for ASA",
+    build_config={
+        "runtime": "python39",
+        "entry_point": "main",
+        "source": {
+            "storage_source": {
+                "bucket": bucket.name,
+                "object": source_archive_object.name,
+            },
+        },
+    },
+    service_config={
+        "environment_variables": config_values,
+        "available_memory": "4096M",
+        "timeout_seconds": 540,
+        "service_account_email": cloud_function_service_account.email,
+        "secret_environment_variables": [gfw_credentials, infra_api_key, api_key],
+    },
     opts=pulumi.ResourceOptions(
         depends_on=[cloud_function_service_account_iam],
     ),
 )
 
-invoker = cloudfunctions.FunctionIamMember(
+invoker = cloudfunctionsv2.FunctionIamMember(
     construct_name("cf-asa-invoker"),
     project=fxn.project,
-    region=fxn.region,
+    location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
     member="allUsers",

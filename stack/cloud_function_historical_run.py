@@ -6,7 +6,7 @@ import cloud_function_scene_relevancy
 import cloud_run_orchestrator
 import database
 import pulumi
-from pulumi_gcp import cloudfunctions, storage
+from pulumi_gcp import cloudfunctionsv2, storage
 from utils import construct_name, pulumi_create_zip
 
 stack = pulumi.get_stack()
@@ -25,7 +25,7 @@ config_values = {
 }
 
 # The Cloud Function source code itself needs to be zipped up into an
-# archive, which we create using the pulumi.AssetArchive primitive.
+# archive.
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_historical_run"
 package = pulumi_create_zip(
     dir_to_zip=PATH_TO_SOURCE_CODE,
@@ -33,8 +33,7 @@ package = pulumi_create_zip(
 )
 archive = package.apply(lambda x: pulumi.FileAsset(x))
 
-# Create the single Cloud Storage object, which contains all of the function's
-# source code. ("main.py" and "requirements.txt".)
+# Create the Cloud Storage object containing the function's source code.
 source_archive_object = storage.BucketObject(
     construct_name("source-cf-historical-run"),
     name=f"handler.py-hr-{time.time():f}",
@@ -42,35 +41,44 @@ source_archive_object = storage.BucketObject(
     source=archive,
 )
 
-apikey = cloudfunctions.FunctionSecretEnvironmentVariableArgs(
-    key="API_KEY",
-    secret=pulumi.Config("cerulean-cloud").require("keyname"),
-    version="latest",
-    project_id=pulumi.Config("gcp").require("project"),
-)
+apikey = {
+    "key": "API_KEY",
+    "secret": pulumi.Config("cerulean-cloud").require("keyname"),
+    "version": "latest",
+    "project_id": pulumi.Config("gcp").require("project"),
+}
 
-fxn = cloudfunctions.Function(
+# Create the Cloud Function (Gen2)
+fxn = cloudfunctionsv2.Function(
     function_name,
     name=function_name,
-    entry_point="main",
-    environment_variables=config_values,
-    region=pulumi.Config("gcp").require("region"),
-    runtime="python39",
-    source_archive_bucket=cloud_function_scene_relevancy.bucket.name,
-    source_archive_object=source_archive_object.name,
-    trigger_http=True,
-    service_account_email=cloud_function_scene_relevancy.cloud_function_service_account.email,
-    timeout=500,
-    secret_environment_variables=[apikey],
+    location=pulumi.Config("gcp").require("region"),
+    description="Cloud Function for Historical Run",
+    build_config={
+        "runtime": "python39",
+        "entry_point": "main",
+        "source": {
+            "storage_source": {
+                "bucket": cloud_function_scene_relevancy.bucket.name,
+                "object": source_archive_object.name,
+            },
+        },
+    },
+    service_config={
+        "environment_variables": config_values,
+        "timeout_seconds": 500,
+        "service_account_email": cloud_function_scene_relevancy.cloud_function_service_account.email,
+        "secret_environment_variables": [apikey],
+    },
     opts=pulumi.ResourceOptions(
         depends_on=[cloud_function_scene_relevancy.cloud_function_service_account_iam],
     ),
 )
 
-invoker = cloudfunctions.FunctionIamMember(
+invoker = cloudfunctionsv2.FunctionIamMember(
     construct_name("cf-historical-run-invoker"),
     project=fxn.project,
-    region=fxn.region,
+    location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
     member="allUsers",
