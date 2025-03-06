@@ -315,10 +315,10 @@ class DatabaseClient:
             return []
         if with_sources:
             # Slicks that have at least one associated source
-            source_conditions.append(db.SlickToSource.slick != None)  # noqa
+            source_conditions.append(db.SlickToSource.slick is not None)
         if without_sources:
             # Slicks that have no associated sources
-            source_conditions.append(db.SlickToSource.slick == None)  # noqa
+            source_conditions.append(db.SlickToSource.slick is None)
 
         if source_conditions:
             # Combine source conditions with OR logic

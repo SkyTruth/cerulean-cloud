@@ -1,2 +1,4 @@
 [tool.ruff]
+
+[tool.ruff.lint]
 exclude = ["notebooks/"]
