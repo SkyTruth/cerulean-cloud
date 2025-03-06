@@ -109,7 +109,7 @@ jobs:
 
   deploy-test:
     name: Deploy [TEST]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     environment: test
     concurrency: test
     needs: [tests]
@@ -132,7 +132,7 @@ jobs:
 
   deploy-staging:
     name: Deploy [STAGING]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     environment: staging
     concurrency: staging
     needs: [tests]
@@ -155,7 +155,7 @@ jobs:
 
   deploy-production:
     name: Deploy [PRODUCTION]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     environment: prod20240903
     concurrency: prod20240903
     needs: [tests]

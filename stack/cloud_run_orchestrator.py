@@ -170,7 +170,7 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="FUNCTION_URL",
-                            value=cloud_function_asa.fxn.https_trigger_url,
+                            value=cloud_function_asa.fxn.url,
                         ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="2000m")),

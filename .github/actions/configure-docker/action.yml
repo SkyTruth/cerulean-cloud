@@ -31,6 +31,11 @@ runs:
           sudo mkdir -p /etc/docker
         fi
 
+        # Create a default daemon.json if it doesn't exist
+        if [ ! -f /etc/docker/daemon.json ]; then
+          echo "{}" | sudo tee /etc/docker/daemon.json > /dev/null
+        fi
+
         jq < /etc/docker/daemon.json '. += { "data-root": "/mnt/docker-data" }' > /tmp/daemon.json
         sudo cp /tmp/daemon.json /etc/docker/daemon.json
         cat /etc/docker/daemon.json
