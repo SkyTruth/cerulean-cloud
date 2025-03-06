@@ -16,6 +16,7 @@ config:
   gcp:project: cerulean-338116
   gcp:region: europe-west1
   gcp:zone: europe-west1-b
+  gcp:vpc_cidr_range: 10.9.0.0/28
   scihub:password:
     secure: v1:CXP8X/VfAkBuJJm5:/h0hT4nZ7mQYSoVnmHOB8rEIFTfOs2aJ
   scihub:username: rodrigo1234

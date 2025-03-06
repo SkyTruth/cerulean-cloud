@@ -15,8 +15,7 @@ vpc_connector = vpcaccess.Connector(
     name=reduced_construct_name("vpca"),
     region=pulumi.Config("gcp").require("region"),
     network="default",
-    ip_cidr_range="10.9.0.0/28",
+    ip_cidr_range=pulumi.Config("gcp").require("vpc_cidr_range"),
 )
 
-# Optionally export the ID if needed.
 pulumi.export("vpc_connector_id", vpc_connector.id)
