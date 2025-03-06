@@ -112,3 +112,13 @@ sql_instance_url_with_ip = pulumi.Output.concat(
     ":5432/",
     db_name,
 )
+sql_instance_url_with_ip_asyncpg = pulumi.Output.concat(
+    "postgresql+asyncpg://",
+    db_name,
+    ":",
+    pulumi.Config("db").require_secret("db-password"),
+    "@",
+    private_ip,
+    ":5432/",
+    db_name,
+)

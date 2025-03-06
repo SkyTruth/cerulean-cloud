@@ -65,7 +65,7 @@ else:  # Unshallow the repository to get full commit history
 
 function_name = construct_name("cf-asa")
 config_values = {
-    "DB_URL": database.sql_instance_url_with_ip,
+    "DB_URL": database.sql_instance_url_with_ip_asyncpg,
     "GIT_HASH": git_sha,
     "GIT_TAG": git_tag,
 }
