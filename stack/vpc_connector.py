@@ -5,8 +5,8 @@ from utils import construct_name
 
 # Create a shared VPC connector.
 vpc_connector = vpcaccess.Connector(
-    construct_name("vpc-connector"),
-    name=construct_name("vpc-connector"),
+    construct_name("vpca"),
+    name=construct_name("vpca"),
     region=pulumi.Config("gcp").require("region"),
     network="default",
     ip_cidr_range="10.9.0.0/28",
