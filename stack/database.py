@@ -103,7 +103,7 @@ private_ip = instance.ip_addresses.apply(
 )
 
 sql_instance_url_with_ip = pulumi.Output.concat(
-    "postgresql+asyncpg://",
+    "postgresql://",
     db_name,
     ":",
     pulumi.Config("db").require_secret("db-password"),
