@@ -13,7 +13,7 @@ def reduced_construct_name(resource_name: str) -> str:
 vpc_connector = vpcaccess.Connector(
     reduced_construct_name("vpca"),
     name=reduced_construct_name("vpca"),
-    region=pulumi.Config("vpc").require("region"),
+    region=pulumi.Config("gcp").require("region"),
     network="default",
     ip_cidr_range=pulumi.Config("vpc").require("cidr_range"),
 )
