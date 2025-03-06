@@ -18,7 +18,7 @@ stack = pulumi.get_stack()
 
 function_name = construct_name("cf-historical-run")
 config_values = {
-    "DB_URL": database.sql_instance_url,
+    "DB_URL": database.sql_instance_url_with_ip,
     "GCPPROJECT": pulumi.Config("gcp").require("project"),
     "GCPREGION": pulumi.Config("gcp").require("region"),
     "QUEUE": cloud_function_scene_relevancy.queue.name,

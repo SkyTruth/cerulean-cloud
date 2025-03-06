@@ -46,7 +46,7 @@ queue = cloudtasks.Queue(
 
 function_name = construct_name("cf-sr")
 config_values = {
-    "DB_URL": database.sql_instance_url,
+    "DB_URL": database.sql_instance_url_with_ip,
     "GCPPROJECT": pulumi.Config("gcp").require("project"),
     "GCPREGION": pulumi.Config("gcp").require("region"),
     "QUEUE": queue.name,
