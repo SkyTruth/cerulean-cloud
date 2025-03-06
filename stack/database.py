@@ -98,7 +98,7 @@ sql_instance_url_alembic = pulumi.Output.concat(
     db_name,
 )
 
-private_ip = instance.ip_address.apply(
+private_ip = instance.ip_addresses.apply(
     lambda ips: next((ip["ip_address"] for ip in ips if ip["type"] == "PRIVATE"), None)
 )
 
