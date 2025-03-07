@@ -148,10 +148,10 @@ lambda_invocations_alarm = aws.cloudwatch.MetricAlarm(
 )
 
 email_subscription = aws.sns.TopicSubscription(
-    resource_name=construct_name("lambda-titiler-email-support"),
+    resource_name=construct_name("lambda-titiler-email-tech"),
     topic=api_abuse_alerts_topic.arn,
     protocol="email",
-    endpoint="support+cerulean@skytruth.org",
+    endpoint="tech+cerulean@skytruth.org",
 )
 
 email_subscription = aws.sns.TopicSubscription(
