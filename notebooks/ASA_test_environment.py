@@ -159,9 +159,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
             )
             # Filter  where st_name is in results.st_name
             filtered_ais = ais_analyzer.results[
-                ais_analyzer.results["st_name"].isin(
-                    ranked_results["st_name"].values
-                )
+                ais_analyzer.results["st_name"].isin(ranked_results["st_name"].values)
             ]
 
             # Get unique st_name values
@@ -349,7 +347,6 @@ slick_ids = [
     # 3581087,  # vessel
     # 3581091,  # vessel
     3573262,  # vessel
-    
 ]
 
 accumulated_sources = []
