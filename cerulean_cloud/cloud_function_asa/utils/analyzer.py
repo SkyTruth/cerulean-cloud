@@ -558,6 +558,9 @@ class AISAnalyzer(SourceAnalyzer):
             ]
             first_ais_tstamp = group["timestamp"].min()
             last_ais_tstamp = group["timestamp"].max()
+            if first_ais_tstamp == last_ais_tstamp:
+                print(f"Trajectory {traj.id} has only one point, cannot interpolate")
+                continue
 
             # Interpolate to times in time_vec
             interp_times = self.time_vec[
