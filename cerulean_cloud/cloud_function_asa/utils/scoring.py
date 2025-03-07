@@ -60,7 +60,7 @@ def compute_proximity_score(
     # Compute Frechet distance and transform it into a score.
     dist = frechet_distance(traj_line_sampled, curve)
 
-    traj_timestamps = list(traj_gdf["timestamp"])
+    traj_timestamps = list(traj_gdf.index)
 
     # Identify trajectory points closest to the curve endpoints.
     idx_first = nearest_index(curve.coords[0], traj_points)
@@ -137,7 +137,7 @@ def compute_temporal_score(
     """
     traj_points = list(traj_gdf["geometry"])
 
-    traj_timestamps = list(traj_gdf["timestamp"])
+    traj_timestamps = list(traj_gdf.index)
 
     # Identify trajectory points closest to the curve endpoints.
     idx_first = nearest_index(curve.coords[0], traj_points)

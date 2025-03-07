@@ -556,27 +556,37 @@ class AISAnalyzer(SourceAnalyzer):
             traj.ext_name, traj.ext_shiptype, traj.flag = group.iloc[0][
                 ["shipname", "best_shiptype", "flag"]
             ]
+            first_ais_tstamp = group["timestamp"].min()
+            last_ais_tstamp = group["timestamp"].max()
 
             # Interpolate to times in time_vec
-            times = self.time_vec
-            positions = [traj.interpolate_position_at(t) for t in times]
+            interp_times = self.time_vec[
+                (self.time_vec >= first_ais_tstamp) & (self.time_vec <= last_ais_tstamp)
+            ]
+
+            positions = [traj.interpolate_position_at(t) for t in interp_times]
 
             # Build a full GeoDataFrame for scoring (keep timestamps as datetime objects).
             interp_gdf = gpd.GeoDataFrame(
-                {"timestamp": times, "geometry": positions}, crs="4326"
-            )
+                {"timestamp": interp_times, "geometry": positions}, crs="4326"
+            ).set_index("timestamp")
             traj.df = interp_gdf
 
             # For display, create a truncated GeoDataFrame.
             # Here, we use s1_time as the truncation cutoff (last time in the interpolation).
-            s1_time = pd.Timestamp(times[-1])
-            display_gdf = group[group["timestamp"] <= s1_time].copy()
+            s1_time = self.s1_scene.start_time
+            display_gdf = group[group["timestamp"] < s1_time].copy()
 
-            # If the original group extends beyond s1_time, add the final interpolated point.
-            if group["timestamp"].iloc[-1] > s1_time:
+            # If the AIS track contains s1_time, then interpolate it.
+            if last_ais_tstamp > s1_time > first_ais_tstamp:
+                ship_at_image_time = {
+                    "timestamp": s1_time,
+                    "geometry": traj.interpolate_position_at(s1_time),
+                }
                 display_gdf = pd.concat(
-                    [display_gdf, interp_gdf.iloc[[-1]]], ignore_index=True
+                    [display_gdf, pd.DataFrame([ship_at_image_time])]
                 )
+
             # Convert timestamps to ISO format for display purposes.
             display_gdf["timestamp"] = display_gdf["timestamp"].apply(
                 lambda x: x.isoformat()
