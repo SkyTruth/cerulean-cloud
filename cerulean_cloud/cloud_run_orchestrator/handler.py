@@ -629,8 +629,8 @@ def calculate_centerlines(
     for _, item in slick_closed.items():
         # create centerline -> MultiLineString
         polygon_perimeter = item.length  # Perimeter of the polygon
-        interp_dist = min(
-            100, polygon_perimeter / 1000
+        interp_dist = (
+            polygon_perimeter / 1000
         )  # Use a minimum of 1000 points for voronoi calculation
         cl = centerline.geometry.Centerline(item, interpolation_distance=interp_dist)
         longest_paths = find_longest_path(cl.geometry)
