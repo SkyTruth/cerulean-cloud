@@ -42,6 +42,7 @@ from .constants import (
     MIN_AREA_THRESHOLD,
     NUM_TIMESTEPS,
     NUM_VERTICES,
+    SENSITIVITY_PARITY,
     SPREAD_RATE,
     T_FORMAT,
     VESSEL_MEAN,
@@ -458,6 +459,7 @@ class AISAnalyzer(SourceAnalyzer):
         self.w_temporal = kwargs.get("w_temporal", W_TEMPORAL)
         self.w_proximity = kwargs.get("w_proximity", W_PROXIMITY)
         self.w_parity = kwargs.get("w_parity", W_PARITY)
+        self.sensitivity_parity = kwargs.get("sensitivity_parity", SENSITIVITY_PARITY)
         self.ais_ref_time_over = kwargs.get("ais_ref_time_over", AIS_REF_TIME_OVER)
         self.ais_ref_time_under = kwargs.get("ais_ref_time_under", AIS_REF_TIME_UNDER)
         self.spread_rate = kwargs.get("spread_rate", SPREAD_RATE)
@@ -810,6 +812,7 @@ class AISAnalyzer(SourceAnalyzer):
             parity_score = compute_parity_score(
                 traj_gdf,
                 longest_curve,
+                self.sensitivity_parity,
             )
 
             # Compute total score from these three metrics

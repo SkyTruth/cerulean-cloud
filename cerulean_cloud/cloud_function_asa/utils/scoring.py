@@ -90,6 +90,7 @@ def compute_proximity_score(
 def compute_parity_score(
     traj_gdf: gpd.GeoDataFrame,
     curve: shapely.geometry.LineString,
+    sensitivity_parity: float,
 ) -> float:
     """
     Compute the parity score, which measures the similarity between the length of an oil slick curve
@@ -114,7 +115,9 @@ def compute_parity_score(
     # Extract the relevant substring of the trajectory.
     traj_substring = shapely.geometry.LineString(traj_points[start_idx : end_idx + 1])
 
-    return math.exp(-(math.log(curve.length / traj_substring.length) ** 2))
+    return math.exp(
+        -(math.log(curve.length / traj_substring.length) ** 2) * sensitivity_parity
+    )
 
 
 def compute_temporal_score(
