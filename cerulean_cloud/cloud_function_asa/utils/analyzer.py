@@ -26,31 +26,7 @@ from pyproj import CRS
 from scipy.spatial import cKDTree
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, mapping
 
-from .constants import (
-    AIS_BUFFER,
-    AIS_PROJECT_ID,
-    AIS_REF_TIME_OVER,
-    AIS_REF_TIME_UNDER,
-    CLOSING_BUFFER,
-    D_FORMAT,
-    DECAY_FACTOR,
-    HOURS_AFTER,
-    HOURS_BEFORE,
-    INFRA_MEAN,
-    INFRA_REF_DIST,
-    INFRA_STD,
-    MIN_AREA_THRESHOLD,
-    NUM_TIMESTEPS,
-    NUM_VERTICES,
-    SENSITIVITY_PARITY,
-    SPREAD_RATE,
-    T_FORMAT,
-    VESSEL_MEAN,
-    VESSEL_STD,
-    W_PARITY,
-    W_PROXIMITY,
-    W_TEMPORAL,
-)
+from . import constants as c
 from .scoring import (
     compute_parity_score,
     compute_proximity_score,
@@ -113,13 +89,13 @@ class InfrastructureAnalyzer(SourceAnalyzer):
         """
         super().__init__(s1_scene, **kwargs)
         self.source_type = 2
-        self.num_vertices = kwargs.get("num_vertices", NUM_VERTICES)
-        self.closing_buffer = kwargs.get("closing_buffer", CLOSING_BUFFER)
-        self.radius_of_interest = kwargs.get("radius_of_interest", INFRA_REF_DIST)
-        self.decay_factor = kwargs.get("decay_factor", DECAY_FACTOR)
-        self.min_area_threshold = kwargs.get("min_area_threshold", MIN_AREA_THRESHOLD)
-        self.coinc_mean = kwargs.get("coinc_mean", INFRA_MEAN)
-        self.coinc_std = kwargs.get("coinc_std", INFRA_STD)
+        self.num_vertices = kwargs.get("num_vertices", c.NUM_VERTICES)
+        self.closing_buffer = kwargs.get("closing_buffer", c.CLOSING_BUFFER)
+        self.radius_of_interest = kwargs.get("radius_of_interest", c.INFRA_REF_DIST)
+        self.decay_factor = kwargs.get("decay_factor", c.DECAY_FACTOR)
+        self.min_area_threshold = kwargs.get("min_area_threshold", c.MIN_AREA_THRESHOLD)
+        self.coinc_mean = kwargs.get("coinc_mean", c.INFRA_MEAN)
+        self.coinc_std = kwargs.get("coinc_std", c.INFRA_STD)
 
         self.infra_gdf = kwargs.get("infra_gdf", None)
 
@@ -451,20 +427,20 @@ class AISAnalyzer(SourceAnalyzer):
         self.source_type = 1
         self.s1_scene = s1_scene
         # Default parameters
-        self.hours_before = kwargs.get("hours_before", HOURS_BEFORE)
-        self.hours_after = kwargs.get("hours_after", HOURS_AFTER)
-        self.ais_buffer = kwargs.get("ais_buffer", AIS_BUFFER)
-        self.num_timesteps = kwargs.get("num_timesteps", NUM_TIMESTEPS)
-        self.ais_project_id = kwargs.get("ais_project_id", AIS_PROJECT_ID)
-        self.w_temporal = kwargs.get("w_temporal", W_TEMPORAL)
-        self.w_proximity = kwargs.get("w_proximity", W_PROXIMITY)
-        self.w_parity = kwargs.get("w_parity", W_PARITY)
-        self.sensitivity_parity = kwargs.get("sensitivity_parity", SENSITIVITY_PARITY)
-        self.ais_ref_time_over = kwargs.get("ais_ref_time_over", AIS_REF_TIME_OVER)
-        self.ais_ref_time_under = kwargs.get("ais_ref_time_under", AIS_REF_TIME_UNDER)
-        self.spread_rate = kwargs.get("spread_rate", SPREAD_RATE)
-        self.coinc_mean = kwargs.get("coinc_mean", VESSEL_MEAN)
-        self.coinc_std = kwargs.get("coinc_std", VESSEL_STD)
+        self.hours_before = kwargs.get("hours_before", c.HOURS_BEFORE)
+        self.hours_after = kwargs.get("hours_after", c.HOURS_AFTER)
+        self.ais_buffer = kwargs.get("ais_buffer", c.AIS_BUFFER)
+        self.num_timesteps = kwargs.get("num_timesteps", c.NUM_TIMESTEPS)
+        self.ais_project_id = kwargs.get("ais_project_id", c.AIS_PROJECT_ID)
+        self.w_temporal = kwargs.get("w_temporal", c.W_TEMPORAL)
+        self.w_proximity = kwargs.get("w_proximity", c.W_PROXIMITY)
+        self.w_parity = kwargs.get("w_parity", c.W_PARITY)
+        self.sensitivity_parity = kwargs.get("sensitivity_parity", c.SENSITIVITY_PARITY)
+        self.ais_ref_time_over = kwargs.get("ais_ref_time_over", c.AIS_REF_TIME_OVER)
+        self.ais_ref_time_under = kwargs.get("ais_ref_time_under", c.AIS_REF_TIME_UNDER)
+        self.spread_rate = kwargs.get("spread_rate", c.SPREAD_RATE)
+        self.coinc_mean = kwargs.get("coinc_mean", c.VESSEL_MEAN)
+        self.coinc_std = kwargs.get("coinc_std", c.VESSEL_STD)
 
         # Calculated values
         self.ais_start_time = self.s1_scene.start_time - timedelta(
@@ -517,8 +493,8 @@ class AISAnalyzer(SourceAnalyzer):
                 `world-fishing-827.gfw_research.vi_ssvid_v20230801` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE
-                seg._PARTITIONTIME between '{datetime.strftime(self.ais_start_time, D_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, D_FORMAT)}'
-                AND seg.timestamp between '{datetime.strftime(self.ais_start_time, T_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, T_FORMAT)}'
+                seg._PARTITIONTIME between '{datetime.strftime(self.ais_start_time, c.D_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, c.D_FORMAT)}'
+                AND seg.timestamp between '{datetime.strftime(self.ais_start_time, c.T_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, c.T_FORMAT)}'
                 AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.ais_envelope[0]}'))
             """
         df = pandas_gbq.read_gbq(
@@ -663,23 +639,23 @@ class AISAnalyzer(SourceAnalyzer):
             # remove coordinate duplicates, preserving sorted order
             coords_seen_x = set()
             coords_unique_x = list()
-            for c in coords_sort_x:
-                if c not in coords_seen_x:
-                    coords_unique_x.append(c)
-                    coords_seen_x.add(c)
+            for coord in coords_sort_x:
+                if coord not in coords_seen_x:
+                    coords_unique_x.append(coord)
+                    coords_seen_x.add(coord)
 
             coords_seen_y = set()
             coords_unique_y = list()
-            for c in coords_sort_y:
-                if c not in coords_seen_y:
-                    coords_unique_y.append(c)
-                    coords_seen_y.add(c)
+            for coord in coords_sort_y:
+                if coord not in coords_seen_y:
+                    coords_unique_y.append(coord)
+                    coords_seen_y.add(coord)
 
             # grab x and y coordinates for spline fit
-            x_fit_sort_x = [c[0] for c in coords_unique_x]
-            x_fit_sort_y = [c[0] for c in coords_unique_y]
-            y_fit_sort_x = [c[1] for c in coords_unique_x]
-            y_fit_sort_y = [c[1] for c in coords_unique_y]
+            x_fit_sort_x = [coord[0] for coord in coords_unique_x]
+            x_fit_sort_y = [coord[0] for coord in coords_unique_y]
+            y_fit_sort_x = [coord[1] for coord in coords_unique_x]
+            y_fit_sort_y = [coord[1] for coord in coords_unique_y]
 
             # Check if there are enough points for spline fitting
             min_points_required = 4  # for cubic spline, k=3, need at least 4 points
