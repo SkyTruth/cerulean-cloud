@@ -23,9 +23,7 @@ pulumi.export("cloud_run_tipg_url", cloud_run_tipg.default.statuses[0].url)
 pulumi.export("database_url", database.sql_instance_url)
 pulumi.export("database_instance_name", database.instance.connection_name)
 pulumi.export("database_url_alembic", database.sql_instance_url_alembic)
-pulumi.export(
-    "scene_relevancy_url", cloud_function_scene_relevancy.fxn.https_trigger_url
-)
-pulumi.export("historical_run_url", cloud_function_historical_run.fxn.https_trigger_url)
-pulumi.export("asa_url", cloud_function_asa.fxn.https_trigger_url)
+pulumi.export("scene_relevancy_url", cloud_function_scene_relevancy.fxn.url)
+pulumi.export("historical_run_url", cloud_function_historical_run.fxn.url)
+pulumi.export("asa_url", cloud_function_asa.fxn.url)
 pulumi.export("sns_topic_subscription", sns_subscription.sentinel1_sqs_target.arn)

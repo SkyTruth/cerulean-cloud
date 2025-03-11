@@ -339,12 +339,12 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
         # Get existing handles excluding st_name patches
         existing_handles = []
         existing_labels = []
-        for h, l in zip(handles, labels):
-            if l not in combined_labels and l not in [
+        for handle, label in zip(handles, labels):
+            if label not in combined_labels and label not in [
                 "AIS Buffered"
             ]:  # Exclude AIS Buffered to avoid duplicates
-                existing_handles.append(h)
-                existing_labels.append(l)
+                existing_handles.append(handle)
+                existing_labels.append(label)
 
         combined_handles.extend(existing_handles)
         combined_labels.extend(existing_labels)
@@ -354,9 +354,9 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
         if handles:
             # Remove duplicate labels
             unique = {}
-            for h, l in zip(handles, labels):
-                if l not in unique:
-                    unique[l] = h
+            for handle, label in zip(handles, labels):
+                if label not in unique:
+                    unique[label] = handle
             handles, labels = zip(*unique.items())
             plt.legend(handles=handles, labels=labels)
 
