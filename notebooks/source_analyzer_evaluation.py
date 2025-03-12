@@ -163,8 +163,8 @@ def calculate_metrics(results):
 
     for name, df in results.items():
         # Filter rows where the ground truth is True/False
-        truth_df = df[df["truth"] == True]
-        false_df = df[df["truth"] == False]
+        truth_df = df[df["truth"]]
+        false_df = df[df["truth"]]
 
         # Compute top 3 source rate (as a percentage)
         if len(truth_df) > 0:
