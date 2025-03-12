@@ -201,6 +201,8 @@ class DatabaseClient:
         slick_shape,
         inference_idx,
         machine_confidence,
+        centerlines,
+        aspect_ratio_factor,
     ):
         """add a slick"""
         # use buffer(0) to attempt to fix any invalid geometries
@@ -217,6 +219,8 @@ class DatabaseClient:
             active=True,
             orchestrator_run1=orchestrator_run,
             machine_confidence=machine_confidence,
+            centerlines=centerlines,
+            aspect_ratio_factor=aspect_ratio_factor,
         )
         return slick
 
@@ -248,6 +252,8 @@ class DatabaseClient:
         insert_cols = {
             1: [c.name for c in db.SourceVessel.__table__.columns],  # Vessels
             2: [c.name for c in db.SourceInfra.__table__.columns],  # Infrastructure
+            3: [c.name for c in db.SourceDark.__table__.columns],  # Dark Vessels
+            4: [c.name for c in db.SourceNatural.__table__.columns],  # Natural Seeps
         }
         insert_dict = {
             k: v
@@ -298,7 +304,7 @@ class DatabaseClient:
         """
         query = (
             select(db.Slick)
-            .distinct()
+            .distinct(db.Slick.id)  # distinct on the primary key
             .outerjoin(db.SlickToSource, db.Slick.id == db.SlickToSource.slick)
             .join(db.OrchestratorRun)
             .join(db.Sentinel1Grd)

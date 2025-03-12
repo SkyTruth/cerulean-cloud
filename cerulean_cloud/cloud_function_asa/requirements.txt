@@ -2,7 +2,6 @@ asyncio==3.4.3
 pandas_gbq==0.17.6
 google-cloud-tasks==2.9.1
 sqlalchemy==1.4.32
-centerline==1.0.1
 geopandas==0.12.2
 movingpandas==0.15rc1
 numpy<2.0.0

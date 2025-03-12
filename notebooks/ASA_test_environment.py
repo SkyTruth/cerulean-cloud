@@ -9,6 +9,7 @@ Features include projection handling, extremity point selection, efficient scori
 # %load_ext autoreload
 # %autoreload 2
 
+import json
 import os
 import sys
 from types import SimpleNamespace
@@ -24,14 +25,17 @@ from matplotlib.patches import Patch
 load_dotenv(".env")
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
-from cerulean_cloud.cloud_function_asa.utils.analyzer import (  # noqa: E402
+from cerulean_cloud.cloud_function_asa.utils.analyzer import (  # noqa: E402; NaturalAnalyzer
     ASA_MAPPING,
+    DarkAnalyzer,
     InfrastructureAnalyzer,
     SourceAnalyzer,
 )
 
 
-def download_geojson(id, download_path=os.getenv("ASA_DOWNLOAD_PATH")):
+def download_geojson(
+    id, download_path=os.getenv("ASA_DOWNLOAD_PATH"), use_test_db=False
+):
     """
     Downloads a GeoJSON file from the specified URL if it hasn't been downloaded already.
 
@@ -43,6 +47,8 @@ def download_geojson(id, download_path=os.getenv("ASA_DOWNLOAD_PATH")):
     - geojson_file_path (str): The file path to the downloaded GeoJSON.
     """
     url = f"https://api.cerulean.skytruth.org/collections/public.slick_plus/items?id={id}&f=geojson"
+    if use_test_db:
+        url = f"https://cerulean-cloud-test-cr-tipg-5qkjkyomta-ew.a.run.app/collections/public.slick_plus/items?id={id}&f=geojson"
     geojson_file_path = os.path.join(download_path, f"{id}.geojson")
 
     if not os.path.exists(geojson_file_path):
@@ -130,6 +136,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
     # Initialize variables
     ais_analyzer = None
     infra_analyzer = None
+    dark_analyzer = None
     slick_gdf = None
 
     # Assign analyzers based on keys
@@ -141,6 +148,11 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
         slick_gdf = analyzers[
             2
         ].slick_gdf  # This will overwrite if both 1 and 2 are present
+    if 3 in analyzers.keys():
+        dark_analyzer = analyzers[3]
+        slick_gdf = analyzers[
+            3
+        ].slick_gdf  # This will overwrite if both 1 and 2 and 3are present
 
     # Check if slick_gdf is assigned
     if slick_gdf is None:
@@ -205,7 +217,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
 
     # Plot the infrastructure points with coincidence scores if infra_analyzer is present
     if infra_analyzer is not None:
-        scatter = ax.scatter(
+        scatter_infra = ax.scatter(
             infra_analyzer.infra_gdf.geometry.x,
             infra_analyzer.infra_gdf.geometry.y,
             c=infra_analyzer.coincidence_scores,
@@ -214,11 +226,28 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
             vmin=0,
             vmax=1,
             alpha=0.8,
-            edgecolor="black" if black else None,
+            edgecolor="blue" if black else None,
             label="Infrastructure Points",
         )
     else:
-        scatter = None
+        scatter_infra = None
+
+    # Plot the infrastructure points with coincidence scores if infra_analyzer is present
+    if dark_analyzer is not None:
+        scatter_dark = ax.scatter(
+            dark_analyzer.dark_objects_gdf.geometry.x,
+            dark_analyzer.dark_objects_gdf.geometry.y,
+            c=dark_analyzer.coincidence_scores,
+            cmap="Greens",
+            s=10,
+            vmin=0,
+            vmax=1,
+            alpha=0.8,
+            edgecolor="green" if black else None,
+            label="Dark Vessels",
+        )
+    else:
+        scatter_dark = None
 
     # Plot the slick polygons
     slick_gdf.plot(
@@ -263,18 +292,26 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
     ax.set_xlim(min_x_final, max_x_final)
     ax.set_ylim(min_y_final, max_y_final)
 
-    # Add colorbar for coincidence scores if infra_analyzer is present
-    if scatter is not None:
-        cbar = plt.colorbar(scatter, ax=ax)
-        cbar.set_label("Coincidence")
+    # Initialize maximum coincidence values for each analyzer
+    max_infra_coincidence = 0
+    max_dark_coincidence = 0
 
-        max_coincidence = (
-            round(infra_analyzer.coincidence_scores.max(), 2)
-            if len(infra_analyzer.coincidence_scores)
-            else 0
-        )
-    else:
-        max_coincidence = 0
+    # Add colorbar for infrastructure points if available
+    if scatter_infra is not None and not black:
+        cbar_infra = plt.colorbar(scatter_infra, ax=ax, fraction=0.046, pad=0.04)
+        cbar_infra.set_label("Infra Coincidence")
+        if len(infra_analyzer.coincidence_scores):
+            max_infra_coincidence = round(infra_analyzer.coincidence_scores.max(), 2)
+
+    # Add colorbar for dark vessel points if available
+    if scatter_dark is not None and not black:
+        cbar_dark = plt.colorbar(scatter_dark, ax=ax, fraction=0.046, pad=0.04)
+        cbar_dark.set_label("Dark Coincidence")
+        if len(dark_analyzer.coincidence_scores):
+            max_dark_coincidence = round(dark_analyzer.coincidence_scores.max(), 2)
+
+    # Optionally, combine the two maximums if needed:
+    max_coincidence = max(max_infra_coincidence, max_dark_coincidence)
 
     # Set titles and labels
     plt.title(f"Slick ID {slick_id}: Max Coincidence {max_coincidence}")
@@ -346,18 +383,39 @@ slick_ids = [
     # 3237854,  # vessel
     # 3581087,  # vessel
     # 3581091,  # vessel
-    3573262,  # vessel
+    # 3573262,  # vessel
+    # 3819454, # infra
+    # 3820550, # infra
+    # 3830066,  # infra
+    # 3581639,  # dark
+    # 3687248,  # dark
+    # 3582305,  # dark tricky
+    # 3581812,  # dark easy
+    # 3581500,  # dark easy
+    # 3581468,  # dark easy
+    # 3318875,  # dark tricky
+    # 3582208,  # dark easy
+    # 3581669,  # dark tricky
+    # 22558  # local
+    # 23505  # local
+    # 20839  # local
+    # 27566  # local
+    # 27484  # local
+    33883
 ]
 
 accumulated_sources = []
 for slick_id in slick_ids:
-    geojson_file_path = download_geojson(slick_id)
+    geojson_file_path = download_geojson(slick_id, use_test_db=True)
     slick_gdf = gpd.read_file(geojson_file_path)
+    slick_gdf["centerlines"] = slick_gdf["centerlines"].apply(json.loads)
     s1_scene = get_s1_scene(slick_gdf.s1_scene_id.iloc[0])
 
     source_types = []
     source_types += [1]  # ais
     source_types += [2]  # infra
+    source_types += [3]  # dark
+    # source_types += [4]  # natural
     if not (  # If the last analyzer is for the same scene, reuse it
         analyzers
         and next(iter(analyzers.items()))[1].s1_scene.scene_id == s1_scene.scene_id
@@ -365,7 +423,7 @@ for slick_id in slick_ids:
         analyzers = {s_type: ASA_MAPPING[s_type](s1_scene) for s_type in source_types}
 
     ranked_sources = pd.DataFrame(
-        columns=["type", "st_name", "coincidence_score", "collated_score"]
+        columns=["type", "ext_id", "coincidence_score", "collated_score"]
     )
     for s_type, analyzer in analyzers.items():
         res = analyzer.compute_coincidence_scores(slick_gdf)
@@ -382,7 +440,7 @@ for slick_id in slick_ids:
         accumulated_sources.append(
             [
                 slick_id,
-                ranked_sources["st_name"].iloc[0],
+                ranked_sources["ext_id"].iloc[0],
                 float(ranked_sources["collated_score"].iloc[0]),
             ]
         )
@@ -390,11 +448,22 @@ for slick_id in slick_ids:
     plot(analyzers, slick_id)
 
     print(
-        ranked_sources[["type", "ext_id", "coincidence_score", "collated_score"]].head()
+        ranked_sources[["type", "ext_id", "coincidence_score", "collated_score"]].head(
+            8
+        )
     )
 
 # print(accumulated_sources)
+
 # %%
+# Plot out all potential dark sources
+fake_dark_gdf = generate_infrastructure_points(slick_gdf, 50000)
+dark_analyzer = DarkAnalyzer(s1_scene, dark_vessels_gdf=fake_dark_gdf)
+coincidence_scores = dark_analyzer.compute_coincidence_scores(slick_gdf)
+plot({3: dark_analyzer}, slick_id, False)
+
+# %%
+# Plot out all potential infra sources
 fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
 coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)

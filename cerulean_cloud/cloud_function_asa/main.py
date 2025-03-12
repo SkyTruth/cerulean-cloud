@@ -121,7 +121,10 @@ async def handle_asa_request(request):
 
                     # Convert slick geometry to GeoDataFrame
                     slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
-                    slick_gdf = gpd.GeoDataFrame({"geometry": [slick_geom]}, crs="4326")
+                    slick_gdf = gpd.GeoDataFrame(
+                        {"geometry": [slick_geom], "centerlines": [slick.centerlines]},
+                        crs="4326",
+                    )
                     fresh_ranked_sources = pd.DataFrame()
 
                     for analyzer in analyzers_to_run:
@@ -148,7 +151,9 @@ async def handle_asa_request(request):
                         combined_df.reset_index(drop=True, inplace=True)
                         combined_df["rank"] = combined_df.index + 1
 
-                        only_record_top = 5  # XXXMAGIC
+                        # Might want to increase this to save the top 3 per Source Type
+                        only_record_top = 2 * len(ASA_MAPPING)
+
                         async with db_client.session.begin():
                             for idx, source_row in combined_df.iterrows():
                                 if pd.isna(source_row["slick_to_source_id"]):

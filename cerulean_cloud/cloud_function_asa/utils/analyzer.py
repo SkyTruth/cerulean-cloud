@@ -8,7 +8,6 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Tuple
 
-import centerline.geometry
 import geopandas as gpd
 import mapbox_vector_tile
 import morecantile
@@ -17,21 +16,25 @@ import numpy as np
 import pandas as pd
 import pandas_gbq
 import requests
-import scipy.interpolate
-import scipy.spatial.distance
-import shapely
 from geoalchemy2.shape import to_shape
 from google.oauth2.service_account import Credentials
 from pyproj import CRS
 from scipy.spatial import cKDTree
-from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, mapping
+from shapely.geometry import (
+    GeometryCollection,
+    LineString,
+    MultiPolygon,
+    Point,
+    Polygon,
+    mapping,
+)
 
 from . import constants as c
 from .scoring import (
     compute_parity_score,
     compute_proximity_score,
     compute_temporal_score,
-    compute_total_score,
+    vessel_compute_total_score,
 )
 
 
@@ -58,13 +61,23 @@ class SourceAnalyzer:
         )
         self.crs_meters = utm_crs.to_string()
 
+        # Placeholders
+        self.coinc_mean = None
+        self.coinc_std = None
+
     def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
         Placeholder method to be overridden
         """
         pass
 
-    def apply_closing_buffer(self, geo_df, closing_buffer):
+    def collate(self, score: float):
+        """
+        Normalize the coincidence scores using the Source Type specific mean and standard deviation
+        """
+        return (score - self.coinc_mean) / self.coinc_std
+
+    def apply_closing_buffer(self, geo_df: gpd.GeoDataFrame, closing_buffer: float):
         """
         Applies a closing buffer to geometries in the GeoDataFrame.
         """
@@ -73,339 +86,13 @@ class SourceAnalyzer:
         )
         return geo_df
 
-
-class InfrastructureAnalyzer(SourceAnalyzer):
-    """
-    Analyzer for fixed infrastructure sources.
-
-    Attributes:
-        infra_gdf (GeoDataFrame): GeoDataFrame containing infrastructure points.
-        coincidence_scores (np.ndarray): Computed confidence scores.
-    """
-
-    def __init__(self, s1_scene, **kwargs):
+    def load_slick_centerlines(self):
         """
-        Initialize the InfrastructureAnalyzer.
+        Loads the slick centerlines from the GeoDataFrame.
         """
-        super().__init__(s1_scene, **kwargs)
-        self.source_type = 2
-        self.num_vertices = kwargs.get("num_vertices", c.NUM_VERTICES)
-        self.closing_buffer = kwargs.get("closing_buffer", c.CLOSING_BUFFER)
-        self.radius_of_interest = kwargs.get("radius_of_interest", c.INFRA_REF_DIST)
-        self.decay_factor = kwargs.get("decay_factor", c.DECAY_FACTOR)
-        self.min_area_threshold = kwargs.get("min_area_threshold", c.MIN_AREA_THRESHOLD)
-        self.coinc_mean = kwargs.get("coinc_mean", c.INFRA_MEAN)
-        self.coinc_std = kwargs.get("coinc_std", c.INFRA_STD)
-
-        self.infra_gdf = kwargs.get("infra_gdf", None)
-
-        if self.infra_gdf is None:
-            self.infra_api_token = os.getenv("INFRA_API_TOKEN")
-            self.infra_gdf = self.load_infrastructure_data_api()
-        self.coincidence_scores = np.zeros(len(self.infra_gdf))
-
-    def load_infrastructure_data_csv(self, only_oil=True):
-        """
-        Loads infrastructure data from a CSV file.
-        """
-        df = pd.read_csv("SAR Fixed Infrastructure 202407 DENOISED UNIQUE.csv")
-        df["st_name"] = df["structure_id"].apply(str)
-        df["ext_id"] = df["structure_id"].apply(str)
-        df["type"] = 2  # infra
-        if only_oil:
-            df = df[df["label"] == "oil"]
-
-        # This code isn't working because of a bug in how GFW records the first and last date.
-        # df["structure_start_date"] = pd.to_datetime(df["structure_start_date"])
-
-        # df.loc[df["structure_end_date"].isna(), "structure_end_date"] = (
-        #     datetime.now().strftime("%Y-%m-%d")
-        # )
-        # df["structure_end_date"] = pd.to_datetime(df["structure_end_date"])
-
-        df.reset_index(drop=True, inplace=True)
-        return gpd.GeoDataFrame(
-            df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
+        self.slick_centerlines = gpd.GeoDataFrame.from_features(
+            self.slick_gdf["centerlines"].iloc[0]["features"], crs="EPSG:4326"
         )
-
-    def load_infrastructure_data_api(self, only_oil=True):
-        """
-        Loads infrastructure data from the GFW API.
-
-        Parameters:
-            only_oil (bool): Whether to filter the data to only include oil infrastructure.
-
-        Returns:
-            GeoDataFrame: GeoDataFrame containing infrastructure points.
-        """
-
-        # zxy = self.select_enveloping_tile() # Something's wrong with this code. Ex. [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C"] should have 2 nearby infras
-        mvt_data = self.download_mvt_tile()
-        df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
-        if only_oil:
-            df = df[df["label"] == "oil"]
-        df["st_name"] = df["structure_id"].apply(str)
-        df["ext_id"] = df["structure_id"].apply(str)
-        df["type"] = 2  # infra
-
-        datetime_fields = ["structure_start_date", "structure_end_date"]
-        for field in datetime_fields:
-            if field in df.columns:
-                df.loc[df[field] == "", field] = str(int(time.time() * 1000))
-                df[field] = pd.to_numeric(df[field], errors="coerce")
-                df[field] = pd.to_datetime(df[field], unit="ms", errors="coerce")
-        df.reset_index(drop=True, inplace=True)
-        return gpd.GeoDataFrame(
-            df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
-        )
-
-    def select_enveloping_tile(self, max_zoom=20):
-        """
-        Determine the minimal zoom level and tile coordinates (x, y, z)
-        that cover the area of interest (slick_gdf buffered by radius_of_interest)
-        in a single tile.
-        """
-
-        buffered_slick_gdf = (
-            self.slick_gdf.to_crs(self.crs_meters)
-            .envelope.buffer(self.radius_of_interest)
-            .to_crs(epsg=4326)
-        )
-        bbox = buffered_slick_gdf.total_bounds
-
-        TMS = morecantile.tms.get("WebMercatorQuad")
-        for z in reversed(range(max_zoom + 1)):
-            tiles = list(TMS.tiles(*bbox, zooms=z))
-            if len(tiles) == 1:
-                tile = tiles[0]
-                return z, tile.x, tile.y
-
-    def download_mvt_tile(self, z=0, x=0, y=0):
-        """
-        Downloads MVT tile data for given z, x, y.
-
-        Parameters:
-            z (int): Zoom level.
-            x (int): Tile x coordinate.
-            y (int): Tile y coordinate.
-            token (str): Authorization token.
-
-        Returns:
-            bytes: The content of the MVT tile.
-        """
-        url = f"https://gateway.api.globalfishingwatch.org/v3/datasets/public-fixed-infrastructure-filtered:latest/context-layers/{z}/{x}/{y}"
-        headers = {"Authorization": f"Bearer {self.infra_api_token}"}
-        response = requests.get(url, headers=headers)
-        try:
-            decoded_tile = mapbox_vector_tile.decode(response.content)
-            return decoded_tile
-        except Exception:
-            print(f"Error decoding tile z={z}, x={x}, y={y}: {response.content}")
-            raise Exception(response.content)
-
-    def extract_polygons(self, geometry):
-        """
-        Extracts individual polygons from a geometry.
-        """
-        return (
-            [geom for geom in geometry.geoms if isinstance(geom, Polygon)]
-            if isinstance(geometry, (MultiPolygon, GeometryCollection))
-            else [geometry]
-        )
-
-    def select_extreme_points(
-        self, polygon: Polygon, num_vertices: int, reference_points: List[np.ndarray]
-    ) -> np.ndarray:
-        """
-        Selects N extremity points from the polygon based on their distance from reference points.
-        """
-        exterior_coords = np.array(
-            polygon.exterior.coords[:-1]
-        )  # Exclude closing point
-        selected_points = []
-
-        for _ in range(num_vertices):
-            # Compute distances from all exterior points to reference points
-            diff = (
-                exterior_coords[:, np.newaxis, :] - reference_points
-            )  # Shape: (M, K, 2)
-            dists = np.linalg.norm(diff, axis=2)  # Shape: (M, K)
-            min_dists = dists.min(axis=1)  # Shape: (M,)
-
-            # Select the point with the maximum of these minimum distances
-            idx = np.argmax(min_dists)
-            selected_point = exterior_coords[idx]
-            selected_points.append(selected_point)
-            reference_points.append(selected_point)  # Update reference points
-
-        return np.array(selected_points)
-
-    def collect_extremity_points(
-        self,
-        polygons: List[Polygon],
-        num_vertices: int,
-        overall_centroid: np.ndarray,
-        largest_polygon_area: float,
-    ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Collects extremity points and their scaled area fractions from all polygons.
-        """
-        extremity_points_list = []
-        area_fractions_list = []
-
-        for polygon in polygons:
-            if polygon.area < self.min_area_threshold * largest_polygon_area:
-                continue  # Skip small polygons
-
-            # Select N extremity points for the current polygon
-            selected_points = self.select_extreme_points(
-                polygon, num_vertices, [overall_centroid]
-            )
-            extremity_points_list.append(selected_points)
-
-            # Compute scaled area fraction for weighting
-            area_fraction = polygon.area / largest_polygon_area
-            scaled_area_fraction = np.sqrt(
-                area_fraction
-            )  # More sensitive to small areas
-            area_fractions_list.extend([scaled_area_fraction] * num_vertices)
-
-        if not extremity_points_list:
-            raise ValueError("No extremity points collected from polygons.")
-
-        all_extremity_points = np.vstack(extremity_points_list)
-        all_area_fractions = np.array(area_fractions_list)
-
-        return all_extremity_points, all_area_fractions
-
-    def compute_weights(
-        self, all_extremity_points, overall_centroid, all_area_fractions
-    ):
-        """
-        Computes normalized weights based on distances from the centroid and area fractions.
-        """
-        distances_sq = np.sum((all_extremity_points - overall_centroid) ** 2, axis=1)
-        scaled_weights = distances_sq * all_area_fractions
-
-        max_weight = scaled_weights.max()
-
-        return (
-            scaled_weights / max_weight
-            if max_weight != 0
-            else np.ones_like(scaled_weights)
-        )
-
-    def compute_coincidence_scores_for_infra(
-        self,
-        infra_gdf: gpd.GeoDataFrame,
-        extremity_tree: cKDTree,
-        all_extremity_points: np.ndarray,
-        all_weights: np.ndarray,
-        radius_of_interest: float,
-        decay_factor: float,
-    ) -> np.ndarray:
-        """
-        Computes confidence scores for infrastructure points based on proximity to extremity points.
-        """
-        infra_coords = np.array([(geom.x, geom.y) for geom in infra_gdf.geometry])
-        extremity_indices = extremity_tree.query_ball_point(
-            infra_coords, r=radius_of_interest
-        )
-        coincidence_scores = np.zeros(len(infra_coords))
-
-        for i, neighbors in enumerate(extremity_indices):
-            if neighbors:
-                neighbor_points = all_extremity_points[neighbors]
-                neighbor_weights = all_weights[neighbors]
-                dists = np.linalg.norm(neighbor_points - infra_coords[i], axis=1)
-                C_i = neighbor_weights * np.exp(
-                    -decay_factor * dists / radius_of_interest
-                )
-                coincidence_scores[i] = np.clip(C_i.max(), 0, 1)
-
-        return coincidence_scores
-
-    def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
-        """
-        Computes coincidence scores for infrastructure points.
-        """
-        start_time = time.time()
-        self.coincidence_scores = np.zeros(len(self.infra_gdf))
-        self.slick_gdf = slick_gdf
-
-        slick_gdf = self.slick_gdf.to_crs(self.crs_meters)
-        infra_gdf = self.infra_gdf.to_crs(self.crs_meters)
-
-        # Generate closed polygons
-        slick_gdf = self.apply_closing_buffer(slick_gdf, self.closing_buffer)
-        combined_geometry = slick_gdf.unary_union
-        polygons = self.extract_polygons(combined_geometry)
-
-        # Filter based on scene date and radius of interest
-        # scene_date = pd.to_datetime(self.s1_scene.scene_id[17:25], format="%Y%m%d") # XXX Not working because of a bug in how GFW records the first and last date.
-        slick_buffered = combined_geometry.buffer(self.radius_of_interest)
-        filtered_infra = infra_gdf[
-            infra_gdf.geometry.within(slick_buffered)
-            # & (infra_gdf["structure_start_date"] < scene_date)
-            # & (infra_gdf["structure_end_date"] > scene_date)
-        ]
-
-        if filtered_infra.empty:
-            print(
-                "No infrastructure within the dates / radius of interest."
-                "No coincidence scores edited."
-            )
-            return
-
-        # Compute largest area and overall centroid
-        largest_polygon_area = max(polygon.area for polygon in polygons)
-        overall_centroid = np.array(combined_geometry.centroid.coords[0])
-
-        # Collect extremity points and compute weights
-        all_extremity_points, all_area_fractions = self.collect_extremity_points(
-            polygons, self.num_vertices, overall_centroid, largest_polygon_area
-        )
-        all_weights = self.compute_weights(
-            all_extremity_points, overall_centroid, all_area_fractions
-        )
-
-        # Build KD-Tree and compute confidence scores
-        extremity_tree = cKDTree(all_extremity_points)
-        confidence_filtered = self.compute_coincidence_scores_for_infra(
-            filtered_infra,
-            extremity_tree,
-            all_extremity_points,
-            all_weights,
-            self.radius_of_interest,
-            self.decay_factor,
-        )
-
-        self.coincidence_scores[filtered_infra.index] = confidence_filtered
-        end_time = time.time()
-        print(f"Processing completed in {end_time - start_time:.2f} seconds.")
-
-        # Return a DataFrame with infra_gdf and coincidence_scores
-        self.results = self.infra_gdf.copy()
-        self.results["coincidence_score"] = self.coincidence_scores
-
-        self.results["geojson_fc"] = self.infra_gdf["geometry"].apply(
-            lambda geom: {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "id": "0",
-                        "type": "Feature",
-                        "geometry": mapping(geom),
-                        "properties": {},  # XXX Add properties as they become available (like first/last date)
-                    }
-                ],
-            }
-        )
-        self.results = self.results[self.results["coincidence_score"] > 0]
-        self.results["collated_score"] = (
-            self.results["coincidence_score"] - self.coinc_mean
-        ) / self.coinc_std
-        return self.results
 
 
 class AISAnalyzer(SourceAnalyzer):
@@ -464,7 +151,7 @@ class AISAnalyzer(SourceAnalyzer):
 
         # Initialize other attributes
         self.sql = None
-        self.slick_curves = None
+        self.slick_centerlines = None
         self.ais_gdf = None
         self.ais_trajectories = None
         self.ais_filtered = None
@@ -502,9 +189,7 @@ class AISAnalyzer(SourceAnalyzer):
             project_id=self.ais_project_id,
             credentials=self.credentials,
         )
-        df["geometry"] = df.apply(
-            lambda row: shapely.geometry.Point(row["lon"], row["lat"]), axis=1
-        )
+        df["geometry"] = df.apply(lambda row: Point(row["lon"], row["lat"]), axis=1)
         self.ais_gdf = (
             gpd.GeoDataFrame(df, crs="4326")
             .sort_values(by=["ssvid", "timestamp"])
@@ -551,22 +236,21 @@ class AISAnalyzer(SourceAnalyzer):
             interp_gdf = gpd.GeoDataFrame(
                 {"timestamp": interp_times, "geometry": positions}, crs="4326"
             ).set_index("timestamp")
-            traj.df = interp_gdf
 
-            # For display, create a truncated GeoDataFrame.
             # Here, we use s1_time as the truncation cutoff (last time in the interpolation).
             s1_time = self.s1_scene.start_time
-            display_gdf = group[group["timestamp"] < s1_time].copy()
-
             # If the AIS track contains s1_time, then interpolate it.
             if last_ais_tstamp > s1_time > first_ais_tstamp:
                 ship_at_image_time = {
                     "timestamp": s1_time,
                     "geometry": traj.interpolate_position_at(s1_time),
                 }
-                display_gdf = pd.concat(
-                    [display_gdf, pd.DataFrame([ship_at_image_time])]
-                )
+                interp_gdf = pd.concat([interp_gdf, pd.DataFrame([ship_at_image_time])])
+
+            traj.df = interp_gdf
+
+            # For display, create a truncated GeoDataFrame.
+            display_gdf = group[group["timestamp"] < s1_time].copy()
 
             # Convert timestamps to ISO format for display purposes.
             display_gdf["timestamp"] = display_gdf["timestamp"].apply(
@@ -580,135 +264,6 @@ class AISAnalyzer(SourceAnalyzer):
             ais_trajectories.append(traj)
 
         self.ais_trajectories = mpd.TrajectoryCollection(ais_trajectories)
-
-    def slick_to_curves(
-        self,
-        buf_size: int = 2000,
-        smoothing_factor: float = 1e9,
-    ):
-        """
-        From a set of oil slick detections, estimate curves that go through the detections
-        This process transforms a set of slick detections into LineStrings for each detection
-
-        Inputs:
-            buf_size: buffer size for cleaning up slick detections
-            smoothing_factor: smoothing factor for smoothing centerline
-        Returns:
-            GeoDataFrame of slick curves
-        """
-        # print("Creating slick curves")
-        # clean up the slick detections by dilation followed by erosion
-        # this process can merge some polygons but not others, depending on proximity
-        slick_clean = self.slick_gdf.copy()
-        slick_clean = self.apply_closing_buffer(
-            slick_clean.to_crs(self.crs_meters), buf_size
-        )
-
-        # split slicks into individual polygons
-        slick_clean = slick_clean.explode(ignore_index=True, index_parts=False)
-
-        # find a centerline through detections
-        slick_curves = list()
-        for _, row in slick_clean.iterrows():
-            # create centerline -> MultiLineString
-            polygon_perimeter = row.geometry.length  # Perimeter of the polygon
-            interp_dist = min(
-                100, polygon_perimeter / 1000
-            )  # Use a minimum of 1000 points for voronoi calculation
-            cl = centerline.geometry.Centerline(
-                row.geometry, interpolation_distance=interp_dist
-            )
-
-            # grab coordinates from centerline
-            x = list()
-            y = list()
-            if isinstance(cl.geometry, shapely.geometry.MultiLineString):
-                # iterate through each linestring
-                for geom in cl.geometry.geoms:
-                    x.extend(geom.coords.xy[0])
-                    y.extend(geom.coords.xy[1])
-            else:
-                x.extend(cl.geometry.coords.xy[0])
-                y.extend(cl.geometry.coords.xy[1])
-
-            # sort coordinates in both X and Y directions
-            coords = [(xc, yc) for xc, yc in zip(x, y)]
-            coords_sort_x = sorted(coords, key=lambda c: c[0])
-            coords_sort_y = sorted(coords, key=lambda c: c[1])
-
-            # remove coordinate duplicates, preserving sorted order
-            coords_seen_x = set()
-            coords_unique_x = list()
-            for coord in coords_sort_x:
-                if coord not in coords_seen_x:
-                    coords_unique_x.append(coord)
-                    coords_seen_x.add(coord)
-
-            coords_seen_y = set()
-            coords_unique_y = list()
-            for coord in coords_sort_y:
-                if coord not in coords_seen_y:
-                    coords_unique_y.append(coord)
-                    coords_seen_y.add(coord)
-
-            # grab x and y coordinates for spline fit
-            x_fit_sort_x = [coord[0] for coord in coords_unique_x]
-            x_fit_sort_y = [coord[0] for coord in coords_unique_y]
-            y_fit_sort_x = [coord[1] for coord in coords_unique_x]
-            y_fit_sort_y = [coord[1] for coord in coords_unique_y]
-
-            # Check if there are enough points for spline fitting
-            min_points_required = 4  # for cubic spline, k=3, need at least 4 points
-            if len(coords_unique_x) >= min_points_required:
-                # fit a B-spline to the centerline
-                tck_sort_x, fp_sort_x, _, _ = scipy.interpolate.splrep(
-                    x_fit_sort_x,
-                    y_fit_sort_x,
-                    k=3,
-                    s=smoothing_factor,
-                    full_output=True,
-                )
-                tck_sort_y, fp_sort_y, _, _ = scipy.interpolate.splrep(
-                    y_fit_sort_y,
-                    x_fit_sort_y,
-                    k=3,
-                    s=smoothing_factor,
-                    full_output=True,
-                )
-
-                # choose the spline that has the lowest fit error
-                if fp_sort_x <= fp_sort_y:
-                    tck = tck_sort_x
-                    x_fit = x_fit_sort_x
-                    y_fit = y_fit_sort_x
-
-                    num_points = max(round((x_fit[-1] - x_fit[0]) / 100), 5)
-                    x_new = np.linspace(x_fit[0], x_fit[-1], 10)
-                    y_new = scipy.interpolate.BSpline(*tck)(x_new)
-                else:
-                    tck = tck_sort_y
-                    x_fit = x_fit_sort_y
-                    y_fit = y_fit_sort_y
-
-                    num_points = max(round((y_fit[-1] - y_fit[0]) / 100), 5)
-                    y_new = np.linspace(y_fit[0], y_fit[-1], num_points)
-                    x_new = scipy.interpolate.BSpline(*tck)(y_new)
-
-                # store as LineString
-                curve = shapely.geometry.LineString(zip(x_new, y_new))
-            else:
-                curve = shapely.geometry.LineString(
-                    [coords_unique_x[0], coords_unique_x[-1]]
-                )
-            slick_curves.append(curve)
-
-        slick_curves_gdf = gpd.GeoDataFrame(geometry=slick_curves, crs=self.crs_meters)
-        slick_curves_gdf["length"] = slick_curves_gdf.geometry.length
-        slick_curves_gdf = slick_curves_gdf.sort_values(
-            "length", ascending=False
-        ).to_crs("4326")
-
-        self.slick_curves = slick_curves_gdf
 
     def filter_ais_data(self):
         """
@@ -760,8 +315,8 @@ class AISAnalyzer(SourceAnalyzer):
 
         entries = []
 
-        # Get the longest curve
-        longest_curve = self.slick_curves.to_crs(self.crs_meters).iloc[0]["geometry"]
+        centerlines = self.slick_centerlines.sort_values("length", ascending=False)
+        longest_centerline = centerlines.to_crs(self.crs_meters).iloc[0]["geometry"]
 
         # Iterate over filtered trajectories
         for traj in self.ais_trajectories:
@@ -774,25 +329,25 @@ class AISAnalyzer(SourceAnalyzer):
 
             temporal_score = compute_temporal_score(
                 traj_gdf,
-                longest_curve,
+                longest_centerline,
                 self.s1_scene.start_time,
                 self.ais_ref_time_over,
                 self.ais_ref_time_under,
             )
             proximity_score = compute_proximity_score(
                 traj_gdf,
-                longest_curve,
+                longest_centerline,
                 self.spread_rate,
                 self.s1_scene.start_time,
             )
             parity_score = compute_parity_score(
                 traj_gdf,
-                longest_curve,
+                longest_centerline,
                 self.sensitivity_parity,
             )
 
             # Compute total score from these three metrics
-            coincidence_score = compute_total_score(
+            coincidence_score = vessel_compute_total_score(
                 temporal_score,
                 proximity_score,
                 parity_score,
@@ -811,11 +366,9 @@ class AISAnalyzer(SourceAnalyzer):
             entry = {
                 "st_name": traj.id,
                 "ext_id": str(traj.id),
-                "geometry": shapely.geometry.LineString(
-                    [p.coords[0] for p in traj.df["geometry"]]
-                ),
+                "geometry": LineString([p.coords[0] for p in traj.df["geometry"]]),
                 "coincidence_score": coincidence_score,
-                "type": 1,  # Vessel
+                "type": self.source_type,
                 "ext_name": traj.ext_name,
                 "ext_shiptype": traj.ext_shiptype,
                 "flag": traj.flag,
@@ -833,31 +386,523 @@ class AISAnalyzer(SourceAnalyzer):
         """
         self.results = gpd.GeoDataFrame()
 
-        self.slick_curves = None
         self.ais_filtered = None
         self.slick_gdf = slick_gdf
-
+        if self.slick_centerlines is None:
+            self.load_slick_centerlines()
         if self.ais_gdf is None:
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
             return pd.DataFrame()
         if self.ais_filtered is None:
             self.filter_ais_data()
-
-        self.slick_to_curves()
         if self.ais_trajectories is None:
             self.build_trajectories()
         self.score_trajectories()
-        self.results["collated_score"] = (
-            self.results["coincidence_score"] - self.coinc_mean
-        ) / self.coinc_std
+        self.results["collated_score"] = self.results["coincidence_score"].apply(
+            self.collate
+        )
         return self.results
 
 
-class DarkAnalyzer(SourceAnalyzer):
+class PointAnalyzer(SourceAnalyzer):
+    """
+    Analyzer for specified points.
+    """
+
+    def __init__(self, s1_scene, **kwargs):
+        """
+        Initialize the PointAnalyzer.
+        """
+        super().__init__(s1_scene, **kwargs)
+        # Placeholders
+        self.cutoff_radius = 0
+        self.decay_radius = 0
+        self.decay_theta = 0
+        self.num_vertices = 0
+
+    def process_slicks(self):
+        """
+        Processes slicks and returns combined geometry, overall centroid, polygons, and largest polygon area.
+        """
+        slick_gdf = self.slick_gdf
+        # Reproject to meters
+        slick_m = slick_gdf.to_crs(self.crs_meters)
+
+        # Generate closed polygons
+        slick_closed = self.apply_closing_buffer(slick_m, self.closing_buffer)
+        combined_geometry = slick_closed.unary_union
+        if isinstance(combined_geometry, (MultiPolygon, GeometryCollection)):
+            polygons = [g for g in combined_geometry.geoms if isinstance(g, Polygon)]
+        else:
+            polygons = [combined_geometry]
+        largest_polygon_area = max(polygon.area for polygon in polygons)
+
+        return (combined_geometry, polygons, largest_polygon_area)
+
+    def filter_points(
+        self,
+        combined_geometry_m: Polygon,
+        points_gdf: gpd.GeoDataFrame,
+    ):
+        """
+        Filters points based on their proximity to the combined geometry.
+
+        Args:
+            combined_geometry (Polygon): The combined geometry to filter points by.
+            points_gdf (gpd.GeoDataFrame): The points to filter.
+
+        Returns:
+            gpd.GeoDataFrame: The filtered points.
+        """
+        # Reproject to meters
+        points_m = points_gdf.to_crs(self.crs_meters)
+
+        # Buffer and filter target points
+        slick_buffered = combined_geometry_m.buffer(self.cutoff_radius)
+
+        # scene_date = pd.to_datetime(self.s1_scene.scene_id[17:25], format="%Y%m%d") # XXX Not working because of a bug in how GFW records the first and last date.
+        filtered_points = points_m[
+            points_m.geometry.within(slick_buffered)
+            # & (infra_gdf["structure_start_date"] < scene_date)
+            # & (infra_gdf["structure_end_date"] > scene_date)
+        ]
+
+        return filtered_points
+
+    def aggregate_extrema_and_area_fractions(
+        self,
+        polygons: List[Polygon],
+        combined_geometry: Polygon,
+        largest_polygon_area: float,
+        min_area_threshold: float = 0.1,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Given a list of polygons, and a number of vertices, collects that many extremity points for each polygon
+        and then calculates a score for each point based on their distance from the centroid and their scaled
+        area fraction compared to the largest polygon.
+
+        Returns:
+            all_extrema: A list of all collected extremity points.
+            all_weights: A list of weights for each extremity point. (the max weight is 1, representing the
+                furthest point that on the polygon that has the most area)
+        """
+        overall_centroid = np.array(combined_geometry.centroid.coords[0])
+
+        extrema_list = []
+        area_fractions_list = []
+
+        for polygon in polygons:
+            if polygon.area < min_area_threshold * largest_polygon_area:
+                continue  # Skip small polygons
+
+            # Select N extremity points for the current polygon
+            selected_points = self.select_N_polygon_extrema(
+                polygon, self.num_vertices, [overall_centroid]
+            )
+            extrema_list.append(selected_points)
+
+            # Compute scaled area fraction for weighting
+            area_fraction = polygon.area / largest_polygon_area
+
+            # XXX This is a hack to make the area fraction more sensitive to small areas
+            scaled_area_fraction = np.sqrt(area_fraction)
+            area_fractions_list.extend([scaled_area_fraction] * self.num_vertices)
+
+        if len(extrema_list) == 0:
+            raise ValueError("No extremity points collected from polygons.")
+
+        all_extrema = np.vstack(extrema_list)
+        all_area_fractions = np.array(area_fractions_list)
+
+        # Calculate distances from centroid
+        distances_sq = np.sum((all_extrema - overall_centroid) ** 2, axis=1)
+        # Scale weights by area fraction
+        scaled_weights = distances_sq * all_area_fractions
+        # Normalize weights to ensure the maximum weight is 1
+        max_weight = scaled_weights.max()
+        if max_weight != 0:
+            all_weights = scaled_weights / max_weight
+        else:
+            all_weights = np.ones_like(scaled_weights)
+
+        return all_extrema, all_weights
+
+    def select_N_polygon_extrema(
+        self, polygon: Polygon, num_vertices: int, reference_points: List[np.ndarray]
+    ) -> np.ndarray:
+        """
+        Selects N extremity points from a single polygon based on their distance from reference points.
+        """
+        exterior_coords = np.array(
+            polygon.exterior.coords[:-1]
+        )  # Exclude closing point
+        selected_points = []
+
+        for _ in range(num_vertices):
+            # Compute distances from all exterior points to reference points
+            diff = (
+                exterior_coords[:, np.newaxis, :] - reference_points
+            )  # Shape: (M, K, 2)
+            dists = np.linalg.norm(diff, axis=2)  # Shape: (M, K)
+            min_dists = dists.min(axis=1)  # Shape: (M,)
+
+            # Select the point with the maximum of these minimum distances
+            idx = np.argmax(min_dists)
+            selected_point = exterior_coords[idx]
+            selected_points.append(selected_point)
+            reference_points.append(selected_point)  # Update reference points
+
+        return np.array(selected_points)
+
+    def scaled_inner_angles(self, a, b_set, c_set):
+        """
+        Calculate scaled inner angles at vertex C for triangles formed by a fixed point A,
+        and corresponding points in b_set and c_set.
+
+        Each triangle is defined by the vertices (A, B, C), and the inner angle at C
+        is computed using the vectors CA (from C to A) and CB (from C to B).
+
+        Parameters:
+            a: Tuple representing point A (x, y) (fixed for all triangles).
+            b_set: List or array of tuples representing point B (x, y) for each triangle.
+            c_set: List or array of tuples representing point C (x, y) for each triangle.
+
+        Returns:
+            A NumPy array of scaled inner angles at vertex C for each triangle (range: 0-1,
+            where 0 corresponds to 0° and 1 to 180°).
+        """
+        # Convert inputs to NumPy arrays for vectorized operations
+        a = np.array(a)
+        b_set = np.array(b_set)
+        c_set = np.array(c_set)
+
+        # Compute vectors CA and CB for each triangle (vertex C is the reference)
+        ca = a - c_set  # Vector from C to A
+        cb = b_set - c_set  # Vector from C to B
+
+        # Compute dot products for each pair of vectors
+        dot_products = np.sum(ca * cb, axis=1)
+
+        # Compute the magnitudes of each vector
+        norm_ca = np.linalg.norm(ca, axis=1)
+        norm_cb = np.linalg.norm(cb, axis=1)
+
+        # Compute the cosine of the angle at vertex C
+        cos_angles = dot_products / (norm_ca * norm_cb)
+        # Clip values to ensure they lie in [-1, 1] to prevent numerical errors in arccos
+        cos_angles = np.clip(cos_angles, -1.0, 1.0)
+
+        # Compute the angle at vertex C in radians
+        angles_radians = np.arccos(cos_angles)
+
+        # Scale the angles to the range 0-1 (0 rad = 0, π rad = 1)
+        scaled_angles = angles_radians / np.pi
+
+        return 1 - scaled_angles
+
+    def calc_points_to_extrema_scores(
+        self,
+        points_gdf: gpd.GeoDataFrame,
+        extrema: np.ndarray,
+        weights: np.ndarray,
+        secondary_points: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Computes confidence scores for points based on their proximity to extremity points.
+        """
+        points_coords = np.array([(geom.x, geom.y) for geom in points_gdf.geometry])
+        coincidence_scores = np.zeros(len(points_coords))
+        if len(secondary_points) == 1:
+            secondary_points = np.tile(secondary_points, (len(extrema), 1))
+
+        point_to_neighbor_idxs = cKDTree(extrema).query_ball_point(
+            points_coords, r=self.cutoff_radius
+        )
+
+        for i, neighbor_idxs in enumerate(point_to_neighbor_idxs):
+            if neighbor_idxs:
+                extrema_reduced = extrema[neighbor_idxs]
+                weights_reduced = weights[neighbor_idxs]
+                secondary_reduced = secondary_points[neighbor_idxs]
+                dists = np.linalg.norm(extrema_reduced - points_coords[i], axis=1)
+
+                scaled_angles = self.scaled_inner_angles(
+                    points_coords[i], secondary_reduced, extrema_reduced
+                )
+
+                C_i = (
+                    weights_reduced
+                    * np.exp(-scaled_angles * self.decay_theta)
+                    * np.exp(-dists / self.decay_radius)
+                )
+
+                coincidence_scores[i] = np.clip(C_i.max(), 0, 1)
+
+        return coincidence_scores
+
+    def make_geojson_feature(self, geom):
+        """
+        Creates a GeoJSON feature from a Shapely geometry.
+
+        Args:
+            geom (Polygon): The geometry to convert to GeoJSON.
+
+        Returns:
+            dict: The GeoJSON feature.
+        """
+        return {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "id": "0",
+                    "type": "Feature",
+                    "geometry": mapping(geom),
+                    "properties": {},  # add extra properties as needed
+                }
+            ],
+        }
+
+    def get_endpoint_pairs(
+        self, line: LineString, gap_pct: float, primary_pct: float = 0.0
+    ):
+        """
+        Select endpoint pairs from a line from a specified offset and gap in meters
+        """
+        if not (0 <= primary_pct <= 0.5):
+            raise ValueError(
+                f"primary_pct must be between 0 and 0.5. Primary: {primary_pct}"
+            )
+        if gap_pct + primary_pct > 1:
+            raise ValueError(
+                f"gap_pct + primary_pct must be less than or equal to 1. Gap: {gap_pct}, Primary: {primary_pct}"
+            )
+
+        total_length = line.length
+        secondary_pct = primary_pct + gap_pct
+
+        # For the start of the line:
+        start_primary = line.interpolate(total_length * primary_pct)
+        start_secondary = line.interpolate(total_length * secondary_pct)
+
+        # For the end of the line:
+        end_primary = line.interpolate(total_length * (1 - primary_pct))
+        end_secondary = line.interpolate(total_length * (1 - secondary_pct))
+
+        return (
+            (start_primary.coords[0], end_primary.coords[0]),
+            (start_secondary.coords[0], end_secondary.coords[0]),
+        )
+
+    def calc_cl_extrema_and_weights(
+        self,
+        offset=None,
+        gap=None,
+        min_length_threshold: float = 0.1,
+    ):
+        """
+        Given a list of LineString geometries and a center point, this function:
+        - Extracts endpoints (primary_points) and delta points (secondary_points) from each LineString.
+        - Calculates base weights from distances from centroid.
+        - Scales weights by length fraction.
+        - Normalizes weights to ensure the maximum weight is 1.
+
+        Args:
+            offset (float, optional): The offset from the start of the line to the primary point. Defaults to None.
+            gap (float, optional): The gap between the primary and secondary points. Defaults to None.
+            expects to be called by a class that has a slick_centerlines and combined_geometry attribute.
+
+        Returns:
+            primary_points: a numpy array containing the selected endpoints.
+            secondary_points: a numpy array containing the corresponding delta points.
+            normalized_weights: a numpy array of weights for each point.
+        """
+        cl_array = self.slick_centerlines.to_crs(self.crs_meters).geometry.values
+        center_point = np.array(self.combined_geometry.centroid.coords[0])
+        offset = self.endpoints_offset if offset is None else offset
+        gap = self.endpoints_gap if gap is None else gap
+
+        primary_points = []
+        secondary_points = []
+        base_weights = []
+
+        for line in cl_array:
+            primaries, secondaries = self.get_endpoint_pairs(line, gap, offset)
+            primary_points.extend(primaries)
+            secondary_points.extend(secondaries)
+
+            # Use the length of the line as weights for both ends of the line
+            base_weights.extend([line.length] * 2)
+
+        # Calculate distance factor based on distances from centroid
+        primary_points_vector = np.vstack(primary_points)
+        dist_factor = np.linalg.norm(primary_points_vector - center_point, axis=1) ** 2
+
+        # Scale weights by length fraction
+        base_weights = [
+            length if length / max(base_weights) > min_length_threshold else 0
+            for length in base_weights
+        ]
+        scaled_weights = base_weights * dist_factor
+
+        # Normalize weights to ensure the maximum weight is 1
+        normalized_weights = scaled_weights / scaled_weights.max()
+        return np.array(primary_points), np.array(secondary_points), normalized_weights
+
+
+class InfrastructureAnalyzer(PointAnalyzer):
+    """
+    Analyzer for fixed infrastructure sources.
+
+    Attributes:
+        infra_gdf (GeoDataFrame): GeoDataFrame containing infrastructure points.
+        coincidence_scores (np.ndarray): Computed confidence scores.
+    """
+
+    def __init__(self, s1_scene, **kwargs):
+        """
+        Initialize the InfrastructureAnalyzer.
+        """
+        super().__init__(s1_scene, **kwargs)
+        self.source_type = 2
+        self.num_vertices = kwargs.get("num_vertices", c.INFRA_NUM_VERTICES)
+        self.closing_buffer = kwargs.get("closing_buffer", c.INFRA_CLOSING_BUFFER)
+        self.cutoff_radius = kwargs.get("cutoff_radius", c.INFRA_CUTOFF_RADIUS)
+        self.decay_radius = kwargs.get("decay_radius", c.INFRA_DECAY_RADIUS)
+        self.decay_theta = kwargs.get("decay_theta", c.INFRA_DECAY_THETA)
+        self.min_area_threshold = kwargs.get("min_area_threshold", c.MIN_AREA_THRESHOLD)
+        self.coinc_mean = kwargs.get("coinc_mean", c.INFRA_MEAN)
+        self.coinc_std = kwargs.get("coinc_std", c.INFRA_STD)
+
+        self.infra_gdf = kwargs.get("infra_gdf", None)
+
+        if self.infra_gdf is None:
+            self.infra_api_token = os.getenv("INFRA_API_TOKEN")
+            self.infra_gdf = self.retrieve_infrastructure_data()
+        self.coincidence_scores = np.zeros(len(self.infra_gdf))
+
+    def retrieve_infrastructure_data(self, only_oil=True):
+        """
+        Loads infrastructure data from the GFW API.
+
+        Parameters:
+            only_oil (bool): Whether to filter the data to only include oil infrastructure.
+
+        Returns:
+            GeoDataFrame: GeoDataFrame containing infrastructure points.
+        """
+
+        # zxy = self.select_enveloping_tile() # Something's wrong with this code. Ex. [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C"] should have 2 nearby infras
+        mvt_data = self.download_mvt_tile()
+        df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
+        if only_oil:
+            df = df[df["label"] == "oil"]
+        df["st_name"] = df["structure_id"].apply(str)
+        df["ext_id"] = df["structure_id"].apply(str)
+        df["type"] = self.source_type
+
+        datetime_fields = ["structure_start_date", "structure_end_date"]
+        for field in datetime_fields:
+            if field in df.columns:
+                df.loc[df[field] == "", field] = str(int(time.time() * 1000))
+                df[field] = pd.to_numeric(df[field], errors="coerce")
+                df[field] = pd.to_datetime(df[field], unit="ms", errors="coerce")
+        df.reset_index(drop=True, inplace=True)
+        return gpd.GeoDataFrame(
+            df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
+        )
+
+    def select_enveloping_tile(self, max_zoom=20):
+        """
+        Determine the minimal zoom level and tile coordinates (x, y, z)
+        that cover the area of interest (slick_gdf buffered by cutoff_radius)
+        in a single tile.
+        """
+
+        buffered_slick_gdf = (
+            self.slick_gdf.to_crs(self.crs_meters)
+            .envelope.buffer(self.cutoff_radius)
+            .to_crs(epsg=4326)
+        )
+        bbox = buffered_slick_gdf.total_bounds
+
+        TMS = morecantile.tms.get("WebMercatorQuad")
+        for z in reversed(range(max_zoom + 1)):
+            tiles = list(TMS.tiles(*bbox, zooms=z))
+            if len(tiles) == 1:
+                tile = tiles[0]
+                return z, tile.x, tile.y
+
+    def download_mvt_tile(self, z=0, x=0, y=0):
+        """
+        Downloads MVT tile data for given z, x, y.
+
+        Parameters:
+            z (int): Zoom level.
+            x (int): Tile x coordinate.
+            y (int): Tile y coordinate.
+            token (str): Authorization token.
+
+        Returns:
+            bytes: The content of the MVT tile.
+        """
+        url = f"https://gateway.api.globalfishingwatch.org/v3/datasets/public-fixed-infrastructure-filtered:latest/context-layers/{z}/{x}/{y}"
+        headers = {"Authorization": f"Bearer {self.infra_api_token}"}
+        response = requests.get(url, headers=headers)
+        try:
+            decoded_tile = mapbox_vector_tile.decode(response.content)
+            return decoded_tile
+        except Exception:
+            print(f"Error decoding tile z={z}, x={x}, y={y}: {response.content}")
+            raise Exception(response.content)
+
+    def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
+        """
+        Computes coincidence scores for infrastructure points.
+        """
+        start_time = time.time()
+        self.coincidence_scores = np.zeros(len(self.infra_gdf))
+        self.slick_gdf = slick_gdf
+
+        combined_geometry, polygons, largest_polygon_area = self.process_slicks()
+        filtered_infra = self.filter_points(combined_geometry, self.infra_gdf)
+
+        if filtered_infra.empty:
+            print(
+                "No infrastructure within the dates / radius of interest. No coincidence scores edited."
+            )
+            return
+
+        # Collect extremity points and compute weights
+        extrema, weights = self.aggregate_extrema_and_area_fractions(
+            polygons, combined_geometry, largest_polygon_area, self.min_area_threshold
+        )
+        secondary_point = np.array([combined_geometry.centroid.coords[0]])
+
+        # Build KD-Tree and compute confidence scores
+        coincidence_filtered = self.calc_points_to_extrema_scores(
+            filtered_infra, extrema, weights, secondary_point
+        )
+
+        self.coincidence_scores[filtered_infra.index] = coincidence_filtered
+
+        # Return a DataFrame with infra_gdf and coincidence_scores
+        results = self.infra_gdf.copy()
+        results["coincidence_score"] = self.coincidence_scores
+        results = results[results["coincidence_score"] > 0]
+        results["geojson_fc"] = results["geometry"].apply(self.make_geojson_feature)
+        results["collated_score"] = results["coincidence_score"].apply(self.collate)
+        self.results = results
+
+        end_time = time.time()
+        print(f"Processing completed in {end_time - start_time:.2f} seconds.")
+
+        return self.results
+
+
+class DarkAnalyzer(PointAnalyzer):
     """
     Analyzer for dark vessels (non-AIS broadcasting vessels).
-    Currently a placeholder for future implementation.
     """
 
     def __init__(self, s1_scene, **kwargs):
@@ -866,19 +911,174 @@ class DarkAnalyzer(SourceAnalyzer):
         """
         super().__init__(s1_scene, **kwargs)
         self.source_type = 3
-        # Initialize attributes specific to dark vessel analysis
+        self.credentials = Credentials.from_service_account_info(
+            json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
+        )
+        self.gfw_project_id = "world-fishing-827"
+        self.s1_scene = s1_scene
+        self.dark_objects_gdf = kwargs.get("dark_vessels_gdf", None)
+        if self.dark_objects_gdf is None:
+            self.retrieve_sar_detection_data()
+        self.closing_buffer = kwargs.get("closing_buffer", c.DARK_CLOSING_BUFFER)
+        self.decay_theta = kwargs.get("decay_theta", c.DARK_DECAY_THETA)
+        self.decay_radius = kwargs.get("decay_radius", c.DARK_DECAY_RADIUS)
+        self.coinc_mean = kwargs.get("coinc_mean", c.DARK_MEAN)
+        self.coinc_std = kwargs.get("coinc_std", c.DARK_STD)
+        self.cutoff_radius = kwargs.get("cutoff_radius", c.DARK_CUTOFF_RADIUS)
+        self.num_vertices = kwargs.get("num_vertices", c.DARK_NUM_VERTICES)
+        self.endpoints_offset = kwargs.get("endpoints_offset", 0.05)
+        self.endpoints_gap = kwargs.get("endpoints_gap", 0.05)
+        self.slick_centerlines = None
+
+    def retrieve_sar_detection_data(self):
+        """
+        Retrieves SAR detections from GFW.
+        """
+        sql = f"""
+        -- Step 1: Define the list of scene_ids as a CTE for efficient joining
+        WITH scene_ids AS (
+        SELECT '{self.s1_scene.scene_id}' AS scene_id
+        ),
+
+        -- Step 2: Filter the match table by joining with scene_ids
+        filtered_matches AS (
+        SELECT match.*
+        FROM `world-fishing-827.pipe_sar_v1_published.detect_scene_match_pipe_v3` AS match
+        INNER JOIN scene_ids
+            ON match.scene_id = scene_ids.scene_id
+        WHERE match.score < .01 -- either no match or low confidence match
+        ),
+
+        -- Step 3: Optimize the unique_infra CTE with pre-filtering using a bounding box
+        unique_infra AS (
+        SELECT
+            infra.*,
+            ROW_NUMBER() OVER (
+            PARTITION BY infra.structure_id
+            ORDER BY infra.label_confidence DESC  -- Assuming you want the highest confidence
+            ) AS rn
+        FROM `world-fishing-827.pipe_sar_v1_published.published_infrastructure` AS infra
+        INNER JOIN filtered_matches AS match
+            -- Define a rough bounding box around detection points to limit infra records
+            ON ABS(infra.lat - match.detect_lat) < 0.001  -- Approx ~100 meters latitude
+            AND ABS(infra.lon - match.detect_lon) < 0.001  -- Approx ~100 meters longitude
+        )
+
+        -- Step 4: Final SELECT with optimized joins and distance calculation
+        SELECT
+            match.scene_id AS scene_id,
+            match.ssvid AS ssvid,
+            infra.structure_id AS structure_id,
+            pred.presence AS detection_probability,
+            match.detect_lat AS detect_lat,
+            match.detect_lon AS detect_lon,
+            pred.length_m AS length_m,
+        FROM `world-fishing-827.pipe_sar_v1_published.detect_scene_pred` AS pred
+        INNER JOIN filtered_matches AS match
+            ON pred.detect_id = match.detect_id
+        LEFT JOIN unique_infra AS infra
+            ON infra.rn = 1
+            AND ST_DISTANCE(
+                ST_GEOGPOINT(match.detect_lon, match.detect_lat),
+                ST_GEOGPOINT(infra.lon, infra.lat)
+                ) < 100  -- Distance in meters
+        WHERE pred.length_m > 30 -- only keep detections with length > 30m
+        AND pred.presence > 0.99 -- only keep detections with high confidence
+        AND infra.structure_id IS NULL -- ignore infra detections because they are captured by the infrastructure analyzer
+        """
+
+        df = pandas_gbq.read_gbq(
+            sql,
+            project_id=self.gfw_project_id,
+            credentials=self.credentials,
+        )
+
+        df["geometry"] = df.apply(
+            lambda row: Point(row["detect_lon"], row["detect_lat"]),
+            axis=1,
+        )
+
+        # XXX need a better solution for a unique name here.
+        # This code chooses the ssvid, or if that is null, the structure_id, or if that is null, the length_m.
+        def make_unique_id(row):
+            # if pd.notna(row["ssvid"]):
+            #     return "V" + str(row["ssvid"])
+            # elif pd.notna(row["structure_id"]):
+            #     return "I" + str(row["structure_id"])
+            # else:
+            return "D" + str(row["length_m"])
+
+        df["st_name"] = df.apply(make_unique_id, axis=1)
+        df["ext_id"] = df["st_name"]
+        df["type"] = self.source_type
+
+        self.dark_objects_gdf = gpd.GeoDataFrame(df, crs="4326").reset_index(drop=True)
 
     def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
-        Implement the analysis logic for dark vessels.
+        Computes coincidence scores for specified points.
         """
+
+        start_time = time.time()
+        self.coincidence_scores = np.zeros(len(self.dark_objects_gdf))
         self.slick_gdf = slick_gdf
-        pass
+
+        self.combined_geometry, _, _ = self.process_slicks()
+
+        filtered_dark_objects = self.filter_points(
+            self.combined_geometry, self.dark_objects_gdf
+        )
+
+        if filtered_dark_objects.empty:
+            print(
+                "No dark objects within the radius of interest. No coincidence scores edited."
+            )
+            return
+
+        # Collect extremity points and compute weights
+        self.load_slick_centerlines()
+
+        extrema, secondary_points, weights = self.calc_cl_extrema_and_weights()
+
+        # Build KD-Tree and compute confidence scores
+        coincidence_filtered = self.calc_points_to_extrema_scores(
+            filtered_dark_objects, extrema, weights, secondary_points
+        )
+
+        self.coincidence_scores[filtered_dark_objects.index] = coincidence_filtered
+
+        # Return a DataFrame with geojson, coincidence_scores, and collated_score
+        results = self.dark_objects_gdf.copy()
+        results["coincidence_score"] = self.coincidence_scores
+        results = results[results["coincidence_score"] > 0]
+        results["geojson_fc"] = results["geometry"].apply(self.make_geojson_feature)
+        results["collated_score"] = results["coincidence_score"].apply(self.collate)
+
+        self.results = results
+
+        end_time = time.time()
+        print(f"Processing completed in {end_time - start_time:.2f} seconds.")
+        return self.results
+
+
+class NaturalAnalyzer(SourceAnalyzer):
+    """
+    Analyzer for natural seeps.
+    Currently a placeholder for future implementation.
+    """
+
+    def __init__(self, s1_scene, **kwargs):
+        """
+        Initialize the NaturalAnalyzer.
+        """
+        super().__init__(s1_scene, **kwargs)
+        self.source_type = 4
+        # Initialize attributes specific to natural seep analysis
 
 
 ASA_MAPPING = {
     1: AISAnalyzer,
     2: InfrastructureAnalyzer,
-    # 3: DarkAnalyzer,
-    # 4: NaturalAnalyzer,
+    3: DarkAnalyzer,
+    4: NaturalAnalyzer,
 }
