@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from types import SimpleNamespace
+from shapely.geometry import shape
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -187,7 +188,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
             # Plot each group of st_name with its corresponding color
             for st_name, group in filtered_ais.groupby("st_name"):
                 group.plot(
-                    ax=ax, color=st_name_to_color[st_name], alpha=0.2, label=st_name
+                    ax=ax, color=st_name_to_color[st_name], alpha=0.5, label=st_name
                 )
 
             # Create legend handles for st_name
@@ -210,6 +211,59 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                     label="AIS" if row.Index == 0 else "",
                 )
             st_name_patches = []
+
+        # Add a marker dot at the point closest to s1_time for each vessel
+        # Define the timestamp at which the marker should be placed
+        s1_time = np.datetime64(ais_analyzer.s1_scene.start_time)
+
+        for st_name, group in filtered_ais.groupby("st_name"):
+            combined_features = []
+            # Each row has a geojson_fc (a feature collection dict)
+            for fc in group["geojson_fc"]:
+                combined_features.extend(fc.get("features", []))
+
+            # Skip if no features exist
+            if len(combined_features) == 0:
+                continue
+
+            # Sort features by timestamp
+            combined_features.sort(
+                key=lambda feat: np.datetime64(feat["properties"]["timestamp"])
+            )
+
+            # Find the feature with timestamp closest to s1_time
+            closest_feature = min(
+                combined_features,
+                key=lambda feat: abs(
+                    np.datetime64(feat["properties"]["timestamp"]) - s1_time
+                ),
+            )
+
+            # Plot small markers (size 2) for every feature except the closest one
+            for feat in combined_features:
+                geom = shape(feat["geometry"])
+                x, y = geom.x, geom.y
+                if feat is closest_feature:
+                    continue  # This one will get the large marker
+                ax.plot(
+                    x,
+                    y,
+                    marker="o",
+                    markersize=1,
+                    color=st_name_to_color.get(st_name, "black"),
+                )
+
+            # Plot the large marker for the feature closest to s1_time
+            geom = shape(closest_feature["geometry"])
+            x, y = geom.x, geom.y
+            ax.plot(
+                x,
+                y,
+                marker="d",
+                markersize=8,
+                markerfacecolor="none",
+                color=st_name_to_color.get(st_name, "black"),
+            )
 
     # Plot the centroid
     centroid = slick_gdf.centroid.iloc[0]
