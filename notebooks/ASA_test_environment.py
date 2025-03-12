@@ -441,21 +441,25 @@ slick_ids = [
     # 3819454, # infra
     # 3820550, # infra
     # 3830066,  # infra
-    # 3581639,  # dark
-    # 3687248,  # dark
-    # 3582305,  # dark tricky
-    # 3581812,  # dark easy
-    # 3581500,  # dark easy
-    # 3581468,  # dark easy
-    # 3318875,  # dark tricky
-    # 3582208,  # dark easy
-    # 3581669,  # dark tricky
     # 22558  # local
     # 23505  # local
     # 20839  # local
     # 27566  # local
     # 27484  # local
-    33883
+    # 33883 # TypeError: the JSON object must be str, bytes or bytearray, not NoneType
+    # 34226
+    # 34157 # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
+    # 34251
+    # 33883  # Nonetype?
+    # 34179  # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
+    # 34236
+    # 34209
+    # 34197 # TypeError: unsupported operand type(s) for +=: 'int' and 'tuple'
+    # 34216  # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
+    # 34171 # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
+    # 34268
+    # 34144
+    # 34162 # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
 ]
 
 accumulated_sources = []
