@@ -205,6 +205,7 @@ class AISAnalyzer(SourceAnalyzer):
         """
         # print("Building trajectories")
         # Convert the entire timestamp column.
+        self.ais_filtered.sort_values("timestamp", inplace=True)
         self.ais_filtered["timestamp"] = (
             self.ais_filtered["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
         )
@@ -241,7 +242,7 @@ class AISAnalyzer(SourceAnalyzer):
                 interp_times = interp_times.insert(pos, s1_time)
 
             # Interpolate positions at the required times.
-            positions = [traj.interpolate_position_at(t) for t in interp_times]
+            positions = self.vectorized_interpolate_positions(group, interp_times)
 
             # Build a full GeoDataFrame for scoring (timestamps remain as datetime objects).
             interp_gdf = gpd.GeoDataFrame(
@@ -263,6 +264,31 @@ class AISAnalyzer(SourceAnalyzer):
             ais_trajectories.append(traj)
 
         self.ais_trajectories = mpd.TrajectoryCollection(ais_trajectories)
+
+    def vectorized_interpolate_positions(self, group, interp_times):
+        """
+        Given a sorted group (by timestamp) with a "geometry" column (shapely Points),
+        and a Series of interpolation times, perform linear interpolation on the x and y
+        coordinates using numpy.interp.
+
+        Returns a list of shapely Point objects corresponding to the interpolated positions.
+        """
+        # Convert timestamps to numeric values (nanoseconds since epoch)
+        # It is important that both arrays use the same numeric units.
+        t_orig = group["timestamp"].values.astype("int64")
+        t_interp = interp_times.values.astype("int64") / 1000
+
+        # Extract x and y coordinates from the geometry column.
+        xs = group["geometry"].x.values
+        ys = group["geometry"].y.values
+
+        # Use NumPy's vectorized linear interpolation.
+        x_interp = np.interp(t_interp, t_orig, xs)
+        y_interp = np.interp(t_interp, t_orig, ys)
+
+        # Reconstruct shapely Points from the interpolated x and y.
+        positions = [Point(x, y) for x, y in zip(x_interp, y_interp)]
+        return positions
 
     def filter_ais_data(self):
         """
