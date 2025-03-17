@@ -39,25 +39,21 @@ def compute_proximity_score(
         score = exp( - (Frechet distance / ais_ref_dist) )
     """
     traj_points = list(traj_gdf["geometry"])
+    traj_timestamps = list(traj_gdf.index)
 
     # Identify trajectory points closest to the centerline endpoints.
     idx_first = nearest_index(longest_centerline.coords[0], traj_points)
     idx_last = nearest_index(longest_centerline.coords[-1], traj_points)
+    start_idx, end_idx = min(idx_first, idx_last), max(idx_first, idx_last)
+    if start_idx == end_idx:
+        # The centerline is all the way to one end of the trajectory, so double the end point
+        traj_substring = LineString([traj_points[start_idx], traj_points[end_idx]])
+    else:
+        traj_substring = LineString(traj_points[start_idx : end_idx + 1])
 
-    # Sample trajectory points corresponding to each point on the centerline.
-    # XXX IS THIS NECESSARY, OR CAN FRECHET HANDLE IT?
-    sampled_traj_points = []
-    for centerline_point in longest_centerline.coords:
-        cp_point = Point(centerline_point)
-        # compute the distance between this point and every point in the trajectory
-        nearest_pt = min(traj_points, key=lambda pt: cp_point.distance(pt))
-        sampled_traj_points.append(nearest_pt)
-
-    traj_line_sampled = LineString(sampled_traj_points)
-    # Compute Frechet distance and transform it into a score.
-    dist = frechet_distance(traj_line_sampled, longest_centerline)
-
-    traj_timestamps = list(traj_gdf.index)
+    if start_idx == idx_last:
+        # The two linestrings are anti-parallel so we need to change the orientation by reversing the slick centerline
+        longest_centerline = LineString(list(longest_centerline.coords)[::-1])
 
     # Retrieve corresponding timestamps.
     tail_timestamp = min(
@@ -76,6 +72,9 @@ def compute_proximity_score(
         # time_delta is positive, so the tail_timestamp is behind the image_timestamp.
         # This means the trajectory is more likely to be associated with the oil slick.
         ref_dist = spread_rate * time_delta
+
+    # Compute Frechet distance and transform it into a score.
+    dist = frechet_distance(traj_substring, longest_centerline)
 
     return math.exp(-dist / ref_dist)
 
