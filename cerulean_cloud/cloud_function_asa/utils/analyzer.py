@@ -199,62 +199,61 @@ class AISAnalyzer(SourceAnalyzer):
     def build_trajectories(self):
         """
         Builds trajectories from AIS data.
-        - A fully interpolated trajectory is created (with datetime timestamps)
-            for scoring.
-        - A truncated version (with timestamps converted to ISO strings) is
-            generated for display.
+
+        - Creates a fully interpolated trajectory (with datetime timestamps) for scoring.
+        - Generates a truncated version (with ISO-formatted timestamps) for display.
         """
         # print("Building trajectories")
-        ais_trajectories = list()
-        for st_name, group in self.ais_filtered.groupby("ssvid"):
-            # If only one point is present, duplicate it so interpolation works.
-            if len(group) == 1:
-                group = pd.concat([group] * 2).reset_index(drop=True)
+        # Convert the entire timestamp column.
+        self.ais_filtered["timestamp"] = (
+            self.ais_filtered["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
+        )
 
-            # Build trajectory
-            group["timestamp"] = (
-                group["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
-            )
+        ais_trajectories = []
+        s1_time = self.s1_scene.start_time
+
+        # Group the filtered AIS data by ship identifier (ssvid)
+        for st_name, group in self.ais_filtered.groupby("ssvid"):
+            group = group.copy()  # avoid chained assignment issues
+
+            # If only one point is present, we cannot interpolate.
+            if len(group) == 1:
+                print(f"Trajectory {st_name} has only one point, cannot interpolate")
+                continue
+
+            # Create a trajectory object
             traj = mpd.Trajectory(df=group, traj_id=st_name, t="timestamp")
             traj.ext_name, traj.ext_shiptype, traj.flag = group.iloc[0][
                 ["shipname", "best_shiptype", "flag"]
             ]
+
+            # Get the first and last timestamp of the AIS data for this trajectory.
             first_ais_tstamp = group["timestamp"].min()
             last_ais_tstamp = group["timestamp"].max()
-            if first_ais_tstamp == last_ais_tstamp:
-                print(f"Trajectory {traj.id} has only one point, cannot interpolate")
-                continue
 
             # Interpolate to times in time_vec
             interp_times = self.time_vec[
                 (self.time_vec >= first_ais_tstamp) & (self.time_vec <= last_ais_tstamp)
             ]
+            # Include s1_time if it lies within the AIS time range.
+            if first_ais_tstamp < s1_time < last_ais_tstamp:
+                pos = interp_times.searchsorted(s1_time)
+                interp_times = interp_times.insert(pos, s1_time)
 
+            # Interpolate positions at the required times.
             positions = [traj.interpolate_position_at(t) for t in interp_times]
 
-            # Build a full GeoDataFrame for scoring (keep timestamps as datetime objects).
+            # Build a full GeoDataFrame for scoring (timestamps remain as datetime objects).
             interp_gdf = gpd.GeoDataFrame(
                 {"timestamp": interp_times, "geometry": positions}, crs="4326"
             ).set_index("timestamp")
-
-            # Here, we use s1_time as the truncation cutoff (last time in the interpolation).
-            s1_time = self.s1_scene.start_time
-            # If the AIS track contains s1_time, then interpolate it.
-            if last_ais_tstamp > s1_time > first_ais_tstamp:
-                ship_at_image_time = {
-                    "timestamp": s1_time,
-                    "geometry": traj.interpolate_position_at(s1_time),
-                }
-                interp_gdf = pd.concat([interp_gdf, pd.DataFrame([ship_at_image_time])])
-
             traj.df = interp_gdf
 
-            # For display, create a truncated GeoDataFrame.
+            # Create a truncated GeoDataFrame for display (only points before s1_time).
             display_gdf = group[group["timestamp"] < s1_time].copy()
-
-            # Convert timestamps to ISO format for display purposes.
-            display_gdf["timestamp"] = display_gdf["timestamp"].apply(
-                lambda x: x.isoformat()
+            # Use vectorized formatting to convert timestamps to ISO strings.
+            display_gdf["timestamp"] = display_gdf["timestamp"].dt.strftime(
+                "%Y-%m-%dT%H:%M:%S"
             )
             traj.geojson_fc = {
                 "type": "FeatureCollection",

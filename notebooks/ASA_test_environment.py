@@ -12,6 +12,7 @@ Features include projection handling, extremity point selection, efficient scori
 import json
 import os
 import sys
+import time
 from types import SimpleNamespace
 from shapely.geometry import shape
 
@@ -75,13 +76,19 @@ def get_s1_scene(scene_id, download_path=os.getenv("ASA_DOWNLOAD_PATH")):
     else:
         print(f"GeoJSON file already exists at {geojson_file_path}. Skipping download.")
     s1_gdf = gpd.read_file(geojson_file_path)
-    s1_scene = SimpleNamespace(
-        scene_id=scene_id,
-        scihub_ingestion_time=s1_gdf.scihub_ingestion_time.iloc[0],
-        start_time=s1_gdf.start_time.iloc[0],
-        end_time=s1_gdf.end_time.iloc[0],
-        geometry=WKTElement(str(s1_gdf.geometry.iloc[0])),
-    )
+    try:
+        s1_scene = SimpleNamespace(
+            scene_id=scene_id,
+            scihub_ingestion_time=s1_gdf.scihub_ingestion_time.iloc[0],
+            start_time=s1_gdf.start_time.iloc[0],
+            end_time=s1_gdf.end_time.iloc[0],
+            geometry=WKTElement(str(s1_gdf.geometry.iloc[0])),
+        )
+    except AttributeError as e:
+        print(
+            f"Scene {scene_id} has not been processed on PROD yet. Delete downloaded empty geojson and try again. {e}"
+        )
+        raise e
     return s1_scene
 
 
@@ -448,18 +455,20 @@ slick_ids = [
     # 27484  # local
     # 33883 # TypeError: the JSON object must be str, bytes or bytearray, not NoneType
     # 34226
-    # 34157 # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
+    # 34157
     # 34251
     # 33883  # Nonetype?
-    # 34179  # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
+    # 34179
     # 34236
     # 34209
     # 34197 # TypeError: unsupported operand type(s) for +=: 'int' and 'tuple'
-    # 34216  # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
-    # 34171 # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
+    # 34216
+    # 34171
     # 34268
     # 34144
-    # 34162 # AttributeError: 'GeoDataFrame' object has no attribute 'scihub_ingestion_time'
+    # 34162
+    # 34201
+    # 34205
 ]
 
 accumulated_sources = []
@@ -468,6 +477,7 @@ for slick_id in slick_ids:
     slick_gdf = gpd.read_file(geojson_file_path)
     slick_gdf["centerlines"] = slick_gdf["centerlines"].apply(json.loads)
     s1_scene = get_s1_scene(slick_gdf.s1_scene_id.iloc[0])
+    start_time = time.time()
 
     source_types = []
     source_types += [1]  # ais
@@ -511,6 +521,10 @@ for slick_id in slick_ids:
         )
     )
 
+    print(
+        f"Time taken: {time.time() - start_time} seconds \n"
+        f"Time per {len(ranked_sources)} sources: {(time.time() - start_time) / len(ranked_sources)} seconds"
+    )
 # print(accumulated_sources)
 
 # %%
