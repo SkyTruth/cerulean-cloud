@@ -236,10 +236,14 @@ class AISAnalyzer(SourceAnalyzer):
             interp_times = self.time_vec[
                 (self.time_vec >= first_ais_tstamp) & (self.time_vec <= last_ais_tstamp)
             ]
-            # Include s1_time if it lies within the AIS time range.
+            # Add three critical times: first, s1_time(if in range), last.
+            pos = interp_times.searchsorted(first_ais_tstamp)
+            interp_times = interp_times.insert(pos, first_ais_tstamp)
             if first_ais_tstamp < s1_time < last_ais_tstamp:
                 pos = interp_times.searchsorted(s1_time)
                 interp_times = interp_times.insert(pos, s1_time)
+            pos = interp_times.searchsorted(last_ais_tstamp)
+            interp_times = interp_times.insert(pos, last_ais_tstamp)
 
             # Interpolate positions at the required times.
             positions = self.vectorized_interpolate_positions(group, interp_times)
