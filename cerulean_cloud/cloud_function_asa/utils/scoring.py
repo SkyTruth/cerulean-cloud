@@ -63,7 +63,7 @@ def compute_proximity_score(
 
     # Calculate the time difference (in hours) from the reference time.
     time_delta = (image_timestamp - tail_timestamp).total_seconds() / 3600
-    if time_delta < 0:
+    if time_delta <= 0:
         # time_delta is negative, so the tail_timestamp is in front of the image_timestamp.
         # This means the trajectory is extremely unlikely to be associated with the oil slick.
         # XXX Can this logic be brought up a level?
