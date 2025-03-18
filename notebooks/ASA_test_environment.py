@@ -533,27 +533,27 @@ slick_ids = [
     # 3819454, # infra
     # 3820550, # infra
     # 3830066,  # infra
-    # 22558  # local
-    # 23505  # local
-    # 20839  # local
-    # 27566  # local
-    # 27484  # local
-    # 33883 # TypeError: the JSON object must be str, bytes or bytearray, not NoneType
-    # 34226
-    # 34157
-    # 34251
-    # 33883  # Nonetype?
-    # 34179
-    # 34236
-    # 34209
-    # 34197 # TypeError: unsupported operand type(s) for +=: 'int' and 'tuple'
-    # 34216
-    # 34171
-    # 34268
-    # 34144
-    # 34162
-    # 34201
-    # 34205
+    # 22558,  # local
+    # 23505,  # local
+    # 20839,  # local
+    # 27566,  # local
+    # 27484,  # local
+    # 34314,
+    # 34321,
+    # 34226,
+    # 34157,
+    # 34251,
+    # 34179,
+    # 34236,
+    # 34209,
+    # 34197,
+    # 34216,
+    # 34171,
+    # 34268,
+    # 34144,
+    # 34162,
+    # 34201,
+    # 34205,
 ]
 
 accumulated_sources = []
