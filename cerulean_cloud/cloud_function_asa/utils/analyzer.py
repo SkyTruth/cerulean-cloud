@@ -279,8 +279,8 @@ class AISAnalyzer(SourceAnalyzer):
         """
         # Convert timestamps to numeric values (nanoseconds since epoch)
         # It is important that both arrays use the same numeric units.
-        t_orig = group["timestamp"].values.astype("int64")
-        t_interp = interp_times.values.astype("int64") / 1000
+        t_orig = group["timestamp"].astype("datetime64[s]").astype("int64").values
+        t_interp = interp_times.astype("datetime64[s]").astype("int64").values
 
         # Extract x and y coordinates from the geometry column.
         xs = group["geometry"].x.values
