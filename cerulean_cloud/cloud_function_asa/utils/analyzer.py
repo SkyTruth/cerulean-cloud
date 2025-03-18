@@ -743,13 +743,12 @@ class PointAnalyzer(SourceAnalyzer):
             normalized_weights: a numpy array of weights for each point.
         """
         cl_array = self.slick_centerlines.to_crs(self.crs_meters).geometry.values
-        center_point = np.array(self.combined_geometry.centroid.coords[0])
         offset = self.endpoints_offset if offset is None else offset
         gap = self.endpoints_gap if gap is None else gap
 
         primary_points = []
         secondary_points = []
-        base_weights = []
+        base_weights = np.array([])
 
         for line in cl_array:
             primaries, secondaries = self.get_endpoint_pairs(line, gap, offset)
@@ -757,18 +756,16 @@ class PointAnalyzer(SourceAnalyzer):
             secondary_points.extend(secondaries)
 
             # Use the length of the line as weights for both ends of the line
-            base_weights.extend([line.length] * 2)
-
-        # Calculate distance factor based on distances from centroid
-        primary_points_vector = np.vstack(primary_points)
-        dist_factor = np.linalg.norm(primary_points_vector - center_point, axis=1) ** 2
+            base_weights = np.append(base_weights, [line.length] * 2)
 
         # Scale weights by length fraction
-        base_weights = [
-            length if length / max(base_weights) > min_length_threshold else 0
-            for length in base_weights
-        ]
-        scaled_weights = base_weights * dist_factor
+        base_weights = np.array(
+            [
+                length if length / max(base_weights) > min_length_threshold else 0
+                for length in base_weights
+            ]
+        )
+        scaled_weights = base_weights
 
         # Normalize weights to ensure the maximum weight is 1
         normalized_weights = scaled_weights / scaled_weights.max()
