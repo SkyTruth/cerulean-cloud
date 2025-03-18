@@ -14,7 +14,7 @@ import os
 import sys
 import time
 from types import SimpleNamespace
-from shapely.geometry import shape
+from shapely.geometry import shape, Point
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -127,6 +127,22 @@ def generate_infrastructure_points(
     return infra_gdf
 
 
+def nearest_index(point: tuple, collection) -> int:
+    """
+    Find the index of the element in 'collection' that is closest to the given 'point'.
+    The collection can be a list of shapely Points or coordinate tuples.
+    """
+    if isinstance(point, tuple):
+        point = Point(point)
+
+    def to_point(x):
+        return x if isinstance(x, Point) else Point(x)
+
+    return min(
+        range(len(collection)), key=lambda i: point.distance(to_point(collection[i]))
+    )
+
+
 def plot(analyzers, slick_id, black=True, num_ais=5):
     """
     Combines the plots of AIS buffered geometries and infrastructure coincidence scores,
@@ -219,6 +235,38 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                 )
             st_name_patches = []
 
+        for st_name, group in filtered_ais.groupby("st_name"):
+            # Loop over consecutive points and add arrows
+            for idx, row in group.iterrows():
+                geom = row.geometry
+                # Ensure we're dealing with a LineString
+                if geom.geom_type == "LineString":
+                    # Place arrow_count arrows spaced evenly along the trajectory.
+                    arrow_count = 3
+                    # We'll compute fractional positions along the line's length.
+                    for i in range(arrow_count):
+                        # Compute a fraction that splits the line into 11 segments
+                        frac = (i + 1) / (arrow_count + 1)
+
+                        # Get the base point for the arrow using interpolation
+                        base_point = geom.interpolate(frac, normalized=True)
+
+                        # To determine direction, compute a point a small fraction ahead
+                        # Make sure we don't go beyond the end of the line.
+                        epsilon = 0.001
+                        next_frac = min(frac + epsilon, 1.0)
+                        next_point = geom.interpolate(next_frac, normalized=True)
+
+                        # Draw the arrow from the base point toward the next point
+                        ax.annotate(
+                            "",
+                            xy=(next_point.x, next_point.y),
+                            xytext=(base_point.x, base_point.y),
+                            arrowprops=dict(
+                                arrowstyle="->", color=st_name_to_color[st_name], lw=1
+                            ),
+                        )
+
         # Add a marker dot at the point closest to s1_time for each vessel
         # Define the timestamp at which the marker should be placed
         s1_time = np.datetime64(ais_analyzer.s1_scene.start_time)
@@ -250,27 +298,64 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
             for feat in combined_features:
                 geom = shape(feat["geometry"])
                 x, y = geom.x, geom.y
-                if feat is closest_feature:
-                    continue  # This one will get the large marker
                 ax.plot(
                     x,
                     y,
                     marker="o",
-                    markersize=1,
-                    color=st_name_to_color.get(st_name, "black"),
+                    markersize=1 if feat is not closest_feature else 2,
+                    color=st_name_to_color.get(st_name, "black")
+                    if feat is not closest_feature
+                    else "black",
                 )
 
-            # Plot the large marker for the feature closest to s1_time
-            geom = shape(closest_feature["geometry"])
-            x, y = geom.x, geom.y
+        for st_name, group in filtered_ais.groupby("st_name"):
+            # Obtain the longest centerline for the st_name; assumes slick_centerlines has a 'st_name' column
+            longest_centerline = (
+                ais_analyzer.slick_centerlines.sort_values("length", ascending=False)
+                .iloc[0]
+                .geometry
+            )
+            # Get the trajectory GeoSeries of shapely Points for the vessel
+            traj_points = list(
+                ais_analyzer.ais_trajectories.get_trajectory(st_name).df.geometry
+            )
+            # Compute nearest trajectory point to the start and end coordinates of the longest centerline
+            start_coord = longest_centerline.coords[0]
+            end_coord = longest_centerline.coords[-1]
+            start_idx = nearest_index(start_coord, traj_points)
+            end_idx = nearest_index(end_coord, traj_points)
+            start_traj_point = traj_points[start_idx]
+            end_traj_point = traj_points[end_idx]
+            # Plot dotted lines connecting the endpoints to their nearest trajectory points
             ax.plot(
-                x,
-                y,
-                marker="d",
-                markersize=8,
-                markerfacecolor="none",
+                [start_coord[0], start_traj_point.x],
+                [start_coord[1], start_traj_point.y],
+                linestyle=":",
                 color=st_name_to_color.get(st_name, "black"),
             )
+            ax.plot(
+                [end_coord[0], end_traj_point.x],
+                [end_coord[1], end_traj_point.y],
+                linestyle=":",
+                color=st_name_to_color.get(st_name, "black"),
+            )
+
+            s1_time = ais_analyzer.s1_scene.start_time
+            if (
+                s1_time
+                in ais_analyzer.ais_trajectories.get_trajectory(st_name).df.index
+            ):
+                geom = ais_analyzer.ais_trajectories.get_trajectory(
+                    st_name
+                ).df.geometry.loc[s1_time]
+                ax.plot(
+                    geom.x,
+                    geom.y,
+                    marker="d",
+                    markersize=8,
+                    markerfacecolor="none",
+                    color=st_name_to_color.get(st_name, "black"),
+                )
 
     # Plot the centroid
     centroid = slick_gdf.centroid.iloc[0]
