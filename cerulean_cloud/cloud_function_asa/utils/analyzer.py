@@ -205,7 +205,7 @@ class AISAnalyzer(SourceAnalyzer):
         """
         # print("Building trajectories")
         # Convert the entire timestamp column.
-        self.ais_filtered.sort_values("timestamp", inplace=True)
+        self.ais_filtered = self.ais_filtered.sort_values("timestamp")
         self.ais_filtered["timestamp"] = (
             self.ais_filtered["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
         )
@@ -822,7 +822,7 @@ class InfrastructureAnalyzer(PointAnalyzer):
         mvt_data = self.download_mvt_tile()
         df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
         if only_oil:
-            df = df[df["label"] == "oil"]
+            df = df[df["label"] == "oil"].copy()
         df["st_name"] = df["structure_id"].apply(str)
         df["ext_id"] = df["structure_id"].apply(str)
         df["type"] = self.source_type
@@ -833,7 +833,7 @@ class InfrastructureAnalyzer(PointAnalyzer):
                 df.loc[df[field] == "", field] = str(int(time.time() * 1000))
                 df[field] = pd.to_numeric(df[field], errors="coerce")
                 df[field] = pd.to_datetime(df[field], unit="ms", errors="coerce")
-        df.reset_index(drop=True, inplace=True)
+        df = df.reset_index(drop=True)
         return gpd.GeoDataFrame(
             df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
         )
