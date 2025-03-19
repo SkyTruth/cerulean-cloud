@@ -12,7 +12,7 @@ T_FORMAT = "%Y-%m-%d %H:%M:%S"
 # BUFFERING PARAMETERS FOR AIS
 AIS_PROJECT_ID = "world-fishing-827"
 AIS_BUFFER = 20000  # buffer around GRD envelope to capture AIS
-SPREAD_RATE = 10000  # meters/hour perpendicular to vessel track
+SPREAD_RATE = 5000  # meters/hour perpendicular to vessel track
 
 # PARAMETERS FOR INFRASTRUCTURE
 INFRA_CLOSING_BUFFER = 500
@@ -31,7 +31,7 @@ DARK_DECAY_RADIUS = 15000
 DARK_DECAY_THETA = 10.0
 
 # WEIGHTING PARAMETERS FOR AIS
-W_TEMPORAL = 2.0
+W_TEMPORAL = 1.0
 W_PROXIMITY = 1.0
 W_PARITY = 1.0
 AIS_REF_TIME_OVER = 600.0  # Seconds

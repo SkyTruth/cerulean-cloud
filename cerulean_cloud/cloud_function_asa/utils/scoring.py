@@ -6,7 +6,7 @@ import datetime
 import math
 
 import geopandas as gpd
-from shapely import MultiLineString, frechet_distance
+from shapely import MultiLineString
 from shapely.geometry import LineString, Point
 
 
@@ -38,45 +38,47 @@ def compute_proximity_score(
     Score definition:
         score = exp( - (Frechet distance / ais_ref_dist) )
     """
+    # Get the trajectory points and timestamps
     traj_points = list(traj_gdf["geometry"])
     traj_timestamps = list(traj_gdf.index)
 
-    # Identify trajectory points closest to the centerline endpoints.
-    idx_first = nearest_index(longest_centerline.coords[0], traj_points)
-    idx_last = nearest_index(longest_centerline.coords[-1], traj_points)
-    start_idx, end_idx = min(idx_first, idx_last), max(idx_first, idx_last)
-    if start_idx == end_idx:
-        # The centerline is all the way to one end of the trajectory, so double the end point
-        traj_substring = LineString([traj_points[start_idx], traj_points[end_idx]])
-    else:
-        traj_substring = LineString(traj_points[start_idx : end_idx + 1])
+    # Create centerline endpoints
+    cl_A = Point(longest_centerline.coords[0])
+    cl_B = Point(longest_centerline.coords[-1])
 
-    if start_idx == idx_last:
-        # The two linestrings are anti-parallel so we need to change the orientation by reversing the slick centerline
-        longest_centerline = LineString(list(longest_centerline.coords)[::-1])
+    # Find nearest trajectory point indices for each endpoint
+    traj_idx_A = nearest_index(cl_A, traj_points)
+    traj_idx_B = nearest_index(cl_B, traj_points)
 
-    # Retrieve corresponding timestamps.
-    tail_timestamp = min(
-        traj_timestamps[idx_first],
-        traj_timestamps[idx_last],
+    # Create tuples for each endpoint: (timestamp, distance, centerline_point)
+    ends = [
+        (traj_timestamps[traj_idx_A], traj_points[traj_idx_A].distance(cl_A), cl_A),
+        (traj_timestamps[traj_idx_B], traj_points[traj_idx_B].distance(cl_B), cl_B),
+    ]
+
+    # Sort the pairs by timestamp to determine head and tail
+    (t_tail, d_tail, cl_tail), (t_head, d_head, cl_head) = sorted(
+        ends, key=lambda x: x[0]
     )
 
-    # Calculate the time difference (in hours) from the reference time.
-    time_delta = (image_timestamp - tail_timestamp).total_seconds() / 3600
-    if time_delta <= 0:
-        # time_delta is negative, so the tail_timestamp is in front of the image_timestamp.
-        # This means the trajectory is extremely unlikely to be associated with the oil slick.
-        # XXX Can this logic be brought up a level?
-        return 0.0
+    # closest centerline point to the vessel at image_timestamp
+    # d_0 = traj_gdf.loc[image_timestamp].geometry.distance(cl_head)
+    idx = traj_gdf.index.get_indexer([image_timestamp], method="nearest")[0]
+    d_0 = traj_gdf.iloc[idx].geometry.distance(cl_head)
+
+    delta_tail = (image_timestamp - t_tail).total_seconds() / 3600
+    if delta_tail <= 0:  # The tail is in front of the vessel
+        P_t = 0  # No grace distance
     else:
-        # time_delta is positive, so the tail_timestamp is behind the image_timestamp.
-        # This means the trajectory is more likely to be associated with the oil slick.
-        ref_dist = spread_rate * time_delta
+        P_t = math.exp(-d_tail / (spread_rate * delta_tail))
 
-    # Compute Frechet distance and transform it into a score.
-    dist = frechet_distance(traj_substring, longest_centerline)
+    delta_head = (image_timestamp - t_head).total_seconds() / 3600
+    if delta_head <= 0:  # The head is in front of the vessel
+        P_h = math.exp(-d_0 / 500)  # 500m grace distance
+    else:
+        P_h = math.exp(-d_head / (spread_rate * delta_head))
 
-    return math.exp(-dist / ref_dist)
+    return P_t * P_h
 
 
 def compute_parity_score(
