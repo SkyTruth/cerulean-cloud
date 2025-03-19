@@ -14,7 +14,6 @@ from matplotlib.patches import Patch
 from shapely.geometry import shape
 
 from cerulean_cloud.cloud_run_orchestrator.handler import (
-    compute_aspect_ratio_factor,
     calculate_centerlines,
 )
 
