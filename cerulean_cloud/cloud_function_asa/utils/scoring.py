@@ -6,6 +6,7 @@ import datetime
 import math
 
 import geopandas as gpd
+import numpy as np
 from shapely import MultiLineString
 from shapely.geometry import LineString, Point
 
@@ -63,7 +64,7 @@ def compute_proximity_score(
 
     # closest centerline point to the vessel at image_timestamp
     # d_0 = traj_gdf.loc[image_timestamp].geometry.distance(cl_head)
-    idx = traj_gdf.index.get_indexer([image_timestamp], method="nearest")[0]
+    idx = np.abs(traj_gdf.index - image_timestamp).argmin()
     d_0 = traj_gdf.iloc[idx].geometry.distance(cl_head)
 
     delta_tail = (image_timestamp - t_tail).total_seconds() / 3600
