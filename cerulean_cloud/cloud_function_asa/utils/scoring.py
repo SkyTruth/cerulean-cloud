@@ -7,8 +7,7 @@ import math
 
 import geopandas as gpd
 import numpy as np
-from shapely import MultiLineString
-from shapely.geometry import LineString, Point
+from shapely.geometry import LineString, MultiLineString, Point
 
 
 def nearest_index(point: tuple, collection) -> int:
