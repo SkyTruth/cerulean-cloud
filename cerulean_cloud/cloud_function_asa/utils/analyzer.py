@@ -129,6 +129,7 @@ class AISAnalyzer(SourceAnalyzer):
         self.spread_rate = kwargs.get("spread_rate", c.SPREAD_RATE)
         self.coinc_mean = kwargs.get("coinc_mean", c.VESSEL_MEAN)
         self.coinc_std = kwargs.get("coinc_std", c.VESSEL_STD)
+        self.ais_trajectories = kwargs.get("ais_trajectories", None)
 
         # Calculated values
         self.ais_start_time = self.s1_scene.start_time - timedelta(
@@ -154,7 +155,6 @@ class AISAnalyzer(SourceAnalyzer):
         self.sql = None
         self.slick_centerlines = None
         self.ais_gdf = None
-        self.ais_trajectories = None
         self.ais_filtered = None
         self.results = gpd.GeoDataFrame()
 
@@ -520,7 +520,14 @@ class AISAnalyzer(SourceAnalyzer):
         if self.ais_filtered is None:
             self.filter_ais_data()
         if self.ais_trajectories is None:
-            self.build_trajectories()
+            if self.ais_gdf is None:
+                self.retrieve_ais_data()
+            if self.ais_gdf.empty:
+                return pd.DataFrame()
+            if self.ais_filtered is None:
+                self.filter_ais_data()
+            if self.ais_trajectories is None:
+                self.build_trajectories()
         self.score_trajectories()
         self.results["collated_score"] = self.results["coincidence_score"].apply(
             self.collate
