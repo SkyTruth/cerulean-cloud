@@ -7,72 +7,37 @@ import math
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 from shapely.geometry import LineString, MultiLineString, Point
-
-
-def nearest_index(point: tuple, collection) -> int:
-    """
-    Find the index of the element in 'collection' that is closest to the given 'point'.
-    The collection can be a list of shapely Points or coordinate tuples.
-    """
-    if isinstance(point, tuple):
-        point = Point(point)
-
-    def to_point(x):
-        return x if isinstance(x, Point) else Point(x)
-
-    return min(
-        range(len(collection)), key=lambda i: point.distance(to_point(collection[i]))
-    )
 
 
 def compute_proximity_score(
     traj_gdf: gpd.GeoDataFrame,
-    longest_centerline: MultiLineString,
     spread_rate: float,
-    image_timestamp: datetime.datetime,
+    t_image: datetime.datetime,
+    slick_to_traj_mapping: tuple[
+        pd.Timestamp, Point, float, pd.Timestamp, Point, float
+    ],
 ) -> float:
     """
-    Compute the Frechet distance-based score between an AIS trajectory and an oil slick centerline.
+    Compute a distance-based score between an AIS trajectory and an oil slick centerline.
 
     Score definition:
-        score = exp( - (Frechet distance / ais_ref_dist) )
+        score = exp( - (distance / ais_ref_dist) )
     """
-    # Get the trajectory points and timestamps
-    traj_points = list(traj_gdf["geometry"])
-    traj_timestamps = list(traj_gdf.index)
+    t_tail, cl_tail, d_tail, t_head, cl_head, d_head = slick_to_traj_mapping
 
-    # Create centerline endpoints
-    cl_A = Point(longest_centerline.coords[0])
-    cl_B = Point(longest_centerline.coords[-1])
+    # Get an additional distance of interest: the centerline head and the track at t=0
+    near_0_idx = np.abs(traj_gdf.index - t_image).argmin()
+    d_0 = traj_gdf.iloc[near_0_idx].geometry.distance(cl_head)
 
-    # Find nearest trajectory point indices for each endpoint
-    traj_idx_A = nearest_index(cl_A, traj_points)
-    traj_idx_B = nearest_index(cl_B, traj_points)
-
-    # Create tuples for each endpoint: (timestamp, distance, centerline_point)
-    ends = [
-        (traj_timestamps[traj_idx_A], traj_points[traj_idx_A].distance(cl_A), cl_A),
-        (traj_timestamps[traj_idx_B], traj_points[traj_idx_B].distance(cl_B), cl_B),
-    ]
-
-    # Sort the pairs by timestamp to determine head and tail
-    (t_tail, d_tail, cl_tail), (t_head, d_head, cl_head) = sorted(
-        ends, key=lambda x: x[0]
-    )
-
-    # closest centerline point to the vessel at image_timestamp
-    # d_0 = traj_gdf.loc[image_timestamp].geometry.distance(cl_head)
-    idx = np.abs(traj_gdf.index - image_timestamp).argmin()
-    d_0 = traj_gdf.iloc[idx].geometry.distance(cl_head)
-
-    delta_tail = (image_timestamp - t_tail).total_seconds() / 3600
+    delta_tail = (t_image - t_tail).total_seconds() / 3600
     if delta_tail <= 0:  # The tail is in front of the vessel
         P_t = 0  # No grace distance
     else:
         P_t = math.exp(-d_tail / (spread_rate * delta_tail))
 
-    delta_head = (image_timestamp - t_head).total_seconds() / 3600
+    delta_head = (t_image - t_head).total_seconds() / 3600
     if delta_head <= 0:  # The head is in front of the vessel
         P_h = math.exp(-d_0 / 500)  # 500m grace distance
     else:
@@ -85,6 +50,9 @@ def compute_parity_score(
     traj_gdf: gpd.GeoDataFrame,
     longest_centerline: MultiLineString,
     sensitivity_parity: float,
+    slick_to_traj_mapping: tuple[
+        pd.Timestamp, Point, float, pd.Timestamp, Point, float
+    ],
 ) -> float:
     """
     Compute the parity score, which measures the similarity between the length of an oil slick centerline
@@ -96,19 +64,14 @@ def compute_parity_score(
     Returns:
         float: Parity score between 0 and 1
     """
-    traj_points = list(traj_gdf["geometry"])
+    t_tail, cl_tail, d_tail, t_head, cl_head, d_head = slick_to_traj_mapping
 
-    # Identify trajectory points closest to the centerline endpoints.
-    idx_first = nearest_index(longest_centerline.coords[0], traj_points)
-    idx_last = nearest_index(longest_centerline.coords[-1], traj_points)
-
-    start_idx, end_idx = min(idx_first, idx_last), max(idx_first, idx_last)
-
-    if traj_points[start_idx] == traj_points[end_idx]:
+    if t_tail == t_head:
+        # The head and tail map to the same point, so the parity score is 0.
         return 0.0
 
     # Extract the relevant substring of the trajectory.
-    traj_substring = LineString(traj_points[start_idx : end_idx + 1])
+    traj_substring = LineString(traj_gdf.sort_index().loc[t_tail:t_head]["geometry"])
 
     return math.exp(
         -(math.log(longest_centerline.length / traj_substring.length) ** 2)
@@ -117,11 +80,12 @@ def compute_parity_score(
 
 
 def compute_temporal_score(
-    traj_gdf: gpd.GeoDataFrame,
-    longest_centerline: MultiLineString,
-    image_timestamp: datetime.datetime,
+    t_image: datetime.datetime,
     ais_ref_time_over: float,
     ais_ref_time_under: float,
+    slick_to_traj_mapping: tuple[
+        pd.Timestamp, Point, float, pd.Timestamp, Point, float
+    ],
 ) -> float:
     """
     Compute the temporal score between an AIS trajectory and an oil slick centerline.
@@ -134,28 +98,18 @@ def compute_temporal_score(
         else:
             score = exp( - ((x - a) / B)^2 )
     """
-    traj_points = list(traj_gdf["geometry"])
-    traj_timestamps = list(traj_gdf.index)
 
-    # Identify trajectory points closest to the centerline endpoints.
-    idx_first = nearest_index(longest_centerline.coords[0], traj_points)
-    idx_last = nearest_index(longest_centerline.coords[-1], traj_points)
-
-    # Retrieve corresponding timestamps.
-    head_timestamp = max(
-        traj_timestamps[idx_first],
-        traj_timestamps[idx_last],
-    )
+    t_tail, cl_tail, d_tail, t_head, cl_head, d_head = slick_to_traj_mapping
 
     # Calculate the time difference (in seconds) from the reference time.
-    time_delta = (image_timestamp - head_timestamp).total_seconds()
+    time_delta = (t_image - t_head).total_seconds()
 
     if time_delta < 0:
-        # time_delta is negative, so the head_timestamp is in front of the image_timestamp.
+        # time_delta is negative, so the slick head is in front of the t_image.
         # This means the trajectory is less likely to be associated with the oil slick.
         score = math.exp(-((time_delta / ais_ref_time_over) ** 2))
     else:
-        # time_delta is positive, so the head_timestamp is behind the image_timestamp.
+        # time_delta is positive, so the slick head is behind the t_image.
         # This means the trajectory is more likely to be associated with the oil slick.
         score = math.exp(-((time_delta / ais_ref_time_under) ** 2))
     return score

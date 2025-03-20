@@ -23,6 +23,7 @@ from scipy.spatial import cKDTree
 from shapely.geometry import (
     GeometryCollection,
     LineString,
+    MultiLineString,
     MultiPolygon,
     Point,
     Polygon,
@@ -356,23 +357,32 @@ class AISAnalyzer(SourceAnalyzer):
                 .to_crs(self.crs_meters)
             )
 
+            slick_to_traj_mapping = self.get_closest_centerline_points(
+                traj_gdf, longest_centerline
+            )
+
             temporal_score = compute_temporal_score(
-                traj_gdf,
-                longest_centerline,
                 self.s1_scene.start_time,
                 self.ais_ref_time_over,
                 self.ais_ref_time_under,
+                slick_to_traj_mapping,
             )
+
+            slick_to_traj_mapping = self.get_closest_centerline_points(
+                traj_gdf, longest_centerline, self.s1_scene.start_time
+            )
+
             proximity_score = compute_proximity_score(
                 traj_gdf,
-                longest_centerline,
                 self.spread_rate,
                 self.s1_scene.start_time,
+                slick_to_traj_mapping,
             )
             parity_score = compute_parity_score(
                 traj_gdf,
                 longest_centerline,
                 self.sensitivity_parity,
+                slick_to_traj_mapping,
             )
 
             # Compute total score from these three metrics
@@ -408,6 +418,90 @@ class AISAnalyzer(SourceAnalyzer):
         sources = gpd.GeoDataFrame(entries, columns=columns, crs="4326")
         self.results = sources[sources["coincidence_score"] > 0]
         return self.results
+
+    def get_closest_centerline_points(
+        self,
+        traj_gdf: gpd.GeoDataFrame,
+        longest_centerline: MultiLineString,
+        t_image: datetime = None,
+    ) -> tuple[pd.Timestamp, Point, float, pd.Timestamp, Point, float]:
+        """
+        Returns the timestamp and distance of the closest points on the centerline to the vessel at the given image_timestamp.
+        """
+        # Create centerline endpoints
+        cl_A = Point(longest_centerline.coords[0])
+        cl_B = Point(longest_centerline.coords[-1])
+
+        # Find nearest trajectory point indices for each endpoint
+        traj_idx_A = self.get_closest_point_before_timestamp(cl_A, traj_gdf, t_image)
+        traj_idx_B = self.get_closest_point_before_timestamp(cl_B, traj_gdf, t_image)
+
+        # Create tuples for each endpoint: (timestamp, centerline_point, distance)
+        ends = [
+            (traj_idx_A, cl_A, traj_gdf.loc[traj_idx_A]["geometry"].distance(cl_A)),
+            (traj_idx_B, cl_B, traj_gdf.loc[traj_idx_B]["geometry"].distance(cl_B)),
+        ]
+
+        # Sort the pairs by timestamp to determine head and tail
+        (t_tail, cl_tail, d_tail), (t_head, cl_head, d_head) = sorted(
+            ends, key=lambda x: x[0]
+        )
+        return (t_tail, cl_tail, d_tail, t_head, cl_head, d_head)
+
+    def get_closest_point_before_timestamp(
+        self,
+        reference_point: Point,
+        traj_gdf: gpd.GeoDataFrame,
+        t_image: datetime = None,
+    ) -> pd.Timestamp:
+        """
+        Returns the trajectory row that is closest to the reference_point,
+        using a turning-point heuristic if an image_timestamp is provided.
+
+        When image_timestamp is None, the function returns the row (from the entire trajectory)
+        with the minimum distance to the reference point.
+
+        When image_timestamp is provided, only rows with index <= image_timestamp
+        are considered. The function then assumes that the distance from the trajectory
+        points to the reference point first decreases and then increases. It returns the last
+        row before the first increase in distance. If no such turning point is detected
+        (i.e. distances are monotonically decreasing), the function returns the last row
+        in the valid time range.
+
+        Parameters:
+            reference_point (shapely.geometry.Point): The point to compare distances to.
+            traj_gdf (geopandas.GeoDataFrame): A GeoDataFrame with a datetime-like index and a 'geometry' column.
+            image_timestamp (datetime, optional): A timestamp to restrict the trajectory.
+                Only rows with index <= image_timestamp will be considered.
+
+        Returns:
+            pd.Timestamp: The index corresponding to the selected trajectory row.
+
+        """
+        # Sort the trajectory by index in descending order, so the latest broadcasted point is first.
+        traj_gdf = traj_gdf.sort_index(ascending=False)
+
+        if t_image is None:
+            # Find shortest distance, irrespective of any timing
+            return traj_gdf.geometry.distance(reference_point).idxmin()
+
+        valid_gdf = traj_gdf.loc[t_image:]
+        if valid_gdf.empty:
+            # If no points are at or before image_timestamp return the earliest point.
+            return traj_gdf.index[-1]
+
+        distances = valid_gdf.geometry.distance(reference_point)
+
+        # Compute differences between consecutive distance values. To identify where the distance increases
+        diff_values = distances.diff().iloc[1:]
+        increase_mask = diff_values > 0
+
+        if not increase_mask.any():
+            # If the distances are monotonically decreasing, return the last row.
+            return valid_gdf.index[-1]
+
+        # Find the first occurrence where distance increases.
+        return valid_gdf.index[np.argmax(increase_mask.values)]
 
     def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
