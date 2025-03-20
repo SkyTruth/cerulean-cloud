@@ -3,6 +3,7 @@ import os
 import geopandas as gpd
 import numpy as np
 import pandas as pd
+import pickle
 
 
 from geoalchemy2 import WKTElement
@@ -12,6 +13,7 @@ import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from shapely.geometry import shape
+from shapely.geometry import LineString, Point
 
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     calculate_centerlines,
@@ -67,6 +69,27 @@ def download_geojson(
         print(f"GeoJSON file already exists at {geojson_file_path}. Skipping download.")
 
     return geojson_file_path
+
+
+def is_not_ais_infra(geom):
+    """Returns the longer side of the minimum rotated rectangle."""
+    if geom is None or geom.is_empty:
+        return np.nan  # Handle empty geometries
+
+    rotated_rect = geom.minimum_rotated_rectangle
+    if isinstance(rotated_rect, LineString):
+        return rotated_rect.length > 1000
+    if isinstance(rotated_rect, Point):
+        return False
+    coords = np.array(rotated_rect.exterior.coords[:-1])  # Remove duplicate last point
+
+    # Compute Euclidean distances between consecutive points
+    side_lengths = np.linalg.norm(coords - np.roll(coords, shift=-1, axis=0), axis=1)
+
+    # Identify unique side lengths and return the longer one
+    # print(side_lengths)
+    longest_length = sorted(side_lengths, reverse=True)[0]
+    return longest_length > 1000
 
 
 def label_dark_vessel_results_with_distance(
@@ -226,7 +249,13 @@ def calculate_metrics(results, coin_score_column="coincidence_score"):
 
 
 def process_groundtruth_on_analyzer(
-    analyzer_class, groundtruth_gdf, points_gdf=None, analyzer_params=None
+    analyzer_class,
+    groundtruth_gdf,
+    points_gdf=None,
+    analyzer_params=None,
+    filter_ais_infra=False,
+    reuse_ais_trajectories=True,
+    pickle_dir=".",
 ):
     """
     Generalized function to process an analyzer over a ground truth GeoDataFrame.
@@ -240,11 +269,21 @@ def process_groundtruth_on_analyzer(
             Optional points GeoDataFrame (e.g., SAR detections or infrastructure data) used for analysis.
         analyzer_params: dict, optional
             Parameters to be passed when initializing the analyzer instance.
+        filter_ais_infra: bool, optional
+            Whether to filter out AIS infrastructure results.
+        reuse_ais_trajectories: bool, optional
+            Whether to reuse previously saved AIS trajectories if available.
+        pickle_dir: str, optional
+            Directory where AIS trajectories pickle files are stored.
 
     Returns:
         GeoDataFrame containing accumulated results.
     """
     results_gdf = None  # Empty GeoDataFrame to accumulate results
+
+    # Ensure the pickle directory exists
+    if not os.path.exists(pickle_dir):
+        os.makedirs(pickle_dir)
 
     for ex_id in tqdm(range(len(groundtruth_gdf)), leave=False):
         groundtruth_source = groundtruth_gdf.iloc[[ex_id]].reset_index()
@@ -256,7 +295,7 @@ def process_groundtruth_on_analyzer(
         s1_scene = get_s1_scene(s1_scene_id)
 
         # Prepare parameters for the analyzer
-        analyzer_kwargs = analyzer_params or {}
+        analyzer_kwargs = analyzer_params.copy() if analyzer_params else {}
 
         # Assign points_gdf to the correct parameter name based on analyzer type
         if points_gdf is not None:
@@ -265,6 +304,16 @@ def process_groundtruth_on_analyzer(
             elif analyzer_class.__name__ == "InfrastructureAnalyzer":
                 analyzer_kwargs["infra_gdf"] = points_gdf.reset_index()
 
+        # If using AISAnalyzer, check for existing ais_trajectories pickle file
+        ais_pickle_filename = os.path.join(
+            pickle_dir, f"ais_trajectories_{slick_id}.pkl"
+        )
+        if analyzer_class.__name__ == "AISAnalyzer" and reuse_ais_trajectories:
+            if os.path.exists(ais_pickle_filename):
+                with open(ais_pickle_filename, "rb") as f:
+                    ais_trajectories = pickle.load(f)
+                analyzer_kwargs["ais_trajectories"] = ais_trajectories
+
         # Instantiate the analyzer with parameters
         analyzer = analyzer_class(s1_scene, **analyzer_kwargs)
 
@@ -272,12 +321,24 @@ def process_groundtruth_on_analyzer(
         slick_gdf["centerlines"] = [centerline]
 
         # Compute coincidence scores
-        # print("BEFORE")
         res = analyzer.compute_coincidence_scores(slick_gdf)
-        # print("AFTER")
         if res is None:
             continue
+
         res["slick_id"] = slick_id  # Track which slick_id it corresponds to
+
+        if filter_ais_infra:
+            print("FOUND ", len(res), "VESSEL RESULTS")
+            res = res[
+                res.to_crs(analyzer.crs_meters)["geometry"].apply(is_not_ais_infra)
+            ]
+            print("FILTERING DOWN TO", len(res), "VALID VESSEL")
+
+        # If the analyzer is AISAnalyzer, save the computed ais_trajectories for reuse
+        if analyzer_class.__name__ == "AISAnalyzer":
+            print("Saving trajectories for ", slick_id)
+            with open(ais_pickle_filename, "wb") as f:
+                pickle.dump(analyzer.ais_trajectories, f)
 
         # Accumulate results using pd.concat
         if results_gdf is None:
