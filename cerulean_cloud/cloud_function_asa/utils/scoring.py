@@ -101,8 +101,9 @@ def compute_temporal_score(
 
     t_tail, cl_tail, d_tail, t_head, cl_head, d_head = slick_to_traj_mapping
 
-    # Calculate the time difference (in seconds) from the reference time.
-    time_delta = (t_image - t_head).total_seconds()
+    # Calculate the time difference (in seconds) from the image timestamp to the closest endpoint.
+    t_closer_end = t_head if d_head < d_tail else t_tail
+    time_delta = (t_image - t_closer_end).total_seconds()
 
     if time_delta < 0:
         # time_delta is negative, so the slick head is in front of the t_image.
