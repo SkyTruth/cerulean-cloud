@@ -358,7 +358,7 @@ class AISAnalyzer(SourceAnalyzer):
             )
 
             slick_to_traj_mapping = self.get_closest_centerline_points(
-                traj_gdf, longest_centerline
+                traj_gdf, longest_centerline, self.s1_scene.start_time
             )
 
             temporal_score = compute_temporal_score(
@@ -366,10 +366,6 @@ class AISAnalyzer(SourceAnalyzer):
                 self.ais_ref_time_over,
                 self.ais_ref_time_under,
                 slick_to_traj_mapping,
-            )
-
-            slick_to_traj_mapping = self.get_closest_centerline_points(
-                traj_gdf, longest_centerline, self.s1_scene.start_time
             )
 
             proximity_score = compute_proximity_score(
