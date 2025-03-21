@@ -438,8 +438,16 @@ class AISAnalyzer(SourceAnalyzer):
 
         # Create tuples for each endpoint: (timestamp, centerline_point, distance)
         ends = [
-            (traj_idx_A, cl_A, traj_gdf.loc[traj_idx_A]["geometry"].distance(cl_A)),
-            (traj_idx_B, cl_B, traj_gdf.loc[traj_idx_B]["geometry"].distance(cl_B)),
+            (
+                traj_idx_A,
+                cl_A,
+                traj_gdf.loc[traj_idx_A].iloc[:1]["geometry"].distance(cl_A),
+            ),
+            (
+                traj_idx_B,
+                cl_B,
+                traj_gdf.loc[traj_idx_B].iloc[:1]["geometry"].distance(cl_B),
+            ),
         ]
 
         # Sort the pairs by timestamp to determine head and tail
