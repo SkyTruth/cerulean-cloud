@@ -603,6 +603,7 @@ slick_ids = [
     # 27566,  # local
     # 20839,  # local
     # 27484,  # local
+    # DARKS
     # 34314,
     # 34226,
     # 34321,
@@ -619,7 +620,20 @@ slick_ids = [
     # 34162,
     # 34201,
     # 34299,
-    # 35352, HARD WITHOUT SMART MAPPING
+    # 35352, # HARD WITHOUT SMART MAPPING
+    # VESSELS
+    # 34324,
+    # 34385,
+    # 34378,
+    # 34537,
+    # 34490
+    # 34362,
+    # 34327,
+    # 34366,
+    # 34357,
+    # 34332,
+    34333,
+    # 35611
 ]
 
 accumulated_sources = []
