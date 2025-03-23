@@ -513,7 +513,6 @@ class AISAnalyzer(SourceAnalyzer):
         """
         self.results = gpd.GeoDataFrame()
 
-        self.ais_filtered = None
         self.slick_gdf = slick_gdf
         if self.slick_centerlines is None:
             self.load_slick_centerlines()
@@ -521,10 +520,9 @@ class AISAnalyzer(SourceAnalyzer):
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
             return pd.DataFrame()
-        if self.ais_filtered is None:
-            self.filter_ais_data()
-        if self.ais_trajectories is None:
-            self.build_trajectories()
+
+        self.filter_ais_data()
+        self.build_trajectories()
         self.score_trajectories()
         self.results["collated_score"] = self.results["coincidence_score"].apply(
             self.collate
