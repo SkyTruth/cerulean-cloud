@@ -12,9 +12,7 @@ from tqdm.auto import tqdm
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from shapely.geometry import shape
-from shapely.geometry import LineString, Point
-
+from shapely.geometry import shape, LineString, Point
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     calculate_centerlines,
 )
@@ -255,7 +253,8 @@ def process_groundtruth_on_analyzer(
     analyzer_params=None,
     filter_ais_infra=False,
     reuse_ais_trajectories=True,
-    pickle_dir=".",
+    save_ais_trajectories=False,
+    pickle_dir=os.getenv("ASA_DOWNLOAD_PATH") + "/trajectories",
 ):
     """
     Generalized function to process an analyzer over a ground truth GeoDataFrame.
@@ -308,11 +307,6 @@ def process_groundtruth_on_analyzer(
         ais_pickle_filename = os.path.join(
             pickle_dir, f"ais_trajectories_{slick_id}.pkl"
         )
-        if analyzer_class.__name__ == "AISAnalyzer" and reuse_ais_trajectories:
-            if os.path.exists(ais_pickle_filename):
-                with open(ais_pickle_filename, "rb") as f:
-                    ais_trajectories = pickle.load(f)
-                analyzer_kwargs["ais_trajectories"] = ais_trajectories
 
         # Instantiate the analyzer with parameters
         analyzer = analyzer_class(s1_scene, **analyzer_kwargs)
@@ -320,8 +314,22 @@ def process_groundtruth_on_analyzer(
         centerline, _ = calculate_centerlines(slick_gdf, crs_meters=analyzer.crs_meters)
         slick_gdf["centerlines"] = [centerline]
 
-        # Compute coincidence scores
-        res = analyzer.compute_coincidence_scores(slick_gdf)
+        if analyzer_class.__name__ == "AISAnalyzer" and reuse_ais_trajectories:
+            if os.path.exists(ais_pickle_filename):
+                print("REUSING DOWNLOADED TRAJECTORIES")
+                with open(ais_pickle_filename, "rb") as f:
+                    ais_trajectories = pickle.load(f)
+                analyzer.ais_trajectories = ais_trajectories
+            analyzer.slick_gdf = slick_gdf
+            analyzer.load_slick_centerlines()
+            analyzer.score_trajectories()
+            analyzer.results["collated_score"] = analyzer.results[
+                "coincidence_score"
+            ].apply(analyzer.collate)
+            res = analyzer.results
+        else:
+            res = analyzer.compute_coincidence_scores(slick_gdf)
+
         if res is None:
             continue
 
@@ -335,10 +343,11 @@ def process_groundtruth_on_analyzer(
             print("FILTERING DOWN TO", len(res), "VALID VESSEL")
 
         # If the analyzer is AISAnalyzer, save the computed ais_trajectories for reuse
-        if analyzer_class.__name__ == "AISAnalyzer":
-            print("Saving trajectories for ", slick_id)
-            with open(ais_pickle_filename, "wb") as f:
-                pickle.dump(analyzer.ais_trajectories, f)
+        if analyzer_class.__name__ == "AISAnalyzer" and save_ais_trajectories:
+            if not os.path.exists(ais_pickle_filename):
+                print("Saving trajectories for", slick_id)
+                with open(ais_pickle_filename, "wb") as f:
+                    pickle.dump(analyzer.ais_trajectories, f)
 
         # Accumulate results using pd.concat
         if results_gdf is None:
