@@ -139,7 +139,7 @@ class AISAnalyzer(SourceAnalyzer):
             start=self.ais_start_time,
             end=self.ais_end_time,
             periods=self.num_timesteps,
-        )
+        ).astype("datetime64[s]")
         self.s1_env = gpd.GeoDataFrame(
             {"geometry": [to_shape(self.s1_scene.geometry)]}, crs="4326"
         )
@@ -190,6 +190,13 @@ class AISAnalyzer(SourceAnalyzer):
             project_id=self.ais_project_id,
             credentials=self.credentials,
         )
+        df["timestamp"] = (
+            df["timestamp"]
+            .dt.tz_convert("UTC")
+            .dt.tz_localize(None)
+            .astype("datetime64[s]")
+        )
+
         df["geometry"] = df.apply(lambda row: Point(row["lon"], row["lat"]), axis=1)
         self.ais_gdf = (
             gpd.GeoDataFrame(df, crs="4326")
@@ -205,12 +212,6 @@ class AISAnalyzer(SourceAnalyzer):
         - Generates a truncated version (with ISO-formatted timestamps) for display.
         """
         # print("Building trajectories")
-        # Convert the entire timestamp column.
-        self.ais_filtered = self.ais_filtered.sort_values("timestamp")
-        self.ais_filtered["timestamp"] = (
-            self.ais_filtered["timestamp"].dt.tz_convert("UTC").dt.tz_localize(None)
-        )
-
         ais_trajectories = []
         s1_time = self.s1_scene.start_time
 
@@ -278,10 +279,9 @@ class AISAnalyzer(SourceAnalyzer):
 
         Returns a list of shapely Point objects corresponding to the interpolated positions.
         """
-        # Convert timestamps to numeric values (nanoseconds since epoch)
-        # It is important that both arrays use the same numeric units.
-        t_orig = group["timestamp"].astype("datetime64[s]").astype("int64").values
-        t_interp = interp_times.astype("datetime64[s]").astype("int64").values
+        # Convert timestamps to numeric values (seconds since epoch)
+        t_orig = group["timestamp"].astype("int64").values
+        t_interp = interp_times.astype("int64").values
 
         # Extract x and y coordinates from the geometry column.
         xs = group["geometry"].x.values
