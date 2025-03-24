@@ -214,9 +214,10 @@ class AISAnalyzer(SourceAnalyzer):
         # print("Building trajectories")
         ais_trajectories = []
         s1_time = self.s1_scene.start_time
+        ais_data = self.ais_filtered.sort_values("timestamp")
 
         # Group the filtered AIS data by ship identifier (ssvid)
-        for st_name, group in self.ais_filtered.groupby("ssvid"):
+        for st_name, group in ais_data.groupby("ssvid"):
             group = group.copy()  # avoid chained assignment issues
 
             # If only one point is present, we cannot interpolate.
@@ -513,14 +514,13 @@ class AISAnalyzer(SourceAnalyzer):
         """
         self.results = gpd.GeoDataFrame()
 
-        self.slick_gdf = slick_gdf
-        if self.slick_centerlines is None:
-            self.load_slick_centerlines()
         if self.ais_gdf is None:
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
             return pd.DataFrame()
 
+        self.slick_gdf = slick_gdf
+        self.load_slick_centerlines()
         self.filter_ais_data()
         self.build_trajectories()
         self.score_trajectories()
