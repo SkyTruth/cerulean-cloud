@@ -42,8 +42,7 @@ def compute_proximity_score(
         P_h = math.exp(-d_0 / 500)  # 500m grace distance
     else:
         P_h = math.exp(-d_head / (spread_rate * delta_head))
-
-    return P_t * P_h
+    return np.sqrt(P_t * P_h)
 
 
 def compute_parity_score(
