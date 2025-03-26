@@ -2,9 +2,6 @@
 
 import numpy as np
 
-# Number of days that the Automatic Source Association should be run after
-ASA_DELAYS = [0, 3, 9]
-
 # TEMPORAL PARAMETERS FOR AIS
 HOURS_BEFORE = 6
 HOURS_AFTER = 2

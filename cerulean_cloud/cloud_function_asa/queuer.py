@@ -6,7 +6,6 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
-import utils.constants as c
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
 
@@ -52,8 +51,10 @@ def add_to_asa_queue(scene_id):
         }
     }
 
-    # Each entry is another retry (waiting for the AIS data to be available in GFW's table)
-    for delay in c.ASA_DELAYS:
+    # Number of days that the Automatic Source Association should be run after
+    # Each entry is another retry
+    asa_delays = [0, 3, 9]  # TODO Magic number >>> Where should this live?
+    for delay in asa_delays:
         d = datetime.now(tz=timezone.utc) + timedelta(days=delay)
 
         # Create Timestamp protobuf.
