@@ -56,8 +56,13 @@ def main(request):
     verify_api_key(request)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    res = loop.run_until_complete(handle_asa_request(request))
-    return res
+    try:
+        res = loop.run_until_complete(handle_asa_request(request))
+        return res
+    finally:
+        # Ensure all async generators finish and close the loop properly
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.close()
 
 
 async def handle_asa_request(request):
