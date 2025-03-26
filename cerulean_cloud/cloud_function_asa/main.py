@@ -201,6 +201,7 @@ async def handle_asa_request(request):
                                             "active": idx < only_record_top,
                                         },
                                     )
-        # Dispose the engine to close any lingering connections.
+        # Dispose the engine after finishing all DB operations.
         await db_engine.dispose()
+
     return "Success!"

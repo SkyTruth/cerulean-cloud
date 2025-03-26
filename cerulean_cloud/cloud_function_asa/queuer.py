@@ -9,8 +9,6 @@ from datetime import datetime, timedelta, timezone
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
 
-# mypy: ignore-errors
-
 
 def add_to_asa_queue(scene_id):
     """

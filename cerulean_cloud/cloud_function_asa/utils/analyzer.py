@@ -176,12 +176,12 @@ class AISAnalyzer(SourceAnalyzer):
                 ves.best.best_flag as flag,
                 ves.best.best_vessel_class as best_shiptype
             FROM
-                `world-fishing-827.gfw_research.pipe_v20201001` as seg
+                `world-fishing-827.pipe_ais_v3_published.messages` as seg
             LEFT JOIN
-                `world-fishing-827.gfw_research.vi_ssvid_v20230801` as ves
+                `world-fishing-827.pipe_ais_v3_published.vi_ssvid_v20250201` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE
-                seg._PARTITIONTIME between '{datetime.strftime(self.ais_start_time, c.D_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, c.D_FORMAT)}'
+                clean_segs IS TRUE
                 AND seg.timestamp between '{datetime.strftime(self.ais_start_time, c.T_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, c.T_FORMAT)}'
                 AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.ais_envelope[0]}'))
             """
