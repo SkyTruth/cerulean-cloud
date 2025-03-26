@@ -514,7 +514,7 @@ class AISAnalyzer(SourceAnalyzer):
             FROM
                 `world-fishing-827.pipe_ais_v3_published.messages` as seg
             LEFT JOIN
-                `world-fishing-827.pipe_ais_v3_published.product_vessel_info_summary` as ves
+                `world-fishing-827.pipe_ais_v3_published.vi_ssvid_v20250201` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE
                 seg.timestamp between '{datetime.strftime(self.ais_start_time, T_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, T_FORMAT)}'
