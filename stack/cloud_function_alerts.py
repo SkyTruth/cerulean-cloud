@@ -26,12 +26,21 @@ invoker = gcp.cloudfunctions.FunctionIamMember(
 )
 
 job = gcp.cloudscheduler.Job(
-    "daily-test-job",
+    "daily-alerts-job",
     description="Run test daily",
-    schedule="0 8 * * *",  # 8 AM UTC
-    time_zone="UTC",
+    schedule="0 8 * * *",  # 8 AM
+    time_zone="US/Eastern",
     http_target=gcp.cloudscheduler.JobHttpTargetArgs(
         http_method="GET",
         uri=cloud_function.https_trigger_url,
+    ),
+)
+
+secret_access = gcp.secretmanager.SecretIamMember(
+    "alerts-secret-access",
+    secret_id="slack-webhook",
+    role="roles/secretmanager.secretAccessor",
+    member=pulumi.Output.concat(
+        "serviceAccount:", cloud_function.service_account_email
     ),
 )
