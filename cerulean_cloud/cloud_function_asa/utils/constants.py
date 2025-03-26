@@ -2,6 +2,9 @@
 
 import numpy as np
 
+# Number of days that the Automatic Source Association should be run after
+ASA_DELAYS = [0, 3, 9]
+
 # TEMPORAL PARAMETERS FOR AIS
 HOURS_BEFORE = 6
 HOURS_AFTER = 2
@@ -21,7 +24,6 @@ WEIGHT_START = 2.0
 WEIGHT_END = 0.0
 WEIGHT_VEC = np.linspace(WEIGHT_START, WEIGHT_END, NUM_TIMESTEPS) / NUM_TIMESTEPS
 
-D_FORMAT = "%Y-%m-%d"
 T_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
