@@ -3,29 +3,66 @@ import pulumi_gcp as gcp
 from utils import construct_name
 
 
+PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
 secret_name = "cerulean-slack-alerts-webhook"
 function_name = "cf-alerts"
 
+# Create service account for this stack
 service_account = gcp.serviceaccount.Account(
     f"{function_name}-service-account",
     account_id="function-sa",
     display_name="Service account for Slack alert function",
 )
 
-cloud_function = gcp.cloudfunctions.Function(
+# Create bucket to store handler
+bucket = gcp.storage.Bucket(
+    construct_name(f"{function_name}-bucket"),
+    location=pulumi.Config("gcp").require("region"),
+    labels={"pulumi": "true", "environment": pulumi.get_stack()},
+)
+
+# # Create and zip package to be basis of CloudFunction
+# package = pulumi_create_zip(
+#     dir_to_zip=PATH_TO_SOURCE_CODE,
+#     zip_filepath="../cloud_function_alerts.zip",
+# )
+# archive = package.apply(lambda x: pulumi.FileAsset(x))
+
+# # Create the Cloud Storage object containing the zipped CloudFunction
+# source_archive_object = gcp.storage.BucketObject(
+#     construct_name(f"{function_name}-source"),
+#     name=f"handler.py-sr-{time.time():f}",
+#     bucket=bucket.name,
+#     source=archive,
+# )
+
+# Create the CloudFunction (v2)
+cloud_function = gcp.cloudfunctionsv2.Function(
+    "slack-alert-v2",
     construct_name(function_name),
     name=construct_name(function_name),
     location=pulumi.Config("gcp").require("region"),
     description="Cloud Function for Pipeline Failure Alerting",
-    runtime="python39",
-    entry_point="main",
-    available_memory_mb=128,
-    trigger_http=True,
-    service_account_email=service_account.email,
-    environment_variables={
-        "SECRET_NAME": secret_name,
-        "GCP_PROJECT": gcp.config.project,
-    },
+    build_config=gcp.cloudfunctionsv2.FunctionBuildConfigArgs(
+        runtime="python311",
+        entry_point="main",  # must match `def main(request):`
+        # source=gcp.cloudfunctionsv2.FunctionBuildConfigSourceArgs(
+        #     storage_source=gcp.cloudfunctionsv2.FunctionBuildConfigSourceStorageSourceArgs(
+        #         bucket=bucket.name,ß
+        #         object=source_archive_object.name,
+        #     ),
+        source=pulumi.AssetArchive({".": pulumi.FileArchive(PATH_TO_SOURCE_CODE)}),
+    ),
+    service_config=gcp.cloudfunctionsv2.FunctionServiceConfigArgs(
+        max_instance_count=1,
+        available_memory="128M",
+        timeout_seconds=60,
+        ingress_settings="ALLOW_ALL",
+        environment_variables={
+            "SECRET_NAME": secret_name,
+            "GCP_PROJECT": gcp.config.project,
+        },
+    ),
 )
 
 
