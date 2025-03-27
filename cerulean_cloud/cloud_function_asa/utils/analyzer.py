@@ -259,7 +259,7 @@ class AISAnalyzer(SourceAnalyzer):
             traj.df = interp_gdf
 
             # Create a truncated GeoDataFrame for display (only points before s1_time).
-            display_gdf = group[group["timestamp"] < s1_time].copy()
+            display_gdf = group[group["timestamp"] <= s1_time].copy()
             # Use vectorized formatting to convert timestamps to ISO strings.
             display_gdf["timestamp"] = display_gdf["timestamp"].dt.strftime(
                 "%Y-%m-%dT%H:%M:%S"
