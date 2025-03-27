@@ -40,7 +40,7 @@ def send_alert_no_recent_slicks():
     """
     Sends `no slick` warning to Slack channel
     """
-    webhook_url = get_secret(os.environ["SLACK_WEBHOOK_SECRET"])
+    webhook_url = get_secret(os.environ["SECRET_NAME"])
     _ = requests.post(webhook_url, json={"text": "No new slicks in the last 24 hours"})
 
 
@@ -48,7 +48,7 @@ def success():
     """
     Perform success function (generally used for testing)
     """
-    webhook_url = get_secret(os.environ["SLACK_WEBHOOK_SECRET"])
+    webhook_url = get_secret(os.environ["SECRET_NAME"])
     _ = requests.post(
         webhook_url, json={"text": "All is going to according to plan . . ."}
     )
