@@ -260,6 +260,16 @@ class AISAnalyzer(SourceAnalyzer):
 
             # Create a truncated GeoDataFrame for display (only points before s1_time).
             display_gdf = group[group["timestamp"] <= s1_time].copy()
+
+            # Add the row corresponding to s1_time if it exists.
+            if s1_time in interp_gdf.index:
+                geom = interp_gdf.at[s1_time, "geometry"]
+                display_gdf.loc[len(display_gdf)] = {
+                    "ssvid": st_name,
+                    "timestamp": s1_time,
+                    "geometry": geom,
+                }
+
             # Use vectorized formatting to convert timestamps to ISO strings.
             display_gdf["timestamp"] = display_gdf["timestamp"].dt.strftime(
                 "%Y-%m-%dT%H:%M:%S"
