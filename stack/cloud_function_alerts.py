@@ -74,14 +74,15 @@ secret_access = gcp.secretmanager.SecretIamMember(
 
 
 # IAM entry for all users to invoke the function
-invoker = gcp.cloudfunctions.FunctionIamMember(
+invoker = gcp.cloudfunctionsv2.FunctionIamMember(
     construct_name(f"{function_name}-invoker"),
     project=fxn.project,
-    region=fxn.region,
+    location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
     member="allUsers",
 )
+
 
 # job = gcp.cloudscheduler.Job(
 #     construct_name(f"{function_name}-scheduler-frequent"),
