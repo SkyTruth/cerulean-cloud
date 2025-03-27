@@ -3,7 +3,7 @@ import pulumi_gcp as gcp
 from utils import construct_name
 
 
-PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
+PATH_TO_SOURCE_CODE = "./cloud_function_alerts"
 secret_name = "cerulean-slack-alerts-webhook"
 function_name = "cf-alerts"
 
@@ -50,7 +50,6 @@ fxn = gcp.cloudfunctionsv2.Function(
         #         bucket=bucket.name,ß
         #         object=source_archive_object.name,
         #     ),
-        source=pulumi.AssetArchive({".": pulumi.FileArchive(PATH_TO_SOURCE_CODE)}),
     ),
     service_config=gcp.cloudfunctionsv2.FunctionServiceConfigArgs(
         max_instance_count=1,
@@ -62,6 +61,7 @@ fxn = gcp.cloudfunctionsv2.Function(
             "GCP_PROJECT": gcp.config.project,
         },
     ),
+    source=pulumi.AssetArchive({".": pulumi.FileArchive(PATH_TO_SOURCE_CODE)}),
 )
 
 
