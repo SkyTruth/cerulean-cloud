@@ -25,10 +25,23 @@ invoker = gcp.cloudfunctions.FunctionIamMember(
     member="allUsers",
 )
 
+# job = gcp.cloudscheduler.Job(
+#     "daily-alerts-job",
+#     description="Run test daily",
+#     schedule="0 8 * * *",  # 8 AM
+#     time_zone="US/Eastern",
+#     http_target=gcp.cloudscheduler.JobHttpTargetArgs(
+#         http_method="GET",
+#         uri=cloud_function.https_trigger_url,
+#     ),
+# )
+
+
+# TODO: Frequent alert just for testing, remove when finished
 job = gcp.cloudscheduler.Job(
-    "daily-alerts-job",
-    description="Run test daily",
-    schedule="0 8 * * *",  # 8 AM
+    "test-frequent-alerts-job",
+    description="Run test frequently",
+    schedule="every 5 minutes",
     time_zone="US/Eastern",
     http_target=gcp.cloudscheduler.JobHttpTargetArgs(
         http_method="GET",
