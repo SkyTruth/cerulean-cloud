@@ -55,7 +55,7 @@ fxn = gcp.cloudfunctionsv2.Function(
     ),
     service_config=gcp.cloudfunctionsv2.FunctionServiceConfigArgs(
         max_instance_count=1,
-        available_memory="128M",
+        available_memory="128Mi",
         timeout_seconds=60,
         ingress_settings="ALLOW_ALL",
         environment_variables={
