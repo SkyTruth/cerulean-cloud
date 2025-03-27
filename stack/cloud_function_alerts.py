@@ -91,7 +91,7 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
 #     time_zone="US/Eastern",
 #     http_target=gcp.cloudscheduler.JobHttpTargetArgs(
 #         http_method="GET",
-#         uri=cloud_function.https_trigger_url,
+#         uri=fxn.service_config.uri,
 #     ),
 # )
 
@@ -104,6 +104,6 @@ job = gcp.cloudscheduler.Job(
     time_zone="US/Eastern",
     http_target=gcp.cloudscheduler.JobHttpTargetArgs(
         http_method="GET",
-        uri=fxn.https_trigger_url,
+        uri=fxn.service_config.uri,
     ),
 )
