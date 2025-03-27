@@ -127,6 +127,7 @@ class AISAnalyzer(SourceAnalyzer):
         self.ais_ref_time_over = kwargs.get("ais_ref_time_over", c.AIS_REF_TIME_OVER)
         self.ais_ref_time_under = kwargs.get("ais_ref_time_under", c.AIS_REF_TIME_UNDER)
         self.spread_rate = kwargs.get("spread_rate", c.SPREAD_RATE)
+        self.grace_distance = kwargs.get("grace_distance", c.GRACE_DISTANCE)
         self.coinc_mean = kwargs.get("coinc_mean", c.VESSEL_MEAN)
         self.coinc_std = kwargs.get("coinc_std", c.VESSEL_STD)
 
@@ -372,6 +373,7 @@ class AISAnalyzer(SourceAnalyzer):
             proximity_score = compute_proximity_score(
                 traj_gdf,
                 self.spread_rate,
+                self.grace_distance,
                 self.s1_scene.start_time,
                 slick_to_traj_mapping,
             )

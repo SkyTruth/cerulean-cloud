@@ -14,6 +14,7 @@ from shapely.geometry import LineString, MultiLineString, Point
 def compute_proximity_score(
     traj_gdf: gpd.GeoDataFrame,
     spread_rate: float,
+    grace_distance: float,
     t_image: datetime.datetime,
     slick_to_traj_mapping: tuple[
         pd.Timestamp, Point, float, pd.Timestamp, Point, float
@@ -38,8 +39,10 @@ def compute_proximity_score(
         P_t = math.exp(-d_tail / (spread_rate * delta_tail))
 
     delta_head = (t_image - t_head).total_seconds() / 3600
-    if delta_head <= 0:  # The head is in front of the vessel
-        P_h = math.exp(-d_0 / 500)  # 500m grace distance
+    grace_distance = 1000
+    if spread_rate * delta_head < grace_distance:
+        # The head is close to or in front of the vessel
+        P_h = math.exp(-d_0 / grace_distance)
     else:
         P_h = math.exp(-d_head / (spread_rate * delta_head))
     return np.sqrt(P_t * P_h)

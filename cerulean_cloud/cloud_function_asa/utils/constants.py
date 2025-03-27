@@ -36,6 +36,7 @@ W_PARITY = 1.0
 AIS_REF_TIME_OVER = 600.0  # Seconds
 AIS_REF_TIME_UNDER = 10000.0  # Seconds
 SENSITIVITY_PARITY = 5.77  # 4/ln(2) calculated to make a 45º angle have a score of 0.5 decrease to be more lenient
+GRACE_DISTANCE = 1000  # Meters, for slick heads near vessel at image time
 
 # COLLATION PARAMETERS
 # https://skytruth.atlassian.net/browse/TECH-2674
