@@ -38,7 +38,6 @@ bucket = gcp.storage.Bucket(
 
 # Create the CloudFunction (v2)
 fxn = gcp.cloudfunctionsv2.Function(
-    "slack-alert-v2",
     construct_name(function_name),
     name=construct_name(function_name),
     location=pulumi.Config("gcp").require("region"),
