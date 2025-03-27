@@ -37,7 +37,7 @@ bucket = gcp.storage.Bucket(
 # )
 
 # Create the CloudFunction (v2)
-cloud_function = gcp.cloudfunctionsv2.Function(
+fxn = gcp.cloudfunctionsv2.Function(
     "slack-alert-v2",
     construct_name(function_name),
     name=construct_name(function_name),
@@ -77,9 +77,9 @@ secret_access = gcp.secretmanager.SecretIamMember(
 # IAM entry for all users to invoke the function
 invoker = gcp.cloudfunctions.FunctionIamMember(
     construct_name(f"{function_name}-invoker"),
-    project=cloud_function.project,
-    region=cloud_function.region,
-    cloud_function=cloud_function.name,
+    project=fxn.project,
+    region=fxn.region,
+    cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
     member="allUsers",
 )
@@ -104,6 +104,6 @@ job = gcp.cloudscheduler.Job(
     time_zone="US/Eastern",
     http_target=gcp.cloudscheduler.JobHttpTargetArgs(
         http_method="GET",
-        uri=cloud_function.https_trigger_url,
+        uri=fxn.https_trigger_url,
     ),
 )
