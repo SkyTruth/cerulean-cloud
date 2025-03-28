@@ -213,12 +213,20 @@ class AISAnalyzer(SourceAnalyzer):
         - Generates a truncated version (with ISO-formatted timestamps) for display.
         """
         # print("Building trajectories")
-        ais_trajectories = []
+        if self.ais_trajectories:
+            existing_ids = {traj.id for traj in self.ais_trajectories}
+            ais_trajectories = list(self.ais_trajectories)
+        else:
+            existing_ids = set()
+            ais_trajectories = []
         s1_time = self.s1_scene.start_time
         ais_data = self.ais_filtered.sort_values("timestamp")
 
         # Group the filtered AIS data by ship identifier (ssvid)
         for st_name, group in ais_data.groupby("ssvid"):
+            if st_name in existing_ids:
+                continue
+
             group = group.copy()  # avoid chained assignment issues
 
             # If only one point is present, we cannot interpolate.
