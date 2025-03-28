@@ -155,8 +155,8 @@ class AISAnalyzer(SourceAnalyzer):
         self.sql = None
         self.slick_centerlines = None
         self.ais_gdf = None
-        self.ais_trajectories = None
         self.ais_filtered = None
+        self.ais_trajectories = mpd.TrajectoryCollection([])
         self.results = gpd.GeoDataFrame()
 
     def retrieve_ais_data(self):
@@ -213,20 +213,14 @@ class AISAnalyzer(SourceAnalyzer):
         - Generates a truncated version (with ISO-formatted timestamps) for display.
         """
         # print("Building trajectories")
-        if self.ais_trajectories:
-            existing_ids = {traj.id for traj in self.ais_trajectories}
-            ais_trajectories = list(self.ais_trajectories)
-        else:
-            existing_ids = set()
-            ais_trajectories = []
+        new_trajectories = []
         s1_time = self.s1_scene.start_time
         ais_data = self.ais_filtered.sort_values("timestamp")
+        existing_ids = {traj.id for traj in self.ais_trajectories}
+        ais_data = ais_data[~ais_data["ssvid"].isin(existing_ids)]
 
         # Group the filtered AIS data by ship identifier (ssvid)
         for st_name, group in ais_data.groupby("ssvid"):
-            if st_name in existing_ids:
-                continue
-
             group = group.copy()  # avoid chained assignment issues
 
             # If only one point is present, we cannot interpolate.
@@ -287,9 +281,9 @@ class AISAnalyzer(SourceAnalyzer):
                 "features": json.loads(display_gdf.to_json())["features"],
             }
 
-            ais_trajectories.append(traj)
+            new_trajectories.append(traj)
 
-        self.ais_trajectories = mpd.TrajectoryCollection(ais_trajectories)
+        self.ais_trajectories.trajectories.extend(new_trajectories)
 
     def vectorized_interpolate_positions(self, group, interp_times):
         """
@@ -368,8 +362,14 @@ class AISAnalyzer(SourceAnalyzer):
         centerlines = self.slick_centerlines.sort_values("length", ascending=False)
         longest_centerline = centerlines.to_crs(self.crs_meters).iloc[0]["geometry"]
 
+        relevant_trajectories = [
+            traj
+            for traj in self.ais_trajectories
+            if traj.id in self.ais_filtered["ssvid"].unique()
+        ]
+
         # Iterate over filtered trajectories
-        for traj in self.ais_trajectories:
+        for traj in relevant_trajectories:
             traj_gdf = (
                 traj.to_point_gdf()
                 .sort_values(by="timestamp", ascending=False)
