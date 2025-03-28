@@ -163,6 +163,10 @@ class AISAnalyzer(SourceAnalyzer):
         """
         Retrieves AIS data from BigQuery.
         """
+        start_time = datetime.strftime(self.ais_start_time, c.T_FORMAT)
+        end_time = datetime.strftime(self.ais_end_time, c.T_FORMAT)
+        ais_envelope = self.ais_envelope[0]
+
         # print("Retrieving AIS data")
         sql = f"""
             SELECT
@@ -183,8 +187,8 @@ class AISAnalyzer(SourceAnalyzer):
                 ON seg.ssvid = ves.ssvid
             WHERE
                 clean_segs IS TRUE
-                AND seg.timestamp between '{datetime.strftime(self.ais_start_time, c.T_FORMAT)}' AND '{datetime.strftime(self.ais_end_time, c.T_FORMAT)}'
-                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{self.ais_envelope[0]}'))
+                AND seg.timestamp between '{start_time}' AND '{end_time}'
+                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{ais_envelope}'))
             """
         df = pandas_gbq.read_gbq(
             sql,
