@@ -3,7 +3,7 @@ import pulumi_gcp as gcp
 from utils import construct_name, pulumi_create_zip
 
 
-PATH_TO_SOURCE_CODE = "./cloud_function_alerts"
+PATH_TO_SOURCE_CODE = "./cerulean_cloud/cloud_function_alerts"
 secret_name = "cerulean-slack-alerts-webhook"
 function_name = "cf-alerts"
 
