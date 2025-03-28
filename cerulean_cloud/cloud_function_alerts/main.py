@@ -54,7 +54,7 @@ def success():
     )
 
 
-def main():
+def main(request):
     if check_recent_slicks():
         send_alert_no_recent_slicks()
     else:
