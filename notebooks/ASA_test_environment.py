@@ -376,7 +376,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
 
         for st_name, group in filtered_ais.groupby("st_name"):
             # Obtain the longest centerline for the st_name; assumes slick_centerlines has a 'st_name' column
-            gdf = ais_analyzer.ais_trajectories.get_trajectory(st_name).df
+            gdf = ais_analyzer.ais_trajectories[st_name]["df"]
             longest_centerline = (
                 ais_analyzer.slick_centerlines.sort_values("length", ascending=False)
                 .iloc[0]
@@ -387,8 +387,8 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                 get_closest_centerline_points(gdf, longest_centerline, s1_time)
             )
             # Compute nearest trajectory point to the start and end coordinates of the longest centerline
-            start_traj_point = gdf.loc[t_tail]["geometry"]
-            end_traj_point = gdf.loc[t_head]["geometry"]
+            start_traj_point = gdf.loc[[t_tail]].iloc[0]["geometry"]
+            end_traj_point = gdf.loc[[t_head]].iloc[0]["geometry"]
             # Plot dotted lines connecting the endpoints to their nearest trajectory points
             ax.plot(
                 [cl_tail.x, start_traj_point.x],
@@ -403,13 +403,10 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                 color=st_name_to_color.get(st_name, "black"),
             )
 
-            if (
-                s1_time
-                in ais_analyzer.ais_trajectories.get_trajectory(st_name).df.index
-            ):
-                geom = ais_analyzer.ais_trajectories.get_trajectory(
-                    st_name
-                ).df.geometry.loc[s1_time]
+            if s1_time in ais_analyzer.ais_trajectories[st_name]["df"].index:
+                geom = ais_analyzer.ais_trajectories[st_name]["df"].geometry.loc[
+                    s1_time
+                ]
                 ax.plot(
                     geom.x,
                     geom.y,
@@ -604,11 +601,12 @@ slick_ids = [
     # 34314,
     # 34226,
     # 34321,
-    # 34251,
+    # 34251, # slow
+    # 34258, # paired to 34251
     # 34179,
     # 34236,
     # 34209,
-    # 34197,
+    # 34197, # slow
     # 34216,
     # 34171,
     # 34268,
@@ -629,7 +627,7 @@ slick_ids = [
     # 34366,
     # 34357,
     # 34332,
-    34333,
+    # 34333,
     # 35611
 ]
 

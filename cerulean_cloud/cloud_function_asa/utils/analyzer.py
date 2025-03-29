@@ -11,7 +11,6 @@ from typing import List, Tuple
 import geopandas as gpd
 import mapbox_vector_tile
 import morecantile
-import movingpandas as mpd
 import numpy as np
 import pandas as pd
 import pandas_gbq
@@ -156,7 +155,7 @@ class AISAnalyzer(SourceAnalyzer):
         self.slick_centerlines = None
         self.ais_gdf = None
         self.ais_filtered = None
-        self.ais_trajectories = mpd.TrajectoryCollection([])
+        self.ais_trajectories = {}
         self.results = gpd.GeoDataFrame()
 
     def retrieve_ais_data(self):
@@ -217,26 +216,27 @@ class AISAnalyzer(SourceAnalyzer):
         - Generates a truncated version (with ISO-formatted timestamps) for display.
         """
         # print("Building trajectories")
-        new_trajectories = []
         s1_time = self.s1_scene.start_time
         ais_data = self.ais_filtered.sort_values("timestamp")
-        existing_ids = {traj.id for traj in self.ais_trajectories}
+        existing_ids = self.ais_trajectories.keys()
         ais_data = ais_data[~ais_data["ssvid"].isin(existing_ids)]
 
         # Group the filtered AIS data by ship identifier (ssvid)
-        for st_name, group in ais_data.groupby("ssvid"):
+        for source_id, group in ais_data.groupby("ssvid"):
             group = group.copy()  # avoid chained assignment issues
 
             # If only one point is present, we cannot interpolate.
             if len(group) == 1:
-                print(f"Trajectory {st_name} has only one point, cannot interpolate")
-                continue
+                group = pd.concat([group, group], ignore_index=True)
+                print(f"Trajectory {source_id} has only one point, cannot interpolate")
 
             # Create a trajectory object
-            traj = mpd.Trajectory(df=group, traj_id=st_name, t="timestamp")
-            traj.ext_name, traj.ext_shiptype, traj.flag = group.iloc[0][
-                ["shipname", "best_shiptype", "flag"]
-            ]
+            traj = {
+                "id": source_id,
+                "ext_name": group.iloc[0]["shipname"],
+                "ext_shiptype": group.iloc[0]["best_shiptype"],
+                "flag": group.iloc[0]["flag"],
+            }
 
             # Get the first and last timestamp of the AIS data for this trajectory.
             first_ais_tstamp = group["timestamp"].min()
@@ -257,12 +257,10 @@ class AISAnalyzer(SourceAnalyzer):
 
             # Interpolate positions at the required times.
             positions = self.vectorized_interpolate_positions(group, interp_times)
-
-            # Build a full GeoDataFrame for scoring (timestamps remain as datetime objects).
             interp_gdf = gpd.GeoDataFrame(
                 {"timestamp": interp_times, "geometry": positions}, crs="4326"
             ).set_index("timestamp")
-            traj.df = interp_gdf
+            traj["df"] = interp_gdf
 
             # Create a truncated GeoDataFrame for display (only points before s1_time).
             display_gdf = group[group["timestamp"] <= s1_time].copy()
@@ -271,7 +269,7 @@ class AISAnalyzer(SourceAnalyzer):
             if s1_time in interp_gdf.index:
                 geom = interp_gdf.at[s1_time, "geometry"]
                 display_gdf.loc[len(display_gdf)] = {
-                    "ssvid": st_name,
+                    "ssvid": source_id,
                     "timestamp": s1_time,
                     "geometry": geom,
                 }
@@ -280,14 +278,12 @@ class AISAnalyzer(SourceAnalyzer):
             display_gdf["timestamp"] = display_gdf["timestamp"].dt.strftime(
                 "%Y-%m-%dT%H:%M:%S"
             )
-            traj.geojson_fc = {
+            traj["geojson_fc"] = {
                 "type": "FeatureCollection",
                 "features": json.loads(display_gdf.to_json())["features"],
             }
 
-            new_trajectories.append(traj)
-
-        self.ais_trajectories.trajectories.extend(new_trajectories)
+            self.ais_trajectories[source_id] = traj
 
     def vectorized_interpolate_positions(self, group, interp_times):
         """
@@ -367,15 +363,14 @@ class AISAnalyzer(SourceAnalyzer):
         longest_centerline = centerlines.to_crs(self.crs_meters).iloc[0]["geometry"]
 
         relevant_trajectories = [
-            traj
-            for traj in self.ais_trajectories
-            if traj.id in self.ais_filtered["ssvid"].unique()
+            self.ais_trajectories[source_id]
+            for source_id in self.ais_filtered["ssvid"].unique()
         ]
 
         # Iterate over filtered trajectories
         for traj in relevant_trajectories:
             traj_gdf = (
-                traj.to_point_gdf()
+                traj["df"]
                 .sort_values(by="timestamp", ascending=False)
                 .set_crs("4326")
                 .to_crs(self.crs_meters)
@@ -417,22 +412,22 @@ class AISAnalyzer(SourceAnalyzer):
             )
 
             print(
-                f"st_name {traj.id}: coincidence_score ({round(coincidence_score, 2)}), "
+                f"source_id {traj['id']}: coincidence_score ({round(coincidence_score, 2)}), "
                 f"temporal_score ({round(temporal_score, 2)}), "
                 f"proximity_score ({round(proximity_score, 2)}), "
                 f"parity_score ({round(parity_score, 2)})"
             )
 
             entry = {
-                "st_name": traj.id,
-                "ext_id": str(traj.id),
-                "geometry": LineString([p.coords[0] for p in traj.df["geometry"]]),
+                "st_name": traj["id"],
+                "ext_id": traj["id"],
+                "geometry": LineString([p.coords[0] for p in traj["df"]["geometry"]]),
                 "coincidence_score": coincidence_score,
                 "type": self.source_type,
-                "ext_name": traj.ext_name,
-                "ext_shiptype": traj.ext_shiptype,
-                "flag": traj.flag,
-                "geojson_fc": traj.geojson_fc,
+                "ext_name": traj["ext_name"],
+                "ext_shiptype": traj["ext_shiptype"],
+                "flag": traj["flag"],
+                "geojson_fc": traj["geojson_fc"],
             }
             entries.append(entry)
 
