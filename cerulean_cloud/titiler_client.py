@@ -14,7 +14,7 @@ from rasterio.plot import reshape_as_image
 
 from cerulean_cloud.tiling import TMS
 
-TMS_TITLE = TMS.identifier
+TMS_TITLE = TMS.id
 
 logger = logging.getLogger("cerulean_cloud")
 
