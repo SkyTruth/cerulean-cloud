@@ -1,3 +1,4 @@
+from flask import Request, make_response
 import datetime
 import os
 import requests
@@ -54,8 +55,9 @@ def success():
     )
 
 
-def main(request):
+def main(request: Request):
     if check_recent_slicks():
         send_alert_no_recent_slicks()
     else:
         success()
+    return make_response("Function executed", 200)

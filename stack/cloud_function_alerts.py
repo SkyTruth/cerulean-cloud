@@ -5,18 +5,18 @@ from utils import construct_name
 
 PATH_TO_SOURCE_CODE = "./cerulean_cloud/cloud_function_alerts"
 secret_name = "cerulean-slack-alerts-webhook"
-function_name = "cf-alerts"
+resource_name = "cf-alerts"
 
 # Create service account for this stack
 service_account = gcp.serviceaccount.Account(
-    f"{function_name}-service-account",
+    construct_name(f"{resource_name}-service-account"),
     account_id="function-sa",
     display_name="Service account for Slack alert function",
 )
 
 # Create bucket to store handler
 bucket = gcp.storage.Bucket(
-    construct_name(f"{function_name}-bucket"),
+    construct_name(f"{resource_name}-bucket"),
     location=pulumi.Config("gcp").require("region"),
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
@@ -30,8 +30,8 @@ bucket = gcp.storage.Bucket(
 
 # # Create the Cloud Storage object containing the zipped CloudFunction
 # source_archive_object = gcp.storage.BucketObject(
-#     construct_name(f"{function_name}-source"),
-#     name=construct_name(f"{function_name}-source"),
+#     construct_name(f"{resource_name}-source"),
+#     name=construct_name(f"{resource_name}-source"),
 #     bucket=bucket.name,
 #     source=archive,
 # )
@@ -39,16 +39,16 @@ bucket = gcp.storage.Bucket(
 archive = pulumi.AssetArchive({".": pulumi.FileArchive(PATH_TO_SOURCE_CODE)})
 
 source_archive_object = gcp.storage.BucketObject(
-    construct_name(f"{function_name}-source"),
-    name=construct_name(f"{function_name}-source"),
+    construct_name(f"{resource_name}-source"),
+    name=construct_name(f"{resource_name}-source"),
     bucket=bucket.name,
     source=archive,
 )
 
 # Create the CloudFunction (v2)
 fxn = gcp.cloudfunctionsv2.Function(
-    construct_name(function_name),
-    name=construct_name(function_name),
+    construct_name(resource_name),
+    name=construct_name(resource_name),
     location=pulumi.Config("gcp").require("region"),
     description="Cloud Function for Pipeline Failure Alerting",
     build_config=gcp.cloudfunctionsv2.FunctionBuildConfigArgs(
@@ -76,7 +76,7 @@ fxn = gcp.cloudfunctionsv2.Function(
 
 
 secret_access = gcp.secretmanager.SecretIamMember(
-    f"{function_name}-secret-access",
+    construct_name(f"{resource_name}-secret-access"),
     secret_id=secret_name,
     role="roles/secretmanager.secretAccessor",
     member=pulumi.Output.concat("serviceAccount:", service_account.email),
@@ -85,7 +85,7 @@ secret_access = gcp.secretmanager.SecretIamMember(
 
 # IAM entry for all users to invoke the function
 invoker = gcp.cloudfunctionsv2.FunctionIamMember(
-    construct_name(f"{function_name}-invoker"),
+    construct_name(f"{resource_name}-invoker"),
     project=fxn.project,
     location=fxn.location,
     cloud_function=fxn.name,
@@ -95,7 +95,7 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
 
 
 # job = gcp.cloudscheduler.Job(
-#     construct_name(f"{function_name}-scheduler-frequent"),
+#     construct_name(f"{resource_name}-scheduler-frequent"),
 #     description="Run test daily",
 #     schedule="0 8 * * *",  # 8 AM
 #     time_zone="US/Eastern",
@@ -108,7 +108,7 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
 
 # TODO: Frequent alert just for testing, remove when finished
 job = gcp.cloudscheduler.Job(
-    construct_name(f"{function_name}-scheduler-frequent"),
+    construct_name(f"{resource_name}-scheduler-frequent"),
     description="Run test frequently",
     schedule="every 5 minutes",
     time_zone="US/Eastern",
