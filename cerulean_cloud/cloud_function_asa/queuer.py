@@ -9,8 +9,6 @@ from datetime import datetime, timedelta, timezone
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
 
-# mypy: ignore-errors
-
 
 def add_to_asa_queue(scene_id):
     """
@@ -55,7 +53,7 @@ def add_to_asa_queue(scene_id):
 
     # Number of days that the Automatic Source Association should be run after
     # Each entry is another retry
-    asa_delays = [0, 3, 7]  # TODO Magic number >>> Where should this live?
+    asa_delays = [0, 3, 9]  # TODO Magic number >>> Where should this live?
     for delay in asa_delays:
         d = datetime.now(tz=timezone.utc) + timedelta(days=delay)
 
