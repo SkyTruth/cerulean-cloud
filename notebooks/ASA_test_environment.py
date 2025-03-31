@@ -166,7 +166,10 @@ def get_closest_centerline_points(
 
 
 def get_closest_point_near_timestamp(
-    target: Point, traj_gdf: gpd.GeoDataFrame, t_image: datetime
+    target: Point,
+    traj_gdf: gpd.GeoDataFrame,
+    t_image: datetime,
+    n_points: int = 10,
 ) -> pd.Timestamp:
     """
     Returns the trajectory row that is closest to the reference_point,
@@ -182,6 +185,7 @@ def get_closest_point_near_timestamp(
         traj_gdf (geopandas.GeoDataFrame): A GeoDataFrame with a datetime-like index
             and a 'geometry' column.
         t_image (datetime): The starting timestamp for the search (guaranteed to be in the dataset).
+        n_points (int): The number of subsequent points that must confirm the turning point.
 
     Returns:
         pd.Timestamp: The index corresponding to the selected trajectory row.
@@ -189,7 +193,7 @@ def get_closest_point_near_timestamp(
     # Get the starting position for t_image.
     traj_gdf = traj_gdf.sort_index(ascending=True)
     pos = np.abs(traj_gdf.index - t_image).argmin()
-    current_distance = traj_gdf.iloc[pos].geometry.distance(target)
+    best_dist = traj_gdf.iloc[pos].geometry.distance(target)
 
     # Determine direction to traverse.
     if pos == 0:
@@ -197,15 +201,26 @@ def get_closest_point_near_timestamp(
     else:
         backward_distance = traj_gdf.iloc[pos - 1].geometry.distance(target)
         # Pick the direction with a decreasing distance.
-        direction = -1 if backward_distance < current_distance else 1
+        direction = -1 if backward_distance < best_dist else 1
 
     while 0 <= pos + direction < len(traj_gdf):
-        next_distance = traj_gdf.iloc[pos + direction].geometry.distance(target)
-        if next_distance > current_distance:
-            break
-        current_distance = next_distance
         pos += direction
-
+        d = traj_gdf.iloc[pos].geometry.distance(target)
+        if d < best_dist:
+            best_dist = d
+        else:
+            # Get the next n_points indices in the chosen direction that are within bounds.
+            check_indices = [
+                pos + i * direction
+                for i in range(1, n_points + 1)
+                if 0 <= pos + i * direction < len(traj_gdf)
+            ]
+            # Check that for each of these indices, the distance is greater than best_dist.
+            distances = np.array(
+                [traj_gdf.iloc[idx].geometry.distance(target) for idx in check_indices]
+            )
+            if all(distances > best_dist):
+                break
     return traj_gdf.index[pos]
 
 
