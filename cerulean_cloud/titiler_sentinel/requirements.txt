@@ -1,4 +1,4 @@
-titiler.core==0.5.1
+titiler.core==0.20.1
 rio-tiler-pds==0.11.1
 starlette-cramjam==0.1.0
 mangum>=0.10
