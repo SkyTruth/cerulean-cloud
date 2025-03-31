@@ -86,7 +86,7 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
     location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
-    member="allUsers",
+    member=f"serviceAccount:{service_account.email}",
 )
 
 http_target = gcp.cloudscheduler.JobHttpTargetArgs(
