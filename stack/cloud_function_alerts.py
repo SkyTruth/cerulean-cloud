@@ -1,6 +1,6 @@
 import pulumi
 import pulumi_gcp as gcp
-from utils import construct_name
+from utils import construct_name, pulumi_create_zip
 
 
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
@@ -23,29 +23,23 @@ bucket = gcp.storage.Bucket(
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
 
-# # Create and zip package to be basis of CloudFunction
-# package = pulumi_create_zip(
-#     dir_to_zip=PATH_TO_SOURCE_CODE,
-#     zip_filepath="../cloud_function_alerts.zip",
-# )
-# archive = package.apply(lambda x: pulumi.FileAsset(x))
+# Create and zip package to be basis of CloudFunction
+package = pulumi_create_zip(
+    dir_to_zip=PATH_TO_SOURCE_CODE,
+    zip_filepath="../cloud_function_alerts.zip",
+)
+archive = package.apply(lambda x: pulumi.FileAsset(x))
 
-# # Create the Cloud Storage object containing the zipped CloudFunction
-# source_archive_object = gcp.storage.BucketObject(
-#     construct_name(f"{resource_name}-source"),
-#     name=construct_name(f"{resource_name}-source"),
-#     bucket=bucket.name,
-#     source=archive,
-# )
+# archive = pulumi.AssetArchive({".": pulumi.FileArchive(PATH_TO_SOURCE_CODE)})
 
-archive = pulumi.AssetArchive({".": pulumi.FileArchive(PATH_TO_SOURCE_CODE)})
-
+# Create the Cloud Storage object containing the zipped CloudFunction
 source_archive_object = gcp.storage.BucketObject(
     construct_name(f"{resource_name}-source"),
     name=construct_name(f"{resource_name}-source"),
     bucket=bucket.name,
     source=archive,
 )
+
 
 # Create the CloudFunction (v2)
 fxn = gcp.cloudfunctionsv2.Function(
