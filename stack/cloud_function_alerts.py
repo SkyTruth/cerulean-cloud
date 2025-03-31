@@ -89,13 +89,11 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
     member="allUsers",
 )
 
-http_target = (
-    gcp.cloudscheduler.JobHttpTargetArgs(
-        http_method="GET",
-        uri=fxn.service_config.uri,
-        oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
-            service_account_email=service_account.email,
-        ),
+http_target = gcp.cloudscheduler.JobHttpTargetArgs(
+    http_method="GET",
+    uri=fxn.service_config.uri,
+    oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
+        service_account_email=service_account.email,
     ),
 )
 
