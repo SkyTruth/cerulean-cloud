@@ -87,16 +87,18 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
     location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
-    member=pulumi.Output.concat("serviceAccount:", service_account.email),
+    # member=pulumi.Output.concat("serviceAccount:", service_account.email),
+    member="allUsers",
 )
 
 
 http_target = gcp.cloudscheduler.JobHttpTargetArgs(
     http_method="GET",
     uri=fxn.service_config.uri,
-    oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
-        service_account_email=service_account.email,
-    ),
+    # oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
+    #     audience=fxn.service_config.apply(lambda service_config: f"{service_config.uri}/"),
+    #     service_account_email=service_account.email,
+    # ),
 )
 
 
