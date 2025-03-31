@@ -89,18 +89,24 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
     member="allUsers",
 )
 
+http_target = (
+    gcp.cloudscheduler.JobHttpTargetArgs(
+        http_method="GET",
+        uri=fxn.service_config.uri,
+        oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
+            service_account_email=service_account.email,
+        ),
+    ),
+)
+
 
 # job = gcp.cloudscheduler.Job(
 #     construct_name(f"{resource_name}-scheduler-frequent"),
 #     description="Run test daily",
 #     schedule="0 8 * * *",  # 8 AM
 #     time_zone="US/Eastern",
-#     http_target=gcp.cloudscheduler.JobHttpTargetArgs(
-#         http_method="GET",
-#         uri=fxn.service_config.uri,
-#     ),
+#     http_target=http_target,
 # )
-
 
 # TODO: Frequent alert just for testing, remove when finished
 job = gcp.cloudscheduler.Job(
@@ -108,8 +114,5 @@ job = gcp.cloudscheduler.Job(
     description="Run test frequently",
     schedule="every 5 minutes",
     time_zone="US/Eastern",
-    http_target=gcp.cloudscheduler.JobHttpTargetArgs(
-        http_method="GET",
-        uri=fxn.service_config.uri,
-    ),
+    http_target=http_target,
 )
