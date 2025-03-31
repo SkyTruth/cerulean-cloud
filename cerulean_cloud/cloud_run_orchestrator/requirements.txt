@@ -9,8 +9,8 @@ morecantile==3.4
 rasterio
 supermercado
 numpy<2.0.0
-rio-tiler~=4.0
-rio-tiler-pds~=0.8.0
+rio-tiler~=7.5.0
+rio-tiler-pds~=0.11.1
 geojson
 SQLAlchemy[asyncio]!=2.0.18
 GeoAlchemy2
