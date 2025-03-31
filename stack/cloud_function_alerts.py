@@ -7,10 +7,12 @@ PATH_TO_SOURCE_CODE = "./cerulean_cloud/cloud_function_alerts"
 secret_name = "cerulean-slack-alerts-webhook"
 resource_name = "cf-alerts"
 
+stack = pulumi.get_stack()
+
 # Create service account for this stack
 service_account = gcp.serviceaccount.Account(
     construct_name(f"{resource_name}-service-account"),
-    account_id="function-sa",
+    account_id=f"{stack}-{resource_name}",
     display_name="Service account for Slack alert function",
 )
 
