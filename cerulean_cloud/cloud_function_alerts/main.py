@@ -56,6 +56,7 @@ def success():
 
 
 def main(request: Request):
+    print("Function was triggered")
     if check_recent_slicks():
         send_alert_no_recent_slicks()
     else:

@@ -68,6 +68,7 @@ fxn = gcp.cloudfunctionsv2.Function(
             "GCP_PROJECT": gcp.config.project,
         },
     ),
+    opts=pulumi.ResourceOptions(replace_on_changes=["http_target", "time_zone"]),
 )
 
 
@@ -103,7 +104,7 @@ http_target = gcp.cloudscheduler.JobHttpTargetArgs(
 #     construct_name(f"{resource_name}-scheduler-frequent"),
 #     description="Run test daily",
 #     schedule="0 8 * * *",  # 8 AM
-#     time_zone="US/Eastern",
+#     time_zone="America/New_York",
 #     http_target=http_target,
 # )
 
@@ -112,6 +113,6 @@ job = gcp.cloudscheduler.Job(
     construct_name(f"{resource_name}-scheduler-frequent"),
     description="Run test frequently",
     schedule="every 5 minutes",
-    time_zone="US/Eastern",
+    time_zone="America/New_York",
     http_target=http_target,
 )
