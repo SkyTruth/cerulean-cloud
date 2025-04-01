@@ -5,7 +5,7 @@ from utils import construct_name, pulumi_create_zip
 
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
 secret_name = "cerulean-slack-alerts-webhook"
-resource_name = "cf-alerts-v2"
+resource_name = "cf-alerts"
 
 stack = pulumi.get_stack()
 
@@ -30,8 +30,6 @@ package = pulumi_create_zip(
 )
 archive = package.apply(lambda x: pulumi.FileAsset(x))
 
-# archive = pulumi.AssetArchive({".": pulumi.FileArchive(PATH_TO_SOURCE_CODE)})
-
 # Create the Cloud Storage object containing the zipped CloudFunction
 source_archive_object = gcp.storage.BucketObject(
     construct_name(f"{resource_name}-source"),
@@ -49,13 +47,12 @@ fxn = gcp.cloudfunctionsv2.Function(
     description="Cloud Function for Pipeline Failure Alerting",
     build_config=gcp.cloudfunctionsv2.FunctionBuildConfigArgs(
         runtime="python311",
-        entry_point="main",  # must match `def main(request):`
+        entry_point="main",
         source=gcp.cloudfunctionsv2.FunctionBuildConfigSourceArgs(
             storage_source=gcp.cloudfunctionsv2.FunctionBuildConfigSourceStorageSourceArgs(
                 bucket=bucket.name,
                 object=source_archive_object.name,
             ),
-            # source=pulumi.AssetArchive({".": pulumi.FileArchive(PATH_TO_SOURCE_CODE)}
         ),
     ),
     service_config=gcp.cloudfunctionsv2.FunctionServiceConfigArgs(
@@ -87,20 +84,12 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
     location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
-    # member=pulumi.Output.concat("serviceAccount:", service_account.email),
     member="allUsers",
 )
 
 
 http_target = gcp.cloudscheduler.JobHttpTargetArgs(
-    http_method="GET",
-    uri=fxn.service_config.uri,
-    # oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
-    #     audience=fxn.service_config.apply(
-    #         lambda service_config: f"{service_config.uri}/"
-    #     ),
-    #     service_account_email=service_account.email,
-    # ),
+    http_method="GET", uri=fxn.service_config.uri
 )
 
 
