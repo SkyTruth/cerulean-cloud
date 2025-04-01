@@ -43,8 +43,8 @@ source_archive_object = gcp.storage.BucketObject(
 
 # Create the CloudFunction (v2)
 fxn = gcp.cloudfunctionsv2.Function(
-    construct_name(resource_name),
-    name=construct_name(resource_name),
+    f"{construct_name(resource_name)}-v2",
+    name=f"{construct_name(resource_name)}-v2",
     location=pulumi.Config("gcp").require("region"),
     description="Cloud Function for Pipeline Failure Alerting",
     build_config=gcp.cloudfunctionsv2.FunctionBuildConfigArgs(
