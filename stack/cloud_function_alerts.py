@@ -5,7 +5,7 @@ from utils import construct_name, pulumi_create_zip
 
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
 secret_name = "cerulean-slack-alerts-webhook"
-resource_name = "cf-alerts"
+resource_name = "cf-alerts-v2"
 
 stack = pulumi.get_stack()
 
