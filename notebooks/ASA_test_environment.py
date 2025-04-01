@@ -616,7 +616,7 @@ slick_ids = [
     # 34314,
     # 34226,
     # 34321,
-    # 34251, # slow
+    # 34251,  # slow
     # 34258, # paired to 34251
     # 34179,
     # 34236,
@@ -636,14 +636,17 @@ slick_ids = [
     # 34385,
     # 34378,
     # 34537,
-    # 34490
+    # 34490,
     # 34362,
     # 34327,
     # 34366,
     # 34357,
     # 34332,
     # 34333,
-    # 35611
+    # 35611,
+    # 35670, # SLOW AIS
+    # 34156, # UI breaker
+    # 35645,
 ]
 
 accumulated_sources = []
@@ -701,7 +704,6 @@ for slick_id in slick_ids:
         f"Time per {len(ranked_sources)} sources: {(time.time() - start_time) / len(ranked_sources)} seconds"
     )
 # print(accumulated_sources)
-
 # %%
 # Plot out all potential dark sources
 fake_dark_gdf = generate_infrastructure_points(slick_gdf, 50000)

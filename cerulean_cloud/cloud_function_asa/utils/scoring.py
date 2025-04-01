@@ -39,8 +39,7 @@ def compute_proximity_score(
         P_t = math.exp(-d_tail / (spread_rate * delta_tail))
 
     delta_head = (t_image - t_head).total_seconds() / 3600
-    grace_distance = 1000
-    if spread_rate * delta_head < grace_distance:
+    if spread_rate * delta_head < grace_distance / 2:
         # The head is close to or in front of the vessel
         P_h = math.exp(-d_0 / grace_distance)
     else:
