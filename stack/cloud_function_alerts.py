@@ -5,7 +5,7 @@ from utils import construct_name, pulumi_create_zip
 
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
 secret_name = "cerulean-slack-alerts-webhook"
-resource_name = "cf-alerts"
+resource_name = "cf-alerts-v2"
 
 stack = pulumi.get_stack()
 
@@ -43,8 +43,8 @@ source_archive_object = gcp.storage.BucketObject(
 
 # Create the CloudFunction (v2)
 fxn = gcp.cloudfunctionsv2.Function(
-    f"{construct_name(resource_name)}-v2",
-    name=f"{construct_name(resource_name)}-v2",
+    construct_name(resource_name),
+    name=construct_name(resource_name),
     location=pulumi.Config("gcp").require("region"),
     description="Cloud Function for Pipeline Failure Alerting",
     build_config=gcp.cloudfunctionsv2.FunctionBuildConfigArgs(
@@ -114,7 +114,7 @@ http_target = gcp.cloudscheduler.JobHttpTargetArgs(
 job = gcp.cloudscheduler.Job(
     construct_name(f"{resource_name}-scheduler-frequent"),
     description="Run test frequently",
-    schedule="every 1 hour",
+    schedule="0 * * * *",
     time_zone="America/New_York",
     http_target=http_target,
 )
