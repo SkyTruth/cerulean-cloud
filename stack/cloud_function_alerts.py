@@ -5,7 +5,7 @@ from utils import construct_name, pulumi_create_zip
 
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
 secret_name = "cerulean-slack-alerts-webhook"
-resource_name = "cf-alerts"
+resource_name = "cf-alerts-v2"
 
 stack = pulumi.get_stack()
 
@@ -87,20 +87,20 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
     location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
-    member=pulumi.Output.concat("serviceAccount:", service_account.email),
-    # member="allUsers",
+    # member=pulumi.Output.concat("serviceAccount:", service_account.email),
+    member="allUsers",
 )
 
 
 http_target = gcp.cloudscheduler.JobHttpTargetArgs(
     http_method="GET",
     uri=fxn.service_config.uri,
-    oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
-        audience=fxn.service_config.apply(
-            lambda service_config: f"{service_config.uri}/"
-        ),
-        service_account_email=service_account.email,
-    ),
+    # oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
+    #     audience=fxn.service_config.apply(
+    #         lambda service_config: f"{service_config.uri}/"
+    #     ),
+    #     service_account_email=service_account.email,
+    # ),
 )
 
 
