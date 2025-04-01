@@ -68,7 +68,7 @@ fxn = gcp.cloudfunctionsv2.Function(
             "GCP_PROJECT": gcp.config.project,
         },
     ),
-    opts=pulumi.ResourceOptions(replace_on_changes=["http_target", "time_zone"]),
+    opts=pulumi.ResourceOptions(replace_on_changes=["http_target", "member"]),
 )
 
 
