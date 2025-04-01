@@ -34,7 +34,7 @@ def check_recent_slicks():
 
     data = requests.get(cerulean_url).json()
 
-    return True if len(data["features"]) == limit else False
+    return True if len(data["features"]) == 0 else False
 
 
 def send_alert_no_recent_slicks():

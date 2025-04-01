@@ -114,7 +114,7 @@ http_target = gcp.cloudscheduler.JobHttpTargetArgs(
 job = gcp.cloudscheduler.Job(
     construct_name(f"{resource_name}-scheduler-frequent"),
     description="Run test frequently",
-    schedule="every 5 minutes",
+    schedule="every 1 hour",
     time_zone="America/New_York",
     http_target=http_target,
 )
