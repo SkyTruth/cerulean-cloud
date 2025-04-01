@@ -24,7 +24,7 @@ def check_recent_slicks():
     """
 
     limit = 10
-    end_date = datetime.datetime.now()
+    end_date = datetime.datetime.now(datetime.timezone.utc)
     start_date = end_date - datetime.timedelta(days=1)
 
     st = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
