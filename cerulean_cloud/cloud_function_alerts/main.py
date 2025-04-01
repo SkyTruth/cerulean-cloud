@@ -49,10 +49,11 @@ def success():
     """
     Perform success function (generally used for testing)
     """
-    webhook_url = get_secret(os.environ["SECRET_NAME"])
-    _ = requests.post(
-        webhook_url, json={"text": "All is going to according to plan . . ."}
-    )
+    # webhook_url = get_secret(os.environ["SECRET_NAME"])
+    # _ = requests.post(
+    #     webhook_url, json={"text": "All is going to according to plan . . ."}
+    # )
+    print("All is going to according to plan . . .")
 
 
 def main(request: Request):
