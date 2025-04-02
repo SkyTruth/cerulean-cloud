@@ -515,16 +515,21 @@ class AISAnalyzer(SourceAnalyzer):
         ]
 
         # Sort the pairs by timestamp to determine head and tail
-        (t_tail, cl_tail, d_tail), (t_head, cl_head, d_head) = sorted(
-            ends, key=lambda x: x[0]
+        (t_head, cl_head, d_head), (t_tail, cl_tail, d_tail) = sorted(
+            ends, key=lambda x: x[2]
         )
+
+        # After finding the head (slick end closest to the AIS), project the tail to the nearest point independent of time.
+        t_tail = self.get_closest_point_near_timestamp(cl_tail, traj_gdf, t_image)
+        d_tail = traj_gdf.loc[[t_tail]].iloc[0]["geometry"].distance(cl_tail)
+
         return (t_tail, cl_tail, d_tail, t_head, cl_head, d_head)
 
     def get_closest_point_near_timestamp(
         self,
         target: Point,
         traj_gdf: gpd.GeoDataFrame,
-        t_image: datetime,
+        t_image: datetime = None,
         n_points: int = 10,
     ) -> pd.Timestamp:
         """
@@ -546,6 +551,9 @@ class AISAnalyzer(SourceAnalyzer):
         Returns:
             pd.Timestamp: The index corresponding to the selected trajectory row.
         """
+        if t_image is None:
+            return traj_gdf.geometry.distance(target).idxmin()
+
         # Get the starting position for t_image.
         traj_gdf = traj_gdf.sort_index(ascending=True)
         pos = np.abs(traj_gdf.index - t_image).argmin()
