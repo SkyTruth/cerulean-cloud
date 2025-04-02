@@ -73,6 +73,8 @@ def compute_parity_score(
 
     # Extract the relevant substring of the trajectory.
     traj_substring = LineString(traj_gdf.sort_index().loc[t_tail:t_head]["geometry"])
+    if traj_substring.length == 0:
+        return 0.0
 
     return math.exp(
         -(math.log(longest_centerline.length / traj_substring.length) ** 2)
