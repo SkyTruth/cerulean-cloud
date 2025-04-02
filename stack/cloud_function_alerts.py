@@ -111,4 +111,5 @@ job = gcp.cloudscheduler.Job(
     # schedule="every 30 minutes",
     time_zone="America/New_York",
     http_target=http_target,
+    opts=pulumi.ResourceOptions(replace_on_changes=["schedule"]),
 )

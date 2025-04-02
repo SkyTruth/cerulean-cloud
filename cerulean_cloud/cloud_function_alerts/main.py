@@ -4,23 +4,68 @@ import os
 import requests
 import time
 
-BASE_URL = "https://api.cerulean.skytruth.org/collections/public.slick_plus"
+BASE_URL = "https://cerulean-cloud-test-cr-tipg-5qkjkyomta-ew.a.run.app/collections/public.source_plus"
+LIMIT = 10
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 2
 
 WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
 
 
-def send_alert_no_recent_slicks():
+def send_alert_no_recent_slicks_message(slick_type):
     """
     Sends `no slick` warning to Slack channel
     """
-    _ = requests.post(WEBHOOK_URL, json={"text": "No new slicks in the last 24 hours"})
+    _ = requests.post(
+        WEBHOOK_URL, json={"text": f"No new {slick_type} slicks in the last 24 hours"}
+    )
 
 
-def send_alert_failed_connection():
+def send_alert_failed_connection_message():
     """
     Sends `no slick` warning to Slack channel
     """
     _ = requests.post(WEBHOOK_URL, json={"text": f"Failed connection to {BASE_URL}"})
+
+
+def send_success_message():
+    """
+    Perform success function (generally used for testing)
+    """
+    print("No errors detected")
+
+
+def fetch_with_retries(st, fn, slick_type=None):
+    """
+    Attempts to fetch data from the slick detection API with retry logic.
+
+    If data is found (`numberMatched > 0`), a success message is sent.
+    If no data is found, a "no slicks" alert is triggered.
+    On repeated connection failures, a failure alert is sent.
+
+    Parameters:
+        st (str): Start datetime (ISO format).
+        fn (str): End datetime (ISO format).
+        slick_type (str, optional): Optional source type to filter the query.
+    """
+    src_var = "" if slick_type is None else f"&source_type={slick_type}"
+    url = f"{BASE_URL}/items?limit={LIMIT}{src_var}&datetime={st}/{fn}"
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            if response.json()["numberMatched"] > 0:
+                send_success_message()
+            else:
+                send_alert_no_recent_slicks_message(slick_type)
+            return
+
+        except requests.exceptions.RequestException:
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY_SECONDS)
+            else:
+                send_alert_failed_connection_message(url)
 
 
 def check_recent_slicks():
@@ -28,47 +73,15 @@ def check_recent_slicks():
     Hits the Cerulean API to see if any new slicks have been added in the past 24 hours
     """
 
-    LIMIT = 10
-    MAX_RETRIES = 3
-    RETRY_DELAY_SECONDS = 2
-
     end_date = datetime.datetime.now(datetime.timezone.utc)
     start_date = end_date - datetime.timedelta(days=1)
-
     st = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
     fn = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    cerulean_url = f"{BASE_URL}/items?limit={LIMIT}&datetime={st}/{fn}"
-
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            response = requests.get(cerulean_url)
-            response.raise_for_status()  # raises HTTPError for bad responses (4xx, 5xx)
-            data = response.json()
-            break
-        except Exception as e:
-            print(f"Attempt {attempt} failed: {e}")
-            if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY_SECONDS)
-            else:
-                send_alert_failed_connection()
-                return True
-
-    data = requests.get(cerulean_url).json()
-
-    return True if len(data["features"]) == 0 else False
-
-
-def success():
-    """
-    Perform success function (generally used for testing)
-    """
-    print("No errors detected")
+    for slick_type in ["VESSEL", "INFRA", "DARK"]:
+        fetch_with_retries(st, fn, slick_type=slick_type)
 
 
 def main(request: Request):
-    if check_recent_slicks():
-        send_alert_no_recent_slicks()
-    else:
-        success()
+    check_recent_slicks()
     return make_response("Function executed", 200)
