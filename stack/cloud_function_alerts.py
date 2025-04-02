@@ -72,7 +72,6 @@ fxn = gcp.cloudfunctionsv2.Function(
         },
         secret_environment_variables=[slack_webhooks],
     ),
-    opts=pulumi.ResourceOptions(replace_on_changes=["http_target", "member"]),
 )
 
 # IAM entry for all users to invoke the function
@@ -82,8 +81,8 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
     location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
-    # member="allUsers",
     member=pulumi.Output.concat("serviceAccount:", service_account.email),
+    opts=pulumi.ResourceOptions(replace_on_changes=["member"]),
 )
 
 cloud_run_invoker = gcp.cloudrun.IamMember(
@@ -91,8 +90,8 @@ cloud_run_invoker = gcp.cloudrun.IamMember(
     service=fxn.name,
     location=fxn.location,
     role="roles/run.invoker",
-    # member="allUsers",
     member=pulumi.Output.concat("serviceAccount:", service_account.email),
+    opts=pulumi.ResourceOptions(replace_on_changes=["member"]),
 )
 
 
@@ -109,7 +108,8 @@ job = gcp.cloudscheduler.Job(
     construct_name(f"{resource_name}-scheduler"),
     description="Run test daily",
     # schedule="0 8 * * *",  # 8 AM
-    schedule="every 5 minutes",
+    schedule="every 30 minutes",
     time_zone="America/New_York",
     http_target=http_target,
+    replace_on_changes=["http_target"],
 )
