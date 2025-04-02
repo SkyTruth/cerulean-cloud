@@ -5,7 +5,6 @@ from utils import construct_name, pulumi_create_zip
 
 
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
-secret_name = "cerulean-slack-alerts-webhook"
 resource_name = "cf-alerts"
 
 stack = pulumi.get_stack()
@@ -39,6 +38,13 @@ source_archive_object = gcp.storage.BucketObject(
     source=archive,
 )
 
+# Define secret environment variables
+slack_webhooks = {
+    "key": "SLACK_ALERTS_WEBHOOK",
+    "secret": pulumi.Config("alerts").require("keyname"),
+    "version": "latest",
+    "project_id": pulumi.Config("gcp").require("project"),
+}
 
 # Create the CloudFunction (v2)
 fxn = gcp.cloudfunctionsv2.Function(
@@ -62,21 +68,12 @@ fxn = gcp.cloudfunctionsv2.Function(
         timeout_seconds=60,
         ingress_settings="ALLOW_INTERNAL_ONLY",
         environment_variables={
-            "SECRET_NAME": secret_name,
             "GCP_PROJECT": gcp.config.project,
         },
+        secret_environment_variables=[slack_webhooks],
     ),
     opts=pulumi.ResourceOptions(replace_on_changes=["http_target", "member"]),
 )
-
-
-secret_access = gcp.secretmanager.SecretIamMember(
-    construct_name(f"{resource_name}-secret-access"),
-    secret_id=secret_name,
-    role="roles/secretmanager.secretAccessor",
-    member=pulumi.Output.concat("serviceAccount:", service_account.email),
-)
-
 
 # IAM entry for all users to invoke the function
 invoker = gcp.cloudfunctionsv2.FunctionIamMember(

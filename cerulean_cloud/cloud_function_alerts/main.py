@@ -4,35 +4,23 @@ import os
 import requests
 import time
 
-from google.cloud import secretmanager
-
 BASE_URL = "https://api.cerulean.skytruth.org/collections/public.slick_plus"
 
-
-def get_secret(secret_id):
-    """
-    Get secrets
-    """
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{os.environ['GCP_PROJECT']}/secrets/{secret_id}/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
+WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
 
 
 def send_alert_no_recent_slicks():
     """
     Sends `no slick` warning to Slack channel
     """
-    webhook_url = get_secret(os.environ["SECRET_NAME"])
-    _ = requests.post(webhook_url, json={"text": "No new slicks in the last 24 hours"})
+    _ = requests.post(WEBHOOK_URL, json={"text": "No new slicks in the last 24 hours"})
 
 
 def send_alert_failed_connection():
     """
     Sends `no slick` warning to Slack channel
     """
-    webhook_url = get_secret(os.environ["SECRET_NAME"])
-    _ = requests.post(webhook_url, json={"text": f"Failed connection to {BASE_URL}"})
+    _ = requests.post(WEBHOOK_URL, json={"text": f"Failed connection to {BASE_URL}"})
 
 
 def check_recent_slicks():
