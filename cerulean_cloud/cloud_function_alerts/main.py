@@ -63,8 +63,7 @@ def success():
     """
     Perform success function (generally used for testing)
     """
-    # print("No errors detected")
-    _ = requests.post(WEBHOOK_URL, json={"text": "testing secrets implementation..."})
+    print("No errors detected")
 
 
 def main(request: Request):
