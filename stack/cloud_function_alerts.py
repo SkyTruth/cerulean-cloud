@@ -59,7 +59,7 @@ fxn = gcp.cloudfunctionsv2.Function(
         max_instance_count=1,
         available_memory="128Mi",
         timeout_seconds=60,
-        ingress_settings="ALLOW_ALL",
+        ingress_settings="ALLOW_INTERNAL_ONLY",
         environment_variables={
             "SECRET_NAME": secret_name,
             "GCP_PROJECT": gcp.config.project,
@@ -84,7 +84,8 @@ invoker = gcp.cloudfunctionsv2.FunctionIamMember(
     location=fxn.location,
     cloud_function=fxn.name,
     role="roles/cloudfunctions.invoker",
-    member="allUsers",
+    # member="allUsers",
+    member=pulumi.Output.concat("serviceAccount:", service_account.email),
 )
 
 cloud_run_invoker = gcp.cloudrun.IamMember(
@@ -92,20 +93,25 @@ cloud_run_invoker = gcp.cloudrun.IamMember(
     service=fxn.name,
     location=fxn.location,
     role="roles/run.invoker",
-    member="allUsers",
+    # member="allUsers",
+    member=pulumi.Output.concat("serviceAccount:", service_account.email),
 )
 
 
 http_target = gcp.cloudscheduler.JobHttpTargetArgs(
-    http_method="GET", uri=fxn.service_config.uri
+    http_method="GET",
+    uri=fxn.service_config.uri,
+    oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
+        service_account_email=service_account.email,
+    ),
 )
 
 
 job = gcp.cloudscheduler.Job(
     construct_name(f"{resource_name}-scheduler"),
     description="Run test daily",
-    schedule="0 8 * * *",  # 8 AM
-    # schedule="every 5 minutes",
+    # schedule="0 8 * * *",  # 8 AM
+    schedule="every 5 minutes",
     time_zone="America/New_York",
     http_target=http_target,
 )
