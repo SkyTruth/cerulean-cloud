@@ -1,5 +1,6 @@
 import pulumi
 import pulumi_gcp as gcp
+import time
 from utils import construct_name, pulumi_create_zip
 
 
@@ -33,7 +34,7 @@ archive = package.apply(lambda x: pulumi.FileAsset(x))
 # Create the Cloud Storage object containing the zipped CloudFunction
 source_archive_object = gcp.storage.BucketObject(
     construct_name(f"{resource_name}-source"),
-    name=construct_name(f"{resource_name}-source"),
+    name=construct_name(f"{resource_name}-source-{time.time():f}"),
     bucket=bucket.name,
     source=archive,
 )
