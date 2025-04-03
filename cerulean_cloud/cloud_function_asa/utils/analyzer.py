@@ -515,8 +515,8 @@ class AISAnalyzer(SourceAnalyzer):
         ]
 
         # Sort the pairs by timestamp to determine head and tail
-        (t_head, cl_head, d_head), (t_tail, cl_tail, d_tail) = sorted(
-            ends, key=lambda x: x[2]
+        (t_tail, cl_tail, d_tail), (t_head, cl_head, d_head) = sorted(
+            ends, key=lambda x: x[0]
         )
 
         # After finding the head (slick end closest to the AIS), project the tail to the nearest point independent of time.
