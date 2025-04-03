@@ -26,7 +26,7 @@ def compute_proximity_score(
     Score definition:
         score = exp( - (distance / ais_ref_dist) )
     """
-    t_tail, cl_tail, d_tail, t_head, cl_head, d_head = slick_to_traj_mapping
+    cl_tail, t_tail, d_tail, cl_head, t_head, d_head = slick_to_traj_mapping
 
     # Get an additional distance of interest: the centerline head and the track at t=0
     near_0_idx = np.abs(traj_gdf.index - t_image).argmin()
@@ -65,7 +65,7 @@ def compute_parity_score(
     Returns:
         float: Parity score between 0 and 1
     """
-    t_tail, cl_tail, d_tail, t_head, cl_head, d_head = slick_to_traj_mapping
+    cl_tail, t_tail, d_tail, cl_head, t_head, d_head = slick_to_traj_mapping
 
     if t_tail == t_head:
         # The head and tail map to the same point, so the parity score is 0.
@@ -102,7 +102,7 @@ def compute_temporal_score(
             score = exp( - ((x - a) / B)^2 )
     """
 
-    t_tail, cl_tail, d_tail, t_head, cl_head, d_head = slick_to_traj_mapping
+    cl_tail, t_tail, d_tail, cl_head, t_head, d_head = slick_to_traj_mapping
 
     # Calculate the time difference (in seconds) from the image timestamp to the closest endpoint.
     t_closer_end = t_head if d_head < d_tail else t_tail

@@ -132,7 +132,7 @@ def get_closest_centerline_points(
     traj_gdf: gpd.GeoDataFrame,
     longest_centerline: MultiLineString,
     t_image: datetime = None,
-) -> tuple[pd.Timestamp, Point, float, pd.Timestamp, Point, float]:
+) -> tuple[Point, pd.Timestamp, float, Point, pd.Timestamp, float]:
     """
     Returns the timestamp and distance of the closest points on the centerline to the vessel at the given image_timestamp.
     """
@@ -141,41 +141,26 @@ def get_closest_centerline_points(
     cl_B = Point(longest_centerline.coords[-1])
 
     # Find nearest trajectory point indices for each endpoint
-    traj_idx_A = get_closest_point_near_timestamp(cl_A, traj_gdf, t_image)
-    traj_idx_B = get_closest_point_near_timestamp(cl_B, traj_gdf, t_image)
-
-    # Create tuples for each endpoint: (timestamp, centerline_point, distance)
-    ends = [
-        (
-            traj_idx_A,
-            cl_A,
-            traj_gdf.loc[[traj_idx_A]].iloc[0]["geometry"].distance(cl_A),
-        ),
-        (
-            traj_idx_B,
-            cl_B,
-            traj_gdf.loc[[traj_idx_B]].iloc[0]["geometry"].distance(cl_B),
-        ),
-    ]
+    t_A, d_A = get_closest_point_near_timestamp(cl_A, traj_gdf, t_image)
+    t_B, d_B = get_closest_point_near_timestamp(cl_B, traj_gdf, t_image)
 
     # Sort the pairs by timestamp to determine head and tail
-    (t_tail, cl_tail, d_tail), (t_head, cl_head, d_head) = sorted(
-        ends, key=lambda x: x[0]
+    (cl_tail, t_tail, d_tail), (cl_head, t_head, d_head) = sorted(
+        [(cl_A, t_A, d_A), (cl_B, t_B, d_B)], key=lambda x: x[1]
     )
 
     # After finding the head (slick end closest to the AIS), project the tail to the nearest point independent of time.
-    t_tail = get_closest_point_near_timestamp(cl_tail, traj_gdf, t_image)
-    d_tail = traj_gdf.loc[[t_tail]].iloc[0]["geometry"].distance(cl_tail)
+    t_tail, d_tail = get_closest_point_near_timestamp(cl_tail, traj_gdf)
 
-    return (t_tail, cl_tail, d_tail, t_head, cl_head, d_head)
+    return (cl_tail, t_tail, d_tail, cl_head, t_head, d_head)
 
 
 def get_closest_point_near_timestamp(
     target: Point,
     traj_gdf: gpd.GeoDataFrame,
-    t_image: datetime,
+    t_image: datetime = None,
     n_points: int = 10,
-) -> pd.Timestamp:
+) -> tuple[pd.Timestamp, float]:
     """
     Returns the trajectory row that is closest to the reference_point,
     using a turning-point heuristic starting at t_image.
@@ -195,6 +180,11 @@ def get_closest_point_near_timestamp(
     Returns:
         pd.Timestamp: The index corresponding to the selected trajectory row.
     """
+    if t_image is None:
+        # If no timestamp is provided, return the index of the point closest to the target.
+        distances = traj_gdf.geometry.distance(target)
+        return distances.idxmin(), distances.min()
+
     # Get the starting position for t_image.
     traj_gdf = traj_gdf.sort_index(ascending=True)
     pos = np.abs(traj_gdf.index - t_image).argmin()
@@ -226,7 +216,7 @@ def get_closest_point_near_timestamp(
             )
             if all(distances > best_dist):
                 break
-    return traj_gdf.index[pos]
+    return traj_gdf.index[pos], best_dist
 
 
 def plot(analyzers, slick_id, black=True, num_ais=5):
@@ -403,7 +393,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                 .geometry
             )
             s1_time = ais_analyzer.s1_scene.start_time
-            (t_tail, cl_tail, d_tail, t_head, cl_head, d_head) = (
+            (cl_tail, t_tail, d_tail, cl_head, t_head, d_head) = (
                 get_closest_centerline_points(gdf, longest_centerline, s1_time)
             )
             # Compute nearest trajectory point to the start and end coordinates of the longest centerline
