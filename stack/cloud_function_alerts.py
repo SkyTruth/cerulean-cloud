@@ -2,6 +2,7 @@ import pulumi
 import pulumi_gcp as gcp
 import time
 from utils import construct_name, pulumi_create_zip
+import cloud_run_tipg
 
 
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
@@ -69,6 +70,7 @@ fxn = gcp.cloudfunctionsv2.Function(
         ingress_settings="ALLOW_INTERNAL_ONLY",
         environment_variables={
             "GCP_PROJECT": gcp.config.project,
+            "TIPG_URL": cloud_run_tipg.default.statuses[0].url,
         },
         secret_environment_variables=[slack_webhooks],
     ),

@@ -4,12 +4,13 @@ import os
 import requests
 import time
 
-BASE_URL = "https://cerulean-cloud-test-cr-tipg-5qkjkyomta-ew.a.run.app/collections/public.source_plus"
+WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
+TIPG_URL = os.environ["TIPG_URL"]
+
+BASE_URL = f"{TIPG_URL}/collections/public.source_plus"
 LIMIT = 10
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
-
-WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
 
 
 def send_alert_no_recent_slicks_message(slick_type):
