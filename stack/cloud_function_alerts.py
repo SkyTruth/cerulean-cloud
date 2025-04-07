@@ -21,7 +21,7 @@ service_account = gcp.serviceaccount.Account(
 bucket = gcp.storage.Bucket(
     construct_name(f"{resource_name}-bucket"),
     location=pulumi.Config("gcp").require("region"),
-    labels={"pulumi": "true", "environment": pulumi.get_stack()},
+    labels={"pulumi": "true", "environment": stack},
 )
 
 # Create and zip package to be basis of CloudFunction

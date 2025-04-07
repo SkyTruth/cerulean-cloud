@@ -8,7 +8,6 @@ WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
 TIPG_URL = os.environ["TIPG_URL"]
 
 BASE_URL = f"{TIPG_URL}/collections/public.source_plus"
-LIMIT = 10
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 
@@ -18,7 +17,8 @@ def send_alert_no_recent_slicks_message(slick_type):
     Sends `no slick` warning to Slack channel
     """
     _ = requests.post(
-        WEBHOOK_URL, json={"text": f"No new {slick_type} slicks in the last 24 hours"}
+        WEBHOOK_URL,
+        json={"text": f"No new {slick_type} slicks in the last 24 hours in {TIPG_URL}"},
     )
 
 
@@ -50,7 +50,7 @@ def fetch_with_retries(st, fn, slick_type=None):
         slick_type (str, optional): Optional source type to filter the query.
     """
     src_var = "" if slick_type is None else f"&source_type={slick_type}"
-    url = f"{BASE_URL}/items?limit={LIMIT}{src_var}&datetime={st}/{fn}"
+    url = f"{BASE_URL}/items?limit=1{src_var}&datetime={st}/{fn}"
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = requests.get(url, timeout=10)
