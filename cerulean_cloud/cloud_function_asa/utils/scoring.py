@@ -16,6 +16,7 @@ def compute_proximity_score(
     spread_rate: float,
     grace_distance: float,
     t_image: datetime.datetime,
+    sharpness_prox: float,
     slick_to_traj_mapping: tuple[
         pd.Timestamp, Point, float, pd.Timestamp, Point, float
     ],
@@ -28,29 +29,30 @@ def compute_proximity_score(
     """
     cl_tail, t_tail, d_tail, cl_head, t_head, d_head = slick_to_traj_mapping
 
-    # Get an additional distance of interest: the centerline head and the track at t=0
-    near_0_idx = np.abs(traj_gdf.index - t_image).argmin()
-    d_0 = traj_gdf.iloc[near_0_idx].geometry.distance(cl_head)
-
     delta_tail = (t_image - t_tail).total_seconds() / 3600
+    delta_head = (t_image - t_head).total_seconds() / 3600
+
     if delta_tail <= 0:  # The tail is in front of the vessel
         P_t = 0  # No grace distance
     else:
-        P_t = math.exp(-d_tail / (spread_rate * delta_tail))
+        P_t = math.exp(-((d_tail / (spread_rate * delta_tail)) ** sharpness_prox))
 
-    delta_head = (t_image - t_head).total_seconds() / 3600
-    if spread_rate * delta_head < grace_distance / 2:
-        # The head is close to or in front of the vessel
-        P_h = math.exp(-d_0 / grace_distance)
+    if delta_head <= 0:
+        # The head is in front of the vessel
+        # Get an additional distance of interest: the centerline head and the track at t=0
+        near_0_idx = np.abs(traj_gdf.index - t_image).argmin()
+        d_0 = traj_gdf.iloc[near_0_idx].geometry.distance(cl_head)
+        P_h = math.exp(-((d_0 / grace_distance) ** sharpness_prox))
     else:
-        P_h = math.exp(-d_head / (spread_rate * delta_head))
+        d_ref = max(spread_rate * delta_head, grace_distance)
+        P_h = math.exp(-((d_head / d_ref) ** sharpness_prox))
     return np.sqrt(P_t * P_h)
 
 
 def compute_parity_score(
     traj_gdf: gpd.GeoDataFrame,
     longest_centerline: MultiLineString,
-    sensitivity_parity: float,
+    sharpness_parity: float,
     slick_to_traj_mapping: tuple[
         pd.Timestamp, Point, float, pd.Timestamp, Point, float
     ],
@@ -78,7 +80,7 @@ def compute_parity_score(
 
     return math.exp(
         -(math.log(longest_centerline.length / traj_substring.length) ** 2)
-        * sensitivity_parity
+        * sharpness_parity
     )
 
 
@@ -86,6 +88,7 @@ def compute_temporal_score(
     t_image: datetime.datetime,
     ais_ref_time_over: float,
     ais_ref_time_under: float,
+    sharpness_temp: float,
     slick_to_traj_mapping: tuple[
         pd.Timestamp, Point, float, pd.Timestamp, Point, float
     ],
@@ -97,9 +100,9 @@ def compute_temporal_score(
     and the reference timestamp t_ref. The score is computed as:
 
         if (newer_timestamp > t_ref):
-            score = exp( - ((x - a) / A)^2 )
+            score = exp( - ((x - a) / A)^s )
         else:
-            score = exp( - ((x - a) / B)^2 )
+            score = exp( - ((x - a) / B)^s )
     """
 
     cl_tail, t_tail, d_tail, cl_head, t_head, d_head = slick_to_traj_mapping
@@ -108,15 +111,11 @@ def compute_temporal_score(
     t_closer_end = t_head if d_head < d_tail else t_tail
     time_delta = (t_image - t_closer_end).total_seconds()
 
-    if time_delta < 0:
-        # time_delta is negative, so the slick head is in front of the t_image.
-        # This means the trajectory is less likely to be associated with the oil slick.
-        score = math.exp(-((time_delta / ais_ref_time_over) ** 2))
-    else:
-        # time_delta is positive, so the slick head is behind the t_image.
-        # This means the trajectory is more likely to be associated with the oil slick.
-        score = math.exp(-((time_delta / ais_ref_time_under) ** 2))
-    return score
+    ref_time = ais_ref_time_over if time_delta < 0 else ais_ref_time_under
+    # if time_delta is negative, then the slick head is in front of the t_image. (less likely associated)
+    # if time_delta is positive, then the slick head is behind the t_image. (more likely associated)
+
+    return math.exp(-((time_delta / ref_time) ** sharpness_temp))
 
 
 def vessel_compute_total_score(

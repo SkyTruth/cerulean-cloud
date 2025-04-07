@@ -123,7 +123,9 @@ class AISAnalyzer(SourceAnalyzer):
         self.w_temporal = kwargs.get("w_temporal", c.W_TEMPORAL)
         self.w_proximity = kwargs.get("w_proximity", c.W_PROXIMITY)
         self.w_parity = kwargs.get("w_parity", c.W_PARITY)
-        self.sensitivity_parity = kwargs.get("sensitivity_parity", c.SENSITIVITY_PARITY)
+        self.sharpness_parity = kwargs.get("sharpness_parity", c.SHARPNESS_PARITY)
+        self.sharpness_prox = kwargs.get("sharpness_prox", c.SHARPNESS_PROX)
+        self.sharpness_temp = kwargs.get("sharpness_temp", c.SHARPNESS_TEMP)
         self.ais_ref_time_over = kwargs.get("ais_ref_time_over", c.AIS_REF_TIME_OVER)
         self.ais_ref_time_under = kwargs.get("ais_ref_time_under", c.AIS_REF_TIME_UNDER)
         self.spread_rate = kwargs.get("spread_rate", c.SPREAD_RATE)
@@ -409,6 +411,7 @@ class AISAnalyzer(SourceAnalyzer):
                     self.s1_scene.start_time,
                     self.ais_ref_time_over,
                     self.ais_ref_time_under,
+                    self.sharpness_temp,
                     slick_to_traj_mapping,
                 )
                 prox_score = compute_proximity_score(
@@ -416,12 +419,13 @@ class AISAnalyzer(SourceAnalyzer):
                     self.spread_rate,
                     self.grace_distance,
                     self.s1_scene.start_time,
+                    self.sharpness_prox,
                     slick_to_traj_mapping,
                 )
                 par_score = compute_parity_score(
                     traj_gdf,
                     centerline_geom,
-                    self.sensitivity_parity,
+                    self.sharpness_parity,
                     slick_to_traj_mapping,
                 )
 
