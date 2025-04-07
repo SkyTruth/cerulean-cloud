@@ -116,7 +116,8 @@ class AISAnalyzer(SourceAnalyzer):
         # Default parameters
         self.hours_before = kwargs.get("hours_before", c.HOURS_BEFORE)
         self.hours_after = kwargs.get("hours_after", c.HOURS_AFTER)
-        self.ais_buffer = kwargs.get("ais_buffer", c.AIS_BUFFER)
+        self.ais_scene_buffer = kwargs.get("ais_scene_buffer", c.AIS_SCENE_BUFFER)
+        self.ais_slick_buffer = kwargs.get("ais_slick_buffer", c.AIS_SLICK_BUFFER)
         self.num_timesteps = kwargs.get("num_timesteps", c.NUM_TIMESTEPS)
         self.ais_project_id = kwargs.get("ais_project_id", c.AIS_PROJECT_ID)
         self.w_temporal = kwargs.get("w_temporal", c.W_TEMPORAL)
@@ -144,7 +145,9 @@ class AISAnalyzer(SourceAnalyzer):
             {"geometry": [to_shape(self.s1_scene.geometry)]}, crs="4326"
         )
         self.ais_envelope = (
-            self.s1_env.to_crs(self.crs_meters).buffer(self.ais_buffer).to_crs("4326")
+            self.s1_env.to_crs(self.crs_meters)
+            .buffer(self.ais_scene_buffer)
+            .to_crs("4326")
         )
         self.credentials = Credentials.from_service_account_info(
             json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
@@ -315,7 +318,7 @@ class AISAnalyzer(SourceAnalyzer):
         """
         search_area = (
             self.slick_gdf.geometry.to_crs(self.crs_meters)
-            .buffer(self.ais_buffer)
+            .buffer(self.ais_slick_buffer)
             .to_crs("4326")
         )
 
