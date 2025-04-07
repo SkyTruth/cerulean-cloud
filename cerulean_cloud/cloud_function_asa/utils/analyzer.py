@@ -189,8 +189,8 @@ class AISAnalyzer(SourceAnalyzer):
             LEFT JOIN
                 `world-fishing-827.pipe_ais_v3_published.vi_ssvid_v20250201` as ves
                 ON seg.ssvid = ves.ssvid
-            WHERE
-                -- clean_segs IS TRUE
+            WHERE TRUE
+                -- AND clean_segs IS TRUE
                 AND seg.timestamp between '{start_time}' AND '{end_time}'
                 AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{ais_envelope}'))
             """
