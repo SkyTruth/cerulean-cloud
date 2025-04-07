@@ -342,12 +342,14 @@ class AISAnalyzer(SourceAnalyzer):
     def score_trajectories(self):
         """
         Measure association by computing multiple metrics between AIS trajectories and slicks
+        using multiple candidate centerlines. For each trajectory:
+        - Aggregate the temporal score using the maximum value among candidates.
+        - Aggregate the proximity and parity scores using a length-weighted average.
 
         Returns:
-            GeoDataFrame of slick associations
+            GeoDataFrame of slick associations.
         """
-        # print("Scoring trajectories")
-
+        # Define the output columns.
         columns = [
             "st_name",
             "ext_id",
@@ -359,18 +361,26 @@ class AISAnalyzer(SourceAnalyzer):
             "flag",
             "geojson_fc",
         ]
-
         entries = []
 
-        centerlines = self.slick_centerlines.sort_values("length", ascending=False)
-        longest_centerline = centerlines.to_crs(self.crs_meters).iloc[0]["geometry"]
+        # Sort the slick centerlines by length (largest first) and convert to meters CRS.
+        centerlines = self.slick_centerlines.sort_values(
+            "length", ascending=False
+        ).to_crs(self.crs_meters)
 
+        # Determine candidate centerlines that contribute to 80% of the total length.
+        percent_to_keep = 0.8
+        cumsum = centerlines["length"].cumsum()
+        index_of_min = cumsum.searchsorted(percent_to_keep * cumsum.iloc[-1])
+        candidate_centerlines = centerlines.iloc[: index_of_min + 1]
+
+        # Get the list of AIS trajectories.
         relevant_trajectories = [
             self.ais_trajectories[source_id]
             for source_id in self.ais_filtered["ssvid"].unique()
         ]
 
-        # Iterate over filtered trajectories
+        # Iterate over each AIS trajectory.
         for traj in relevant_trajectories:
             traj_gdf = (
                 traj["df"]
@@ -379,53 +389,91 @@ class AISAnalyzer(SourceAnalyzer):
                 .to_crs(self.crs_meters)
             )
 
-            slick_to_traj_mapping = self.get_closest_centerline_points(
-                traj_gdf, longest_centerline, self.s1_scene.start_time
-            )
+            # Initialize lists to collect scores from each candidate centerline.
+            temporal_scores = []
+            proximity_scores = []
+            parity_scores = []
+            weights = []  # We'll use the centerline lengths as weights.
 
-            temporal_score = compute_temporal_score(
-                self.s1_scene.start_time,
-                self.ais_ref_time_over,
-                self.ais_ref_time_under,
-                slick_to_traj_mapping,
-            )
+            # Compute metrics for each candidate centerline.
+            for idx, row in candidate_centerlines.iterrows():
+                centerline_geom = row["geometry"]
+                weight = row["length"]
+                # Get the mapping between the trajectory and the candidate centerline.
+                slick_to_traj_mapping = self.get_closest_centerline_points(
+                    traj_gdf, centerline_geom, self.s1_scene.start_time
+                )
 
-            proximity_score = compute_proximity_score(
-                traj_gdf,
-                self.spread_rate,
-                self.grace_distance,
-                self.s1_scene.start_time,
-                slick_to_traj_mapping,
-            )
-            parity_score = compute_parity_score(
-                traj_gdf,
-                longest_centerline,
-                self.sensitivity_parity,
-                slick_to_traj_mapping,
-            )
+                # Compute individual scores.
+                temp_score = compute_temporal_score(
+                    self.s1_scene.start_time,
+                    self.ais_ref_time_over,
+                    self.ais_ref_time_under,
+                    slick_to_traj_mapping,
+                )
+                prox_score = compute_proximity_score(
+                    traj_gdf,
+                    self.spread_rate,
+                    self.grace_distance,
+                    self.s1_scene.start_time,
+                    slick_to_traj_mapping,
+                )
+                par_score = compute_parity_score(
+                    traj_gdf,
+                    centerline_geom,
+                    self.sensitivity_parity,
+                    slick_to_traj_mapping,
+                )
 
-            # Compute total score from these three metrics
-            coincidence_score = vessel_compute_total_score(
-                temporal_score,
-                proximity_score,
-                parity_score,
+                temporal_scores.append(temp_score)
+                proximity_scores.append(prox_score)
+                parity_scores.append(par_score)
+                weights.append(weight)
+
+                print(
+                    f"Candidate centerline {idx}: temporal_score={round(temp_score, 2)}, "
+                    f"proximity_score={round(prox_score, 2)}, parity_score={round(par_score, 2)}, "
+                    f"weight={round(weight, 2)}"
+                )
+
+            # Aggregate the temporal score by taking the maximum.
+            aggregated_temporal = max(temporal_scores) if temporal_scores else 0
+
+            # Compute weighted averages for proximity and parity scores.
+            if weights and sum(weights) > 0:
+                aggregated_proximity = sum(
+                    s * w for s, w in zip(proximity_scores, weights)
+                ) / sum(weights)
+                aggregated_parity = sum(
+                    s * w for s, w in zip(parity_scores, weights)
+                ) / sum(weights)
+            else:
+                aggregated_proximity = 0
+                aggregated_parity = 0
+
+            # Compute the final coincidence score using the aggregated metrics.
+            aggregated_total = vessel_compute_total_score(
+                aggregated_temporal,
+                aggregated_proximity,
+                aggregated_parity,
                 self.w_temporal,
                 self.w_proximity,
                 self.w_parity,
             )
 
             print(
-                f"source_id {traj['id']}: coincidence_score ({round(coincidence_score, 2)}), "
-                f"temporal_score ({round(temporal_score, 2)}), "
-                f"proximity_score ({round(proximity_score, 2)}), "
-                f"parity_score ({round(parity_score, 2)})"
+                f"Trajectory {traj['id']}: aggregated_total={round(aggregated_total, 2)} "
+                f"(temporal={round(aggregated_temporal, 2)}, proximity={round(aggregated_proximity, 2)}, "
+                f"parity={round(aggregated_parity, 2)})"
             )
 
+            # Create a LineString geometry from the AIS trajectory points.
+            traj_line = LineString([p.coords[0] for p in traj["df"]["geometry"]])
             entry = {
                 "st_name": traj["id"],
                 "ext_id": traj["id"],
-                "geometry": LineString([p.coords[0] for p in traj["df"]["geometry"]]),
-                "coincidence_score": coincidence_score,
+                "geometry": traj_line,
+                "coincidence_score": aggregated_total,
                 "type": self.source_type,
                 "ext_name": traj["ext_name"],
                 "ext_shiptype": traj["ext_shiptype"],
@@ -443,7 +491,7 @@ class AISAnalyzer(SourceAnalyzer):
         traj_gdf: gpd.GeoDataFrame,
         longest_centerline: MultiLineString,
         t_image: datetime = None,
-    ) -> tuple[pd.Timestamp, Point, float, pd.Timestamp, Point, float]:
+    ) -> tuple[Point, pd.Timestamp, float, Point, pd.Timestamp, float]:
         """
         Returns the timestamp and distance of the closest points on the centerline to the vessel at the given image_timestamp.
         """
@@ -452,36 +500,26 @@ class AISAnalyzer(SourceAnalyzer):
         cl_B = Point(longest_centerline.coords[-1])
 
         # Find nearest trajectory point indices for each endpoint
-        traj_idx_A = self.get_closest_point_near_timestamp(cl_A, traj_gdf, t_image)
-        traj_idx_B = self.get_closest_point_near_timestamp(cl_B, traj_gdf, t_image)
-
-        # Create tuples for each endpoint: (timestamp, centerline_point, distance)
-        ends = [
-            (
-                traj_idx_A,
-                cl_A,
-                traj_gdf.loc[[traj_idx_A]].iloc[0]["geometry"].distance(cl_A),
-            ),
-            (
-                traj_idx_B,
-                cl_B,
-                traj_gdf.loc[[traj_idx_B]].iloc[0]["geometry"].distance(cl_B),
-            ),
-        ]
+        t_A, d_A = self.get_closest_point_near_timestamp(cl_A, traj_gdf, t_image)
+        t_B, d_B = self.get_closest_point_near_timestamp(cl_B, traj_gdf, t_image)
 
         # Sort the pairs by timestamp to determine head and tail
-        (t_tail, cl_tail, d_tail), (t_head, cl_head, d_head) = sorted(
-            ends, key=lambda x: x[0]
+        (cl_tail, t_tail, d_tail), (cl_head, t_head, d_head) = sorted(
+            [(cl_A, t_A, d_A), (cl_B, t_B, d_B)], key=lambda x: x[1]
         )
-        return (t_tail, cl_tail, d_tail, t_head, cl_head, d_head)
+
+        # After finding the head (slick end closest to the AIS), project the tail to the nearest point independent of time.
+        t_tail, d_tail = self.get_closest_point_near_timestamp(cl_tail, traj_gdf)
+
+        return (cl_tail, t_tail, d_tail, cl_head, t_head, d_head)
 
     def get_closest_point_near_timestamp(
         self,
         target: Point,
         traj_gdf: gpd.GeoDataFrame,
-        t_image: datetime,
+        t_image: datetime = None,
         n_points: int = 10,
-    ) -> pd.Timestamp:
+    ) -> tuple[pd.Timestamp, float]:
         """
         Returns the trajectory row that is closest to the reference_point,
         using a turning-point heuristic starting at t_image.
@@ -501,6 +539,11 @@ class AISAnalyzer(SourceAnalyzer):
         Returns:
             pd.Timestamp: The index corresponding to the selected trajectory row.
         """
+        if t_image is None:
+            # If no timestamp is provided, return the index of the point closest to the target.
+            distances = traj_gdf.geometry.distance(target)
+            return distances.idxmin(), distances.min()
+
         # Get the starting position for t_image.
         traj_gdf = traj_gdf.sort_index(ascending=True)
         pos = np.abs(traj_gdf.index - t_image).argmin()
@@ -535,7 +578,7 @@ class AISAnalyzer(SourceAnalyzer):
                 )
                 if all(distances > best_dist):
                     break
-        return traj_gdf.index[pos]
+        return traj_gdf.index[pos], best_dist
 
     def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
