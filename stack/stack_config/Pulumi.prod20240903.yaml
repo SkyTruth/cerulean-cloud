@@ -20,3 +20,4 @@ config:
   scihub:password:
     secure: v1:77jKwh6VgMHCJGRK:WQTJnlF47AhaDzGmE5BCC1XA+LIGR+Ht
   scihub:username: rodrigo1234
+  alerts:keyname: cerulean-slack-alerts-webhook
