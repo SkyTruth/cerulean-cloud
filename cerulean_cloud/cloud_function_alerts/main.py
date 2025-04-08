@@ -6,27 +6,36 @@ import time
 
 WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
 TIPG_URL = os.environ["TIPG_URL"]
+DRY_RUN = os.getenv("IS_DRY_RUN", "").lower() == "true"
 
 BASE_URL = f"{TIPG_URL}/collections/public.source_plus"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 
 
-def send_alert_no_recent_slicks_message(slick_type):
+def send_alert_no_recent_slicks_message(slick_type, dry_run=DRY_RUN):
     """
     Sends `no slick` warning to Slack channel
     """
-    _ = requests.post(
-        WEBHOOK_URL,
-        json={"text": f"No new {slick_type} slicks in the last 24 hours in {TIPG_URL}"},
-    )
+    if dry_run:
+        print(f"No new {slick_type} slicks in the last 24 hours in {TIPG_URL}")
+    else:
+        _ = requests.post(
+            WEBHOOK_URL,
+            json=f"No new {slick_type} slicks in the last 24 hours in {TIPG_URL}",
+        )
 
 
-def send_alert_failed_connection_message():
+def send_alert_failed_connection_message(dry_run=DRY_RUN):
     """
     Sends `no slick` warning to Slack channel
     """
-    _ = requests.post(WEBHOOK_URL, json={"text": f"Failed connection to {BASE_URL}"})
+    if dry_run:
+        print(f"Failed connection to {BASE_URL}")
+    else:
+        _ = requests.post(
+            WEBHOOK_URL, json={"text": f"Failed connection to {BASE_URL}"}
+        )
 
 
 def send_success_message():
