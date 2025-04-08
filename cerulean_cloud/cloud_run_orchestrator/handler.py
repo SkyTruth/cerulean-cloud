@@ -601,19 +601,17 @@ def calculate_centerlines(
     slick_gdf: gpd.GeoDataFrame,
     crs_meters: str,
     close_buffer: int = 2000,
-    smoothing_factor: float = 1e10,
+    simplify_tolerance: float = 10.0,  # Tolerance for geometry simplification in meters
 ):
     """
-    From a set of polygons representing oil slick detections, estimate centerlines that go through the detections
-    This process transforms a set of slick detections into LineStrings for each detection
-
+    From a set of polygons representing oil slick detections, estimate centerlines that go through the detections.
     Inputs:
-        slick_gdf: GeoDataFrame of slick detections
-        crs_meters: crs of slick center in meters
-        close_buffer: buffer size for cleaning up slick detections
-        smoothing_factor: smoothing factor for smoothing centerline
+        slick_gdf: GeoDataFrame of slick detections.
+        crs_meters: CRS for slick center in meters.
+        close_buffer: Buffer size for cleaning up slick detections.
+        simplify_tolerance: Tolerance for simplifying the computed centerlines.
     Returns:
-        GeoDataFrame of slick centerlines
+        (dict, float): Tuple containing the GeoJSON representation of the slick centerlines and the aspect ratio factor.
     """
     # clean up the slick detections by dilation followed by erosion
     # this process can merge some polygons but not others, depending on proximity
@@ -625,7 +623,7 @@ def calculate_centerlines(
     slick_closed = slick_closed.explode(ignore_index=True, index_parts=False)
 
     # find a centerline through detections
-    slick_cls = list()
+    slick_cls = []
     for _, item in slick_closed.items():
         # create centerline -> MultiLineString
         polygon_perimeter = item.length  # Perimeter of the polygon
@@ -634,6 +632,7 @@ def calculate_centerlines(
         )  # Use a minimum of 1000 points for voronoi calculation
         cl = centerline.geometry.Centerline(item, interpolation_distance=interp_dist)
         longest_paths = find_longest_path(cl.geometry)
+        longest_paths = [lp.simplify(simplify_tolerance) for lp in longest_paths]
         slick_cls.extend(longest_paths)
 
     slick_centerline_gdf = gpd.GeoDataFrame(geometry=slick_cls, crs=crs_meters).to_crs(
