@@ -73,6 +73,7 @@ def upgrade() -> None:
                 st.short_name as source_type,
                 sts.collated_score as source_collated_score,
                 sts.rank as source_rank,
+                sts.create_time as create_time,
                 sts.git_hash as git_tag,
                 'https://cerulean.skytruth.org/slicks/' || sk.id::text ||'?ref=api&slick_id=' || sk.id AS slick_url,
                 'https://cerulean.skytruth.org/?ref=api&' || st.ext_id_name || '=' || s.ext_id AS source_url
