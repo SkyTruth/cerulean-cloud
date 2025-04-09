@@ -35,7 +35,8 @@ def compute_proximity_score(
     if delta_tail <= 0:  # The tail is in front of the vessel
         P_t = 0  # No grace distance
     else:
-        P_t = math.exp(-((d_tail / (spread_rate * delta_tail)) ** sharpness_prox))
+        d_ref = max(spread_rate * delta_tail, grace_distance)
+        P_t = math.exp(-((d_tail / d_ref) ** sharpness_prox))
 
     if delta_head <= 0:
         # The head is in front of the vessel
