@@ -588,13 +588,16 @@ def find_longest_path(centerline_geom):
             weight = ((v[0] - u[0]) ** 2 + (v[1] - u[1]) ** 2) ** 0.5
             graph.add_edge(u, v, weight=weight)
 
-    longest_paths = []
-    for component in list(nx.connected_components(graph)):
-        # In case the bug in Centerline produces disconnected centerlines, we need to compute the diameter of each connected component
-        # Compute the tree diameter (longest path) of the graph.
-        longest_path_coords = compute_tree_diameter(graph.subgraph(component))
-        longest_paths.append(LineString(longest_path_coords))
-    return longest_paths
+    diams = [
+        LineString(compute_tree_diameter(graph.subgraph(component)))
+        for component in list(nx.connected_components(graph))
+    ]
+    # In case the bug in Centerline produces disconnected centerlines, we need to compute the diameter of each connected component
+    # Compute the tree diameter (longest path) of the graph.
+    # Note that we just grab the longest one, so the bug is causing us to lose some data here.
+    diam_lengths = [d.length for d in diams]
+    longest_path = diams[diam_lengths.index(max(diam_lengths))]
+    return longest_path
 
 
 def calculate_centerlines(
@@ -631,9 +634,9 @@ def calculate_centerlines(
             polygon_perimeter / 1000
         )  # Use a minimum of 1000 points for voronoi calculation
         cl = centerline.geometry.Centerline(item, interpolation_distance=interp_dist)
-        longest_paths = find_longest_path(cl.geometry)
-        longest_paths = [lp.simplify(simplify_tolerance) for lp in longest_paths]
-        slick_cls.extend(longest_paths)
+        longest_path = find_longest_path(cl.geometry)
+        longest_path = longest_path.simplify(simplify_tolerance)
+        slick_cls.append(longest_path)
 
     slick_centerline_gdf = gpd.GeoDataFrame(geometry=slick_cls, crs=crs_meters).to_crs(
         "4326"
