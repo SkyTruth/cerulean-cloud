@@ -642,6 +642,9 @@ slick_ids = [
     # 35670, # SLOW AIS
     # 34156, # UI breaker
     # 35645,
+    # 35744,
+    # 36063,
+    # 36557,
 ]
 
 accumulated_sources = []
@@ -696,7 +699,7 @@ for slick_id in slick_ids:
 
     print(
         f"Time taken: {time.time() - start_time} seconds \n"
-        f"Time per {len(ranked_sources)} sources: {(time.time() - start_time) / len(ranked_sources)} seconds"
+        f"Time per {len(ranked_sources)} sources: {(time.time() - start_time) / (len(ranked_sources) or 1)} seconds"
     )
 # print(accumulated_sources)
 # %%
