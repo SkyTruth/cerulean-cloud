@@ -625,6 +625,13 @@ def calculate_centerlines(
     # split slicks into individual polygons
     slick_closed = slick_closed.explode(ignore_index=True, index_parts=False)
 
+    # Determine candidate slick detections that contribute to the majority of the total area.
+    percent_to_keep = 0.95
+    slick_closed = slick_closed.iloc[slick_closed.area.argsort()[::-1]]
+    cumsum = slick_closed.area.cumsum()
+    index_of_min = cumsum.searchsorted(percent_to_keep * cumsum.iloc[-1])
+    slick_closed = slick_closed.iloc[: index_of_min + 1].reset_index(drop=True)
+
     # find a centerline through detections
     slick_cls = []
     for _, item in slick_closed.items():
