@@ -645,6 +645,10 @@ slick_ids = [
     # 35744,
     # 36063,
     # 36557,
+    # 36063,
+    # 36557,
+    # 35645, # EXTRAPOLATION
+    # 38490, # EXTRAPOLATION
 ]
 
 accumulated_sources = []

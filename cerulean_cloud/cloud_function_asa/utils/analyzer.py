@@ -223,7 +223,7 @@ class AISAnalyzer(SourceAnalyzer):
           to extrapolate any trajectory that does not cover the entire time_vec.
         """
         s1_time = self.s1_scene.start_time
-        ais_data = self.ais_filtered.sort_values("timestamp")
+        ais_data = self.ais_gdf.sort_values("timestamp")
         existing_ids = self.ais_trajectories.keys()
         ais_data = ais_data[~ais_data["ssvid"].isin(existing_ids)]
 
@@ -459,28 +459,43 @@ class AISAnalyzer(SourceAnalyzer):
         """
         Prune AIS data to only include trajectories that are within the AIS buffer.
         """
-        search_area = (
+        search_polygon = (
             self.slick_gdf.geometry.to_crs(self.crs_meters)
             .buffer(self.ais_slick_buffer)
             .to_crs("4326")
+            .iloc[0]
         )
 
-        # Query the spatial index of ais_gdf using the bounds of the search area
-        candidate_indices = list(
-            self.ais_gdf.sindex.intersection(search_area.total_bounds)
-        )
+        search_bounds = search_polygon.bounds  # (minx, miny, maxx, maxy)
 
-        # Retrieve candidate AIS points
-        candidate_points = self.ais_gdf.iloc[candidate_indices]
+        candidate_ssvids = []
+        # Iterate over each trajectory.
+        for ssvid, trajectory in self.ais_trajectories.items():
+            traj_df = trajectory["df"]
+            # Compute the bounding box of the trajectory.
+            traj_bounds = traj_df.total_bounds  # [minx, miny, maxx, maxy]
 
-        # Further filter to ensure actual intersection with the buffered area
-        candidate_points = candidate_points[
-            candidate_points.geometry.intersects(search_area.iloc[0])
-        ]
+            # Quickly check if the bounding boxes intersect.
+            # Two bounding boxes intersect if:
+            #   traj_bounds[0] <= search_bounds[2] and traj_bounds[2] >= search_bounds[0]
+            #   and similarly in the y direction.
+            if (
+                traj_bounds[0] > search_bounds[2]
+                or traj_bounds[2] < search_bounds[0]
+                or traj_bounds[1] > search_bounds[3]
+                or traj_bounds[3] < search_bounds[1]
+            ):
+                continue  # Bounding boxes do not intersect: skip this trajectory.
 
-        # Extract unique ssvid values from the candidate points
-        ssvids_of_interest = candidate_points["ssvid"].unique()
-        self.ais_filtered = self.ais_gdf[self.ais_gdf["ssvid"].isin(ssvids_of_interest)]
+            # Now do a detailed check using the trajectory's spatial index.
+            # This is faster than iterating over every point if many points are present.
+            if traj_df.sindex.query(search_polygon, predicate="intersects").size > 0:
+                # Double-check by testing the actual geometries.
+                if traj_df.geometry.intersects(search_polygon).any():
+                    candidate_ssvids.append(ssvid)
+
+        # Filter the trajectories to only include those with candidate ssvids.
+        self.filtered_ssvids = candidate_ssvids
 
     def score_trajectories(self):
         """
@@ -512,6 +527,7 @@ class AISAnalyzer(SourceAnalyzer):
         ).to_crs(self.crs_meters)
 
         # Determine candidate centerlines that contribute to 80% of the total length.
+        # XXX Do we need this, after we've filtered on area?
         percent_to_keep = 0.8
         cumsum = centerlines["length"].cumsum()
         index_of_min = cumsum.searchsorted(percent_to_keep * cumsum.iloc[-1])
@@ -519,8 +535,7 @@ class AISAnalyzer(SourceAnalyzer):
 
         # Get the list of AIS trajectories.
         relevant_trajectories = [
-            self.ais_trajectories[source_id]
-            for source_id in self.ais_filtered["ssvid"].unique()
+            self.ais_trajectories[ssvid] for ssvid in self.filtered_ssvids
         ]
 
         # Iterate over each AIS trajectory.
@@ -730,6 +745,7 @@ class AISAnalyzer(SourceAnalyzer):
         Associates AIS trajectories with slicks.
         """
         self.results = gpd.GeoDataFrame()
+        self.filtered_ssvids = []
 
         if self.ais_gdf is None:
             self.retrieve_ais_data()
@@ -738,8 +754,8 @@ class AISAnalyzer(SourceAnalyzer):
 
         self.slick_gdf = slick_gdf
         self.load_slick_centerlines()
-        self.filter_ais_data()
         self.build_trajectories()
+        self.filter_ais_data()
         self.score_trajectories()
         self.results["collated_score"] = self.results["coincidence_score"].apply(
             self.collate
