@@ -213,14 +213,15 @@ class AISAnalyzer(SourceAnalyzer):
             .reset_index(drop=True)
         )
 
-    def build_trajectories(self):
+    def build_trajectories(self, extrapolate=True):
         """
         Builds trajectories from AIS data.
 
         - Creates a fully interpolated trajectory (with datetime timestamps) for scoring.
         - Generates a truncated version (with ISO-formatted timestamps) for display.
+        - If `extrapolate` is True, uses a Kalman filter (with forward and backward passes)
+          to extrapolate any trajectory that does not cover the entire time_vec.
         """
-        # print("Building trajectories")
         s1_time = self.s1_scene.start_time
         ais_data = self.ais_filtered.sort_values("timestamp")
         existing_ids = self.ais_trajectories.keys()
@@ -230,12 +231,12 @@ class AISAnalyzer(SourceAnalyzer):
         for source_id, group in ais_data.groupby("ssvid"):
             group = group.copy()  # avoid chained assignment issues
 
-            # If only one point is present, we cannot interpolate.
+            # If only one point is present, we cannot interpolate well.
             if len(group) == 1:
                 group = pd.concat([group, group], ignore_index=True)
                 print(f"Trajectory {source_id} has only one point, cannot interpolate")
 
-            # Create a trajectory object
+            # Create a trajectory object with metadata.
             traj = {
                 "id": source_id,
                 "ext_name": group.iloc[0]["shipname"],
@@ -247,11 +248,11 @@ class AISAnalyzer(SourceAnalyzer):
             first_ais_tstamp = group["timestamp"].min()
             last_ais_tstamp = group["timestamp"].max()
 
-            # Interpolate to times in time_vec
+            # Determine the times within the AIS data span.
             interp_times = self.time_vec[
                 (self.time_vec >= first_ais_tstamp) & (self.time_vec <= last_ais_tstamp)
             ]
-            # Add three critical times: first, s1_time(if in range), last.
+            # Add three critical times: first, s1_time (if in range), and last.
             pos = interp_times.searchsorted(first_ais_tstamp)
             interp_times = interp_times.insert(pos, first_ais_tstamp)
             if first_ais_tstamp < s1_time < last_ais_tstamp:
@@ -261,16 +262,42 @@ class AISAnalyzer(SourceAnalyzer):
             interp_times = interp_times.insert(pos, last_ais_tstamp)
 
             # Interpolate positions at the required times.
-            positions = self.vectorized_interpolate_positions(group, interp_times)
-            interp_gdf = gpd.GeoDataFrame(
-                {"timestamp": interp_times, "geometry": positions}, crs="4326"
-            ).set_index("timestamp")
+            measured_positions = self.vectorized_interpolate_positions(
+                group, interp_times
+            )
+
+            # If extrapolation is desired, use a Kalman filter to fill the entire time_vec.
+            if extrapolate:
+                # Convert measured positions (Points) to an array of [x, y] coordinates.
+                measured_coords = np.array([[pt.x, pt.y] for pt in measured_positions])
+                # Use the full time vector (even outside the AIS interval) for the complete trajectory.
+                full_times = self.time_vec
+
+                # Run the Kalman filter extrapolation.
+                estimated_coords = self._kalman_extrapolation(
+                    interp_times, measured_coords, full_times
+                )
+                # Convert estimated coordinates back to Point geometries.
+                estimated_positions = [
+                    Point(coord[0], coord[1]) for coord in estimated_coords
+                ]
+
+                # Create a GeoDataFrame using the full time vector and extrapolated positions.
+                interp_gdf = gpd.GeoDataFrame(
+                    {"timestamp": full_times, "geometry": estimated_positions},
+                    crs="4326",
+                ).set_index("timestamp")
+            else:
+                # If no extrapolation is desired, simply use the interpolated measurements.
+                interp_gdf = gpd.GeoDataFrame(
+                    {"timestamp": interp_times, "geometry": measured_positions},
+                    crs="4326",
+                ).set_index("timestamp")
             traj["df"] = interp_gdf
 
             # Create a truncated GeoDataFrame for display (only points before s1_time).
             display_gdf = group[group["timestamp"] <= s1_time].copy()
-
-            # Add the row corresponding to s1_time if it exists.
+            # Add the s1_time row if available in the interpolated/extrapolated data.
             if s1_time in interp_gdf.index:
                 geom = interp_gdf.at[s1_time, "geometry"]
                 display_gdf.loc[len(display_gdf)] = {
@@ -279,7 +306,7 @@ class AISAnalyzer(SourceAnalyzer):
                     "geometry": geom,
                 }
 
-            # Use vectorized formatting to convert timestamps to ISO strings.
+            # Format the timestamps.
             display_gdf["timestamp"] = display_gdf["timestamp"].dt.strftime(
                 "%Y-%m-%dT%H:%M:%S"
             )
@@ -289,6 +316,120 @@ class AISAnalyzer(SourceAnalyzer):
             }
 
             self.ais_trajectories[source_id] = traj
+
+    def _kalman_extrapolation(self, measured_times, measured_coords, full_times):
+        """
+        Runs a Kalman filter (forward and backward passes) to estimate positions over
+        the entire full_times given measurements (measured_times, measured_coords)
+        that only cover part of that interval.
+
+        measured_times: pandas DatetimeIndex corresponding to AIS measurements (used as updates)
+        measured_coords: np.array of shape (M, 2) for measured [x, y] positions
+        full_times: pandas DatetimeIndex of the full set of times for which to estimate positions
+
+        Returns:
+            estimated_coords: np.array of shape (N, 2) for estimated [x, y] positions over full_times.
+        """
+        num_full = len(full_times)
+        # Determine the first measurement's index in full_times.
+        try:
+            i_first = full_times.get_loc(measured_times[0])
+        except KeyError:
+            i_first = np.searchsorted(full_times, measured_times[0])
+
+        # Helper function to extract a measurement as a 1-D array.
+        def get_measurement(t):
+            idx = measured_times.get_loc(t)
+            if isinstance(idx, slice):
+                z = np.mean(measured_coords[idx], axis=0)
+            elif isinstance(idx, (list, np.ndarray)):
+                z = np.mean(measured_coords[idx], axis=0)
+            else:
+                z = measured_coords[idx]
+            return np.array(z).flatten()
+
+        # Initialize state: x = [x, y, vx, vy]. If only one measurement exists, velocity is zero.
+        if len(measured_times) > 1:
+            dt0 = (measured_times[1] - measured_times[0]).total_seconds()
+            init_vel = (measured_coords[1] - measured_coords[0]) / max(dt0, 1e-3)
+        else:
+            init_vel = np.array([0.0, 0.0])
+        x0 = np.array(
+            [measured_coords[0][0], measured_coords[0][1], init_vel[0], init_vel[1]]
+        )
+        P0 = np.eye(4) * 0.1
+
+        # Prepare arrays for state estimates.
+        forward_est = np.zeros((num_full, 4))
+        backward_est = np.zeros((num_full, 4))
+        forward_est[i_first] = x0
+        current_state = x0.copy()
+        current_P = P0.copy()
+
+        # Forward filtering.
+        for i in range(i_first + 1, num_full):
+            dt = (full_times[i] - full_times[i - 1]).total_seconds()
+            F = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]])
+            q = 1e-6
+            Q = q * np.array(
+                [
+                    [dt**4 / 4, 0, dt**3 / 2, 0],
+                    [0, dt**4 / 4, 0, dt**3 / 2],
+                    [dt**3 / 2, 0, dt**2, 0],
+                    [0, dt**3 / 2, 0, dt**2],
+                ]
+            )
+            # Prediction step.
+            x_pred = F.dot(current_state)
+            P_pred = F.dot(current_P).dot(F.T) + Q
+
+            # Update if a measurement is available at this time.
+            if full_times[i] in measured_times:
+                z = get_measurement(full_times[i])
+                H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
+                R = np.eye(2) * 1e-4
+                S = H.dot(P_pred).dot(H.T) + R
+                K = P_pred.dot(H.T).dot(np.linalg.inv(S))
+                innovation = z - x_pred[:2]
+                # Now K.dot(innovation) yields a (4,) vector.
+                x_upd = x_pred + K.dot(innovation)
+                P_upd = (np.eye(4) - K.dot(H)).dot(P_pred)
+                current_state = x_upd
+                current_P = P_upd
+            else:
+                current_state = x_pred
+                current_P = P_pred
+
+            forward_est[i] = current_state
+
+        # Backward filtering (for times before the first measurement).
+        backward_est[i_first] = forward_est[i_first]
+        current_state = forward_est[i_first].copy()
+        current_P = P0.copy()  # reinitialize for backward pass
+        for i in range(i_first - 1, -1, -1):
+            dt = (full_times[i + 1] - full_times[i]).total_seconds()
+            F_inv = np.array(
+                [[1, 0, -dt, 0], [0, 1, 0, -dt], [0, 0, 1, 0], [0, 0, 0, 1]]
+            )
+            x_pred = F_inv.dot(current_state)
+            if full_times[i] in measured_times:
+                z = get_measurement(full_times[i])
+                # Blend the backward prediction with the measurement.
+                x_upd = x_pred.copy()
+                x_upd[:2] = (x_pred[:2] + z) / 2.0
+                current_state = x_upd
+            else:
+                current_state = x_pred
+            backward_est[i] = current_state
+
+        # Combine the estimates: use backward estimates for times before the first measurement.
+        combined_est = np.empty_like(forward_est)
+        for i in range(num_full):
+            if i < i_first:
+                combined_est[i] = backward_est[i]
+            else:
+                combined_est[i] = forward_est[i]
+        return combined_est[:, :2]
 
     def vectorized_interpolate_positions(self, group, interp_times):
         """
