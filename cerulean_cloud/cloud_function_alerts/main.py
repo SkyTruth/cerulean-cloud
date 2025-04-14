@@ -6,7 +6,10 @@ import time
 
 WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
 TIPG_URL = os.environ["TIPG_URL"]
-DRY_RUN = os.getenv("IS_DRY_RUN", "").lower() == "true"
+
+# TODO: replace
+DRY_RUN = False
+# DRY_RUN = os.getenv("IS_DRY_RUN", "").lower() == "true"
 
 # TODO: replace!!
 # BASE_URL = f"{TIPG_URL}/collections/public.source_plus"
@@ -14,6 +17,7 @@ BASE_URL = "https://api.cerulean.skytruth.org/collections/public.source_plus"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 MINIMUM_RESULT_COUNT = 1
+SLICK_TYPES = ["VESSEL", "INFRA"]  # , "DARK", "NATURAL"]
 
 
 def send_alert_no_recent_slicks_message(slick_type, dry_run=DRY_RUN):
@@ -29,16 +33,14 @@ def send_alert_no_recent_slicks_message(slick_type, dry_run=DRY_RUN):
         )
 
 
-def send_alert_failed_connection_message(dry_run=DRY_RUN):
+def send_alert_failed_connection_message(url, dry_run=DRY_RUN):
     """
     Sends `no slick` warning to Slack channel
     """
     if dry_run:
-        print(f"Failed connection to {BASE_URL}")
+        print(f"Failed connection to {url}")
     else:
-        _ = requests.post(
-            WEBHOOK_URL, json={"text": f"Failed connection to {BASE_URL}"}
-        )
+        _ = requests.post(WEBHOOK_URL, json={"text": f"Failed connection to {url}"})
 
 
 def send_success_message(slick_type, num_matched):
@@ -48,7 +50,7 @@ def send_success_message(slick_type, num_matched):
     print(f"No errors detected; found {num_matched} {slick_type} slicks")
 
 
-def fetch_with_retries(st, fn, slick_type=None):
+def fetch_with_retries(st, fn, base_url=BASE_URL, dry_run=DRY_RUN, slick_type=None):
     """
     Attempts to fetch data from the slick detection API with retry logic.
 
@@ -62,7 +64,7 @@ def fetch_with_retries(st, fn, slick_type=None):
         slick_type (str, optional): Optional source type to filter the query.
     """
     src_var = "" if slick_type is None else f"&source_type={slick_type}"
-    url = f"{BASE_URL}/items?limit=1{src_var}&datetime={st}/{fn}"
+    url = f"{base_url}/items?limit=1{src_var}&datetime={st}/{fn}"
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = requests.get(url, timeout=10)
@@ -79,7 +81,7 @@ def fetch_with_retries(st, fn, slick_type=None):
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_DELAY_SECONDS)
             else:
-                send_alert_failed_connection_message(url)
+                send_alert_failed_connection_message(url, dry_run=dry_run)
 
 
 def check_recent_slicks():
@@ -92,10 +94,14 @@ def check_recent_slicks():
     st = start_date.strftime("%Y-%m-%dT%H:%M:%SZ")
     fn = end_date.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    for slick_type in ["VESSEL", "INFRA", "DARK"]:
-        fetch_with_retries(st, fn, slick_type=slick_type)
+    for slick_type in SLICK_TYPES:
+        fetch_with_retries(
+            st, fn, base_url=BASE_URL, dry_run=DRY_RUN, slick_type=slick_type
+        )
 
 
 def main(request: Request):
+    # TODO: remove
+    print(f"dry run: {os.getenv('IS_DRY_RUN', '').lower()}")
     check_recent_slicks()
     return make_response("Function executed", 200)
