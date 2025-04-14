@@ -1,9 +1,9 @@
+import time
+
+import cloud_run_tipg
 import pulumi
 import pulumi_gcp as gcp
-import time
 from utils import construct_name, pulumi_create_zip
-import cloud_run_tipg
-
 
 PATH_TO_SOURCE_CODE = "../cerulean_cloud/cloud_function_alerts"
 resource_name = "cf-alerts"
