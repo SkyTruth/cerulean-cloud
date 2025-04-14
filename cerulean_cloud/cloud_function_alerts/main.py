@@ -6,14 +6,9 @@ import time
 
 WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
 TIPG_URL = os.environ["TIPG_URL"]
+DRY_RUN = os.getenv("IS_DRY_RUN", "").lower() == "true"
 
-# TODO: replace
-DRY_RUN = False
-# DRY_RUN = os.getenv("IS_DRY_RUN", "").lower() == "true"
-
-# TODO: replace!!
-# BASE_URL = f"{TIPG_URL}/collections/public.source_plus"
-BASE_URL = "https://api.cerulean.skytruth.org/collections/public.source_plus"
+BASE_URL = f"{TIPG_URL}/collections/public.source_plus"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
 MINIMUM_RESULT_COUNT = 1
@@ -48,12 +43,6 @@ def send_success_message(slick_type, num_matched):
     Perform success function (generally used for testing)
     """
     print(f"No errors detected; found {num_matched} {slick_type} slicks")
-    _ = requests.post(
-        WEBHOOK_URL,
-        json={
-            "text": f"TESTING: No errors detected; found {num_matched} {slick_type} slicks"
-        },
-    )
 
 
 def fetch_with_retries(st, fn, base_url=BASE_URL, dry_run=DRY_RUN, slick_type=None):
@@ -80,7 +69,7 @@ def fetch_with_retries(st, fn, base_url=BASE_URL, dry_run=DRY_RUN, slick_type=No
             if num_matched > MINIMUM_RESULT_COUNT:
                 send_success_message(slick_type, num_matched)
             else:
-                send_alert_no_recent_slicks_message(slick_type)
+                send_alert_no_recent_slicks_message(slick_type, dry_run=dry_run)
             return
 
         except requests.exceptions.RequestException:
@@ -90,7 +79,7 @@ def fetch_with_retries(st, fn, base_url=BASE_URL, dry_run=DRY_RUN, slick_type=No
                 send_alert_failed_connection_message(url, dry_run=dry_run)
 
 
-def check_recent_slicks():
+def check_recent_slicks(dry_run=DRY_RUN):
     """
     Hits the Cerulean API to see if any new slicks have been added in the past 24 hours
     """
@@ -102,11 +91,11 @@ def check_recent_slicks():
 
     for slick_type in SLICK_TYPES:
         fetch_with_retries(
-            st, fn, base_url=BASE_URL, dry_run=DRY_RUN, slick_type=slick_type
+            st, fn, base_url=BASE_URL, dry_run=dry_run, slick_type=slick_type
         )
 
 
 def main(request: Request):
     print(f"Base URL: {BASE_URL}; dry run: {os.getenv('IS_DRY_RUN', '').lower()}")
-    check_recent_slicks()
+    check_recent_slicks(dry_run=DRY_RUN)
     return make_response("Function executed", 200)
