@@ -48,6 +48,12 @@ def send_success_message(slick_type, num_matched):
     Perform success function (generally used for testing)
     """
     print(f"No errors detected; found {num_matched} {slick_type} slicks")
+    _ = requests.post(
+        WEBHOOK_URL,
+        json={
+            "text": f"TESTING: No errors detected; found {num_matched} {slick_type} slicks"
+        },
+    )
 
 
 def fetch_with_retries(st, fn, base_url=BASE_URL, dry_run=DRY_RUN, slick_type=None):
@@ -101,7 +107,6 @@ def check_recent_slicks():
 
 
 def main(request: Request):
-    # TODO: remove
-    print(f"dry run: {os.getenv('IS_DRY_RUN', '').lower()}")
+    print(f"Base URL: {BASE_URL}; dry run: {os.getenv('IS_DRY_RUN', '').lower()}")
     check_recent_slicks()
     return make_response("Function executed", 200)
