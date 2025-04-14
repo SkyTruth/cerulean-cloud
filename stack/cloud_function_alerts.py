@@ -71,9 +71,7 @@ fxn = gcp.cloudfunctionsv2.Function(
         environment_variables={
             "GCP_PROJECT": gcp.config.project,
             "TIPG_URL": cloud_run_tipg.default.statuses[0].url,
-            "       IS_DRY_RUN": pulumi.Config("cerulean-cloud").require(
-                "dryrun_alerts"
-            ),
+            "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_alerts"),
         },
         secret_environment_variables=[slack_webhooks],
     ),

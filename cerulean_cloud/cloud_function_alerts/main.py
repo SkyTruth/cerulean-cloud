@@ -8,9 +8,12 @@ WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
 TIPG_URL = os.environ["TIPG_URL"]
 DRY_RUN = os.getenv("IS_DRY_RUN", "").lower() == "true"
 
-BASE_URL = f"{TIPG_URL}/collections/public.source_plus"
+# TODO: replace!!
+# BASE_URL = f"{TIPG_URL}/collections/public.source_plus"
+BASE_URL = "https://api.cerulean.skytruth.org/collections/public.source_plus"
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 2
+MINIMUM_RESULT_COUNT = 1
 
 
 def send_alert_no_recent_slicks_message(slick_type, dry_run=DRY_RUN):
@@ -38,11 +41,11 @@ def send_alert_failed_connection_message(dry_run=DRY_RUN):
         )
 
 
-def send_success_message():
+def send_success_message(slick_type, num_matched):
     """
     Perform success function (generally used for testing)
     """
-    print("No errors detected")
+    print(f"No errors detected; found {num_matched} {slick_type} slicks")
 
 
 def fetch_with_retries(st, fn, slick_type=None):
@@ -64,9 +67,10 @@ def fetch_with_retries(st, fn, slick_type=None):
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
+            num_matched = response.json()["numberMatched"]
 
-            if response.json()["numberMatched"] > 0:
-                send_success_message()
+            if num_matched > MINIMUM_RESULT_COUNT:
+                send_success_message(slick_type, num_matched)
             else:
                 send_alert_no_recent_slicks_message(slick_type)
             return
