@@ -62,7 +62,7 @@ def fetch_with_retries(
     url = f"{base_url}/items?limit=1{src_var}&datetime={st}/{fn}"
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=300)
             response.raise_for_status()
             num_matched = response.json()["numberMatched"]
 
