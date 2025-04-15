@@ -10,32 +10,28 @@ DRY_RUN = os.getenv("IS_DRY_RUN", "").lower() == "true"
 
 BASE_URL = f"{TIPG_URL}/collections/public.source_plus"
 MAX_RETRIES = 3
-RETRY_DELAY_SECONDS = 2
+RETRY_DELAY_SECONDS = 10
 MINIMUM_RESULT_COUNT = 1
 SLICK_TYPES = ["VESSEL", "INFRA"]  # , "DARK", "NATURAL"]
 
 
-def send_alert_no_recent_slicks_message(slick_type, dry_run=DRY_RUN):
+def send_slack_alert(webhook_url, message, dry_run=DRY_RUN):
     """
-    Sends `no slick` warning to Slack channel
-    """
-    if dry_run:
-        print(f"No new {slick_type} slicks in the last 24 hours in {TIPG_URL}")
-    else:
-        _ = requests.post(
-            WEBHOOK_URL,
-            json=f"No new {slick_type} slicks in the last 24 hours in {TIPG_URL}",
-        )
-
-
-def send_alert_failed_connection_message(url, dry_run=DRY_RUN):
-    """
-    Sends `no slick` warning to Slack channel
+    Sends a slack message if dry_run=False otherwise logs alert in CloudRun Logs
     """
     if dry_run:
-        print(f"Failed connection to {url}")
+        print(f"WARNING: {message}")
     else:
-        _ = requests.post(WEBHOOK_URL, json={"text": f"Failed connection to {url}"})
+        message_json = {"text": message}
+        try:
+            response = requests.post(webhook_url, json=message_json, timeout=10)
+            response.raise_for_status()
+            print("Slack alert sent successfully")
+        except requests.exceptions.HTTPError as http_err:
+            print(f"HTTP error: {http_err}")
+            print(f"Response text: {response.text}")
+        except requests.exceptions.RequestException as req_err:
+            print(f"Request failed: {req_err}")
 
 
 def send_success_message(slick_type, num_matched):
@@ -45,7 +41,9 @@ def send_success_message(slick_type, num_matched):
     print(f"No errors detected; found {num_matched} {slick_type} slicks")
 
 
-def fetch_with_retries(st, fn, base_url=BASE_URL, dry_run=DRY_RUN, slick_type=None):
+def fetch_with_retries(
+    st, fn, base_url=BASE_URL, dry_run=DRY_RUN, webhook_url=WEBHOOK_URL, slick_type=None
+):
     """
     Attempts to fetch data from the slick detection API with retry logic.
 
@@ -58,28 +56,37 @@ def fetch_with_retries(st, fn, base_url=BASE_URL, dry_run=DRY_RUN, slick_type=No
         fn (str): End datetime (ISO format).
         slick_type (str, optional): Optional source type to filter the query.
     """
+
+    print(f"fetching slicks ({slick_type})")
     src_var = "" if slick_type is None else f"&source_type={slick_type}"
     url = f"{base_url}/items?limit=1{src_var}&datetime={st}/{fn}"
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, timeout=300)
             response.raise_for_status()
             num_matched = response.json()["numberMatched"]
 
             if num_matched > MINIMUM_RESULT_COUNT:
                 send_success_message(slick_type, num_matched)
             else:
-                send_alert_no_recent_slicks_message(slick_type, dry_run=dry_run)
+                send_slack_alert(
+                    webhook_url,
+                    f"No new {slick_type} slicks in the last 24 hours in {TIPG_URL}",
+                    dry_run=dry_run,
+                )
             return
 
         except requests.exceptions.RequestException:
             if attempt < MAX_RETRIES:
+                print(f"Unsuccessful attempt to connect to {url}: ATTEMPT {attempt}")
                 time.sleep(RETRY_DELAY_SECONDS)
             else:
-                send_alert_failed_connection_message(url, dry_run=dry_run)
+                send_slack_alert(
+                    webhook_url, f"Failed connection to {url}", dry_run=dry_run
+                )
 
 
-def check_recent_slicks(dry_run=DRY_RUN):
+def check_recent_slicks(dry_run=DRY_RUN, webhook_url=WEBHOOK_URL):
     """
     Hits the Cerulean API to see if any new slicks have been added in the past 24 hours
     """
@@ -91,11 +98,17 @@ def check_recent_slicks(dry_run=DRY_RUN):
 
     for slick_type in SLICK_TYPES:
         fetch_with_retries(
-            st, fn, base_url=BASE_URL, dry_run=dry_run, slick_type=slick_type
+            st,
+            fn,
+            base_url=BASE_URL,
+            dry_run=dry_run,
+            webhook_url=webhook_url,
+            slick_type=slick_type,
         )
 
 
 def main(request: Request):
-    print(f"Base URL: {BASE_URL}; dry run: {os.getenv('IS_DRY_RUN', '').lower()}")
-    check_recent_slicks(dry_run=DRY_RUN)
+    print(f"Base URL: {BASE_URL}; dry run: {DRY_RUN}")
+    check_recent_slicks(dry_run=DRY_RUN, webhook_url=WEBHOOK_URL)
+    print("Check complete!")
     return make_response("Function executed", 200)
