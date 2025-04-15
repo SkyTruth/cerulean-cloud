@@ -66,7 +66,7 @@ fxn = gcp.cloudfunctionsv2.Function(
     service_config=gcp.cloudfunctionsv2.FunctionServiceConfigArgs(
         max_instance_count=1,
         available_memory="128Mi",
-        timeout_seconds=60,
+        timeout_seconds=300,
         ingress_settings="ALLOW_INTERNAL_ONLY",
         environment_variables={
             "GCP_PROJECT": gcp.config.project,
