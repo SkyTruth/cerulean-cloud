@@ -110,4 +110,5 @@ def check_recent_slicks(dry_run=DRY_RUN, webhook_url=WEBHOOK_URL):
 def main(request: Request):
     print(f"Base URL: {BASE_URL}; dry run: {DRY_RUN}")
     check_recent_slicks(dry_run=DRY_RUN, webhook_url=WEBHOOK_URL)
+    print("Check complete!")
     return make_response("Function executed", 200)
