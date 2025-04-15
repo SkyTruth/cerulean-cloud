@@ -16,6 +16,9 @@ SLICK_TYPES = ["VESSEL", "INFRA"]  # , "DARK", "NATURAL"]
 
 
 def send_slack_alert(webhook_url, message, dry_run=DRY_RUN):
+    """
+    Sends a slack message if dry_run=False otherwise logs alert in CloudRun Logs
+    """
     if dry_run:
         print(f"WARNING: {message}")
     else:
