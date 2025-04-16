@@ -229,39 +229,56 @@ class AISAnalyzer(SourceAnalyzer):
         # Process each unique AIS source
         for source_id, group in ais_data.groupby("ssvid"):
             group = group.copy()
-            # Ensure at least 2 points; duplicate if only one exists.
-            if len(group) == 1:
-                group = pd.concat([group, group], ignore_index=True)
 
             # Prepare trajectory metadata.
+            first_ais = group["timestamp"].min()
+            last_ais = group["timestamp"].max()
             traj = {
                 "id": source_id,
                 "ext_name": group.iloc[0]["shipname"],
                 "ext_shiptype": group.iloc[0]["best_shiptype"],
                 "flag": group.iloc[0]["flag"],
-                "first_timestamp": group["timestamp"].min(),
-                "last_timestamp": group["timestamp"].max(),
+                "first_timestamp": first_ais,
+                "last_timestamp": last_ais,
             }
 
             # Combine known measurement times with a regular time vector.
             known_times = pd.DatetimeIndex(group.timestamp)
             combined_times = known_times.union(self.time_vec).sort_values()
+            detail_lower = s1_time - timedelta(hours=4)
+            detail_upper = s1_time + timedelta(hours=3)
 
-            # Compute Kalman-based extrapolated positions over the full time range.
-            extrap_times, extrap_positions = self.rts_extrapolation(
-                known_times, group.to_crs(self.crs_meters).geometry, combined_times
-            )
+            if len(group) == 1:
+                # Only one point, so duplicate it
+                new_times = pd.DatetimeIndex(
+                    [combined_times[0], group.timestamp.iloc[0], combined_times[-1]]
+                )
+                new_positions = [group.to_crs(self.crs_meters).geometry.iloc[0]] * 3
+
+            elif (first_ais < detail_lower) and (last_ais > detail_upper):
+                # Broadcasts span the detail window, so interpolate inside known_times
+                new_times = combined_times[
+                    (combined_times >= first_ais) & (combined_times <= last_ais)
+                ]
+                new_positions = self.interpolate_positions(
+                    known_times, group.to_crs(self.crs_meters).geometry, new_times
+                )
+            else:
+                # Extrapolate to fill up time_vec from the lowest value to detail_upper
+                new_times = combined_times[combined_times <= detail_upper]
+                new_positions = self.rts_extrapolation(
+                    known_times, group.to_crs(self.crs_meters).geometry, new_times
+                )
 
             # Create GeoDataFrame for the complete trajectory.
             interp_gdf = (
                 gpd.GeoDataFrame(
                     {
-                        "timestamp": combined_times,
-                        "geometry": extrap_positions,
+                        "timestamp": new_times,
+                        "geometry": new_positions,
                         "ssvid": source_id,
                         "extrapolated": (
-                            (combined_times <= traj["first_timestamp"])
-                            | (combined_times >= traj["last_timestamp"])
+                            (new_times <= first_ais) | (last_ais <= new_times)
                         ),
                     },
                     crs=self.crs_meters,
@@ -391,8 +408,31 @@ class AISAnalyzer(SourceAnalyzer):
         extrap_states = np.array(extrap_states)
         # Return positions (only x and y) as a GeoSeries.
         extrap_points = [Point(s[0], s[1]) for s in extrap_states]
+        return extrap_points
 
-        return extrap_times, extrap_points
+    def interpolate_positions(self, known_times, known_points, interp_times):
+        """
+        Given a sorted group (by timestamp) with a "geometry" column (shapely Points),
+        and a Series of interpolation times, perform linear interpolation on the x and y
+        coordinates using numpy.interp.
+
+        Returns a list of shapely Point objects corresponding to the interpolated positions.
+        """
+        # Convert timestamps to numeric values (seconds since epoch)
+        t_orig = known_times.astype("int64").values
+        t_interp = interp_times.astype("int64").values
+
+        # Extract x and y coordinates from the geometry column.
+        xs = [pt.x for pt in known_points]
+        ys = [pt.y for pt in known_points]
+
+        # Use NumPy's vectorized linear interpolation.
+        x_interp = np.interp(t_interp, t_orig, xs)
+        y_interp = np.interp(t_interp, t_orig, ys)
+
+        # Reconstruct shapely Points from the interpolated x and y.
+        pos_out = [Point(x, y) for x, y in zip(x_interp, y_interp)]
+        return pos_out
 
     def filter_ais_data(self):
         """
