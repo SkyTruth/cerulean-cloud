@@ -248,38 +248,16 @@ class AISAnalyzer(SourceAnalyzer):
             combined_times = known_times.union(self.time_vec).sort_values()
 
             # Compute Kalman-based extrapolated positions over the full time range.
-            extrap_times, extrap_positions = self._kalman_extrapolation(
+            extrap_times, extrap_positions = self.rts_extrapolation(
                 known_times, group.to_crs(self.crs_meters).geometry, combined_times
             )
-
-            # Identify in-range times between the first and last measurement.
-            in_range_mask = (combined_times >= traj["first_timestamp"]) & (
-                combined_times <= traj["last_timestamp"]
-            )
-            if in_range_mask.any():
-                in_range_times = combined_times[in_range_mask]
-                interp_positions = self.interpolate_positions(
-                    known_times, group.to_crs(self.crs_meters).geometry, in_range_times
-                )
-            else:
-                interp_positions = []
-
-            # Merge positions: replace positions for times in-range with interpolated ones.
-            final_positions = []
-            interp_idx = 0
-            for t, pos in zip(combined_times, extrap_positions):
-                if traj["first_timestamp"] <= t <= traj["last_timestamp"]:
-                    final_positions.append(interp_positions[interp_idx])
-                    interp_idx += 1
-                else:
-                    final_positions.append(pos)
 
             # Create GeoDataFrame for the complete trajectory.
             interp_gdf = (
                 gpd.GeoDataFrame(
                     {
                         "timestamp": combined_times,
-                        "geometry": final_positions,
+                        "geometry": extrap_positions,
                         "ssvid": source_id,
                         "extrapolated": (
                             (combined_times <= traj["first_timestamp"])
@@ -306,178 +284,115 @@ class AISAnalyzer(SourceAnalyzer):
             # Store the trajectory using the source_id as the key.
             self.ais_trajectories[source_id] = traj
 
-    def _kalman_extrapolation(self, known_times, known_points, extrap_times):
-        """
-        Perform Kalman filter forward pass and RTS smoothing for trajectory extrapolation.
+    def rts_extrapolation(
+        self,
+        known_times: pd.DatetimeIndex,
+        known_points: gpd.GeoSeries,
+        extrap_times: pd.DatetimeIndex,
+    ):
+        known_points.reset_index(drop=True, inplace=True)
+        # Use only the measurement times for the filter/smoother.
+        # (extrap_times are handled after smoothing)
+        filter_times = list(known_times)  # assumed sorted
+        n = len(filter_times)
 
-        Parameters:
-            known_times (pd.DatetimeIndex): Timestamps for available measurements.
-            known_points (GeoSeries): Geometric points corresponding to the measurements (in meter-based CRS).
-            extrap_times (pd.DatetimeIndex): Combined time vector for extrapolation including known and regular steps.
+        # Allocate arrays for state (4-dim: x, y, vx, vy) and covariance estimates.
+        x_filt = np.zeros((n, 4))
+        P_filt = np.zeros((n, 4, 4))
+        x_pred = np.zeros((n, 4))
+        P_pred = np.zeros((n, 4, 4))
 
-        Returns:
-            tuple:
-                - extrap_times (pd.DatetimeIndex): The full time vector of extrapolated timestamps.
-                - extrap_points (list of shapely.geometry.Point): List of smoothed geometric points corresponding to extrap_times.
-
-        The process includes:
-        1. Initializing the state vector (position and velocity) at time t0.
-        2. Running a forward pass (Kalman filtering) to predict state estimates and covariances.
-        3. Performing RTS (Rauch-Tung-Striebel) smoothing with a backward pass for improved estimates.
-        4. Converting the state estimates (positions) into geometric points.
-        """
-        # Ensure known_times is a DatetimeIndex.
-        if not isinstance(known_times, pd.DatetimeIndex):
-            known_times = pd.DatetimeIndex(known_times)
-        # Convert GeoSeries of Points to numpy array of coordinates.
-        known_coords = np.array([[pt.x, pt.y] for pt in known_points])
-        num_full = len(extrap_times)
-
-        # Identify the index for the first known measurement timestamp.
-        t_first = known_times[0]
-        try:
-            i_first = extrap_times.get_loc(t_first)
-            if isinstance(i_first, slice):
-                i_first = i_first.start
-        except KeyError:
-            i_first = np.searchsorted(extrap_times, t_first)
-
-        # Helper function to return measurement for a given time t.
-        def get_measurement(t):
-            idx = known_times.get_loc(t)
-            # Average if multiple measurements exist at the same time.
-            if isinstance(idx, slice) or isinstance(idx, (list, np.ndarray)):
-                z = np.mean(known_coords[idx], axis=0)
-            else:
-                z = known_coords[idx]
-            return np.array(z).flatten()
-
-        # State transition matrix function, given timestep dt.
-        def F(dt):
-            return np.array(
-                [
-                    [1, 0, dt, 0],
-                    [0, 1, 0, dt],
-                    [0, 0, 1, 0],
-                    [0, 0, 0, 1],
-                ]
-            )
-
-        # Process noise covariance matrix function.
-        def Q_matrix(dt, q=1e-6):
-            return q * np.array(
-                [
-                    [dt**4 / 4, 0, dt**3 / 2, 0],
-                    [0, dt**4 / 4, 0, dt**3 / 2],
-                    [dt**3 / 2, 0, dt**2, 0],
-                    [0, dt**3 / 2, 0, dt**2],
-                ]
-            )
-
-        # 1. Initialize state at t0.
-        t0 = extrap_times[0]
-        dt_init = (t_first - t0).total_seconds()
-        if len(known_times) > 1:
-            dt0 = (known_times[1] - known_times[0]).total_seconds()
-            init_vel = (known_coords[1] - known_coords[0]) / max(dt0, 1e-3)
+        # Initialize state from first measurement.
+        first_point = known_points[0]
+        x0 = first_point.x
+        y0 = first_point.y
+        if n > 1:
+            # Compute initial velocity using the first two measurements.
+            second_point = known_points[1]
+            dt0 = (filter_times[1] - filter_times[0]).total_seconds()
+            vx0 = (second_point.x - x0) / dt0 if dt0 != 0 else 0.0
+            vy0 = (second_point.y - y0) / dt0 if dt0 != 0 else 0.0
         else:
-            init_vel = np.array([0.0, 0.0])
-        # Set initial state vector: [x, y, vx, vy]
-        x_first = np.array(
-            [known_coords[0][0], known_coords[0][1], init_vel[0], init_vel[1]]
-        )
-        P0 = np.eye(4) * 0.1  # Initial covariance matrix.
-        # Back-propagate initialization to t0 if t0 precedes t_first.
-        x0_init = F(-dt_init).dot(x_first)
-        P0_init = P0.copy()
+            vx0, vy0 = 0.0, 0.0
+        x_filt[0] = np.array([x0, y0, vx0, vy0])
+        # Initialize with a small position uncertainty and moderate velocity uncertainty.
+        P_filt[0] = np.diag([1e-6, 1e-6, 1e-3, 1e-3])
 
-        # 2. Forward filtering (Kalman filter).
-        x_f = np.zeros((num_full, 4))
-        P_f = np.zeros((num_full, 4, 4))
-        x_pred_arr = np.zeros((num_full, 4))
-        P_pred_arr = np.zeros((num_full, 4, 4))
-        x_f[0] = x0_init
-        P_f[0] = P0_init
+        # --- Forward Kalman Filter Pass ---
+        for i in range(1, n):
+            dt = (filter_times[i] - filter_times[i - 1]).total_seconds()
+            F = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]])
+            # Process noise parameter (set very low for nearly noise free)
+            q = 1e-3
+            Q = q * np.array(
+                [
+                    [dt**3 / 3, 0, dt**2 / 2, 0],
+                    [0, dt**3 / 3, 0, dt**2 / 2],
+                    [dt**2 / 2, 0, dt, 0],
+                    [0, dt**2 / 2, 0, dt],
+                ]
+            )
+            # Predict
+            x_pred[i] = F @ x_filt[i - 1]
+            P_pred[i] = F @ P_filt[i - 1] @ F.T + Q
+            # Update (measurement is available at every filter time)
+            z = np.array([known_points[i].x, known_points[i].y])
+            H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
+            R = 1e-6 * np.eye(2)
+            y_err = z - (H @ x_pred[i])
+            S = H @ P_pred[i] @ H.T + R
+            K = P_pred[i] @ H.T @ np.linalg.inv(S)
+            x_filt[i] = x_pred[i] + K @ y_err
+            P_filt[i] = (np.eye(4) - K @ H) @ P_pred[i]
 
-        for i in range(1, num_full):
-            dt = (extrap_times[i] - extrap_times[i - 1]).total_seconds()
-            F_i = F(dt)
-            Q_i = Q_matrix(dt)
-            # Predict state and covariance.
-            x_pred = F_i.dot(x_f[i - 1])
-            P_pred = F_i.dot(P_f[i - 1]).dot(F_i.T) + Q_i
-            x_pred_arr[i] = x_pred
-            P_pred_arr[i] = P_pred
+        # --- Backward RTS Smoothing Pass ---
+        x_smooth = np.copy(x_filt)
+        P_smooth = np.copy(P_filt)
+        for i in range(n - 2, -1, -1):
+            dt = (filter_times[i + 1] - filter_times[i]).total_seconds()
+            F = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]])
+            A = P_filt[i] @ F.T @ np.linalg.inv(P_pred[i + 1])
+            x_smooth[i] = x_filt[i] + A @ (x_smooth[i + 1] - x_pred[i + 1])
+            P_smooth[i] = P_filt[i] + A @ (P_smooth[i + 1] - P_pred[i + 1]) @ A.T
 
-            # If a measurement exists at this time, update using that measurement.
-            if known_times.isin([extrap_times[i]]).any():
-                z = get_measurement(extrap_times[i])
-                H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
-                R = np.zeros((2, 2))  # Zero measurement noise (assumed perfect)
-                S = H.dot(P_pred).dot(H.T) + R
-                # Compute Kalman gain with pseudo-inverse for numerical robustness.
-                K = P_pred.dot(H.T).dot(np.linalg.pinv(S))
-                innovation = z - H.dot(x_pred)
-                x_upd = x_pred + K.dot(innovation)
-                # Force measured position to exactly match the measurement.
-                x_upd[0:2] = z
-                P_upd = (np.eye(4) - K.dot(H)).dot(P_pred)
-                # Zero out uncertainty for the measured positions.
-                P_upd[0:2, :] = 0
-                P_upd[:, 0:2] = 0
-                x_f[i] = x_upd
-                P_f[i] = P_upd
+        # --- Extrapolation/Interpolation to Desired Times ---
+        # Define a constant–velocity propagator.
+        def propagate(state, dt):
+            F = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]])
+            return F @ state
+
+        # For interpolation and extrapolation, express filter_times in seconds relative to the first measurement.
+        base_time = filter_times[0]
+
+        def time_to_seconds(t):
+            return (t - base_time).total_seconds()
+
+        times_sec = np.array([time_to_seconds(t) for t in filter_times])
+
+        extrap_states = []
+        for t in extrap_times:
+            t_sec = time_to_seconds(t)
+            if t_sec <= times_sec[0]:
+                # Extrapolate backward from the first smoothed state.
+                dt = t_sec - times_sec[0]
+                state = propagate(x_smooth[0], dt)
+            elif t_sec >= times_sec[-1]:
+                # Extrapolate forward from the last smoothed state.
+                dt = t_sec - times_sec[-1]
+                state = propagate(x_smooth[-1], dt)
             else:
-                # If no measurement, keep predicted values.
-                x_f[i] = x_pred
-                P_f[i] = P_pred
+                # Interpolate linearly in state space between the two neighbouring smoothed states.
+                i = np.searchsorted(times_sec, t_sec) - 1
+                t0 = times_sec[i]
+                t1 = times_sec[i + 1]
+                alpha = (t_sec - t0) / (t1 - t0)
+                state = (1 - alpha) * x_smooth[i] + alpha * x_smooth[i + 1]
+            extrap_states.append(state)
+        extrap_states = np.array(extrap_states)
+        # Return positions (only x and y) as a GeoSeries.
+        extrap_points = [Point(s[0], s[1]) for s in extrap_states]
 
-        # 3. RTS smoothing (backward pass for refined estimates).
-        x_s = np.zeros((num_full, 4))
-        P_s = np.zeros((num_full, 4, 4))
-        x_s[-1] = x_f[-1]
-        P_s[-1] = P_f[-1]
-        for i in range(num_full - 2, -1, -1):
-            dt = (extrap_times[i + 1] - extrap_times[i]).total_seconds()
-            F_i = F(dt)
-            # Use pseudo-inverse if necessary.
-            try:
-                inv_P_pred = np.linalg.inv(P_pred_arr[i + 1])
-            except np.linalg.LinAlgError:
-                inv_P_pred = np.linalg.pinv(P_pred_arr[i + 1])
-            # Calculate smoothing gain.
-            A = P_f[i].dot(F_i.T).dot(inv_P_pred)
-            x_s[i] = x_f[i] + A.dot(x_s[i + 1] - x_pred_arr[i + 1])
-            P_s[i] = P_f[i] + A.dot(P_s[i + 1] - P_pred_arr[i + 1]).dot(A.T)
-
-        # 4. Extract and return the smoothed positions as Points.
-        extrap_coords = x_s[:, :2]
-        extrap_points = [Point(coord[0], coord[1]) for coord in extrap_coords]
         return extrap_times, extrap_points
-
-    def interpolate_positions(self, known_times, known_points, interp_times):
-        """
-        Given a sorted group (by timestamp) with a "geometry" column (shapely Points),
-        and a Series of interpolation times, perform linear interpolation on the x and y
-        coordinates using numpy.interp.
-
-        Returns a list of shapely Point objects corresponding to the interpolated positions.
-        """
-        # Convert timestamps to numeric values (seconds since epoch)
-        t_orig = known_times.astype("int64").values
-        t_interp = interp_times.astype("int64").values
-
-        # Extract x and y coordinates from the geometry column.
-        xs = [pt.x for pt in known_points]
-        ys = [pt.y for pt in known_points]
-
-        # Use NumPy's vectorized linear interpolation.
-        x_interp = np.interp(t_interp, t_orig, xs)
-        y_interp = np.interp(t_interp, t_orig, ys)
-
-        # Reconstruct shapely Points from the interpolated x and y.
-        pos_out = [Point(x, y) for x, y in zip(x_interp, y_interp)]
-        return pos_out
 
     def filter_ais_data(self):
         """
