@@ -120,6 +120,9 @@ class AISAnalyzer(SourceAnalyzer):
         self.hours_after = kwargs.get("hours_after", c.HOURS_AFTER)
         self.ais_scene_buffer = kwargs.get("ais_scene_buffer", c.AIS_SCENE_BUFFER)
         self.ais_slick_buffer = kwargs.get("ais_slick_buffer", c.AIS_SLICK_BUFFER)
+        self.max_slick_drift_time = kwargs.get(
+            "max_slick_drift_time", c.MAX_SLICK_DRIFT_TIME
+        )
         self.num_timesteps = kwargs.get("num_timesteps", c.NUM_TIMESTEPS)
         self.ais_project_id = kwargs.get("ais_project_id", c.AIS_PROJECT_ID)
         self.w_temporal = kwargs.get("w_temporal", c.W_TEMPORAL)
@@ -220,7 +223,7 @@ class AISAnalyzer(SourceAnalyzer):
         Build and store AIS trajectories using available AIS data.
         """
         s1_time = self.s1_scene.start_time
-        detail_lower = s1_time - timedelta(hours=3)
+        detail_lower = s1_time - timedelta(hours=self.max_slick_drift_time)
         detail_upper = s1_time + timedelta(hours=1)
 
         # Prepare search polygon in lat/lon
@@ -247,23 +250,30 @@ class AISAnalyzer(SourceAnalyzer):
                 new_times = pd.DatetimeIndex([t_combined[0], t_first, t_combined[-1]])
                 new_positions = [geom_m.iloc[0]] * 3
 
-            elif t_first < detail_lower and t_last > detail_upper:
-                if not box(*geom_m.total_bounds).intersects(search_polygon_m):
-                    continue
-                new_times = t_combined[(t_combined >= t_first) & (t_combined <= t_last)]
-                new_positions = self.interpolate_positions(t_known, geom_m, new_times)
-
             else:
-                # Extrapolation case
-                max_speed = self.estimate_speed(group_m)  # m/s
-                lower_delta = max((t_first - detail_lower).total_seconds(), 0)
-                upper_delta = max((detail_upper - t_last).total_seconds(), 0)
-                b0 = geom_m.iloc[0].buffer(max_speed * lower_delta)
-                b1 = geom_m.iloc[-1].buffer(max_speed * upper_delta)
-                if not unary_union([b0, b1]).intersects(search_polygon_m):
-                    continue
+                if not box(*geom_m.total_bounds).intersects(search_polygon_m):
+                    # No overlap with the search polygon
+                    # Broadcast might require extrapolation to the time range of interest
+                    # Estimate whether the vessel will reach the search polygon
+                    max_speed = group_m["speed_knots"].max()
+                    lower_time_gap = max((t_first - detail_lower).total_seconds(), 0)
+                    upper_time_gap = max((detail_upper - t_last).total_seconds(), 0)
+                    r0 = max_speed * lower_time_gap
+                    r1 = max_speed * upper_time_gap
+                    b0 = geom_m.iloc[0].buffer(r0) if r0 > 0 else None
+                    b1 = geom_m.iloc[-1].buffer(r1) if r1 > 0 else None
+                    pieces = [g for g in (b0, b1) if g is not None and not g.is_empty]
+                    if not unary_union(pieces).intersects(search_polygon_m):
+                        # Vessel is highly unlikely reach the search polygon
+                        continue
                 new_times = t_combined[t_combined <= detail_upper]
-                new_positions = self.rts_extrapolation(t_known, geom_m, new_times)
+                new_positions = self.bezier_extrapolation(
+                    t_known,
+                    geom_m,
+                    new_times,
+                    group_m["course"],
+                    group_m["speed_knots"],
+                )
 
             # Build trajectory GeoDataFrame and convert back to lat/lon
             interp_gdf = (
@@ -299,131 +309,79 @@ class AISAnalyzer(SourceAnalyzer):
             }
             self.ais_trajectories[source_id] = traj
 
-    def estimate_speed(self, group_m, percentile=95):
-        """
-        group_m: GeoDataFrame in metric CRS with 'timestamp' and 'geometry'.
-        Returns the 95th percentile speed (m/s) to robustly capture higher speeds.
-        """
-        gdf = group_m.sort_values("timestamp")
-        geom = gdf.geometry
-        ts = gdf["timestamp"]
-        speeds = []
-        for p1, p2, t1, t2 in zip(geom[:-1], geom[1:], ts[:-1], ts[1:]):
-            dt = (t2 - t1).total_seconds()
-            if dt > 0:
-                speeds.append(p1.distance(p2) / dt)
-        if not speeds:
-            return 0.0
-        return float(np.percentile(speeds, percentile))
-
-    def rts_extrapolation(
+    def bezier_extrapolation(
         self,
         known_times: pd.DatetimeIndex,
         known_points: gpd.GeoSeries,
         extrap_times: pd.DatetimeIndex,
-    ):
-        known_points.reset_index(drop=True, inplace=True)
-        # Use only the measurement times for the filter/smoother.
-        # (extrap_times are handled after smoothing)
-        filter_times = list(known_times)  # assumed sorted
-        n = len(filter_times)
+        course_deg: gpd.GeoSeries,
+        speed_knots: gpd.GeoSeries,
+    ) -> list[Point]:
+        """
+        Piece‑wise interpolation / extrapolation.
+        Returns one shapely Point per extrap_times entry.
+        """
+        xs = known_points.x.to_numpy()
+        ys = known_points.y.to_numpy()
 
-        # Allocate arrays for state (4-dim: x, y, vx, vy) and covariance estimates.
-        x_filt = np.zeros((n, 4))
-        P_filt = np.zeros((n, 4, 4))
-        x_pred = np.zeros((n, 4))
-        P_pred = np.zeros((n, 4, 4))
+        thetas = np.deg2rad(course_deg.to_numpy())
+        speeds = speed_knots.to_numpy() * 0.514444444
 
-        # Initialize state from first measurement.
-        first_point = known_points[0]
-        x0 = first_point.x
-        y0 = first_point.y
-        if n > 1:
-            # Compute initial velocity using the first two measurements.
-            second_point = known_points[1]
-            dt0 = (filter_times[1] - filter_times[0]).total_seconds()
-            vx0 = (second_point.x - x0) / dt0 if dt0 != 0 else 0.0
-            vy0 = (second_point.y - y0) / dt0 if dt0 != 0 else 0.0
-        else:
-            vx0, vy0 = 0.0, 0.0
-        x_filt[0] = np.array([x0, y0, vx0, vy0])
-        # Initialize with a small position uncertainty and moderate velocity uncertainty.
-        P_filt[0] = np.diag([1e-6, 1e-6, 1e-3, 1e-3])
+        vx = speeds * np.sin(thetas)
+        vy = speeds * np.cos(thetas)
 
-        # --- Forward Kalman Filter Pass ---
-        for i in range(1, n):
-            dt = (filter_times[i] - filter_times[i - 1]).total_seconds()
-            F = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]])
-            # Process noise parameter (set very low for nearly noise free)
-            q = 1e-3
-            Q = q * np.array(
-                [
-                    [dt**3 / 3, 0, dt**2 / 2, 0],
-                    [0, dt**3 / 3, 0, dt**2 / 2],
-                    [dt**2 / 2, 0, dt, 0],
-                    [0, dt**2 / 2, 0, dt],
-                ]
-            )
-            # Predict
-            x_pred[i] = F @ x_filt[i - 1]
-            P_pred[i] = F @ P_filt[i - 1] @ F.T + Q
-            # Update (measurement is available at every filter time)
-            z = np.array([known_points[i].x, known_points[i].y])
-            H = np.array([[1, 0, 0, 0], [0, 1, 0, 0]])
-            R = 1e-6 * np.eye(2)
-            y_err = z - (H @ x_pred[i])
-            S = H @ P_pred[i] @ H.T + R
-            K = P_pred[i] @ H.T @ np.linalg.inv(S)
-            x_filt[i] = x_pred[i] + K @ y_err
-            P_filt[i] = (np.eye(4) - K @ H) @ P_pred[i]
+        n = len(known_times)
+        dt_list = [
+            (known_times[i + 1] - known_times[i]).total_seconds() for i in range(n - 1)
+        ]
 
-        # --- Backward RTS Smoothing Pass ---
-        x_smooth = np.copy(x_filt)
-        P_smooth = np.copy(P_filt)
-        for i in range(n - 2, -1, -1):
-            dt = (filter_times[i + 1] - filter_times[i]).total_seconds()
-            F = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]])
-            A = P_filt[i] @ F.T @ np.linalg.inv(P_pred[i + 1])
-            x_smooth[i] = x_filt[i] + A @ (x_smooth[i + 1] - x_pred[i + 1])
-            P_smooth[i] = P_filt[i] + A @ (P_smooth[i + 1] - P_pred[i + 1]) @ A.T
+        # precompute control points for cubic Bezier on each segment
+        B0x = xs[:-1]
+        B0y = ys[:-1]
+        B3x = xs[1:]
+        B3y = ys[1:]
+        arr_dt = np.array(dt_list)
+        B1x = B0x + vx[:-1] * arr_dt / 3
+        B1y = B0y + vy[:-1] * arr_dt / 3
+        B2x = B3x - vx[1:] * arr_dt / 3
+        B2y = B3y - vy[1:] * arr_dt / 3
 
-        # --- Extrapolation/Interpolation to Desired Times ---
-        # Define a constant–velocity propagator.
-        def propagate(state, dt):
-            F = np.array([[1, 0, dt, 0], [0, 1, 0, dt], [0, 0, 1, 0], [0, 0, 0, 1]])
-            return F @ state
+        result = []
+        times = extrap_times.to_numpy()
+        idxs = np.searchsorted(known_times.to_numpy(), times)
 
-        # For interpolation and extrapolation, express filter_times in seconds relative to the first measurement.
-        base_time = filter_times[0]
-
-        def time_to_seconds(t):
-            return (t - base_time).total_seconds()
-
-        times_sec = np.array([time_to_seconds(t) for t in filter_times])
-
-        extrap_states = []
-        for t in extrap_times:
-            t_sec = time_to_seconds(t)
-            if t_sec <= times_sec[0]:
-                # Extrapolate backward from the first smoothed state.
-                dt = t_sec - times_sec[0]
-                state = propagate(x_smooth[0], dt)
-            elif t_sec >= times_sec[-1]:
-                # Extrapolate forward from the last smoothed state.
-                dt = t_sec - times_sec[-1]
-                state = propagate(x_smooth[-1], dt)
+        for t, idx in zip(times, idxs):
+            t = pd.to_datetime(t)
+            if idx == 0:
+                # linear extrapolation before first point
+                dt = (t - known_times[0]).total_seconds()
+                x = xs[0] + vx[0] * dt
+                y = ys[0] + vy[0] * dt
+            elif idx >= n:
+                # linear extrapolation after last point
+                dt = (t - known_times[-1]).total_seconds()
+                x = xs[-1] + vx[-1] * dt
+                y = ys[-1] + vy[-1] * dt
             else:
-                # Interpolate linearly in state space between the two neighbouring smoothed states.
-                i = np.searchsorted(times_sec, t_sec) - 1
-                t0 = times_sec[i]
-                t1 = times_sec[i + 1]
-                alpha = (t_sec - t0) / (t1 - t0)
-                state = (1 - alpha) * x_smooth[i] + alpha * x_smooth[i + 1]
-            extrap_states.append(state)
-        extrap_states = np.array(extrap_states)
-        # Return positions (only x and y) as a GeoSeries.
-        extrap_points = [Point(s[0], s[1]) for s in extrap_states]
-        return extrap_points
+                # cubic Bezier interpolation
+                i = idx - 1
+                u = (t - known_times[i]).total_seconds() / dt_list[i]
+                one_u = 1 - u
+                x = (
+                    (one_u**3) * B0x[i]
+                    + 3 * (one_u**2) * u * B1x[i]
+                    + 3 * one_u * (u**2) * B2x[i]
+                    + (u**3) * B3x[i]
+                )
+                y = (
+                    (one_u**3) * B0y[i]
+                    + 3 * (one_u**2) * u * B1y[i]
+                    + 3 * one_u * (u**2) * B2y[i]
+                    + (u**3) * B3y[i]
+                )
+            result.append(Point(x, y))
+
+        return result
 
     def interpolate_positions(self, known_times, known_points, interp_times):
         """
@@ -466,6 +424,14 @@ class AISAnalyzer(SourceAnalyzer):
         # Iterate over each trajectory.
         for ssvid, trajectory in self.ais_trajectories.items():
             traj_df = trajectory["df"]
+            traj_df = traj_df[
+                (traj_df.index <= self.s1_scene.start_time)
+                & (
+                    traj_df.index
+                    >= self.s1_scene.start_time
+                    - timedelta(hours=self.max_slick_drift_time)
+                )
+            ]
             # Compute the bounding box of the trajectory.
             traj_bounds = traj_df.total_bounds  # [minx, miny, maxx, maxy]
 
