@@ -120,6 +120,9 @@ class AISAnalyzer(SourceAnalyzer):
         self.hours_after = kwargs.get("hours_after", c.HOURS_AFTER)
         self.ais_scene_buffer = kwargs.get("ais_scene_buffer", c.AIS_SCENE_BUFFER)
         self.ais_slick_buffer = kwargs.get("ais_slick_buffer", c.AIS_SLICK_BUFFER)
+        self.max_slick_drift_time = kwargs.get(
+            "max_slick_drift_time", c.MAX_SLICK_DRIFT_TIME
+        )
         self.num_timesteps = kwargs.get("num_timesteps", c.NUM_TIMESTEPS)
         self.ais_project_id = kwargs.get("ais_project_id", c.AIS_PROJECT_ID)
         self.w_temporal = kwargs.get("w_temporal", c.W_TEMPORAL)
@@ -220,7 +223,7 @@ class AISAnalyzer(SourceAnalyzer):
         Build and store AIS trajectories using available AIS data.
         """
         s1_time = self.s1_scene.start_time
-        detail_lower = s1_time - timedelta(hours=3)
+        detail_lower = s1_time - timedelta(hours=self.max_slick_drift_time)
         detail_upper = s1_time + timedelta(hours=1)
 
         # Prepare search polygon in lat/lon
@@ -247,24 +250,22 @@ class AISAnalyzer(SourceAnalyzer):
                 new_times = pd.DatetimeIndex([t_combined[0], t_first, t_combined[-1]])
                 new_positions = [geom_m.iloc[0]] * 3
 
-            elif t_first < detail_lower and t_last > detail_upper:
-                if not box(*geom_m.total_bounds).intersects(search_polygon_m):
-                    continue
-                new_times = t_combined[(t_combined >= t_first) & (t_combined <= t_last)]
-                new_positions = self.interpolate_positions(t_known, geom_m, new_times)
-
             else:
-                # Extrapolation case
-                max_speed = self.estimate_speed(group_m)  # m/s
-                lower_delta = max((t_first - detail_lower).total_seconds(), 0)
-                upper_delta = max((detail_upper - t_last).total_seconds(), 0)
-                r0 = max_speed * lower_delta
-                r1 = max_speed * upper_delta
-                b0 = geom_m.iloc[0].buffer(r0) if r0 > 0 else None
-                b1 = geom_m.iloc[-1].buffer(r1) if r1 > 0 else None
-                pieces = [g for g in (b0, b1) if g is not None and not g.is_empty]
-                if not unary_union(pieces).intersects(search_polygon_m):
-                    continue
+                if not box(*geom_m.total_bounds).intersects(search_polygon_m):
+                    # No overlap with the search polygon
+                    # Broadcast might require extrapolation to the time range of interest
+                    # Estimate whether the vessel will reach the search polygon
+                    max_speed = group_m["speed_knots"].max()
+                    lower_time_gap = max((t_first - detail_lower).total_seconds(), 0)
+                    upper_time_gap = max((detail_upper - t_last).total_seconds(), 0)
+                    r0 = max_speed * lower_time_gap
+                    r1 = max_speed * upper_time_gap
+                    b0 = geom_m.iloc[0].buffer(r0) if r0 > 0 else None
+                    b1 = geom_m.iloc[-1].buffer(r1) if r1 > 0 else None
+                    pieces = [g for g in (b0, b1) if g is not None and not g.is_empty]
+                    if not unary_union(pieces).intersects(search_polygon_m):
+                        # Vessel is highly unlikely reach the search polygon
+                        continue
                 new_times = t_combined[t_combined <= detail_upper]
                 new_positions = self.bezier_extrapolation(
                     t_known,
@@ -308,23 +309,6 @@ class AISAnalyzer(SourceAnalyzer):
             }
             self.ais_trajectories[source_id] = traj
 
-    def estimate_speed(self, group_m, percentile=95):
-        """
-        group_m: GeoDataFrame in metric CRS with 'timestamp' and 'geometry'.
-        Returns the 95th percentile speed (m/s) to robustly capture higher speeds.
-        """
-        gdf = group_m.sort_values("timestamp")
-        geom = gdf.geometry
-        ts = gdf["timestamp"]
-        speeds = []
-        for p1, p2, t1, t2 in zip(geom[:-1], geom[1:], ts[:-1], ts[1:]):
-            dt = (t2 - t1).total_seconds()
-            if dt > 0:
-                speeds.append(p1.distance(p2) / dt)
-        if not speeds:
-            return 0.0
-        return float(np.percentile(speeds, percentile))
-
     def bezier_extrapolation(
         self,
         known_times: pd.DatetimeIndex,
@@ -337,14 +321,6 @@ class AISAnalyzer(SourceAnalyzer):
         Piece‑wise interpolation / extrapolation.
         Returns one shapely Point per extrap_times entry.
         """
-        # ensure times are sorted
-        if not known_times.is_monotonic_increasing:
-            order = np.argsort(known_times)
-            known_times = known_times[order]
-            known_points = known_points.iloc[order].reset_index(drop=True)
-            course_deg = course_deg.iloc[order].reset_index(drop=True)
-            speed_knots = speed_knots.iloc[order].reset_index(drop=True)
-
         xs = known_points.x.to_numpy()
         ys = known_points.y.to_numpy()
 
@@ -360,16 +336,15 @@ class AISAnalyzer(SourceAnalyzer):
         ]
 
         # precompute control points for cubic Bezier on each segment
-        if n > 1:
-            B0x = xs[:-1]
-            B0y = ys[:-1]
-            B3x = xs[1:]
-            B3y = ys[1:]
-            arr_dt = np.array(dt_list)
-            B1x = B0x + vx[:-1] * arr_dt / 3
-            B1y = B0y + vy[:-1] * arr_dt / 3
-            B2x = B3x - vx[1:] * arr_dt / 3
-            B2y = B3y - vy[1:] * arr_dt / 3
+        B0x = xs[:-1]
+        B0y = ys[:-1]
+        B3x = xs[1:]
+        B3y = ys[1:]
+        arr_dt = np.array(dt_list)
+        B1x = B0x + vx[:-1] * arr_dt / 3
+        B1y = B0y + vy[:-1] * arr_dt / 3
+        B2x = B3x - vx[1:] * arr_dt / 3
+        B2y = B3y - vy[1:] * arr_dt / 3
 
         result = []
         times = extrap_times.to_numpy()
@@ -449,6 +424,14 @@ class AISAnalyzer(SourceAnalyzer):
         # Iterate over each trajectory.
         for ssvid, trajectory in self.ais_trajectories.items():
             traj_df = trajectory["df"]
+            traj_df = traj_df[
+                (traj_df.index <= self.s1_scene.start_time)
+                & (
+                    traj_df.index
+                    >= self.s1_scene.start_time
+                    - timedelta(hours=self.max_slick_drift_time)
+                )
+            ]
             # Compute the bounding box of the trajectory.
             traj_bounds = traj_df.total_bounds  # [minx, miny, maxx, maxy]
 
