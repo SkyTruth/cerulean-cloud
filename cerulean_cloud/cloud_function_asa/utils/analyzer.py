@@ -26,10 +26,8 @@ from shapely.geometry import (
     MultiPolygon,
     Point,
     Polygon,
-    box,
     mapping,
 )
-from shapely.ops import unary_union
 
 from . import constants as c
 from .scoring import (
@@ -226,19 +224,77 @@ class AISAnalyzer(SourceAnalyzer):
         detail_lower = s1_time - timedelta(hours=self.max_slick_drift_time)
         detail_upper = s1_time + timedelta(hours=1)
 
-        # Prepare search polygon in lat/lon
+        # Prepare search polygon in metric CRS
         search_polygon_m = (
             self.slick_gdf.geometry.to_crs(self.crs_meters)
             .buffer(self.ais_slick_buffer)
             .iloc[0]
         )
+        sx0, sy0, sx1, sy1 = search_polygon_m.bounds
 
-        ais_data_m = self.ais_gdf.to_crs(self.crs_meters).sort_values("timestamp")
+        # Project all AIS once
+        ais_proj = self.ais_gdf.to_crs(self.crs_meters)
         existing_ids = set(self.ais_trajectories.keys())
+
+        # 1. Aggregate per‑vessel static bounds, max speed, first/last times
+        agg = (
+            ais_proj.groupby("ssvid")
+            .agg(
+                minx=("geometry", lambda g: g.x.min()),
+                maxx=("geometry", lambda g: g.x.max()),
+                miny=("geometry", lambda g: g.y.min()),
+                maxy=("geometry", lambda g: g.y.max()),
+                vmax=("speed_knots", "max"),
+                t_first=("timestamp", "min"),
+                t_last=("timestamp", "max"),
+            )
+            .reset_index()
+        )
+
+        # 2. Extract first and last point coords per vessel
+        first = ais_proj.sort_values("timestamp").drop_duplicates("ssvid", keep="first")
+        last = ais_proj.sort_values("timestamp").drop_duplicates("ssvid", keep="last")
+        agg = agg.merge(
+            first[["ssvid"]].assign(x0=first.geometry.x, y0=first.geometry.y),
+            on="ssvid",
+        ).merge(
+            last[["ssvid"]].assign(x1=last.geometry.x, y1=last.geometry.y), on="ssvid"
+        )
+
+        # 3. Compute time gaps and reach distances
+        lower_gap = (agg["t_first"] - detail_lower).clip(lower=pd.Timedelta(0))
+        upper_gap = (detail_upper - agg["t_last"]).clip(lower=pd.Timedelta(0))
+        reach0 = agg["vmax"].to_numpy() * 0.514444444 * lower_gap.dt.total_seconds()
+        reach1 = agg["vmax"].to_numpy() * 0.514444444 * upper_gap.dt.total_seconds()
+
+        # static track intersects?
+        mask_static = ~(
+            (agg.minx > sx1) | (agg.maxx < sx0) | (agg.miny > sy1) | (agg.maxy < sy0)
+        )
+        # first‑point buffer intersects?
+        mask_first = ~(
+            (agg.x0 - reach0 > sx1)
+            | (agg.x0 + reach0 < sx0)
+            | (agg.y0 - reach0 > sy1)
+            | (agg.y0 + reach0 < sy0)
+        )
+        # last‑point buffer intersects?
+        mask_last = ~(
+            (agg.x1 - reach1 > sx1)
+            | (agg.x1 + reach1 < sx0)
+            | (agg.y1 - reach1 > sy1)
+            | (agg.y1 + reach1 < sy0)
+        )
+
+        candidates = agg.loc[mask_static | mask_first | mask_last, "ssvid"]
+
+        # 5. Restrict AIS data to only those vessels
+        ais_data_m = ais_proj[ais_proj["ssvid"].isin(candidates)].sort_values(
+            "timestamp"
+        )
         ais_data_m = ais_data_m[~ais_data_m["ssvid"].isin(existing_ids)]
 
         for source_id, group_m in ais_data_m.groupby("ssvid"):
-            # Project once to metric CRS for distances
             geom_m = group_m.geometry
 
             t_known = pd.DatetimeIndex(group_m["timestamp"])
@@ -248,23 +304,7 @@ class AISAnalyzer(SourceAnalyzer):
             if len(group_m) == 1:
                 new_times = pd.DatetimeIndex([t_combined[0], t_first, t_combined[-1]])
                 new_positions = [geom_m.iloc[0]] * 3
-
             else:
-                if not box(*geom_m.total_bounds).intersects(search_polygon_m):
-                    # No overlap with the search polygon
-                    # Broadcast might require extrapolation to the time range of interest
-                    # Estimate whether the vessel will reach the search polygon
-                    max_speed = group_m["speed_knots"].max()
-                    lower_time_gap = max((t_first - detail_lower).total_seconds(), 0)
-                    upper_time_gap = max((detail_upper - t_last).total_seconds(), 0)
-                    r0 = max_speed * lower_time_gap
-                    r1 = max_speed * upper_time_gap
-                    b0 = geom_m.iloc[0].buffer(r0) if r0 > 0 else None
-                    b1 = geom_m.iloc[-1].buffer(r1) if r1 > 0 else None
-                    pieces = [g for g in (b0, b1) if g is not None and not g.is_empty]
-                    if not unary_union(pieces).intersects(search_polygon_m):
-                        # Vessel is highly unlikely reach the search polygon
-                        continue
                 new_times = t_combined[t_combined <= detail_upper]
                 new_positions = self.bezier_extrapolation(
                     t_known,
@@ -398,30 +438,6 @@ class AISAnalyzer(SourceAnalyzer):
             result.append(Point(x, y))
 
         return result
-
-    def interpolate_positions(self, known_times, known_points, interp_times):
-        """
-        Given a sorted group (by timestamp) with a "geometry" column (shapely Points),
-        and a Series of interpolation times, perform linear interpolation on the x and y
-        coordinates using numpy.interp.
-
-        Returns a list of shapely Point objects corresponding to the interpolated positions.
-        """
-        # Convert timestamps to numeric values (seconds since epoch)
-        t_orig = known_times.astype("int64").values
-        t_interp = interp_times.astype("int64").values
-
-        # Extract x and y coordinates from the geometry column.
-        xs = [pt.x for pt in known_points]
-        ys = [pt.y for pt in known_points]
-
-        # Use NumPy's vectorized linear interpolation.
-        x_interp = np.interp(t_interp, t_orig, xs)
-        y_interp = np.interp(t_interp, t_orig, ys)
-
-        # Reconstruct shapely Points from the interpolated x and y.
-        pos_out = [Point(x, y) for x, y in zip(x_interp, y_interp)]
-        return pos_out
 
     def filter_ais_data(self):
         """
