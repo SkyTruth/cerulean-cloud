@@ -237,12 +237,11 @@ class AISAnalyzer(SourceAnalyzer):
         existing_ids = set(self.ais_trajectories.keys())
         ais_data_m = ais_data_m[~ais_data_m["ssvid"].isin(existing_ids)]
 
-        for source_id, group in ais_data_m.groupby("ssvid"):
+        for source_id, group_m in ais_data_m.groupby("ssvid"):
             # Project once to metric CRS for distances
-            group_m = group.to_crs(self.crs_meters)
             geom_m = group_m.geometry
 
-            t_known = pd.DatetimeIndex(group["timestamp"])
+            t_known = pd.DatetimeIndex(group_m["timestamp"])
             t_first, t_last = t_known[0], t_known[-1]
             t_combined = t_known.union(self.time_vec).sort_values()
 
@@ -296,9 +295,9 @@ class AISAnalyzer(SourceAnalyzer):
 
             traj = {
                 "id": source_id,
-                "ext_name": group.iloc[0]["shipname"],
-                "ext_shiptype": group.iloc[0]["best_shiptype"],
-                "flag": group.iloc[0]["flag"],
+                "ext_name": group_m.iloc[0]["shipname"],
+                "ext_shiptype": group_m.iloc[0]["best_shiptype"],
+                "flag": group_m.iloc[0]["flag"],
                 "first_timestamp": t_first,
                 "last_timestamp": t_last,
                 "df": interp_gdf,
@@ -321,63 +320,80 @@ class AISAnalyzer(SourceAnalyzer):
         Piece‑wise interpolation / extrapolation.
         Returns one shapely Point per extrap_times entry.
         """
+        # coordinates and raw velocities
         xs = known_points.x.to_numpy()
         ys = known_points.y.to_numpy()
-
         thetas = np.deg2rad(course_deg.to_numpy())
-        speeds = speed_knots.to_numpy() * 0.514444444
-
+        speeds = speed_knots.to_numpy() * 0.514444444  # kn → m/s
         vx = speeds * np.sin(thetas)
         vy = speeds * np.cos(thetas)
 
         n = len(known_times)
+        # time deltas for each segment
         dt_list = [
             (known_times[i + 1] - known_times[i]).total_seconds() for i in range(n - 1)
         ]
-
-        # precompute control points for cubic Bezier on each segment
-        B0x = xs[:-1]
-        B0y = ys[:-1]
-        B3x = xs[1:]
-        B3y = ys[1:]
         arr_dt = np.array(dt_list)
-        B1x = B0x + vx[:-1] * arr_dt / 3
-        B1y = B0y + vy[:-1] * arr_dt / 3
-        B2x = B3x - vx[1:] * arr_dt / 3
-        B2y = B3y - vy[1:] * arr_dt / 3
+
+        # compute straight‑line velocity for each segment
+        dx_dt = np.diff(xs) / arr_dt
+        dy_dt = np.diff(ys) / arr_dt
+
+        # fill any NaN velocities with displacement-based fallback
+        vx_filled = vx.copy()
+        vy_filled = vy.copy()
+        for j in range(n):
+            if np.isnan(vx_filled[j]) or np.isnan(vy_filled[j]):
+                if j < n - 1:
+                    dx_j, dy_j = dx_dt[j], dy_dt[j]
+                else:
+                    dx_j, dy_j = dx_dt[-1], dy_dt[-1]
+                vx_filled[j] = dx_j
+                vy_filled[j] = dy_j
+
+        # Bezier control points per segment
+        B0x, B0y = xs[:-1], ys[:-1]
+        B3x, B3y = xs[1:], ys[1:]
+        v0x, v0y = vx_filled[:-1], vy_filled[:-1]
+        v1x, v1y = vx_filled[1:], vy_filled[1:]
+
+        B1x = B0x + v0x * arr_dt / 3
+        B1y = B0y + v0y * arr_dt / 3
+        B2x = B3x - v1x * arr_dt / 3
+        B2y = B3y - v1y * arr_dt / 3
 
         result = []
         times = extrap_times.to_numpy()
         idxs = np.searchsorted(known_times.to_numpy(), times)
 
-        for t, idx in zip(times, idxs):
-            t = pd.to_datetime(t)
+        for t_raw, idx in zip(times, idxs):
+            t = pd.to_datetime(t_raw)
             if idx == 0:
-                # linear extrapolation before first point
-                dt = (t - known_times[0]).total_seconds()
-                x = xs[0] + vx[0] * dt
-                y = ys[0] + vy[0] * dt
+                # before first point
+                dt0 = (t - known_times[0]).total_seconds()
+                x = xs[0] + vx_filled[0] * dt0
+                y = ys[0] + vy_filled[0] * dt0
             elif idx >= n:
-                # linear extrapolation after last point
-                dt = (t - known_times[-1]).total_seconds()
-                x = xs[-1] + vx[-1] * dt
-                y = ys[-1] + vy[-1] * dt
+                # after last point
+                dt1 = (t - known_times[-1]).total_seconds()
+                x = xs[-1] + vx_filled[-1] * dt1
+                y = ys[-1] + vy_filled[-1] * dt1
             else:
                 # cubic Bezier interpolation
                 i = idx - 1
                 u = (t - known_times[i]).total_seconds() / dt_list[i]
                 one_u = 1 - u
                 x = (
-                    (one_u**3) * B0x[i]
-                    + 3 * (one_u**2) * u * B1x[i]
-                    + 3 * one_u * (u**2) * B2x[i]
-                    + (u**3) * B3x[i]
+                    one_u**3 * B0x[i]
+                    + 3 * one_u**2 * u * B1x[i]
+                    + 3 * one_u * u**2 * B2x[i]
+                    + u**3 * B3x[i]
                 )
                 y = (
-                    (one_u**3) * B0y[i]
-                    + 3 * (one_u**2) * u * B1y[i]
-                    + 3 * one_u * (u**2) * B2y[i]
-                    + (u**3) * B3y[i]
+                    one_u**3 * B0y[i]
+                    + 3 * one_u**2 * u * B1y[i]
+                    + 3 * one_u * u**2 * B2y[i]
+                    + u**3 * B3y[i]
                 )
             result.append(Point(x, y))
 
