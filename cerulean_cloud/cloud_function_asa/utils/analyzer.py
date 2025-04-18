@@ -294,6 +294,7 @@ class AISAnalyzer(SourceAnalyzer):
         )
         ais_data_m = ais_data_m[~ais_data_m["ssvid"].isin(existing_ids)]
 
+        candidate_ssvids = []
         for source_id, group_m in ais_data_m.groupby("ssvid"):
             geom_m = group_m.geometry
 
@@ -315,21 +316,18 @@ class AISAnalyzer(SourceAnalyzer):
                 )
 
             # Build trajectory GeoDataFrame and convert back to lat/lon
-            interp_gdf = (
-                gpd.GeoDataFrame(
-                    {
-                        "timestamp": new_times,
-                        "geometry": new_positions,
-                        "ssvid": source_id,
-                        "extrapolated": (new_times <= t_first) | (new_times >= t_last),
-                    },
-                    crs=self.crs_meters,
-                )
-                .set_index("timestamp")
-                .to_crs("EPSG:4326")
-            )
+            interp_gdf_m = gpd.GeoDataFrame(
+                {
+                    "timestamp": new_times,
+                    "geometry": new_positions,
+                    "ssvid": source_id,
+                    "extrapolated": (new_times <= t_first) | (new_times >= t_last),
+                },
+                crs=self.crs_meters,
+            ).set_index("timestamp")
 
             # Prepare GeoJSON for display
+            interp_gdf = interp_gdf_m.to_crs("4326")
             display_gdf = interp_gdf[interp_gdf.index <= s1_time].copy()
             display_gdf["timestamp"] = display_gdf.index.strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -347,6 +345,24 @@ class AISAnalyzer(SourceAnalyzer):
                 },
             }
             self.ais_trajectories[source_id] = traj
+
+            traj_trim = interp_gdf_m.loc[detail_lower:s1_time]
+            if len(traj_trim) > 2:
+                # This is not a singular broadcast
+                if (
+                    traj_trim.sindex.query(
+                        search_polygon_m, predicate="intersects"
+                    ).size
+                    == 0
+                ):
+                    # The bounding boxes do not intersect
+                    continue
+                elif not traj_trim.geometry.intersects(search_polygon_m).any():
+                    # The actual geometries do not intersect
+                    continue
+
+            candidate_ssvids.append(source_id)
+        self.filtered_ssvids = candidate_ssvids
 
     def bezier_extrapolation(
         self,
@@ -438,56 +454,6 @@ class AISAnalyzer(SourceAnalyzer):
             result.append(Point(x, y))
 
         return result
-
-    def filter_ais_data(self):
-        """
-        Prune AIS data to only include trajectories that are within the AIS buffer.
-        """
-        search_polygon = (
-            self.slick_gdf.geometry.to_crs(self.crs_meters)
-            .buffer(self.ais_slick_buffer)
-            .to_crs("4326")
-            .iloc[0]
-        )
-
-        search_bounds = search_polygon.bounds  # (minx, miny, maxx, maxy)
-
-        candidate_ssvids = []
-        # Iterate over each trajectory.
-        for ssvid, trajectory in self.ais_trajectories.items():
-            traj_df = trajectory["df"]
-            traj_df = traj_df[
-                (traj_df.index <= self.s1_scene.start_time)
-                & (
-                    traj_df.index
-                    >= self.s1_scene.start_time
-                    - timedelta(hours=self.max_slick_drift_time)
-                )
-            ]
-            # Compute the bounding box of the trajectory.
-            traj_bounds = traj_df.total_bounds  # [minx, miny, maxx, maxy]
-
-            # Quickly check if the bounding boxes intersect.
-            # Two bounding boxes intersect if:
-            #   traj_bounds[0] <= search_bounds[2] and traj_bounds[2] >= search_bounds[0]
-            #   and similarly in the y direction.
-            if (
-                traj_bounds[0] > search_bounds[2]
-                or traj_bounds[2] < search_bounds[0]
-                or traj_bounds[1] > search_bounds[3]
-                or traj_bounds[3] < search_bounds[1]
-            ):
-                continue  # Bounding boxes do not intersect: skip this trajectory.
-
-            # Now do a detailed check using the trajectory's spatial index.
-            # This is faster than iterating over every point if many points are present.
-            if traj_df.sindex.query(search_polygon, predicate="intersects").size > 0:
-                # Double-check by testing the actual geometries.
-                if traj_df.geometry.intersects(search_polygon).any():
-                    candidate_ssvids.append(ssvid)
-
-        # Filter the trajectories to only include those with candidate ssvids.
-        self.filtered_ssvids = candidate_ssvids
 
     def score_trajectories(self):
         """
@@ -747,7 +713,6 @@ class AISAnalyzer(SourceAnalyzer):
         self.slick_gdf = slick_gdf
         self.load_slick_centerlines()
         self.build_trajectories()
-        self.filter_ais_data()
         self.score_trajectories()
         self.results["collated_score"] = self.results["coincidence_score"].apply(
             self.collate
