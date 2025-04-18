@@ -726,6 +726,7 @@ class AISAnalyzer(SourceAnalyzer):
         self.slick_gdf = slick_gdf
         self.load_slick_centerlines()
         self.build_trajectories()
+        self.filter_ais_data()
         self.score_trajectories()
         self.results["collated_score"] = self.results["coincidence_score"].apply(
             self.collate
