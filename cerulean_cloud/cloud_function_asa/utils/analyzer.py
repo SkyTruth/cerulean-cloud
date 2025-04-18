@@ -294,7 +294,6 @@ class AISAnalyzer(SourceAnalyzer):
         )
         ais_data_m = ais_data_m[~ais_data_m["ssvid"].isin(existing_ids)]
 
-        candidate_ssvids = []
         for source_id, group_m in ais_data_m.groupby("ssvid"):
             geom_m = group_m.geometry
 
@@ -346,24 +345,6 @@ class AISAnalyzer(SourceAnalyzer):
             }
             self.ais_trajectories[source_id] = traj
 
-            traj_trim = interp_gdf_m.loc[detail_lower:s1_time]
-            if len(traj_trim) > 2:
-                # This is not a singular broadcast
-                if (
-                    traj_trim.sindex.query(
-                        search_polygon_m, predicate="intersects"
-                    ).size
-                    == 0
-                ):
-                    # The bounding boxes do not intersect
-                    continue
-                elif not traj_trim.geometry.intersects(search_polygon_m).any():
-                    # The actual geometries do not intersect
-                    continue
-
-            candidate_ssvids.append(source_id)
-        self.filtered_ssvids = candidate_ssvids
-
     def bezier_extrapolation(
         self,
         known_times: pd.DatetimeIndex,
@@ -391,9 +372,13 @@ class AISAnalyzer(SourceAnalyzer):
         ]
         arr_dt = np.array(dt_list)
 
-        # compute straight‑line velocity for each segment
-        dx_dt = np.diff(xs) / arr_dt
-        dy_dt = np.diff(ys) / arr_dt
+        # 2) Divide safely: suppress warnings & zero‐dt → zero displacement
+        with np.errstate(divide="ignore", invalid="ignore"):
+            dx_dt = np.diff(xs) / arr_dt
+            dy_dt = np.diff(ys) / arr_dt
+        # any 0/0 or x/0 became nan or inf; force them to 0
+        dx_dt = np.nan_to_num(dx_dt, nan=0.0, posinf=0.0, neginf=0.0)
+        dy_dt = np.nan_to_num(dy_dt, nan=0.0, posinf=0.0, neginf=0.0)
 
         # fill any NaN velocities with displacement-based fallback
         vx_filled = vx.copy()
@@ -455,6 +440,40 @@ class AISAnalyzer(SourceAnalyzer):
 
         return result
 
+    def filter_ais_data(self):
+        """
+        Prune AIS data to only include trajectories that are within the AIS buffer.
+        """
+        s1_time = self.s1_scene.start_time
+        detail_lower = s1_time - timedelta(hours=self.max_slick_drift_time)
+
+        search_polygon = (
+            self.slick_gdf.geometry.to_crs(self.crs_meters)
+            .buffer(self.ais_slick_buffer)
+            .to_crs("4326")
+            .iloc[0]
+        )
+
+        candidate_ssvids = []
+        # Iterate over each trajectory.
+        for ssvid, trajectory in self.ais_trajectories.items():
+            traj_trim = trajectory["df"].loc[detail_lower:s1_time]
+            if len(traj_trim) > 2:
+                # This is not a singular broadcast
+                if (
+                    traj_trim.sindex.query(search_polygon, predicate="intersects").size
+                    == 0
+                ):
+                    # The bounding boxes do not intersect
+                    continue
+                elif not traj_trim.geometry.intersects(search_polygon).any():
+                    # The actual geometries do not intersect
+                    continue
+
+            candidate_ssvids.append(ssvid)
+        # Filter the trajectories to only include those with candidate ssvids.
+        self.filtered_ssvids = candidate_ssvids
+
     def score_trajectories(self):
         """
         Measure association by computing multiple metrics between AIS trajectories and slicks
@@ -498,12 +517,7 @@ class AISAnalyzer(SourceAnalyzer):
 
         # Iterate over each AIS trajectory.
         for traj in relevant_trajectories:
-            traj_gdf = (
-                traj["df"]
-                .sort_values(by="timestamp", ascending=False)
-                .set_crs("4326")
-                .to_crs(self.crs_meters)
-            )
+            traj_gdf = traj["df"].to_crs(self.crs_meters)
 
             # Initialize lists to collect scores from each candidate centerline.
             temporal_scores = []
