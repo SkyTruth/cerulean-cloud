@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from matplotlib.collections import LineCollection
 from geoalchemy2 import WKTElement
 from matplotlib.patches import Patch
 from shapely.geometry import MultiLineString
@@ -34,6 +35,66 @@ from cerulean_cloud.cloud_function_asa.utils.analyzer import (  # noqa: E402; Na
     InfrastructureAnalyzer,
     SourceAnalyzer,
 )
+
+
+def plot_ais_trajectory(traj_gdf, raw_gdf):
+    """
+    Plot the AIS trajectory as a gradient line from red (earlier) to blue (later)
+    and overlay the raw AIS data as points.
+
+    traj_gdf: GeoDataFrame with the trajectory data. Its index must be timestamps.
+    raw_gdf: GeoDataFrame with raw AIS measurements; must have a 'timestamp' column.
+    """
+    # Ensure the GeoDataFrames are sorted by time
+    traj_gdf = traj_gdf.sort_index()
+    raw_gdf = raw_gdf.sort_values("timestamp")
+
+    # Extract the coordinate pairs for the trajectory line
+    traj_coords = np.array([[pt.x, pt.y] for pt in traj_gdf.geometry])
+
+    # Create line segments connecting each consecutive trajectory point
+    segments = np.array([traj_coords[i : i + 2] for i in range(len(traj_coords) - 1)])
+
+    # Convert timestamps to numeric seconds.
+    # Here, we convert the DatetimeIndex (ns resolution) to seconds.
+    timestamps = traj_gdf.index.astype(np.int64) / 1e9
+    # Compute average timestamp for each segment to assign its color.
+    seg_timestamps = (timestamps[:-1] + timestamps[1:]) / 2.0
+
+    # Normalize timestamp values to the range [0,1].
+    norm = plt.Normalize(timestamps.min(), timestamps.max())
+    # Use the reversed "RdBu" colormap so that low values (earlier) are red and high values (later) are blue.
+    cmap = plt.get_cmap("RdBu_r")
+
+    # Create the line collection for the trajectory segments.
+    lc = LineCollection(segments, cmap=cmap, norm=norm)
+    lc.set_array(seg_timestamps)
+    lc.set_linewidth(2)
+
+    # Begin plotting.
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.add_collection(lc)
+    ax.autoscale_view()
+
+    # Plot the raw AIS measurements as scatter points.
+    raw_coords = np.array([[pt.x, pt.y] for pt in raw_gdf.geometry])
+    ax.scatter(
+        raw_coords[:, 0],
+        raw_coords[:, 1],
+        color="green",
+        edgecolor="k",
+        marker="o",
+        label="Raw AIS Data",
+        zorder=5,
+    )
+
+    # Add a colorbar that maps the line color to the timestamps.
+    _ = plt.colorbar(lc, ax=ax, label="Timestamp (s)")
+    ax.set_title("AIS Trajectory (Red-to-Blue Gradient) and Raw Measurements")
+    ax.set_xlabel("X Coordinate")
+    ax.set_ylabel("Y Coordinate")
+    ax.legend()
+    plt.show()
 
 
 def download_geojson(
@@ -611,12 +672,13 @@ slick_ids = [
     # 34314,
     # 34226,
     # 34321,
-    # 34251,  # slow
-    # 34258, # paired to 34251
+    # 38573,  # slow
+    # 38583, # paired to 34251
+    # 35734, # SLOW AIS
+    # 38527, # slow
     # 34179,
     # 34236,
     # 34209,
-    # 34197, # slow
     # 34216,
     # 34171,
     # 34268,
@@ -625,7 +687,7 @@ slick_ids = [
     # 34162,
     # 34201,
     # 34299,
-    # 35352, # HARD WITHOUT SMART MAPPING
+    # 38660, # HARD WITHOUT SMART MAPPING
     # VESSELS
     # 34324,
     # 34385,
@@ -639,16 +701,17 @@ slick_ids = [
     # 34332,
     # 34333,
     # 35611,
-    # 35670, # SLOW AIS
-    # 34156, # UI breaker
-    # 35645,
+    # 38499, # UI breaker
     # 35744,
     # 36063,
     # 36557,
-    # 36063,
-    # 36557,
-    # 35645, # EXTRAPOLATION
-    # 38490, # EXTRAPOLATION
+    # 38785,  # EXTRAPOLATION
+    # 38749, # EXTRAPOLATION
+    # 38531,
+    # 39087,
+    # 38546,
+    # 38618  # S1A_IW_GRDH_1SDV_20211210T094843_20211210T094908_040945_04DCDF_BD0B SO SO SLOWWWWW
+    # 42317, # not working for ethan
 ]
 
 accumulated_sources = []
@@ -719,3 +782,12 @@ fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
 coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)
 plot({2: infra_analyzer}, slick_id, False)
+
+# %%
+a = analyzers[1]
+ssvid = "477810800"
+traj = a.ais_trajectories[ssvid]["df"]
+raw = a.ais_gdf[a.ais_gdf["ssvid"] == ssvid]
+plot_ais_trajectory(traj, raw)
+
+# %%

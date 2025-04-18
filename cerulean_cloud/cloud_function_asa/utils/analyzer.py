@@ -354,7 +354,7 @@ class AISAnalyzer(SourceAnalyzer):
         speed_knots: gpd.GeoSeries,
     ) -> list[Point]:
         """
-        Piece‑wise interpolation / extrapolation.
+        Piece-wise interpolation / extrapolation.
         Returns one shapely Point per extrap_times entry.
         """
         # coordinates and raw velocities
