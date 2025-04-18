@@ -445,7 +445,6 @@ class AISAnalyzer(SourceAnalyzer):
         Prune AIS data to only include trajectories that are within the AIS buffer.
         """
         s1_time = self.s1_scene.start_time
-        detail_lower = s1_time - timedelta(hours=self.max_slick_drift_time)
 
         search_polygon = (
             self.slick_gdf.geometry.to_crs(self.crs_meters)
@@ -457,7 +456,7 @@ class AISAnalyzer(SourceAnalyzer):
         candidate_ssvids = []
         # Iterate over each trajectory.
         for ssvid, trajectory in self.ais_trajectories.items():
-            traj_trim = trajectory["df"].loc[detail_lower:s1_time]
+            traj_trim = trajectory["df"].loc[:s1_time]
             if len(traj_trim) > 2:
                 # This is not a singular broadcast
                 if (
