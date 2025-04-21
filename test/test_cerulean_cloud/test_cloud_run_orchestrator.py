@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import sys
 from base64 import b64decode
@@ -6,13 +7,14 @@ from datetime import datetime
 from unittest.mock import patch
 
 import geojson
+import geopandas as gpd
 import git
 import httpx
 import pytest
 import rasterio
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
-from shapely.geometry import box, mapping
+from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
 
 import cerulean_cloud
 from cerulean_cloud.cloud_run_offset_tiles.schema import (
@@ -22,6 +24,7 @@ from cerulean_cloud.cloud_run_offset_tiles.schema import (
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
+    calculate_centerlines,
     group_bounds_from_list_of_bounds,
     is_tile_over_water,
     make_cloud_log_url,
@@ -445,3 +448,66 @@ def test_get_tag():
     )
     if git_tag:
         assert isinstance(git_tag, str)
+
+
+def test_calculate_centerlines():
+    # Define three polygons with varying aspect ratios:
+    # 1. A square (aspect ratio 1:1)
+    square = Polygon([(0, 0), (0, 200), (100, 200), (100, 0)])
+
+    # 2. A moderate rectangle (aspect ratio ~4:1), placed to the right of the square with a gap
+    rectangle = Polygon([(150, 0), (150, 50), (550, 50), (550, 0)])
+
+    # 3. An elongated rectangle (aspect ratio ~100:1), placed further to the right with a gap
+    elongated = Polygon([(600, 0), (600, 10), (610, 10), (610, 0)])
+
+    # Combine the three polygons into a single MultiPolygon
+    multi_poly = MultiPolygon([square, rectangle, elongated])
+
+    # Create a GeoDataFrame with the MultiPolygon and assign a CRS in meters (EPSG:3857)
+    gdf = gpd.GeoDataFrame({"geometry": [multi_poly]}, crs="EPSG:3857")
+
+    # Set the close_buffer parameter used in calculate_centerlines.
+    close_buffer = 40
+
+    # Call calculate_centerlines with the prepared GeoDataFrame.
+    centerlines_json, arf = calculate_centerlines(
+        gdf, "EPSG:3857", close_buffer=close_buffer
+    )
+
+    # Ensure that the feature collection has features.
+    assert "features" in centerlines_json
+    features = centerlines_json["features"]
+
+    # Check that at least one feature was created.
+    assert len(features) >= 1, "No centerline features were created."
+
+    # Extract LineString geometries and verify they are indeed LineStrings.
+    line_strings = []
+    for feat in features:
+        geom_type = feat["geometry"]["type"]
+        coords = feat["geometry"]["coordinates"]
+        assert geom_type == "LineString", "Geometry is not a LineString."
+        line = LineString(coords)
+        line_strings.append(line)
+
+    # Optionally, check that the resulting GeoDataFrame (if converted back) is non-empty
+    centerline_gdf = gpd.GeoDataFrame(
+        {"geometry": line_strings}, crs="EPSG:4326"
+    ).to_crs("EPSG:3857")
+    assert not centerline_gdf.empty, "The centerline GeoDataFrame is empty."
+
+    # Check that the aspect ratio factor is approximately equal to the expected value.
+    # The expected value here is from your sample output. Allow a small tolerance.
+    expected_arf = 0.50862
+    assert math.isclose(arf, expected_arf, rel_tol=1e-4), (
+        f"Aspect ratio factor {arf} differs from expected {expected_arf}."
+    )
+
+    # (Optional) Uncomment to see a plot when running the test locally.
+    # fig, ax = plt.subplots(figsize=(10, 6))
+    # self.gdf.boundary.plot(ax=ax, color='blue', linewidth=1.5, label='Original Polygons')
+    # centerline_gdf.plot(ax=ax, color='red', linewidth=2, label='centerline Geometry')
+    # ax.set_title("Original Polygons and Calculated centerline")
+    # ax.legend()
+    # plt.show()

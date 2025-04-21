@@ -166,6 +166,7 @@ cdktf.log
 
 *.pyc
 scratch/*
+local data/*
 
 *.zip
 .envrc
