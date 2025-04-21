@@ -710,8 +710,13 @@ slick_ids = [
     # 38531,
     # 39087,
     # 38546,
-    # 38618  # S1A_IW_GRDH_1SDV_20211210T094843_20211210T094908_040945_04DCDF_BD0B SO SO SLOWWWWW
-    # 42317, # not working for ethan
+    # 38618,  # S1A_IW_GRDH_1SDV_20211210T094843_20211210T094908_040945_04DCDF_BD0B SO SO SLOWWWWW
+    # 42317,  # not working for ethan
+    # 38666,
+    # 38745,
+    # 38752,
+    # 39115, # three source slick...
+    # 38941, # Do we need to increase the slick drift rate?
 ]
 
 accumulated_sources = []
