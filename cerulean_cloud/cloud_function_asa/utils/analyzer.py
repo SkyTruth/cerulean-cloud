@@ -116,13 +116,19 @@ class AISAnalyzer(SourceAnalyzer):
         # Default parameters
         self.hours_before = kwargs.get("hours_before", c.HOURS_BEFORE)
         self.hours_after = kwargs.get("hours_after", c.HOURS_AFTER)
-        self.ais_buffer = kwargs.get("ais_buffer", c.AIS_BUFFER)
+        self.ais_scene_buffer = kwargs.get("ais_scene_buffer", c.AIS_SCENE_BUFFER)
+        self.ais_slick_buffer = kwargs.get("ais_slick_buffer", c.AIS_SLICK_BUFFER)
+        self.max_slick_drift_time = kwargs.get(
+            "max_slick_drift_time", c.MAX_SLICK_DRIFT_TIME
+        )
         self.num_timesteps = kwargs.get("num_timesteps", c.NUM_TIMESTEPS)
         self.ais_project_id = kwargs.get("ais_project_id", c.AIS_PROJECT_ID)
         self.w_temporal = kwargs.get("w_temporal", c.W_TEMPORAL)
         self.w_proximity = kwargs.get("w_proximity", c.W_PROXIMITY)
         self.w_parity = kwargs.get("w_parity", c.W_PARITY)
-        self.sensitivity_parity = kwargs.get("sensitivity_parity", c.SENSITIVITY_PARITY)
+        self.sharpness_parity = kwargs.get("sharpness_parity", c.SHARPNESS_PARITY)
+        self.sharpness_prox = kwargs.get("sharpness_prox", c.SHARPNESS_PROX)
+        self.sharpness_temp = kwargs.get("sharpness_temp", c.SHARPNESS_TEMP)
         self.ais_ref_time_over = kwargs.get("ais_ref_time_over", c.AIS_REF_TIME_OVER)
         self.ais_ref_time_under = kwargs.get("ais_ref_time_under", c.AIS_REF_TIME_UNDER)
         self.spread_rate = kwargs.get("spread_rate", c.SPREAD_RATE)
@@ -144,7 +150,9 @@ class AISAnalyzer(SourceAnalyzer):
             {"geometry": [to_shape(self.s1_scene.geometry)]}, crs="4326"
         )
         self.ais_envelope = (
-            self.s1_env.to_crs(self.crs_meters).buffer(self.ais_buffer).to_crs("4326")
+            self.s1_env.to_crs(self.crs_meters)
+            .buffer(self.ais_scene_buffer)
+            .to_crs("4326")
         )
         self.credentials = Credentials.from_service_account_info(
             json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
@@ -184,8 +192,13 @@ class AISAnalyzer(SourceAnalyzer):
             LEFT JOIN
                 `world-fishing-827.pipe_ais_v3_published.vi_ssvid_v20250201` as ves
                 ON seg.ssvid = ves.ssvid
+<<<<<<< HEAD
             WHERE
                 clean_segs IS TRUE
+=======
+            WHERE TRUE
+                -- AND clean_segs IS TRUE
+>>>>>>> main
                 AND seg.timestamp between '{start_time}' AND '{end_time}'
                 AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{ais_envelope}'))
             """
@@ -210,141 +223,272 @@ class AISAnalyzer(SourceAnalyzer):
 
     def build_trajectories(self):
         """
-        Builds trajectories from AIS data.
-
-        - Creates a fully interpolated trajectory (with datetime timestamps) for scoring.
-        - Generates a truncated version (with ISO-formatted timestamps) for display.
+        Build and store AIS trajectories using available AIS data.
         """
-        # print("Building trajectories")
         s1_time = self.s1_scene.start_time
-        ais_data = self.ais_filtered.sort_values("timestamp")
-        existing_ids = self.ais_trajectories.keys()
-        ais_data = ais_data[~ais_data["ssvid"].isin(existing_ids)]
+        detail_lower = s1_time - timedelta(hours=self.max_slick_drift_time)
+        detail_upper = s1_time + timedelta(hours=1)
 
-        # Group the filtered AIS data by ship identifier (ssvid)
-        for source_id, group in ais_data.groupby("ssvid"):
-            group = group.copy()  # avoid chained assignment issues
+        # Prepare search polygon in metric CRS
+        search_polygon_m = (
+            self.slick_gdf.geometry.to_crs(self.crs_meters)
+            .buffer(self.ais_slick_buffer)
+            .iloc[0]
+        )
+        sx0, sy0, sx1, sy1 = search_polygon_m.bounds
 
-            # If only one point is present, we cannot interpolate.
-            if len(group) == 1:
-                group = pd.concat([group, group], ignore_index=True)
-                print(f"Trajectory {source_id} has only one point, cannot interpolate")
+        # Project all AIS once
+        ais_proj = self.ais_gdf.to_crs(self.crs_meters)
+        existing_ids = set(self.ais_trajectories.keys())
 
-            # Create a trajectory object
+        # 1. Aggregate per‑vessel static bounds, max speed, first/last times
+        agg = (
+            ais_proj.groupby("ssvid")
+            .agg(
+                minx=("geometry", lambda g: g.x.min()),
+                maxx=("geometry", lambda g: g.x.max()),
+                miny=("geometry", lambda g: g.y.min()),
+                maxy=("geometry", lambda g: g.y.max()),
+                vmax=("speed_knots", "max"),
+                t_first=("timestamp", "min"),
+                t_last=("timestamp", "max"),
+            )
+            .reset_index()
+        )
+
+        # 2. Extract first and last point coords per vessel
+        first = ais_proj.sort_values("timestamp").drop_duplicates("ssvid", keep="first")
+        last = ais_proj.sort_values("timestamp").drop_duplicates("ssvid", keep="last")
+        agg = agg.merge(
+            first[["ssvid"]].assign(x0=first.geometry.x, y0=first.geometry.y),
+            on="ssvid",
+        ).merge(
+            last[["ssvid"]].assign(x1=last.geometry.x, y1=last.geometry.y), on="ssvid"
+        )
+
+        # 3. Compute time gaps and reach distances
+        lower_gap = (agg["t_first"] - detail_lower).clip(lower=pd.Timedelta(0))
+        upper_gap = (detail_upper - agg["t_last"]).clip(lower=pd.Timedelta(0))
+        reach0 = agg["vmax"].to_numpy() * 0.514444444 * lower_gap.dt.total_seconds()
+        reach1 = agg["vmax"].to_numpy() * 0.514444444 * upper_gap.dt.total_seconds()
+
+        # static track intersects?
+        mask_static = ~(
+            (agg.minx > sx1) | (agg.maxx < sx0) | (agg.miny > sy1) | (agg.maxy < sy0)
+        )
+        # first‑point buffer intersects?
+        mask_first = ~(
+            (agg.x0 - reach0 > sx1)
+            | (agg.x0 + reach0 < sx0)
+            | (agg.y0 - reach0 > sy1)
+            | (agg.y0 + reach0 < sy0)
+        )
+        # last‑point buffer intersects?
+        mask_last = ~(
+            (agg.x1 - reach1 > sx1)
+            | (agg.x1 + reach1 < sx0)
+            | (agg.y1 - reach1 > sy1)
+            | (agg.y1 + reach1 < sy0)
+        )
+
+        candidates = agg.loc[mask_static | mask_first | mask_last, "ssvid"]
+
+        # 5. Restrict AIS data to only those vessels
+        ais_data_m = ais_proj[ais_proj["ssvid"].isin(candidates)].sort_values(
+            "timestamp"
+        )
+        ais_data_m = ais_data_m[~ais_data_m["ssvid"].isin(existing_ids)]
+
+        for source_id, group_m in ais_data_m.groupby("ssvid"):
+            geom_m = group_m.geometry
+
+            t_known = pd.DatetimeIndex(group_m["timestamp"])
+            t_first, t_last = t_known[0], t_known[-1]
+            t_combined = t_known.union(self.time_vec).sort_values()
+
+            if len(group_m) == 1:
+                new_times = pd.DatetimeIndex([t_combined[0], t_first, t_combined[-1]])
+                new_positions = [geom_m.iloc[0]] * 3
+            else:
+                new_times = t_combined[t_combined <= detail_upper]
+                new_positions = self.bezier_extrapolation(
+                    t_known,
+                    geom_m,
+                    new_times,
+                    group_m["course"],
+                    group_m["speed_knots"],
+                )
+
+            # Build trajectory GeoDataFrame and convert back to lat/lon
+            interp_gdf_m = gpd.GeoDataFrame(
+                {
+                    "timestamp": new_times,
+                    "geometry": new_positions,
+                    "ssvid": source_id,
+                    "extrapolated": (new_times <= t_first) | (new_times >= t_last),
+                },
+                crs=self.crs_meters,
+            ).set_index("timestamp")
+
+            # Prepare GeoJSON for display
+            interp_gdf = interp_gdf_m.to_crs("4326")
+            display_gdf = interp_gdf[interp_gdf.index <= s1_time].copy()
+            display_gdf["timestamp"] = display_gdf.index.strftime("%Y-%m-%dT%H:%M:%S")
+
             traj = {
                 "id": source_id,
-                "ext_name": group.iloc[0]["shipname"],
-                "ext_shiptype": group.iloc[0]["best_shiptype"],
-                "flag": group.iloc[0]["flag"],
+                "ext_name": group_m.iloc[0]["shipname"],
+                "ext_shiptype": group_m.iloc[0]["best_shiptype"],
+                "flag": group_m.iloc[0]["flag"],
+                "first_timestamp": t_first,
+                "last_timestamp": t_last,
+                "df": interp_gdf,
+                "geojson_fc": {
+                    "type": "FeatureCollection",
+                    "features": json.loads(display_gdf.to_json())["features"],
+                },
             }
-
-            # Get the first and last timestamp of the AIS data for this trajectory.
-            first_ais_tstamp = group["timestamp"].min()
-            last_ais_tstamp = group["timestamp"].max()
-
-            # Interpolate to times in time_vec
-            interp_times = self.time_vec[
-                (self.time_vec >= first_ais_tstamp) & (self.time_vec <= last_ais_tstamp)
-            ]
-            # Add three critical times: first, s1_time(if in range), last.
-            pos = interp_times.searchsorted(first_ais_tstamp)
-            interp_times = interp_times.insert(pos, first_ais_tstamp)
-            if first_ais_tstamp < s1_time < last_ais_tstamp:
-                pos = interp_times.searchsorted(s1_time)
-                interp_times = interp_times.insert(pos, s1_time)
-            pos = interp_times.searchsorted(last_ais_tstamp)
-            interp_times = interp_times.insert(pos, last_ais_tstamp)
-
-            # Interpolate positions at the required times.
-            positions = self.vectorized_interpolate_positions(group, interp_times)
-            interp_gdf = gpd.GeoDataFrame(
-                {"timestamp": interp_times, "geometry": positions}, crs="4326"
-            ).set_index("timestamp")
-            traj["df"] = interp_gdf
-
-            # Create a truncated GeoDataFrame for display (only points before s1_time).
-            display_gdf = group[group["timestamp"] <= s1_time].copy()
-
-            # Add the row corresponding to s1_time if it exists.
-            if s1_time in interp_gdf.index:
-                geom = interp_gdf.at[s1_time, "geometry"]
-                display_gdf.loc[len(display_gdf)] = {
-                    "ssvid": source_id,
-                    "timestamp": s1_time,
-                    "geometry": geom,
-                }
-
-            # Use vectorized formatting to convert timestamps to ISO strings.
-            display_gdf["timestamp"] = display_gdf["timestamp"].dt.strftime(
-                "%Y-%m-%dT%H:%M:%S"
-            )
-            traj["geojson_fc"] = {
-                "type": "FeatureCollection",
-                "features": json.loads(display_gdf.to_json())["features"],
-            }
-
             self.ais_trajectories[source_id] = traj
 
-    def vectorized_interpolate_positions(self, group, interp_times):
+    def bezier_extrapolation(
+        self,
+        known_times: pd.DatetimeIndex,
+        known_points: gpd.GeoSeries,
+        extrap_times: pd.DatetimeIndex,
+        course_deg: gpd.GeoSeries,
+        speed_knots: gpd.GeoSeries,
+    ) -> list[Point]:
         """
-        Given a sorted group (by timestamp) with a "geometry" column (shapely Points),
-        and a Series of interpolation times, perform linear interpolation on the x and y
-        coordinates using numpy.interp.
-
-        Returns a list of shapely Point objects corresponding to the interpolated positions.
+        Piece-wise interpolation / extrapolation.
+        Returns one shapely Point per extrap_times entry.
         """
-        # Convert timestamps to numeric values (seconds since epoch)
-        t_orig = group["timestamp"].astype("int64").values
-        t_interp = interp_times.astype("int64").values
+        # coordinates and raw velocities
+        xs = known_points.x.to_numpy()
+        ys = known_points.y.to_numpy()
+        thetas = np.deg2rad(course_deg.to_numpy())
+        speeds = speed_knots.to_numpy() * 0.514444444  # kn → m/s
+        vx = speeds * np.sin(thetas)
+        vy = speeds * np.cos(thetas)
 
-        # Extract x and y coordinates from the geometry column.
-        xs = group["geometry"].x.values
-        ys = group["geometry"].y.values
+        n = len(known_times)
+        # time deltas for each segment
+        dt_list = [
+            (known_times[i + 1] - known_times[i]).total_seconds() for i in range(n - 1)
+        ]
+        arr_dt = np.array(dt_list)
 
-        # Use NumPy's vectorized linear interpolation.
-        x_interp = np.interp(t_interp, t_orig, xs)
-        y_interp = np.interp(t_interp, t_orig, ys)
+        # 2) Divide safely: suppress warnings & zero‐dt → zero displacement
+        with np.errstate(divide="ignore", invalid="ignore"):
+            dx_dt = np.diff(xs) / arr_dt
+            dy_dt = np.diff(ys) / arr_dt
+        # any 0/0 or x/0 became nan or inf; force them to 0
+        dx_dt = np.nan_to_num(dx_dt, nan=0.0, posinf=0.0, neginf=0.0)
+        dy_dt = np.nan_to_num(dy_dt, nan=0.0, posinf=0.0, neginf=0.0)
 
-        # Reconstruct shapely Points from the interpolated x and y.
-        positions = [Point(x, y) for x, y in zip(x_interp, y_interp)]
-        return positions
+        # fill any NaN velocities with displacement-based fallback
+        vx_filled = vx.copy()
+        vy_filled = vy.copy()
+        for j in range(n):
+            if np.isnan(vx_filled[j]) or np.isnan(vy_filled[j]):
+                if j < n - 1:
+                    dx_j, dy_j = dx_dt[j], dy_dt[j]
+                else:
+                    dx_j, dy_j = dx_dt[-1], dy_dt[-1]
+                vx_filled[j] = dx_j
+                vy_filled[j] = dy_j
+
+        # Bezier control points per segment
+        B0x, B0y = xs[:-1], ys[:-1]
+        B3x, B3y = xs[1:], ys[1:]
+        v0x, v0y = vx_filled[:-1], vy_filled[:-1]
+        v1x, v1y = vx_filled[1:], vy_filled[1:]
+
+        B1x = B0x + v0x * arr_dt / 3
+        B1y = B0y + v0y * arr_dt / 3
+        B2x = B3x - v1x * arr_dt / 3
+        B2y = B3y - v1y * arr_dt / 3
+
+        result = []
+        times = extrap_times.to_numpy()
+        idxs = np.searchsorted(known_times.to_numpy(), times)
+
+        for t_raw, idx in zip(times, idxs):
+            t = pd.to_datetime(t_raw)
+            if idx == 0:
+                # before first point
+                dt0 = (t - known_times[0]).total_seconds()
+                x = xs[0] + vx_filled[0] * dt0
+                y = ys[0] + vy_filled[0] * dt0
+            elif idx >= n:
+                # after last point
+                dt1 = (t - known_times[-1]).total_seconds()
+                x = xs[-1] + vx_filled[-1] * dt1
+                y = ys[-1] + vy_filled[-1] * dt1
+            else:
+                # cubic Bezier interpolation
+                i = idx - 1
+                u = (t - known_times[i]).total_seconds() / dt_list[i]
+                one_u = 1 - u
+                x = (
+                    one_u**3 * B0x[i]
+                    + 3 * one_u**2 * u * B1x[i]
+                    + 3 * one_u * u**2 * B2x[i]
+                    + u**3 * B3x[i]
+                )
+                y = (
+                    one_u**3 * B0y[i]
+                    + 3 * one_u**2 * u * B1y[i]
+                    + 3 * one_u * u**2 * B2y[i]
+                    + u**3 * B3y[i]
+                )
+            result.append(Point(x, y))
+
+        return result
 
     def filter_ais_data(self):
         """
         Prune AIS data to only include trajectories that are within the AIS buffer.
         """
-        search_area = (
+        s1_time = self.s1_scene.start_time
+
+        search_polygon = (
             self.slick_gdf.geometry.to_crs(self.crs_meters)
-            .buffer(self.ais_buffer)
+            .buffer(self.ais_slick_buffer)
             .to_crs("4326")
+            .iloc[0]
         )
 
-        # Query the spatial index of ais_gdf using the bounds of the search area
-        candidate_indices = list(
-            self.ais_gdf.sindex.intersection(search_area.total_bounds)
-        )
+        candidate_ssvids = []
+        # Iterate over each trajectory.
+        for ssvid, trajectory in self.ais_trajectories.items():
+            traj_trim = trajectory["df"].loc[:s1_time]
+            if len(traj_trim) > 2:
+                # This is not a singular broadcast
+                if (
+                    traj_trim.sindex.query(search_polygon, predicate="intersects").size
+                    == 0
+                ):
+                    # The bounding boxes do not intersect
+                    continue
+                elif not traj_trim.geometry.intersects(search_polygon).any():
+                    # The actual geometries do not intersect
+                    continue
 
-        # Retrieve candidate AIS points
-        candidate_points = self.ais_gdf.iloc[candidate_indices]
-
-        # Further filter to ensure actual intersection with the buffered area
-        candidate_points = candidate_points[
-            candidate_points.geometry.intersects(search_area.iloc[0])
-        ]
-
-        # Extract unique ssvid values from the candidate points
-        ssvids_of_interest = candidate_points["ssvid"].unique()
-        self.ais_filtered = self.ais_gdf[self.ais_gdf["ssvid"].isin(ssvids_of_interest)]
+            candidate_ssvids.append(ssvid)
+        # Filter the trajectories to only include those with candidate ssvids.
+        self.filtered_ssvids = candidate_ssvids
 
     def score_trajectories(self):
         """
         Measure association by computing multiple metrics between AIS trajectories and slicks
+        using multiple candidate centerlines. For each trajectory:
+        - Aggregate the temporal score using the maximum value among candidates.
+        - Aggregate the proximity and parity scores using a length-weighted average.
 
         Returns:
-            GeoDataFrame of slick associations
+            GeoDataFrame of slick associations.
         """
-        # print("Scoring trajectories")
-
+        # Define the output columns.
         columns = [
             "st_name",
             "ext_id",
@@ -356,73 +500,116 @@ class AISAnalyzer(SourceAnalyzer):
             "flag",
             "geojson_fc",
         ]
-
         entries = []
 
-        centerlines = self.slick_centerlines.sort_values("length", ascending=False)
-        longest_centerline = centerlines.to_crs(self.crs_meters).iloc[0]["geometry"]
+        # Sort the slick centerlines by length (largest first) and convert to meters CRS.
+        centerlines = self.slick_centerlines.sort_values(
+            "length", ascending=False
+        ).to_crs(self.crs_meters)
 
+        # Determine candidate centerlines that contribute to 80% of the total length.
+        # XXX Do we need this, after we've filtered on area?
+        percent_to_keep = 0.8
+        cumsum = centerlines["length"].cumsum()
+        index_of_min = cumsum.searchsorted(percent_to_keep * cumsum.iloc[-1])
+        candidate_centerlines = centerlines.iloc[: index_of_min + 1]
+
+        # Get the list of AIS trajectories.
         relevant_trajectories = [
-            self.ais_trajectories[source_id]
-            for source_id in self.ais_filtered["ssvid"].unique()
+            self.ais_trajectories[ssvid] for ssvid in self.filtered_ssvids
         ]
 
-        # Iterate over filtered trajectories
+        # Iterate over each AIS trajectory.
         for traj in relevant_trajectories:
-            traj_gdf = (
-                traj["df"]
-                .sort_values(by="timestamp", ascending=False)
-                .set_crs("4326")
-                .to_crs(self.crs_meters)
-            )
+            traj_gdf = traj["df"].to_crs(self.crs_meters)
 
-            slick_to_traj_mapping = self.get_closest_centerline_points(
-                traj_gdf, longest_centerline, self.s1_scene.start_time
-            )
+            # Initialize lists to collect scores from each candidate centerline.
+            temporal_scores = []
+            proximity_scores = []
+            parity_scores = []
+            weights = []  # We'll use the centerline lengths as weights.
 
-            temporal_score = compute_temporal_score(
-                self.s1_scene.start_time,
-                self.ais_ref_time_over,
-                self.ais_ref_time_under,
-                slick_to_traj_mapping,
-            )
+            # Compute metrics for each candidate centerline.
+            for idx, row in candidate_centerlines.iterrows():
+                centerline_geom = row["geometry"]
+                weight = row["length"]
+                # Get the mapping between the trajectory and the candidate centerline.
+                slick_to_traj_mapping = self.get_closest_centerline_points(
+                    traj_gdf, centerline_geom, self.s1_scene.start_time
+                )
 
-            proximity_score = compute_proximity_score(
-                traj_gdf,
-                self.spread_rate,
-                self.grace_distance,
-                self.s1_scene.start_time,
-                slick_to_traj_mapping,
-            )
-            parity_score = compute_parity_score(
-                traj_gdf,
-                longest_centerline,
-                self.sensitivity_parity,
-                slick_to_traj_mapping,
-            )
+                # Compute individual scores.
+                temp_score = compute_temporal_score(
+                    self.s1_scene.start_time,
+                    self.ais_ref_time_over,
+                    self.ais_ref_time_under,
+                    self.sharpness_temp,
+                    slick_to_traj_mapping,
+                )
+                prox_score = compute_proximity_score(
+                    traj_gdf,
+                    self.spread_rate,
+                    self.grace_distance,
+                    self.s1_scene.start_time,
+                    self.sharpness_prox,
+                    slick_to_traj_mapping,
+                )
+                par_score = compute_parity_score(
+                    traj_gdf,
+                    centerline_geom,
+                    self.sharpness_parity,
+                    slick_to_traj_mapping,
+                )
 
-            # Compute total score from these three metrics
-            coincidence_score = vessel_compute_total_score(
-                temporal_score,
-                proximity_score,
-                parity_score,
+                temporal_scores.append(temp_score)
+                proximity_scores.append(prox_score)
+                parity_scores.append(par_score)
+                weights.append(weight)
+
+                print(
+                    f"Candidate centerline {idx}: temporal_score={round(temp_score, 2)}, "
+                    f"proximity_score={round(prox_score, 2)}, parity_score={round(par_score, 2)}, "
+                    f"weight={round(weight, 2)}"
+                )
+
+            # Aggregate the temporal score by taking the maximum.
+            aggregated_temporal = max(temporal_scores) if temporal_scores else 0
+
+            # Compute weighted averages for proximity and parity scores.
+            if weights and sum(weights) > 0:
+                aggregated_proximity = sum(
+                    s * w for s, w in zip(proximity_scores, weights)
+                ) / sum(weights)
+                aggregated_parity = sum(
+                    s * w for s, w in zip(parity_scores, weights)
+                ) / sum(weights)
+            else:
+                aggregated_proximity = 0
+                aggregated_parity = 0
+
+            # Compute the final coincidence score using the aggregated metrics.
+            aggregated_total = vessel_compute_total_score(
+                aggregated_temporal,
+                aggregated_proximity,
+                aggregated_parity,
                 self.w_temporal,
                 self.w_proximity,
                 self.w_parity,
             )
 
             print(
-                f"source_id {traj['id']}: coincidence_score ({round(coincidence_score, 2)}), "
-                f"temporal_score ({round(temporal_score, 2)}), "
-                f"proximity_score ({round(proximity_score, 2)}), "
-                f"parity_score ({round(parity_score, 2)})"
+                f"Trajectory {traj['id']}: aggregated_total={round(aggregated_total, 2)} "
+                f"(temporal={round(aggregated_temporal, 2)}, proximity={round(aggregated_proximity, 2)}, "
+                f"parity={round(aggregated_parity, 2)})"
             )
 
+            # Create a LineString geometry from the AIS trajectory points.
+            traj_line = LineString([p.coords[0] for p in traj["df"]["geometry"]])
             entry = {
                 "st_name": traj["id"],
                 "ext_id": traj["id"],
-                "geometry": LineString([p.coords[0] for p in traj["df"]["geometry"]]),
-                "coincidence_score": coincidence_score,
+                "geometry": traj_line,
+                "coincidence_score": aggregated_total,
                 "type": self.source_type,
                 "ext_name": traj["ext_name"],
                 "ext_shiptype": traj["ext_shiptype"],
@@ -440,7 +627,7 @@ class AISAnalyzer(SourceAnalyzer):
         traj_gdf: gpd.GeoDataFrame,
         longest_centerline: MultiLineString,
         t_image: datetime = None,
-    ) -> tuple[pd.Timestamp, Point, float, pd.Timestamp, Point, float]:
+    ) -> tuple[Point, pd.Timestamp, float, Point, pd.Timestamp, float]:
         """
         Returns the timestamp and distance of the closest points on the centerline to the vessel at the given image_timestamp.
         """
@@ -449,32 +636,26 @@ class AISAnalyzer(SourceAnalyzer):
         cl_B = Point(longest_centerline.coords[-1])
 
         # Find nearest trajectory point indices for each endpoint
-        traj_idx_A = self.get_closest_point_near_timestamp(cl_A, traj_gdf, t_image)
-        traj_idx_B = self.get_closest_point_near_timestamp(cl_B, traj_gdf, t_image)
-
-        # Create tuples for each endpoint: (timestamp, centerline_point, distance)
-        ends = [
-            (
-                traj_idx_A,
-                cl_A,
-                traj_gdf.loc[[traj_idx_A]].iloc[0]["geometry"].distance(cl_A),
-            ),
-            (
-                traj_idx_B,
-                cl_B,
-                traj_gdf.loc[[traj_idx_B]].iloc[0]["geometry"].distance(cl_B),
-            ),
-        ]
+        t_A, d_A = self.get_closest_point_near_timestamp(cl_A, traj_gdf, t_image)
+        t_B, d_B = self.get_closest_point_near_timestamp(cl_B, traj_gdf, t_image)
 
         # Sort the pairs by timestamp to determine head and tail
-        (t_tail, cl_tail, d_tail), (t_head, cl_head, d_head) = sorted(
-            ends, key=lambda x: x[0]
+        (cl_tail, t_tail, d_tail), (cl_head, t_head, d_head) = sorted(
+            [(cl_A, t_A, d_A), (cl_B, t_B, d_B)], key=lambda x: x[1]
         )
-        return (t_tail, cl_tail, d_tail, t_head, cl_head, d_head)
+
+        # After finding the head (slick end closest to the AIS), project the tail to the nearest point independent of time.
+        t_tail, d_tail = self.get_closest_point_near_timestamp(cl_tail, traj_gdf)
+
+        return (cl_tail, t_tail, d_tail, cl_head, t_head, d_head)
 
     def get_closest_point_near_timestamp(
-        self, target: Point, traj_gdf: gpd.GeoDataFrame, t_image: datetime
-    ) -> pd.Timestamp:
+        self,
+        target: Point,
+        traj_gdf: gpd.GeoDataFrame,
+        t_image: datetime = None,
+        n_points: int = 10,
+    ) -> tuple[pd.Timestamp, float]:
         """
         Returns the trajectory row that is closest to the reference_point,
         using a turning-point heuristic starting at t_image.
@@ -489,14 +670,20 @@ class AISAnalyzer(SourceAnalyzer):
             traj_gdf (geopandas.GeoDataFrame): A GeoDataFrame with a datetime-like index
                 and a 'geometry' column.
             t_image (datetime): The starting timestamp for the search (guaranteed to be in the dataset).
+            n_points (int): The number of subsequent points that must confirm the turning point.
 
         Returns:
             pd.Timestamp: The index corresponding to the selected trajectory row.
         """
+        if t_image is None:
+            # If no timestamp is provided, return the index of the point closest to the target.
+            distances = traj_gdf.geometry.distance(target)
+            return distances.idxmin(), distances.min()
+
         # Get the starting position for t_image.
         traj_gdf = traj_gdf.sort_index(ascending=True)
         pos = np.abs(traj_gdf.index - t_image).argmin()
-        current_distance = traj_gdf.iloc[pos].geometry.distance(target)
+        best_dist = traj_gdf.iloc[pos].geometry.distance(target)
 
         # Determine direction to traverse.
         if pos == 0:
@@ -504,22 +691,37 @@ class AISAnalyzer(SourceAnalyzer):
         else:
             backward_distance = traj_gdf.iloc[pos - 1].geometry.distance(target)
             # Pick the direction with a decreasing distance.
-            direction = -1 if backward_distance < current_distance else 1
+            direction = -1 if backward_distance < best_dist else 1
 
         while 0 <= pos + direction < len(traj_gdf):
-            next_distance = traj_gdf.iloc[pos + direction].geometry.distance(target)
-            if next_distance > current_distance:
-                break
-            current_distance = next_distance
             pos += direction
-
-        return traj_gdf.index[pos]
+            d = traj_gdf.iloc[pos].geometry.distance(target)
+            if d < best_dist:
+                best_dist = d
+            else:
+                # Get the next n_points indices in the chosen direction that are within bounds.
+                check_indices = [
+                    pos + i * direction
+                    for i in range(1, n_points + 1)
+                    if 0 <= pos + i * direction < len(traj_gdf)
+                ]
+                # Check that for each of these indices, the distance is greater than best_dist.
+                distances = np.array(
+                    [
+                        traj_gdf.iloc[idx].geometry.distance(target)
+                        for idx in check_indices
+                    ]
+                )
+                if all(distances > best_dist):
+                    break
+        return traj_gdf.index[pos], best_dist
 
     def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
         Associates AIS trajectories with slicks.
         """
         self.results = gpd.GeoDataFrame()
+        self.filtered_ssvids = []
 
         if self.ais_gdf is None:
             self.retrieve_ais_data()
@@ -528,8 +730,8 @@ class AISAnalyzer(SourceAnalyzer):
 
         self.slick_gdf = slick_gdf
         self.load_slick_centerlines()
-        self.filter_ais_data()
         self.build_trajectories()
+        self.filter_ais_data()
         self.score_trajectories()
         self.results["collated_score"] = self.results["coincidence_score"].apply(
             self.collate

@@ -96,8 +96,6 @@ async def handle_asa_request(request):
                 previous_collated_scores = {}
                 for slick in slicks:
                     if overwrite_previous:
-                        print(f"Deactivating sources for slick {slick.id}")
-                        await db_client.deactivate_sources_for_slick(slick.id)
                         previous_asa[slick.id] = []
                         previous_collated_scores[slick.id] = []
                     else:
@@ -160,6 +158,10 @@ async def handle_asa_request(request):
                         only_record_top = 2 * len(ASA_MAPPING)
 
                         async with db_client.session.begin():
+                            if overwrite_previous:
+                                print(f"Deactivating sources for slick {slick.id}")
+                                await db_client.deactivate_sources_for_slick(slick.id)
+                            print(f"Adding sources for slick {slick.id}")
                             for idx, source_row in combined_df.iterrows():
                                 if pd.isna(source_row["slick_to_source_id"]):
                                     # Insert slick to source association
@@ -201,6 +203,7 @@ async def handle_asa_request(request):
                                             "active": idx < only_record_top,
                                         },
                                     )
+                            print(f"ASA complete for slick {slick.id}")
         # Dispose the engine after finishing all DB operations.
         await db_engine.dispose()
 

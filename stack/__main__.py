@@ -1,5 +1,6 @@
 """A Python Pulumi program"""
 
+import cloud_function_alerts
 import cloud_function_asa
 import cloud_function_historical_run
 import cloud_function_scene_relevancy
@@ -25,5 +26,6 @@ pulumi.export("database_instance_name", database.instance.connection_name)
 pulumi.export("database_url_alembic", database.sql_instance_url_alembic)
 pulumi.export("scene_relevancy_url", cloud_function_scene_relevancy.fxn.url)
 pulumi.export("historical_run_url", cloud_function_historical_run.fxn.url)
+pulumi.export("alerts_uri", cloud_function_alerts.fxn.service_config.uri)
 pulumi.export("asa_url", cloud_function_asa.fxn.url)
 pulumi.export("sns_topic_subscription", sns_subscription.sentinel1_sqs_target.arn)

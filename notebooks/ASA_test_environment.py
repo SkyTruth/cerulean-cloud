@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
+from matplotlib.collections import LineCollection
 from geoalchemy2 import WKTElement
 from matplotlib.patches import Patch
 from shapely.geometry import MultiLineString
@@ -34,6 +35,66 @@ from cerulean_cloud.cloud_function_asa.utils.analyzer import (  # noqa: E402; Na
     InfrastructureAnalyzer,
     SourceAnalyzer,
 )
+
+
+def plot_ais_trajectory(traj_gdf, raw_gdf):
+    """
+    Plot the AIS trajectory as a gradient line from red (earlier) to blue (later)
+    and overlay the raw AIS data as points.
+
+    traj_gdf: GeoDataFrame with the trajectory data. Its index must be timestamps.
+    raw_gdf: GeoDataFrame with raw AIS measurements; must have a 'timestamp' column.
+    """
+    # Ensure the GeoDataFrames are sorted by time
+    traj_gdf = traj_gdf.sort_index()
+    raw_gdf = raw_gdf.sort_values("timestamp")
+
+    # Extract the coordinate pairs for the trajectory line
+    traj_coords = np.array([[pt.x, pt.y] for pt in traj_gdf.geometry])
+
+    # Create line segments connecting each consecutive trajectory point
+    segments = np.array([traj_coords[i : i + 2] for i in range(len(traj_coords) - 1)])
+
+    # Convert timestamps to numeric seconds.
+    # Here, we convert the DatetimeIndex (ns resolution) to seconds.
+    timestamps = traj_gdf.index.astype(np.int64) / 1e9
+    # Compute average timestamp for each segment to assign its color.
+    seg_timestamps = (timestamps[:-1] + timestamps[1:]) / 2.0
+
+    # Normalize timestamp values to the range [0,1].
+    norm = plt.Normalize(timestamps.min(), timestamps.max())
+    # Use the reversed "RdBu" colormap so that low values (earlier) are red and high values (later) are blue.
+    cmap = plt.get_cmap("RdBu_r")
+
+    # Create the line collection for the trajectory segments.
+    lc = LineCollection(segments, cmap=cmap, norm=norm)
+    lc.set_array(seg_timestamps)
+    lc.set_linewidth(2)
+
+    # Begin plotting.
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.add_collection(lc)
+    ax.autoscale_view()
+
+    # Plot the raw AIS measurements as scatter points.
+    raw_coords = np.array([[pt.x, pt.y] for pt in raw_gdf.geometry])
+    ax.scatter(
+        raw_coords[:, 0],
+        raw_coords[:, 1],
+        color="green",
+        edgecolor="k",
+        marker="o",
+        label="Raw AIS Data",
+        zorder=5,
+    )
+
+    # Add a colorbar that maps the line color to the timestamps.
+    _ = plt.colorbar(lc, ax=ax, label="Timestamp (s)")
+    ax.set_title("AIS Trajectory (Red-to-Blue Gradient) and Raw Measurements")
+    ax.set_xlabel("X Coordinate")
+    ax.set_ylabel("Y Coordinate")
+    ax.legend()
+    plt.show()
 
 
 def download_geojson(
@@ -132,7 +193,7 @@ def get_closest_centerline_points(
     traj_gdf: gpd.GeoDataFrame,
     longest_centerline: MultiLineString,
     t_image: datetime = None,
-) -> tuple[pd.Timestamp, Point, float, pd.Timestamp, Point, float]:
+) -> tuple[Point, pd.Timestamp, float, Point, pd.Timestamp, float]:
     """
     Returns the timestamp and distance of the closest points on the centerline to the vessel at the given image_timestamp.
     """
@@ -141,33 +202,26 @@ def get_closest_centerline_points(
     cl_B = Point(longest_centerline.coords[-1])
 
     # Find nearest trajectory point indices for each endpoint
-    traj_idx_A = get_closest_point_near_timestamp(cl_A, traj_gdf, t_image)
-    traj_idx_B = get_closest_point_near_timestamp(cl_B, traj_gdf, t_image)
-
-    # Create tuples for each endpoint: (timestamp, centerline_point, distance)
-    ends = [
-        (
-            traj_idx_A,
-            cl_A,
-            traj_gdf.loc[[traj_idx_A]].iloc[0]["geometry"].distance(cl_A),
-        ),
-        (
-            traj_idx_B,
-            cl_B,
-            traj_gdf.loc[[traj_idx_B]].iloc[0]["geometry"].distance(cl_B),
-        ),
-    ]
+    t_A, d_A = get_closest_point_near_timestamp(cl_A, traj_gdf, t_image)
+    t_B, d_B = get_closest_point_near_timestamp(cl_B, traj_gdf, t_image)
 
     # Sort the pairs by timestamp to determine head and tail
-    (t_tail, cl_tail, d_tail), (t_head, cl_head, d_head) = sorted(
-        ends, key=lambda x: x[0]
+    (cl_tail, t_tail, d_tail), (cl_head, t_head, d_head) = sorted(
+        [(cl_A, t_A, d_A), (cl_B, t_B, d_B)], key=lambda x: x[1]
     )
-    return (t_tail, cl_tail, d_tail, t_head, cl_head, d_head)
+
+    # After finding the head (slick end closest to the AIS), project the tail to the nearest point independent of time.
+    t_tail, d_tail = get_closest_point_near_timestamp(cl_tail, traj_gdf)
+
+    return (cl_tail, t_tail, d_tail, cl_head, t_head, d_head)
 
 
 def get_closest_point_near_timestamp(
-    target: Point, traj_gdf: gpd.GeoDataFrame, t_image: datetime
-) -> pd.Timestamp:
+    target: Point,
+    traj_gdf: gpd.GeoDataFrame,
+    t_image: datetime = None,
+    n_points: int = 10,
+) -> tuple[pd.Timestamp, float]:
     """
     Returns the trajectory row that is closest to the reference_point,
     using a turning-point heuristic starting at t_image.
@@ -182,14 +236,20 @@ def get_closest_point_near_timestamp(
         traj_gdf (geopandas.GeoDataFrame): A GeoDataFrame with a datetime-like index
             and a 'geometry' column.
         t_image (datetime): The starting timestamp for the search (guaranteed to be in the dataset).
+        n_points (int): The number of subsequent points that must confirm the turning point.
 
     Returns:
         pd.Timestamp: The index corresponding to the selected trajectory row.
     """
+    if t_image is None:
+        # If no timestamp is provided, return the index of the point closest to the target.
+        distances = traj_gdf.geometry.distance(target)
+        return distances.idxmin(), distances.min()
+
     # Get the starting position for t_image.
     traj_gdf = traj_gdf.sort_index(ascending=True)
     pos = np.abs(traj_gdf.index - t_image).argmin()
-    current_distance = traj_gdf.iloc[pos].geometry.distance(target)
+    best_dist = traj_gdf.iloc[pos].geometry.distance(target)
 
     # Determine direction to traverse.
     if pos == 0:
@@ -197,16 +257,27 @@ def get_closest_point_near_timestamp(
     else:
         backward_distance = traj_gdf.iloc[pos - 1].geometry.distance(target)
         # Pick the direction with a decreasing distance.
-        direction = -1 if backward_distance < current_distance else 1
+        direction = -1 if backward_distance < best_dist else 1
 
     while 0 <= pos + direction < len(traj_gdf):
-        next_distance = traj_gdf.iloc[pos + direction].geometry.distance(target)
-        if next_distance > current_distance:
-            break
-        current_distance = next_distance
         pos += direction
-
-    return traj_gdf.index[pos]
+        d = traj_gdf.iloc[pos].geometry.distance(target)
+        if d < best_dist:
+            best_dist = d
+        else:
+            # Get the next n_points indices in the chosen direction that are within bounds.
+            check_indices = [
+                pos + i * direction
+                for i in range(1, n_points + 1)
+                if 0 <= pos + i * direction < len(traj_gdf)
+            ]
+            # Check that for each of these indices, the distance is greater than best_dist.
+            distances = np.array(
+                [traj_gdf.iloc[idx].geometry.distance(target) for idx in check_indices]
+            )
+            if all(distances > best_dist):
+                break
+    return traj_gdf.index[pos], best_dist
 
 
 def plot(analyzers, slick_id, black=True, num_ais=5):
@@ -383,7 +454,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                 .geometry
             )
             s1_time = ais_analyzer.s1_scene.start_time
-            (t_tail, cl_tail, d_tail, t_head, cl_head, d_head) = (
+            (cl_tail, t_tail, d_tail, cl_head, t_head, d_head) = (
                 get_closest_centerline_points(gdf, longest_centerline, s1_time)
             )
             # Compute nearest trajectory point to the start and end coordinates of the longest centerline
@@ -601,12 +672,13 @@ slick_ids = [
     # 34314,
     # 34226,
     # 34321,
-    # 34251, # slow
-    # 34258, # paired to 34251
+    # 38573,  # slow
+    # 38583, # paired to 34251
+    # 35734, # SLOW AIS
+    # 38527, # slow
     # 34179,
     # 34236,
     # 34209,
-    # 34197, # slow
     # 34216,
     # 34171,
     # 34268,
@@ -615,25 +687,41 @@ slick_ids = [
     # 34162,
     # 34201,
     # 34299,
-    # 35352, # HARD WITHOUT SMART MAPPING
+    # 38660, # HARD WITHOUT SMART MAPPING
     # VESSELS
     # 34324,
     # 34385,
     # 34378,
     # 34537,
-    # 34490
+    # 34490,
     # 34362,
     # 34327,
     # 34366,
     # 34357,
     # 34332,
     # 34333,
-    # 35611
+    # 35611,
+    # 38499, # UI breaker
+    # 35744,
+    # 36063,
+    # 36557,
+    # 38785,  # EXTRAPOLATION
+    # 38749, # EXTRAPOLATION
+    # 38531,
+    # 39087,
+    # 38546,
+    # 38618,  # S1A_IW_GRDH_1SDV_20211210T094843_20211210T094908_040945_04DCDF_BD0B SO SO SLOWWWWW
+    # 42317,  # not working for ethan
+    # 38666,
+    # 38745,
+    # 38752,
+    39115,  # three source slick...
+    38941,  # Do we need to increase the slick drift rate?
 ]
 
 accumulated_sources = []
 for slick_id in slick_ids:
-    geojson_file_path = download_geojson(slick_id, use_test_db=True)
+    geojson_file_path = download_geojson(slick_id, use_test_db=False)
     slick_gdf = gpd.read_file(geojson_file_path)
     slick_gdf["centerlines"] = slick_gdf["centerlines"].apply(json.loads)
     s1_scene = get_s1_scene(slick_gdf.s1_scene_id.iloc[0])
@@ -683,10 +771,9 @@ for slick_id in slick_ids:
 
     print(
         f"Time taken: {time.time() - start_time} seconds \n"
-        f"Time per {len(ranked_sources)} sources: {(time.time() - start_time) / len(ranked_sources)} seconds"
+        f"Time per {len(ranked_sources)} sources: {(time.time() - start_time) / (len(ranked_sources) or 1)} seconds"
     )
 # print(accumulated_sources)
-
 # %%
 # Plot out all potential dark sources
 fake_dark_gdf = generate_infrastructure_points(slick_gdf, 50000)
@@ -700,3 +787,12 @@ fake_infra_gdf = generate_infrastructure_points(slick_gdf, 50000)
 infra_analyzer = InfrastructureAnalyzer(s1_scene, infra_gdf=fake_infra_gdf)
 coincidence_scores = infra_analyzer.compute_coincidence_scores(slick_gdf)
 plot({2: infra_analyzer}, slick_id, False)
+
+# %%
+a = analyzers[1]
+ssvid = "525061272"
+traj = a.ais_trajectories[ssvid]["df"]
+raw = a.ais_gdf[a.ais_gdf["ssvid"] == ssvid][a.ais_gdf["timestamp"] > ssvid]
+plot_ais_trajectory(traj, raw)
+
+# %%

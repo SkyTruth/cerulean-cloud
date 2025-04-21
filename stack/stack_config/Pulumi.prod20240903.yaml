@@ -5,6 +5,7 @@ config:
   cerulean-cloud:dryrun_asa: "" # Make empty "" to turn on Automatic Source Association
   cerulean-cloud:dryrun_historical: "" # Make empty "" to turn on historical runs
   cerulean-cloud:dryrun_relevancy: "" # Make empty "" to turn on recurring runs
+  cerulean-cloud:dryrun_alerts: "" # Make empty "" to turn on alerts
   cerulean-cloud:infra_keyname: prod20240903-gfw-infra-api-key
   cerulean-cloud:keyname: prod20240903-cerulean-cloud-api-key
   cerulean-cloud:titiler_keyname: prod20240903-titiler-api-key
@@ -20,3 +21,4 @@ config:
   scihub:password:
     secure: v1:77jKwh6VgMHCJGRK:WQTJnlF47AhaDzGmE5BCC1XA+LIGR+Ht
   scihub:username: rodrigo1234
+  alerts:keyname: cerulean-slack-alerts-webhook
