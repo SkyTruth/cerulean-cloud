@@ -9,7 +9,7 @@ import pandas as pd
 from flask import abort
 from shapely import wkb
 from utils.analyzer import ASA_MAPPING
-
+from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 
 
@@ -128,6 +128,12 @@ async def handle_asa_request(request):
                         {"geometry": [slick_geom], "centerlines": [slick.centerlines]},
                         crs="4326",
                     )
+                    if slick.centerlines is None or len(slick.centerlines) == 0:
+                        crs_meters = slick_gdf.estimate_utm_crs(datum_name="WGS 84")
+                        centerlines_geojson, _ = calculate_centerlines(
+                            slick_gdf, crs_meters
+                        )
+                        slick_gdf["centerlines"] = [centerlines_geojson]
                     fresh_ranked_sources = pd.DataFrame()
 
                     for analyzer in analyzers_to_run:
