@@ -6,6 +6,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 
+from google.auth import compute_engine
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
 
@@ -26,7 +27,8 @@ def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0):
         - Multiple retries are scheduled with different delays.
     """
     # Create a client.
-    client = tasks_v2.CloudTasksClient()
+    # Use Compute Engine credentials (metadata server) to guarantee default ADC
+    client = tasks_v2.CloudTasksClient(credentials=compute_engine.Credentials())
 
     project = os.getenv("PROJECT_ID")
     location = os.getenv("GCPREGION")
