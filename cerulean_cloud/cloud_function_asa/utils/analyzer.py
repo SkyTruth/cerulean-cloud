@@ -111,7 +111,7 @@ class SourceAnalyzer:
             )
         else:
             print(
-                f"Skipping reschedule for {self.vessel_id} because it was captured {days_since} days ago (more than 30 days)"
+                f"Skipping reschedule for {self.s1_scene.scene_id} because it was captured {days_since} days ago (more than 30 days)"
             )
 
 
