@@ -30,6 +30,7 @@ from shapely.geometry import (
 )
 
 from . import constants as c
+from .queuer import add_to_asa_queue
 from .scoring import (
     compute_parity_score,
     compute_proximity_score,
@@ -161,10 +162,50 @@ class AISAnalyzer(SourceAnalyzer):
         # Initialize other attributes
         self.sql = None
         self.slick_centerlines = None
+        self.data_is_available = None
         self.ais_gdf = None
         self.ais_filtered = None
         self.ais_trajectories = {}
         self.results = gpd.GeoDataFrame()
+
+    def check_data_availability(self):
+        """
+        Checks if stats_daily has data for date = (image_timestamp + hours_after).
+        If not, and if the image is <30 days old, schedules an ASA retry after X days
+        (X = days since capture) and removes the vessel from run_flags.
+        """
+        sql = """
+            SELECT MAX(date) AS latest_date
+            FROM `world-fishing-827.pipe_ais_v3_published.stats_daily`;
+        """
+        df = pandas_gbq.read_gbq(
+            sql,
+            project_id=self.ais_project_id,
+            credentials=self.credentials,
+        )
+        latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
+        target_data_date = self.ais_end_time
+
+        return latest_data_date > target_data_date
+
+    def reschedule_for_later(self):
+        days_since = (datetime.utcnow() - self.ais_end_time).days
+        if days_since < 7:
+            add_to_asa_queue(
+                self.s1_scene.scene_id,
+                run_flags=[1, 3],
+                days_to_delay=1,
+            )
+        elif days_since < 30:
+            add_to_asa_queue(
+                self.s1_scene.scene_id,
+                run_flags=[1, 3],
+                days_to_delay=days_since,
+            )
+        else:
+            print(
+                f"Skipping reschedule for {self.vessel_id} because it was captured {days_since} days ago (more than 30 days)"
+            )
 
     def retrieve_ais_data(self):
         """
@@ -717,6 +758,14 @@ class AISAnalyzer(SourceAnalyzer):
         """
         self.results = gpd.GeoDataFrame()
         self.filtered_ssvids = []
+
+        if self.data_is_available is None:
+            self.data_is_available = self.check_data_availability()
+            if not self.data_is_available:
+                self.reschedule_for_later()
+        if self.data_is_available is False:
+            # Catches both False cases for persistent analyzer and newly calculated availability
+            return pd.DataFrame()
 
         if self.ais_gdf is None:
             self.retrieve_ais_data()
