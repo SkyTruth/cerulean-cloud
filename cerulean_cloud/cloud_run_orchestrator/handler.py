@@ -16,7 +16,6 @@ import traceback
 import urllib.parse as urlparse
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
-from shapely.geometry import shape
 
 import geopandas as gpd
 import morecantile
@@ -25,8 +24,10 @@ import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
+from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
+from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
@@ -42,7 +43,6 @@ from cerulean_cloud.structured_logger import (
 )
 from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
-from cerulean_cloud.centerlines import calculate_centerlines
 
 # Configure logger
 logger = configure_structured_logger("cerulean_cloud")

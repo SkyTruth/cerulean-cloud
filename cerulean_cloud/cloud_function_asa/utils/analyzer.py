@@ -18,6 +18,7 @@ import requests
 from geoalchemy2.shape import to_shape
 from google.oauth2.service_account import Credentials
 from pyproj import CRS
+from queuer import add_to_asa_queue
 from scipy.spatial import cKDTree
 from shapely.geometry import (
     GeometryCollection,
@@ -94,6 +95,25 @@ class SourceAnalyzer:
             self.slick_gdf["centerlines"].iloc[0]["features"], crs="EPSG:4326"
         )
 
+    def reschedule_for_later(self, run_flags):
+        days_since = (datetime.utcnow() - self.s1_scene.start_time).days
+        if days_since < 7:
+            add_to_asa_queue(
+                self.s1_scene.scene_id,
+                run_flags=run_flags,
+                days_to_delay=1,
+            )
+        elif days_since < 30:
+            add_to_asa_queue(
+                self.s1_scene.scene_id,
+                run_flags=run_flags,
+                days_to_delay=days_since,
+            )
+        else:
+            print(
+                f"Skipping reschedule for {self.vessel_id} because it was captured {days_since} days ago (more than 30 days)"
+            )
+
 
 class AISAnalyzer(SourceAnalyzer):
     """
@@ -105,6 +125,8 @@ class AISAnalyzer(SourceAnalyzer):
         ais_trajectories (TrajectoryCollection): Collection of vessel trajectories.
         results (DataFrame): Final association results.
     """
+
+    short_name = "VESSEL"
 
     def __init__(self, s1_scene, **kwargs):
         """
@@ -161,10 +183,31 @@ class AISAnalyzer(SourceAnalyzer):
         # Initialize other attributes
         self.sql = None
         self.slick_centerlines = None
+        self.data_is_available = None
         self.ais_gdf = None
         self.ais_filtered = None
         self.ais_trajectories = {}
         self.results = gpd.GeoDataFrame()
+
+    def check_data_availability(self):
+        """
+        Checks if stats_daily has data for date = (image_timestamp + hours_after).
+        If not, and if the image is <30 days old, schedules an ASA retry after X days
+        (X = days since capture) and removes the ASA from run_flags.
+        """
+        sql = """
+            SELECT MAX(date) AS latest_date
+            FROM `world-fishing-827.pipe_ais_v3_published.stats_daily`;
+        """
+        df = pandas_gbq.read_gbq(
+            sql,
+            project_id=self.ais_project_id,
+            credentials=self.credentials,
+        )
+        latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
+        target_data_date = self.ais_end_time
+
+        return latest_data_date > target_data_date
 
     def retrieve_ais_data(self):
         """
@@ -718,6 +761,14 @@ class AISAnalyzer(SourceAnalyzer):
         self.results = gpd.GeoDataFrame()
         self.filtered_ssvids = []
 
+        if self.data_is_available is None:
+            self.data_is_available = self.check_data_availability()
+            if not self.data_is_available:
+                self.reschedule_for_later(run_flags=[AISAnalyzer.short_name])
+        if self.data_is_available is False:
+            # Catches both False cases for persistent analyzer and newly calculated availability
+            return pd.DataFrame()
+
         if self.ais_gdf is None:
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
@@ -1085,6 +1136,8 @@ class InfrastructureAnalyzer(PointAnalyzer):
         coincidence_scores (np.ndarray): Computed confidence scores.
     """
 
+    short_name = "INFRA"
+
     def __init__(self, s1_scene, **kwargs):
         """
         Initialize the InfrastructureAnalyzer.
@@ -1231,6 +1284,8 @@ class DarkAnalyzer(PointAnalyzer):
     Analyzer for dark vessels (non-AIS broadcasting vessels).
     """
 
+    short_name = "DARK"
+
     def __init__(self, s1_scene, **kwargs):
         """
         Initialize the DarkAnalyzer.
@@ -1255,6 +1310,7 @@ class DarkAnalyzer(PointAnalyzer):
         self.endpoints_offset = kwargs.get("endpoints_offset", 0.05)
         self.endpoints_gap = kwargs.get("endpoints_gap", 0.05)
         self.slick_centerlines = None
+        self.data_is_available = None
 
     def retrieve_sar_detection_data(self):
         """
@@ -1349,6 +1405,11 @@ class DarkAnalyzer(PointAnalyzer):
         self.coincidence_scores = np.zeros(len(self.dark_objects_gdf))
         self.slick_gdf = slick_gdf
 
+        if self.data_is_available is None:
+            self.data_is_available = self.check_data_availability()
+            if not self.data_is_available:
+                self.reschedule_for_later(run_flags=[DarkAnalyzer.short_name])
+
         self.combined_geometry, _, _ = self.process_slicks()
 
         filtered_dark_objects = self.filter_points(
@@ -1386,12 +1447,32 @@ class DarkAnalyzer(PointAnalyzer):
         print(f"Processing completed in {end_time - start_time:.2f} seconds.")
         return self.results
 
+    def check_data_availability(self):
+        """
+        Checks if data is available for the specified point analyzer.
+        """
+        target_data_date = self.s1_scene.start_time
+        sql = f"""
+            SELECT COUNT(*) > 0 as data_available
+            FROM `world-fishing-827.pipe_sar_v1_published.detect_scene_match` 
+            WHERE scene_id = '{self.s1_scene.scene_id}'
+            AND TIMESTAMP_TRUNC(_PARTITIONTIME, DAY) = TIMESTAMP("{target_data_date.strftime("%Y-%m-%d")}");
+        """
+        df = pandas_gbq.read_gbq(
+            sql,
+            project_id=self.gfw_project_id,
+            credentials=self.credentials,
+        )
+        return df.iloc[0]["data_available"]
+
 
 class NaturalAnalyzer(SourceAnalyzer):
     """
     Analyzer for natural seeps.
     Currently a placeholder for future implementation.
     """
+
+    short_name = "NATURAL"
 
     def __init__(self, s1_scene, **kwargs):
         """
@@ -1403,8 +1484,8 @@ class NaturalAnalyzer(SourceAnalyzer):
 
 
 ASA_MAPPING = {
-    1: AISAnalyzer,
-    2: InfrastructureAnalyzer,
-    3: DarkAnalyzer,
-    4: NaturalAnalyzer,
+    AISAnalyzer.short_name: AISAnalyzer,
+    InfrastructureAnalyzer.short_name: InfrastructureAnalyzer,
+    DarkAnalyzer.short_name: DarkAnalyzer,
+    NaturalAnalyzer.short_name: NaturalAnalyzer,
 }
