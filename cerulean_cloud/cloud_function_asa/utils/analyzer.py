@@ -29,8 +29,8 @@ from shapely.geometry import (
     mapping,
 )
 
+from ..queuer import add_to_asa_queue
 from . import constants as c
-from .queuer import add_to_asa_queue
 from .scoring import (
     compute_parity_score,
     compute_proximity_score,
