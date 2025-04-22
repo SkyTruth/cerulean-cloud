@@ -141,12 +141,12 @@ async def handle_asa_request(request):
                             )
                         await db_client.session.close()
 
-                        skip_analyzers = (
-                            []
-                            if slick.aspect_ratio_factor > 0.35
-                            # Calculated to get rid of as many false positives as possible without removing any true positives
-                            else ["VESSEL", "DARK"]
-                        )
+                    skip_analyzers = (
+                        []
+                        if slick.aspect_ratio_factor > 0.35
+                        # Calculated to get rid of as many false positives as possible without removing any true positives
+                        else ["VESSEL", "DARK"]
+                    )
 
                     analyzers_to_run = [
                         analyzer
