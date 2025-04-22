@@ -18,6 +18,7 @@ import requests
 from geoalchemy2.shape import to_shape
 from google.oauth2.service_account import Credentials
 from pyproj import CRS
+from queuer import add_to_asa_queue
 from scipy.spatial import cKDTree
 from shapely.geometry import (
     GeometryCollection,
@@ -29,7 +30,6 @@ from shapely.geometry import (
     mapping,
 )
 
-from ..queuer import add_to_asa_queue
 from . import constants as c
 from .scoring import (
     compute_parity_score,
