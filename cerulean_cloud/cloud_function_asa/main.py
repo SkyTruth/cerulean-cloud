@@ -78,7 +78,7 @@ async def handle_asa_request(request):
     request_json = request.get_json()
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
-        run_flags = request_json.get("run_flags")  # expects list of integers
+        run_flags = request_json.get("run_flags")  # list of source_type short_names
         if not run_flags:
             run_flags = list(ASA_MAPPING.keys())
         elif any(run_flag not in ASA_MAPPING.keys() for run_flag in run_flags):
