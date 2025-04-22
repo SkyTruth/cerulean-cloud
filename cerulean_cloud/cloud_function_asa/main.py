@@ -148,11 +148,15 @@ async def handle_asa_request(request):
                         else ["VESSEL", "DARK"]
                     )
 
+                    if skip_analyzers:
+                        print(
+                            f"Skipping analyzers: {skip_analyzers} for slick {slick.id} because aspect ratio is too low: {slick.aspect_ratio_factor}"
+                        )
                     analyzers_to_run = [
                         analyzer
                         for analyzer in analyzers
-                        if analyzer.source_type not in previous_asa[slick.id]
-                        and analyzer.source_type not in skip_analyzers
+                        if analyzer.short_name not in previous_asa[slick.id]
+                        and analyzer.short_name not in skip_analyzers
                     ]
                     if len(analyzers_to_run) == 0:
                         continue
