@@ -108,6 +108,7 @@ async def handle_asa_request(request):
                             slick.id
                         ] = await db_client.get_id_collated_score_pairs(slick.id)
 
+            await db_client.session.close()
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
             if len(slicks) > 0:
@@ -116,14 +117,6 @@ async def handle_asa_request(request):
                 ]
                 random.shuffle(slicks)  # Allows rerunning a scene to skip bugs
                 for slick in slicks:
-                    analyzers_to_run = [
-                        analyzer
-                        for analyzer in analyzers
-                        if analyzer.source_type not in previous_asa[slick.id]
-                    ]
-                    if len(analyzers_to_run) == 0:
-                        continue
-
                     # Convert slick geometry to GeoDataFrame
                     slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
                     slick_gdf = gpd.GeoDataFrame(
@@ -132,20 +125,30 @@ async def handle_asa_request(request):
                     )
                     if slick.centerlines is None:
                         crs_meters = slick_gdf.estimate_utm_crs(datum_name="WGS 84")
-                        centerlines_geojson, aspect_ratio_factor = (
+                        slick.centerlines, slick.aspect_ratio_factor = (
                             calculate_centerlines(slick_gdf, crs_meters)
                         )
-                        slick_gdf["centerlines"] = [centerlines_geojson]
+                        slick_gdf["centerlines"] = [slick.centerlines]
                         async with db_client.session.begin():
                             await update_object(
                                 db_client.session,
                                 db.Slick,
                                 filter_kwargs={"id": slick.id},
                                 update_kwargs={
-                                    "centerlines": centerlines_geojson,
-                                    "aspect_ratio_factor": aspect_ratio_factor,
+                                    "centerlines": slick.centerlines,
+                                    "aspect_ratio_factor": slick.aspect_ratio_factor,
                                 },
                             )
+                        await db_client.session.close()
+
+                    analyzers_to_run = [
+                        analyzer
+                        for analyzer in analyzers
+                        if analyzer.source_type not in previous_asa[slick.id]
+                    ]
+                    if len(analyzers_to_run) == 0:
+                        continue
+
                     fresh_ranked_sources = pd.DataFrame()
 
                     for analyzer in analyzers_to_run:
@@ -222,6 +225,7 @@ async def handle_asa_request(request):
                                         },
                                     )
                             print(f"ASA complete for slick {slick.id}")
+                        await db_client.session.close()
         # Dispose the engine after finishing all DB operations.
         await db_engine.dispose()
 
