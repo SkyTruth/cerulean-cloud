@@ -38,6 +38,10 @@ from .scoring import (
     vessel_compute_total_score,
 )
 
+# Prevent this warning about partitioned table RANGE without having to update our pandas/pyarrow
+# Unable to represent RANGE schema as struct using pandas ArrowDtype. Using object instead. To use ArrowDtype, use pandas >= 1.5 and pyarrow >= 10.0.1.
+pandas_gbq.context.use_bqstorage_api = False
+
 
 class SourceAnalyzer:
     """
