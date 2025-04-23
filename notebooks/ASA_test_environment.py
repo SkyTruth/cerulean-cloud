@@ -731,7 +731,7 @@ for slick_id in slick_ids:
     source_types += ["VESSEL"]
     source_types += ["INFRA"]
     source_types += ["DARK"]
-    # source_types += [NaturalAnalyzer.short_name]
+    # source_types += ["NATURAL"]
     if not (  # If the last analyzer is for the same scene, reuse it
         analyzers
         and next(iter(analyzers.items()))[1].s1_scene.scene_id == s1_scene.scene_id

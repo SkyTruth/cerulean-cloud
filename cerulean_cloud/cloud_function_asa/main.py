@@ -10,7 +10,9 @@ from flask import abort
 from shapely import wkb
 from utils.analyzer import ASA_MAPPING
 
-from cerulean_cloud.database_client import DatabaseClient, get_engine
+import cerulean_cloud.database_schema as db
+from cerulean_cloud.centerlines import calculate_centerlines
+from cerulean_cloud.database_client import DatabaseClient, get_engine, update_object
 
 
 def verify_api_key(request):
@@ -106,6 +108,7 @@ async def handle_asa_request(request):
                             slick.id
                         ] = await db_client.get_id_collated_score_pairs(slick.id)
 
+            await db_client.session.close()
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
             if len(slicks) > 0:
@@ -114,20 +117,50 @@ async def handle_asa_request(request):
                 ]
                 random.shuffle(slicks)  # Allows rerunning a scene to skip bugs
                 for slick in slicks:
-                    analyzers_to_run = [
-                        analyzer
-                        for analyzer in analyzers
-                        if analyzer.source_type not in previous_asa[slick.id]
-                    ]
-                    if len(analyzers_to_run) == 0:
-                        continue
-
                     # Convert slick geometry to GeoDataFrame
                     slick_geom = wkb.loads(str(slick.geometry)).buffer(0)
                     slick_gdf = gpd.GeoDataFrame(
                         {"geometry": [slick_geom], "centerlines": [slick.centerlines]},
                         crs="4326",
                     )
+                    if slick.centerlines is None:
+                        crs_meters = slick_gdf.estimate_utm_crs(datum_name="WGS 84")
+                        slick.centerlines, slick.aspect_ratio_factor = (
+                            calculate_centerlines(slick_gdf, crs_meters)
+                        )
+                        slick_gdf["centerlines"] = [slick.centerlines]
+                        async with db_client.session.begin():
+                            await update_object(
+                                db_client.session,
+                                db.Slick,
+                                filter_kwargs={"id": slick.id},
+                                update_kwargs={
+                                    "centerlines": slick.centerlines,
+                                    "aspect_ratio_factor": slick.aspect_ratio_factor,
+                                },
+                            )
+                        await db_client.session.close()
+
+                    skip_analyzers = (
+                        []
+                        if slick.aspect_ratio_factor > 0.35
+                        # Calculated to get rid of as many false positives as possible without removing any true positives
+                        else ["VESSEL", "DARK"]
+                    )
+
+                    if skip_analyzers:
+                        print(
+                            f"Skipping analyzers: {skip_analyzers} for slick {slick.id} because aspect ratio is too low: {slick.aspect_ratio_factor}"
+                        )
+                    analyzers_to_run = [
+                        analyzer
+                        for analyzer in analyzers
+                        if analyzer.short_name not in previous_asa[slick.id]
+                        and analyzer.short_name not in skip_analyzers
+                    ]
+                    if len(analyzers_to_run) == 0:
+                        continue
+
                     fresh_ranked_sources = pd.DataFrame()
 
                     for analyzer in analyzers_to_run:
@@ -204,6 +237,7 @@ async def handle_asa_request(request):
                                         },
                                     )
                             print(f"ASA complete for slick {slick.id}")
+                        await db_client.session.close()
         # Dispose the engine after finishing all DB operations.
         await db_engine.dispose()
 
