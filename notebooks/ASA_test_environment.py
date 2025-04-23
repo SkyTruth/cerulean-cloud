@@ -728,10 +728,10 @@ for slick_id in slick_ids:
     start_time = time.time()
 
     source_types = []
-    source_types += [1]  # ais
-    source_types += [2]  # infra
-    source_types += [3]  # dark
-    # source_types += [4]  # natural
+    source_types += ["VESSEL"]
+    source_types += ["INFRA"]
+    source_types += ["DARK"]
+    # source_types += ["NATURAL"]
     if not (  # If the last analyzer is for the same scene, reuse it
         analyzers
         and next(iter(analyzers.items()))[1].s1_scene.scene_id == s1_scene.scene_id

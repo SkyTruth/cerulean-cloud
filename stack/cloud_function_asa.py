@@ -18,6 +18,9 @@ from utils import construct_name, pulumi_create_zip
 from vpc_connector import vpc_connector
 
 stack = pulumi.get_stack()
+project_id = pulumi.Config("gcp").require("project")
+region = pulumi.Config("gcp").require("region")
+
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
     construct_name("bucket-cf-asa"),
@@ -28,7 +31,7 @@ bucket = storage.Bucket(
 # Create the Queue for tasks
 queue = cloudtasks.Queue(
     construct_name("queue-cloud-tasks-asa-analysis"),
-    location=pulumi.Config("gcp").require("region"),
+    location=region,
     rate_limits=cloudtasks.QueueRateLimitsArgs(
         max_concurrent_dispatches=200,
         max_dispatches_per_second=1,
@@ -64,10 +67,26 @@ else:  # Unshallow the repository to get full commit history
     )
 
 function_name = construct_name("cf-asa")
+
+# Build the URL without circular dependency
+computed_function_url = pulumi.Output.concat(
+    "https://",
+    region,
+    "-",
+    project_id,
+    ".cloudfunctions.net/",
+    function_name,
+)
+
 config_values = {
     "DB_URL": database.sql_instance_url_with_ip_asyncpg,
     "GIT_HASH": git_sha,
     "GIT_TAG": git_tag,
+    "PROJECT_ID": project_id,
+    "GCPREGION": region,
+    "ASA_QUEUE": queue.name,
+    "FUNCTION_URL": computed_function_url,
+    "ASA_IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_asa"),
 }
 
 # The Cloud Function source code itself needs to be zipped up into an
@@ -97,7 +116,7 @@ cloud_function_service_account = serviceaccount.Account(
 
 cloud_function_service_account_iam = projects.IAMMember(
     construct_name("cf-asa-iam"),
-    project=pulumi.Config("gcp").require("project"),
+    project=project_id,
     role="projects/cerulean-338116/roles/cloudfunctionasarole",
     member=cloud_function_service_account.email.apply(
         lambda email: f"serviceAccount:{email}"
@@ -109,19 +128,19 @@ gfw_credentials = {
     "key": "GOOGLE_APPLICATION_CREDENTIALS",
     "secret": pulumi.Config("ais").require("credentials"),
     "version": "latest",
-    "project_id": pulumi.Config("gcp").require("project"),
+    "project_id": project_id,
 }
 infra_api_key = {
     "key": "INFRA_API_TOKEN",
     "secret": pulumi.Config("cerulean-cloud").require("infra_keyname"),
     "version": "latest",
-    "project_id": pulumi.Config("gcp").require("project"),
+    "project_id": project_id,
 }
 api_key = {
     "key": "API_KEY",
     "secret": pulumi.Config("cerulean-cloud").require("keyname"),
     "version": "latest",
-    "project_id": pulumi.Config("gcp").require("project"),
+    "project_id": project_id,
 }
 
 
@@ -129,7 +148,7 @@ api_key = {
 fxn = cloudfunctionsv2.Function(
     function_name,
     name=function_name,
-    location=pulumi.Config("gcp").require("region"),
+    location=region,
     description="Cloud Function for ASA",
     build_config={
         "runtime": "python39",
