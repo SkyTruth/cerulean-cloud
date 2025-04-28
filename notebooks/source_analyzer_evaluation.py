@@ -12,11 +12,10 @@ from tqdm.auto import tqdm
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from shapely.geometry import shape, MultiLineString, Polygon, LineString, Point
+from shapely.geometry import shape, MultiLineString, LineString, Point
 from datetime import datetime
 
 from cerulean_cloud.centerlines import (
-    compute_aspect_ratio_factor,
     calculate_centerlines,
 )
 
