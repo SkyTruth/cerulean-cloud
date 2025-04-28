@@ -4,7 +4,7 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pickle
-
+import json
 
 from geoalchemy2 import WKTElement
 from types import SimpleNamespace
@@ -12,8 +12,10 @@ from tqdm.auto import tqdm
 import plotly.graph_objects as go
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-from shapely.geometry import shape, LineString, Point
-from cerulean_cloud.cloud_run_orchestrator.handler import (
+from shapely.geometry import shape, MultiLineString, LineString, Point
+from datetime import datetime
+
+from cerulean_cloud.centerlines import (
     calculate_centerlines,
 )
 
@@ -177,6 +179,7 @@ def label_results_with_st_name(
 
 def apply_labeling(results, groundtruth_gdf, labelling_method):
     # Group by slick_id and apply the labeling function to each group
+    results["truth"] = False
     return results.groupby("slick_id", group_keys=False).apply(
         lambda grp: labelling_method(grp, grp["slick_id"].iloc[0], groundtruth_gdf)
     )
@@ -246,15 +249,66 @@ def calculate_metrics(results, coin_score_column="coincidence_score"):
     return pd.DataFrame(metrics).T
 
 
+def filter_and_truncate_trajectories(self):
+    """
+    Filters self.ais_trajectories spatially and temporally using the analyzer's properties.
+
+    Uses:
+      - self.ais_start_time: Lower bound of the time window.
+      - self.ais_end_time: Upper bound of the time window.
+      - self.slick_gdf: GeoDataFrame from which to derive the spatial area.
+      - self.ais_buffered: Buffer distance used to create the search area.
+    """
+    # Create the buffered search area from slick_gdf
+    search_area = (
+        self.slick_gdf.geometry.to_crs(self.crs_meters)
+        .buffer(self.ais_buffer)
+        .to_crs("4326")
+    )
+    # Assuming the buffered search area is defined by the first geometry
+    buffered_geometry = search_area.iloc[0]
+
+    filtered_trajectories = {}
+    for ssvid, traj in self.ais_trajectories.items():
+        # Retrieve the full interpolated GeoDataFrame (with timestamps as index)
+        traj_gdf = traj["df"]
+
+        # Filter based on time: keep points between ais_start_time and ais_end_time.
+        time_filtered_gdf = traj_gdf[
+            (traj_gdf.index >= self.ais_start_time)
+            & (traj_gdf.index <= self.ais_end_time)
+        ]
+
+        # Further filter based on spatial intersection with the buffered search area.
+        spatially_filtered_gdf = time_filtered_gdf[
+            time_filtered_gdf.geometry.intersects(buffered_geometry)
+        ]
+
+        # If any points remain, update the trajectory.
+        if not spatially_filtered_gdf.empty:
+            traj["df"] = spatially_filtered_gdf
+            traj["geojson_fc"] = {
+                "type": "FeatureCollection",
+                "features": json.loads(spatially_filtered_gdf.to_json())["features"],
+            }
+            filtered_trajectories[ssvid] = traj
+
+    # Update the trajectories with the filtered ones.
+    return filtered_trajectories
+
+
 def process_groundtruth_on_analyzer(
     analyzer_class,
     groundtruth_gdf,
     points_gdf=None,
+    use_synthetic_points=0,
+    synthetic_points_buffer=1000,
     analyzer_params=None,
     filter_ais_infra=False,
-    reuse_ais_trajectories=True,
-    save_ais_trajectories=False,
-    pickle_dir=os.getenv("ASA_DOWNLOAD_PATH") + "/trajectories",
+    post_filter_dark=False,
+    reuse_ais_gdf=False,
+    return_analyzer=False,
+    pickle_dir=os.getenv("ASA_DOWNLOAD_PATH"),
 ):
     """
     Generalized function to process an analyzer over a ground truth GeoDataFrame.
@@ -296,73 +350,91 @@ def process_groundtruth_on_analyzer(
         # Prepare parameters for the analyzer
         analyzer_kwargs = analyzer_params.copy() if analyzer_params else {}
 
-        # Assign points_gdf to the correct parameter name based on analyzer type
+        # If using AISAnalyzer, check for existing ais_trajectories pickle file
+        ais_pickle_filename = pickle_dir + f"/ais_gdfs/{s1_scene_id}.pkl"
+
+        if use_synthetic_points != 0:
+            temp_analyzer = analyzer_class(s1_scene, infra_gdf="PLACEHOLDER")
+            fake_dark_gdf = generate_infrastructure_points(
+                slick_gdf, use_synthetic_points, expansion_factor=1.0
+            )
+            fake_dark_gdf_meters = fake_dark_gdf.to_crs(temp_analyzer.crs_meters)
+            buff_geom = (
+                slick_gdf.to_crs(temp_analyzer.crs_meters)
+                .iloc[0]
+                .geometry.buffer(synthetic_points_buffer)
+            )
+            points_gdf = fake_dark_gdf_meters[
+                fake_dark_gdf_meters.within(buff_geom).eq(False)
+            ].to_crs(slick_gdf.crs)
+        # Instantiate the analyzer with parameters
         if points_gdf is not None:
             if analyzer_class.__name__ == "DarkAnalyzer":
                 analyzer_kwargs["dark_vessels_gdf"] = points_gdf.reset_index()
             elif analyzer_class.__name__ == "InfrastructureAnalyzer":
                 analyzer_kwargs["infra_gdf"] = points_gdf.reset_index()
 
-        # If using AISAnalyzer, check for existing ais_trajectories pickle file
-        ais_pickle_filename = os.path.join(
-            pickle_dir, f"ais_trajectories_{slick_id}.pkl"
-        )
-
-        # Instantiate the analyzer with parameters
         analyzer = analyzer_class(s1_scene, **analyzer_kwargs)
 
-        centerline, _ = calculate_centerlines(slick_gdf, crs_meters=analyzer.crs_meters)
+        centerline, arf = calculate_centerlines(
+            slick_gdf, crs_meters=analyzer.crs_meters
+        )
         slick_gdf["centerlines"] = [centerline]
 
-        if analyzer_class.__name__ == "AISAnalyzer" and reuse_ais_trajectories:
+        if analyzer_class.__name__ == "AISAnalyzer" and (reuse_ais_gdf):
             if os.path.exists(ais_pickle_filename):
-                print("REUSING DOWNLOADED TRAJECTORIES")
+                print("REUSING DOWNLOADED AIS GDF")
                 with open(ais_pickle_filename, "rb") as f:
-                    ais_trajectories = pickle.load(f)
-                analyzer.ais_trajectories = ais_trajectories
-            analyzer.slick_gdf = slick_gdf
-            analyzer.load_slick_centerlines()
-            analyzer.score_trajectories()
-            analyzer.results["collated_score"] = analyzer.results[
-                "coincidence_score"
-            ].apply(analyzer.collate)
-            res = analyzer.results
-        else:
-            res = analyzer.compute_coincidence_scores(slick_gdf)
+                    ais_gdf = pickle.load(f)
+                ais_gdf = ais_gdf[
+                    ais_gdf.geometry.within(analyzer.ais_envelope.iloc[0])
+                ]
+                ais_gdf = ais_gdf[ais_gdf["timestamp"] >= analyzer.ais_start_time]
+                ais_gdf = ais_gdf[ais_gdf["timestamp"] <= analyzer.ais_end_time]
+                analyzer.ais_gdf = ais_gdf
+            else:
+                print("AIS GDF FILE DOES NOT EXIST")
 
+        res = analyzer.compute_coincidence_scores(slick_gdf)
         if res is None:
             continue
 
         res["slick_id"] = slick_id  # Track which slick_id it corresponds to
-
+        print("FOUND ", len(res), "VESSEL RESULTS")
         if filter_ais_infra:
-            print("FOUND ", len(res), "VESSEL RESULTS")
             res = res[
                 res.to_crs(analyzer.crs_meters)["geometry"].apply(is_not_ais_infra)
             ]
             print("FILTERING DOWN TO", len(res), "VALID VESSEL")
 
-        # If the analyzer is AISAnalyzer, save the computed ais_trajectories for reuse
-        if analyzer_class.__name__ == "AISAnalyzer" and save_ais_trajectories:
-            if not os.path.exists(ais_pickle_filename):
-                print("Saving trajectories for", slick_id)
-                with open(ais_pickle_filename, "wb") as f:
-                    pickle.dump(analyzer.ais_trajectories, f)
+        if analyzer_class.__name__ == "DarkAnalyzer" and post_filter_dark:
+            res = res[res["structure_id"].isna()]
+            res = res[res["ssvid"].isna()]
+            res = res[res["length_m"] > 30]
 
         # Accumulate results using pd.concat
+        res["arf"] = arf
         if results_gdf is None:
             results_gdf = res.copy()
         else:
             results_gdf = pd.concat([results_gdf, res], ignore_index=True)
 
+    if return_analyzer:
+        return results_gdf, analyzer
     return results_gdf
 
 
-def plot_metrics(metrics_df, title="Evaluation Metrics"):
+def plot_metrics(
+    metrics_df,
+    title="Evaluation Metrics",
+    plot_ratio=False,
+    legend_title="Method",
+    value_font_size=8,
+):
     """
     Plot metrics from three methods side by side using two subplots:
       - Left subplot: top source rates (scaled to 0-1) and average coincidence scores.
-      - Right subplot: the ratio metric (true to false average coincidence).
+      - Right subplot: the ratio metric (true to false average coincidence), if plot_ratio is True.
 
     Each bar is annotated with its rounded value above it.
 
@@ -371,6 +443,7 @@ def plot_metrics(metrics_df, title="Evaluation Metrics"):
                     Expected columns:
                       'top_3_source_rate (%)', 'top_1_source_rate (%)',
                       'average_true_coincidence', 'average_false_coincidence', 'true_false_ratio'
+        plot_ratio: Boolean flag to include or exclude the ratio plot.
     """
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -385,7 +458,7 @@ def plot_metrics(metrics_df, title="Evaluation Metrics"):
         "average_true_coincidence",
         "average_false_coincidence",
     ]
-    right_metrics = ["true_false_ratio"]
+    right_metrics = ["true_false_ratio"] if plot_ratio else []
 
     # Prepare data for the left subplot.
     df_left = df_plot.melt(
@@ -395,16 +468,12 @@ def plot_metrics(metrics_df, title="Evaluation Metrics"):
     top_source_metrics = ["top_3_source_rate (%)", "top_1_source_rate (%)"]
     df_left.loc[df_left["Metric"].isin(top_source_metrics), "Value"] /= 100.0
 
-    # Prepare data for the right subplot.
-    df_right = df_plot.melt(
-        id_vars="Method",
-        value_vars=right_metrics,
-        var_name="Metric",
-        value_name="Value",
-    )
+    # Create subplots conditionally based on plot_ratio.
+    num_cols = 2 if plot_ratio else 1
+    fig, axes = plt.subplots(ncols=num_cols, figsize=(16 * num_cols, 8), sharey=False)
 
-    # Create two subplots aligned horizontally.
-    fig, axes = plt.subplots(ncols=2, figsize=(14, 6), sharey=False)
+    if not plot_ratio:
+        axes = [axes]  # Ensure consistent indexing when there's only one subplot.
 
     # Left subplot for 0-1 scaled metrics and averages.
     ax_left = axes[0]
@@ -423,33 +492,42 @@ def plot_metrics(metrics_df, title="Evaluation Metrics"):
                 f"{height:.2f}",
                 ha="center",
                 va="bottom",
-                fontsize=8,
+                fontsize=value_font_size,
             )
 
-    # Right subplot for the true/false ratio.
-    ax_right = axes[1]
-    sns.barplot(data=df_right, x="Metric", y="Value", hue="Method", ax=ax_right)
-    ax_right.set_title("True/False Average Coincidence Ratio")
-    ax_right.set_ylabel("Value")
-    ax_right.tick_params(axis="x", rotation=45)
+    if plot_ratio:
+        # Prepare data for the right subplot.
+        df_right = df_plot.melt(
+            id_vars="Method",
+            value_vars=right_metrics,
+            var_name="Metric",
+            value_name="Value",
+        )
 
-    # Annotate each bar on the right subplot.
-    for container in ax_right.containers:
-        for bar in container:
-            height = bar.get_height()
-            ax_right.text(
-                bar.get_x() + bar.get_width() / 2,
-                height,
-                f"{height:.2f}",
-                ha="center",
-                va="bottom",
-                fontsize=8,
-            )
+        # Right subplot for the true/false ratio.
+        ax_right = axes[1]
+        sns.barplot(data=df_right, x="Metric", y="Value", hue="Method", ax=ax_right)
+        ax_right.set_title("True/False Average Coincidence Ratio")
+        ax_right.set_ylabel("Value")
+        ax_right.tick_params(axis="x", rotation=45)
 
-    # Remove duplicate legend from the right subplot.
-    handles, labels = ax_left.get_legend_handles_labels()
-    ax_left.legend(handles=handles, labels=labels, title="Method")
-    ax_right.get_legend().remove()
+        # Annotate each bar on the right subplot.
+        for container in ax_right.containers:
+            for bar in container:
+                height = bar.get_height()
+                ax_right.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    height,
+                    f"{height:.2f}",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
+
+        # Remove duplicate legend from the right subplot.
+        handles, labels = ax_left.get_legend_handles_labels()
+        ax_left.legend(handles=handles, labels=labels, title=legend_title)
+        ax_right.get_legend().remove()
 
     fig.suptitle(title, fontsize=16)
     plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -591,6 +669,97 @@ def generate_infrastructure_points(
     return infra_gdf
 
 
+def get_closest_centerline_points(
+    traj_gdf: gpd.GeoDataFrame,
+    longest_centerline: MultiLineString,
+    t_image: datetime = None,
+) -> tuple[Point, pd.Timestamp, float, Point, pd.Timestamp, float]:
+    """
+    Returns the timestamp and distance of the closest points on the centerline to the vessel at the given image_timestamp.
+    """
+    # Create centerline endpoints
+    cl_A = Point(longest_centerline.coords[0])
+    cl_B = Point(longest_centerline.coords[-1])
+
+    # Find nearest trajectory point indices for each endpoint
+    t_A, d_A = get_closest_point_near_timestamp(cl_A, traj_gdf, t_image)
+    t_B, d_B = get_closest_point_near_timestamp(cl_B, traj_gdf, t_image)
+
+    # Sort the pairs by timestamp to determine head and tail
+    (cl_tail, t_tail, d_tail), (cl_head, t_head, d_head) = sorted(
+        [(cl_A, t_A, d_A), (cl_B, t_B, d_B)], key=lambda x: x[1]
+    )
+
+    # After finding the head (slick end closest to the AIS), project the tail to the nearest point independent of time.
+    t_tail, d_tail = get_closest_point_near_timestamp(cl_tail, traj_gdf)
+
+    return (cl_tail, t_tail, d_tail, cl_head, t_head, d_head)
+
+
+def get_closest_point_near_timestamp(
+    target: Point,
+    traj_gdf: gpd.GeoDataFrame,
+    t_image: datetime = None,
+    n_points: int = 10,
+) -> tuple[pd.Timestamp, float]:
+    """
+    Returns the trajectory row that is closest to the reference_point,
+    using a turning-point heuristic starting at t_image.
+
+    It starts at t_image and checks the immediate neighbors to determine
+    in which temporal direction the distance to the reference point is decreasing.
+    It then traverses in that single direction until the distance no longer decreases,
+    returning the last point before an increase is detected.
+
+    Parameters:
+        reference_point (shapely.geometry.Point): The point to compare distances to.
+        traj_gdf (geopandas.GeoDataFrame): A GeoDataFrame with a datetime-like index
+            and a 'geometry' column.
+        t_image (datetime): The starting timestamp for the search (guaranteed to be in the dataset).
+        n_points (int): The number of subsequent points that must confirm the turning point.
+
+    Returns:
+        pd.Timestamp: The index corresponding to the selected trajectory row.
+    """
+    if t_image is None:
+        # If no timestamp is provided, return the index of the point closest to the target.
+        distances = traj_gdf.geometry.distance(target)
+        return distances.idxmin(), distances.min()
+
+    # Get the starting position for t_image.
+    traj_gdf = traj_gdf.sort_index(ascending=True)
+    pos = np.abs(traj_gdf.index - t_image).argmin()
+    best_dist = traj_gdf.iloc[pos].geometry.distance(target)
+
+    # Determine direction to traverse.
+    if pos == 0:
+        direction = 1
+    else:
+        backward_distance = traj_gdf.iloc[pos - 1].geometry.distance(target)
+        # Pick the direction with a decreasing distance.
+        direction = -1 if backward_distance < best_dist else 1
+
+    while 0 <= pos + direction < len(traj_gdf):
+        pos += direction
+        d = traj_gdf.iloc[pos].geometry.distance(target)
+        if d < best_dist:
+            best_dist = d
+        else:
+            # Get the next n_points indices in the chosen direction that are within bounds.
+            check_indices = [
+                pos + i * direction
+                for i in range(1, n_points + 1)
+                if 0 <= pos + i * direction < len(traj_gdf)
+            ]
+            # Check that for each of these indices, the distance is greater than best_dist.
+            distances = np.array(
+                [traj_gdf.iloc[idx].geometry.distance(target) for idx in check_indices]
+            )
+            if all(distances > best_dist):
+                break
+    return traj_gdf.index[pos], best_dist
+
+
 def plot(analyzers, slick_id, black=True, num_ais=5):
     """
     Combines the plots of AIS buffered geometries and infrastructure coincidence scores,
@@ -683,6 +852,38 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                 )
             st_name_patches = []
 
+        for st_name, group in filtered_ais.groupby("st_name"):
+            # Loop over consecutive points and add arrows
+            for idx, row in group.iterrows():
+                geom = row.geometry
+                # Ensure we're dealing with a LineString
+                if geom.geom_type == "LineString":
+                    # Place arrow_count arrows spaced evenly along the trajectory.
+                    arrow_count = 3
+                    # We'll compute fractional positions along the line's length.
+                    for i in range(arrow_count):
+                        # Compute a fraction that splits the line into 11 segments
+                        frac = (i + 1) / (arrow_count + 1)
+
+                        # Get the base point for the arrow using interpolation
+                        base_point = geom.interpolate(frac, normalized=True)
+
+                        # To determine direction, compute a point a small fraction ahead
+                        # Make sure we don't go beyond the end of the line.
+                        epsilon = 0.001
+                        next_frac = min(frac + epsilon, 1.0)
+                        next_point = geom.interpolate(next_frac, normalized=True)
+
+                        # Draw the arrow from the base point toward the next point
+                        ax.annotate(
+                            "",
+                            xy=(next_point.x, next_point.y),
+                            xytext=(base_point.x, base_point.y),
+                            arrowprops=dict(
+                                arrowstyle="->", color=st_name_to_color[st_name], lw=1
+                            ),
+                        )
+
         # Add a marker dot at the point closest to s1_time for each vessel
         # Define the timestamp at which the marker should be placed
         s1_time = np.datetime64(ais_analyzer.s1_scene.start_time)
@@ -714,27 +915,57 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
             for feat in combined_features:
                 geom = shape(feat["geometry"])
                 x, y = geom.x, geom.y
-                if feat is closest_feature:
-                    continue  # This one will get the large marker
                 ax.plot(
                     x,
                     y,
                     marker="o",
-                    markersize=1,
-                    color=st_name_to_color.get(st_name, "black"),
+                    markersize=1 if feat is not closest_feature else 2,
+                    color=st_name_to_color.get(st_name, "black")
+                    if feat is not closest_feature
+                    else "black",
                 )
 
-            # Plot the large marker for the feature closest to s1_time
-            geom = shape(closest_feature["geometry"])
-            x, y = geom.x, geom.y
+        for st_name, group in filtered_ais.groupby("st_name"):
+            # Obtain the longest centerline for the st_name; assumes slick_centerlines has a 'st_name' column
+            gdf = ais_analyzer.ais_trajectories[st_name]["df"]
+            longest_centerline = (
+                ais_analyzer.slick_centerlines.sort_values("length", ascending=False)
+                .iloc[0]
+                .geometry
+            )
+            s1_time = ais_analyzer.s1_scene.start_time
+            (cl_tail, t_tail, d_tail, cl_head, t_head, d_head) = (
+                get_closest_centerline_points(gdf, longest_centerline, s1_time)
+            )
+            # Compute nearest trajectory point to the start and end coordinates of the longest centerline
+            start_traj_point = gdf.loc[[t_tail]].iloc[0]["geometry"]
+            end_traj_point = gdf.loc[[t_head]].iloc[0]["geometry"]
+            # Plot dotted lines connecting the endpoints to their nearest trajectory points
             ax.plot(
-                x,
-                y,
-                marker="d",
-                markersize=8,
-                markerfacecolor="none",
+                [cl_tail.x, start_traj_point.x],
+                [cl_tail.y, start_traj_point.y],
+                linestyle=":",
                 color=st_name_to_color.get(st_name, "black"),
             )
+            ax.plot(
+                [cl_head.x, end_traj_point.x],
+                [cl_head.y, end_traj_point.y],
+                linestyle=":",
+                color=st_name_to_color.get(st_name, "black"),
+            )
+
+            if s1_time in ais_analyzer.ais_trajectories[st_name]["df"].index:
+                geom = ais_analyzer.ais_trajectories[st_name]["df"].geometry.loc[
+                    s1_time
+                ]
+                ax.plot(
+                    geom.x,
+                    geom.y,
+                    marker="d",
+                    markersize=8,
+                    markerfacecolor="none",
+                    color=st_name_to_color.get(st_name, "black"),
+                )
 
     # Plot the centroid
     centroid = slick_gdf.centroid.iloc[0]
@@ -882,3 +1113,31 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
 
     # Show the plot
     plt.show()
+
+
+def add_missing_groundtruth(
+    results: pd.DataFrame, groundtruth: pd.DataFrame
+) -> pd.DataFrame:
+    # List to hold new rows that need to be added
+    new_rows = []
+
+    # Group the dataframe by 'slick_id'
+    for slick_id, g in groundtruth.groupby("slick_id"):
+        # Check if there is no row with truth == True in the group
+        group = results[results["slick_id"] == slick_id]
+        if not group["truth"].any():
+            # Prepare a new row with the specified fields
+            new_row = {
+                "truth": True,
+                "coincidence_score": 0,
+                "slick_id": slick_id,
+                "rank": np.inf,  # use numpy.inf for infinity
+            }
+            new_rows.append(new_row)
+
+    # If there are new rows, concatenate them with the original dataframe
+    if new_rows:
+        new_rows_df = pd.DataFrame(new_rows)
+        results = pd.concat([results, new_rows_df], ignore_index=True)
+
+    return results
