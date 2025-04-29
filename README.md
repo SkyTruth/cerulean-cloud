@@ -45,7 +45,7 @@ In order to decrease response time for Cloud Run (especially in the production s
 
 Google Cloud provides nice dashboards for tracking the stability, response time and resource consumption of the cloud resources. The links below point to the PRODUCTION deployment, but for every stack's components you'll find similar dashboards:
 - [Cloud Run orchestrator metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cr-orchestrator/metrics?project=cerulean-338116)
-- [Cloud Run offset tile metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cr-offset-tiles/metrics?project=cerulean-338116)
+- [Cloud Run offset tile metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cr-infer/metrics?project=cerulean-338116)
 - [Cloud Tasks queue metrics](https://console.cloud.google.com/cloudtasks/queue/europe-west1/cerulean-cloud-production-queue-cr-orchestrator-d8ed51e/metrics?project=cerulean-338116)
 - [Cloud Run tipg metrics](https://console.cloud.google.com/run/detail/europe-west1/cerulean-cloud-production-cr-tipg/metrics?project=cerulean-338116)
 - [Cloud Function scene relevancy metrics](https://console.cloud.google.com/functions/details/europe-west1/cerulean-cloud-production-cf-scene-relevancy?env=gen1&project=cerulean-338116)

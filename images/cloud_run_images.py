@@ -56,7 +56,7 @@ registry_url = pulumi.Output.concat(
     "europe-west1-docker.pkg.dev/", gcp.config.project, "/", repository.repository_id
 )
 cloud_run_offset_tile_image_url = registry_url.apply(
-    lambda url: f"{url}/{construct_name_images('cr-offset-tile-image')}"
+    lambda url: f"{url}/{construct_name_images('cr-infer-image')}"
 )
 cloud_run_orchestrator_image_url = registry_url.apply(
     lambda url: f"{url}/{construct_name_images('cr-orchestrator-image')}"
@@ -72,7 +72,7 @@ model_weights = get_file_from_gcs(
     out_path="../cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
 )
 cloud_run_offset_tile_image = docker.Image(
-    construct_name_images("cr-offset-tile-image"),
+    construct_name_images("cr-infer-image"),
     build=docker.DockerBuildArgs(
         context="../",
         dockerfile="../Dockerfiles/Dockerfile.cloud_run_offset",

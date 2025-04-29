@@ -15,13 +15,13 @@ git_sha = repo.head.object.hexsha
 
 # Assign access to cloud secrets
 cloud_function_service_account = gcp.serviceaccount.Account(
-    construct_name("cr-offset-tile"),
-    account_id=f"{stack}-cr-offset-tile",
+    construct_name("cr-infer"),
+    account_id=f"{stack}-cr-infer",
     display_name="Service Account for cloud run.",
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cr-offset-tile-cloudSqlClient"),
+    construct_name("cr-infer-cloudSqlClient"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/cloudsql.client",
     member=cloud_function_service_account.email.apply(
@@ -30,7 +30,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 )
 
 cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cr-offset-tile-secretmanagerSecretAccessor"),
+    construct_name("cr-infer-secretmanagerSecretAccessor"),
     project=pulumi.Config("gcp").require("project"),
     role="roles/secretmanager.secretAccessor",
     member=cloud_function_service_account.email.apply(
@@ -40,7 +40,7 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
 
 # IAM Binding for Secret Manager access
 secret_accessor_binding = gcp.secretmanager.SecretIamMember(
-    construct_name("cr-offset-tile-secret-accessor-binding"),
+    construct_name("cr-infer-secret-accessor-binding"),
     secret_id=pulumi.Config("cerulean-cloud").require("keyname"),
     role="roles/secretmanager.secretAccessor",
     member=pulumi.Output.concat(
@@ -49,7 +49,7 @@ secret_accessor_binding = gcp.secretmanager.SecretIamMember(
     opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account]),
 )
 
-service_name = construct_name("cr-offset-tiles")
+service_name = construct_name("cr-infer")
 default = gcp.cloudrun.Service(
     service_name,
     opts=pulumi.ResourceOptions(depends_on=[secret_accessor_binding]),

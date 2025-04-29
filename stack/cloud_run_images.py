@@ -32,7 +32,7 @@ docker_provider = docker.Provider(
 
 # Compute the full image URLs (note no longer using gcp.container.get_registry_image).
 cloud_run_offset_tile_image_url = (
-    f"{artifact_registry_url}/{construct_name_images('cr-offset-tile-image')}:latest"
+    f"{artifact_registry_url}/{construct_name_images('cr-infer-image')}:latest"
 )
 cloud_run_orchestrator_image_url = (
     f"{artifact_registry_url}/{construct_name_images('cr-orchestrator-image')}:latest"
