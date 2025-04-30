@@ -61,7 +61,7 @@ default = gcp.cloudrun.Service(
             service_account_name=cloud_function_service_account.email,
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image=cloud_run_images.cloud_run_offset_tile_image.name,
+                    image=cloud_run_images.cloud_run_infer_image.name,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="UVICORN_PORT",
@@ -73,7 +73,7 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="MODEL_PATH_LOCAL",
-                            value="cerulean_cloud/cloud_run_offset_tiles/model/model.pt",
+                            value="cerulean_cloud/cloud_run_infer/model/model.pt",
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="API_KEY",

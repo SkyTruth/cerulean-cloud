@@ -20,7 +20,7 @@ from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_raster
 from rio_tiler.io import COGReader
 
-from cerulean_cloud.cloud_run_offset_tiles.schema import (
+from cerulean_cloud.cloud_run_infer.schema import (
     InferenceInput,
     InferenceResultStack,
     PredictPayload,

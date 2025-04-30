@@ -5,7 +5,7 @@ Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 import cloud_run_images
 import pulumi
 import pulumi_gcp as gcp
-from cloud_run_offset_tile import noauth_iam_policy_data
+from cloud_run_infer import noauth_iam_policy_data
 from database import instance, sql_instance_url
 from utils import construct_name
 
