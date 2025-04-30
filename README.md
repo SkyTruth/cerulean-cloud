@@ -99,7 +99,7 @@ mkvirtualenv cerulean-cloud --python=$(which python3.8)
 pip install -r requirements.txt
 pip install -r requirements-test.txt
 # Additional requirements files
-pip install -r cerulean_cloud/cloud_run_offset_tiles/requirements.txt
+pip install -r cerulean_cloud/cloud_run_infer/requirements.txt
 pip install -r cerulean_cloud/cloud_run_orchestrator/requirements.txt
 pip install -r cerulean_cloud/cloud_run_tipg/requirements.txt
 pip install -r cerulean_cloud/titiler_sentinel/requirements.txt
@@ -123,7 +123,7 @@ You can run tests using `pytest` commands:
 ```sh
 pytest
 pytest test/test_cerulean_cloud/test_tiling.py # run only tests in a specific module
-pytest test/test_cerulean_cloud/test_tiling.py::test_from_base_tiles_create_offset_tiles # run only a specific test
+pytest test/test_cerulean_cloud/test_tiling.py::test_from_base_tiles_create_infer # run only a specific test
 ```
 
 If you get an error while running tests mentioning that `psycopg` is not installed run:

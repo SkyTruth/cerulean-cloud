@@ -6,7 +6,7 @@ import os
 
 import cloud_function_asa
 import cloud_run_images
-import cloud_run_offset_tile
+import cloud_run_infer
 import git
 import pulumi
 import pulumi_gcp as gcp
@@ -110,7 +110,7 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="INFERENCE_URL",
-                            value=cloud_run_offset_tile.default.statuses.apply(
+                            value=cloud_run_infer.default.statuses.apply(
                                 lambda statuses: statuses[0].url
                             ),
                         ),
@@ -200,7 +200,7 @@ default = gcp.cloudrun.Service(
     opts=pulumi.ResourceOptions(
         depends_on=[
             titiler_sentinel.lambda_api,
-            cloud_run_offset_tile.default,
+            cloud_run_infer.default,
             secret_accessor_binding,
         ]
     ),
@@ -210,5 +210,5 @@ noauth_iam_policy = gcp.cloudrun.IamPolicy(
     location=default.location,
     project=default.project,
     service=default.name,
-    policy_data=cloud_run_offset_tile.noauth_iam_policy_data.policy_data,
+    policy_data=cloud_run_infer.noauth_iam_policy_data.policy_data,
 )

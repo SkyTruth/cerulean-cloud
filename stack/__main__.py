@@ -4,7 +4,7 @@ import cloud_function_alerts
 import cloud_function_asa
 import cloud_function_historical_run
 import cloud_function_scene_relevancy
-import cloud_run_offset_tile
+import cloud_run_infer
 import cloud_run_orchestrator
 import cloud_run_tipg
 import database
@@ -14,9 +14,7 @@ import titiler_sentinel as titiler_sentinel
 
 # Export the DNS name of the bucket
 pulumi.export("titiler_sentinel_url", titiler_sentinel.lambda_api.api_endpoint)
-pulumi.export(
-    "cloud_run_offset_tile_url", cloud_run_offset_tile.default.statuses[0].url
-)
+pulumi.export("cloud_run_infer_url", cloud_run_infer.default.statuses[0].url)
 pulumi.export(
     "cloud_run_orchestrator_url", cloud_run_orchestrator.default.statuses[0].url
 )

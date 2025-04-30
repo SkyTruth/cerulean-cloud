@@ -8,7 +8,7 @@ import rasterio
 from rasterio.plot import reshape_as_image
 
 import cerulean_cloud.titiler_client
-from cerulean_cloud.cloud_run_offset_tiles.schema import (
+from cerulean_cloud.cloud_run_infer.schema import (
     InferenceResult,
     InferenceResultStack,
 )

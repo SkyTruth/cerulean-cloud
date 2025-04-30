@@ -26,7 +26,7 @@ from rasterio.transform import Affine
 from scipy.ndimage import label
 from shapely.geometry import MultiPolygon, shape
 
-from cerulean_cloud.cloud_run_offset_tiles.schema import (
+from cerulean_cloud.cloud_run_infer.schema import (
     InferenceInput,
     InferenceResult,
     InferenceResultStack,

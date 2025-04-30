@@ -17,7 +17,7 @@ from rasterio.plot import reshape_as_image
 from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
 
 import cerulean_cloud
-from cerulean_cloud.cloud_run_offset_tiles.schema import (
+from cerulean_cloud.cloud_run_infer.schema import (
     InferenceResult,
     InferenceResultStack,
 )
