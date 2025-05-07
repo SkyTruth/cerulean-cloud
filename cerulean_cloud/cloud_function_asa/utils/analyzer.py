@@ -207,7 +207,7 @@ class AISAnalyzer(SourceAnalyzer):
         latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
         target_data_date = self.ais_end_time
 
-        return latest_data_date > target_data_date
+        return latest_data_date >= target_data_date
 
     def retrieve_ais_data(self):
         """

@@ -170,7 +170,7 @@ async def handle_asa_request(request):
                         )
 
                     print(
-                        f"{len(fresh_ranked_sources)} sources found for Slick ID: {slick.id}"
+                        f"{len(fresh_ranked_sources)} sources found for Slick ID: {slick.id}, after running {[analyzer.short_name for analyzer in analyzers_to_run]}"
                     )
                     if len(fresh_ranked_sources) > 0:
                         old_ranked_sources = pd.DataFrame(
