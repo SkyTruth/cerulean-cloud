@@ -158,8 +158,6 @@ async def handle_asa_request(request):
                         if analyzer.short_name not in previous_asa[slick.id]
                         and analyzer.short_name not in skip_analyzers
                     ]
-                    if len(analyzers_to_run) == 0:
-                        continue
 
                     fresh_ranked_sources = pd.DataFrame()
 
@@ -237,7 +235,13 @@ async def handle_asa_request(request):
                                         },
                                     )
                             print(f"ASA complete for slick {slick.id}")
-                        await db_client.session.close()
+                    elif overwrite_previous:
+                        async with db_client.session.begin():
+                            print(f"Deactivating sources for slick {slick.id}")
+                            await db_client.deactivate_sources_for_slick(slick.id)
+                    await db_client.session.close()
+                print(f"ASA completed for {len(slicks)} slicks in scene {scene_id}")
+
         # Dispose the engine after finishing all DB operations.
         await db_engine.dispose()
 
