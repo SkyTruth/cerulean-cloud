@@ -26,7 +26,6 @@ def upgrade() -> None:
     SELECT
         slick.*,
         slick.length^2 / slick.area / slick.polsby_popper as linearity,
-        slick.aspect_ratio_factor,
         sentinel1_grd.scene_id AS s1_scene_id,
         sentinel1_grd.geometry AS s1_geometry,
         cls.short_name AS cls_short_name,
@@ -57,6 +56,7 @@ def upgrade() -> None:
             array_agg(source.id) FILTER (WHERE source.type = 3) AS source_type_3_ids
            FROM slick_to_source
              JOIN source ON slick_to_source.source = source.id
+            WHERE slick_to_source.active = true
           GROUP BY slick_to_source.slick) source_agg ON source_agg.slick = slick.id
     WHERE slick.active = true;
     """,
