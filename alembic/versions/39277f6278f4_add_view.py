@@ -36,6 +36,7 @@ def upgrade() -> None:
         aoi_agg.aoi_type_3_ids,
         source_agg.source_type_1_ids,
         source_agg.source_type_2_ids,
+        source_agg.source_type_3_ids,
         'https://cerulean.skytruth.org/slicks/' || slick.id::text ||'?ref=api&slick_id=' || slick.id AS slick_url
     FROM slick
     JOIN orchestrator_run ON orchestrator_run.id = slick.orchestrator_run
@@ -52,7 +53,8 @@ def upgrade() -> None:
         ) aoi_agg ON aoi_agg.slick = slick.id
      LEFT JOIN ( SELECT slick_to_source.slick,
             array_agg(source.id) FILTER (WHERE source.type = 1) AS source_type_1_ids,
-            array_agg(source.id) FILTER (WHERE source.type = 2) AS source_type_2_ids
+            array_agg(source.id) FILTER (WHERE source.type = 2) AS source_type_2_ids,
+            array_agg(source.id) FILTER (WHERE source.type = 3) AS source_type_3_ids
            FROM slick_to_source
              JOIN source ON slick_to_source.source = source.id
           GROUP BY slick_to_source.slick) source_agg ON source_agg.slick = slick.id
