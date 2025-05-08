@@ -107,7 +107,7 @@ def upgrade() -> None:
                 sp.source_type_2_ids,
                 sp.source_type_3_ids
             FROM public.slick_plus sp
-            LEFT JOIN slick_to_source sts ON sts.slick = sp.id AND source_id != 'NULL'
+            LEFT JOIN slick_to_source sts ON sts.slick = sp.id AND source_id != 'NULL' AND sts.active
             LEFT JOIN slick_to_aoi sta ON sta.slick = sp.id AND aoi_id != 'NULL'
             WHERE (source_id = 'NULL' OR sts.source = ANY(string_to_array(source_id, ',')::int[]) AND sts.rank <= source_rank)
             AND (aoi_id = 'NULL' OR sta.aoi = ANY(string_to_array(aoi_id, ',')::int[]));
@@ -183,7 +183,7 @@ def upgrade() -> None:
                 sp.source_type_2_ids,
                 sp.source_type_3_ids
             FROM public.slick_plus sp
-            JOIN slick_to_source sts ON sts.slick = sp.id
+            JOIN slick_to_source sts ON sts.slick = sp.id AND sts.active
             WHERE sts.source = ANY(string_to_array(source_id, ',')::int[])
             AND (sts.rank <= source_rank);
         $BODY$;
