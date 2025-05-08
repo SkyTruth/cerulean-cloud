@@ -207,7 +207,7 @@ class AISAnalyzer(SourceAnalyzer):
         latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
         target_data_date = self.ais_end_time
 
-        return latest_data_date > target_data_date
+        return latest_data_date >= target_data_date
 
     def retrieve_ais_data(self):
         """
@@ -1250,7 +1250,7 @@ class InfrastructureAnalyzer(PointAnalyzer):
             print(
                 "No infrastructure within the dates / radius of interest. No coincidence scores edited."
             )
-            return
+            return pd.DataFrame()
 
         # Collect extremity points and compute weights
         extrema, weights = self.aggregate_extrema_and_area_fractions(
@@ -1409,6 +1409,9 @@ class DarkAnalyzer(PointAnalyzer):
             self.data_is_available = self.check_data_availability()
             if not self.data_is_available:
                 self.reschedule_for_later(run_flags=[DarkAnalyzer.short_name])
+        if self.data_is_available is False:
+            # Catches both False cases for persistent analyzer and newly calculated availability
+            return pd.DataFrame()
 
         self.combined_geometry, _, _ = self.process_slicks()
 
@@ -1420,7 +1423,7 @@ class DarkAnalyzer(PointAnalyzer):
             print(
                 "No dark objects within the radius of interest. No coincidence scores edited."
             )
-            return
+            return pd.DataFrame()
 
         # Collect extremity points and compute weights
         self.load_slick_centerlines()
