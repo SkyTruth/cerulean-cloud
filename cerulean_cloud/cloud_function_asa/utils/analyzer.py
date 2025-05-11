@@ -207,7 +207,7 @@ class AISAnalyzer(SourceAnalyzer):
         latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
         target_data_date = self.ais_end_time
 
-        return latest_data_date > target_data_date
+        return latest_data_date >= target_data_date
 
     def retrieve_ais_data(self):
         """
@@ -1250,7 +1250,7 @@ class InfrastructureAnalyzer(PointAnalyzer):
             print(
                 "No infrastructure within the dates / radius of interest. No coincidence scores edited."
             )
-            return
+            return pd.DataFrame()
 
         # Collect extremity points and compute weights
         extrema, weights = self.aggregate_extrema_and_area_fractions(
@@ -1329,6 +1329,7 @@ class DarkAnalyzer(PointAnalyzer):
         INNER JOIN scene_ids
             ON match.scene_id = scene_ids.scene_id
         WHERE match.score < .01 -- either no match or low confidence match
+        AND DATE(_PARTITIONTIME) BETWEEN '{(self.s1_scene.start_time).strftime("%Y-%m-%d")}' AND '{(self.s1_scene.end_time).strftime("%Y-%m-%d")}'
         ),
 
         -- Step 3: Optimize the unique_infra CTE with pre-filtering using a bounding box
@@ -1367,6 +1368,7 @@ class DarkAnalyzer(PointAnalyzer):
         WHERE pred.length_m > 30 -- only keep detections with length > 30m
         AND pred.presence > 0.99 -- only keep detections with high confidence
         AND infra.structure_id IS NULL -- ignore infra detections because they are captured by the infrastructure analyzer
+        AND pred.date BETWEEN '{(self.s1_scene.start_time).strftime("%Y-%m-%d")}' AND '{(self.s1_scene.end_time).strftime("%Y-%m-%d")}'
         """
 
         df = pandas_gbq.read_gbq(
@@ -1409,6 +1411,9 @@ class DarkAnalyzer(PointAnalyzer):
             self.data_is_available = self.check_data_availability()
             if not self.data_is_available:
                 self.reschedule_for_later(run_flags=[DarkAnalyzer.short_name])
+        if self.data_is_available is False:
+            # Catches both False cases for persistent analyzer and newly calculated availability
+            return pd.DataFrame()
 
         self.combined_geometry, _, _ = self.process_slicks()
 
@@ -1420,7 +1425,7 @@ class DarkAnalyzer(PointAnalyzer):
             print(
                 "No dark objects within the radius of interest. No coincidence scores edited."
             )
-            return
+            return pd.DataFrame()
 
         # Collect extremity points and compute weights
         self.load_slick_centerlines()

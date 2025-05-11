@@ -27,8 +27,11 @@ from matplotlib.patches import Patch
 from shapely.geometry import MultiLineString
 
 load_dotenv(".env")
+
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(parent_dir)
+sys.path.append(os.path.join(parent_dir, "cerulean_cloud", "cloud_function_asa"))
+
 from cerulean_cloud.cloud_function_asa.utils.analyzer import (  # noqa: E402; NaturalAnalyzer
     ASA_MAPPING,
     DarkAnalyzer,
@@ -301,19 +304,19 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
     slick_gdf = None
 
     # Assign analyzers based on keys
-    if 1 in analyzers.keys():
-        ais_analyzer = analyzers[1]
-        slick_gdf = analyzers[1].slick_gdf
-    if 2 in analyzers.keys():
-        infra_analyzer = analyzers[2]
+    if "VESSEL" in analyzers.keys():
+        ais_analyzer = analyzers["VESSEL"]
+        slick_gdf = analyzers["VESSEL"].slick_gdf
+    if "INFRA" in analyzers.keys():
+        infra_analyzer = analyzers["INFRA"]
         slick_gdf = analyzers[
-            2
+            "INFRA"
         ].slick_gdf  # This will overwrite if both 1 and 2 are present
-    if 3 in analyzers.keys():
-        dark_analyzer = analyzers[3]
+    if "DARK" in analyzers.keys():
+        dark_analyzer = analyzers["DARK"]
         slick_gdf = analyzers[
-            3
-        ].slick_gdf  # This will overwrite if both 1 and 2 and 3are present
+            "DARK"
+        ].slick_gdf  # This will overwrite if both 1 and 2 and 3 are present
 
     # Check if slick_gdf is assigned
     if slick_gdf is None:
@@ -723,7 +726,11 @@ accumulated_sources = []
 for slick_id in slick_ids:
     geojson_file_path = download_geojson(slick_id, use_test_db=False)
     slick_gdf = gpd.read_file(geojson_file_path)
-    slick_gdf["centerlines"] = slick_gdf["centerlines"].apply(json.loads)
+    try:
+        slick_gdf["centerlines"] = slick_gdf["centerlines"].apply(json.loads)
+    except KeyError:
+        print("Warning! No centerlines found for slick ID: {slick_id}")
+        continue
     s1_scene = get_s1_scene(slick_gdf.s1_scene_id.iloc[0])
     start_time = time.time()
 

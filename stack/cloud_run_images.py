@@ -31,8 +31,8 @@ docker_provider = docker.Provider(
 )
 
 # Compute the full image URLs (note no longer using gcp.container.get_registry_image).
-cloud_run_offset_tile_image_url = (
-    f"{artifact_registry_url}/{construct_name_images('cr-offset-tile-image')}:latest"
+cloud_run_infer_image_url = (
+    f"{artifact_registry_url}/{construct_name_images('cr-infer-image')}:latest"
 )
 cloud_run_orchestrator_image_url = (
     f"{artifact_registry_url}/{construct_name_images('cr-orchestrator-image')}:latest"
@@ -41,8 +41,8 @@ cloud_run_tipg_image_url = (
     f"{artifact_registry_url}/{construct_name_images('cr-tipg-image')}:latest"
 )
 
-cloud_run_offset_tile_registry_image = docker.get_registry_image(
-    name=cloud_run_offset_tile_image_url,
+cloud_run_infer_registry_image = docker.get_registry_image(
+    name=cloud_run_infer_image_url,
     opts=pulumi.InvokeOptions(provider=docker_provider),
 )
 cloud_run_orchestrator_registry_image = docker.get_registry_image(
@@ -54,10 +54,10 @@ cloud_run_tipg_registry_image = docker.get_registry_image(
     opts=pulumi.InvokeOptions(provider=docker_provider),
 )
 
-cloud_run_offset_tile_image = docker.RemoteImage(
+cloud_run_infer_image = docker.RemoteImage(
     construct_name_images("remote-offset"),
-    name=cloud_run_offset_tile_registry_image.name,
-    pull_triggers=[cloud_run_offset_tile_registry_image.sha256_digest],
+    name=cloud_run_infer_registry_image.name,
+    pull_triggers=[cloud_run_infer_registry_image.sha256_digest],
     opts=pulumi.ResourceOptions(provider=docker_provider),
 )
 

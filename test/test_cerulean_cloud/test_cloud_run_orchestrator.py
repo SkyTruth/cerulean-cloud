@@ -17,7 +17,7 @@ from rasterio.plot import reshape_as_image
 from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
 
 import cerulean_cloud
-from cerulean_cloud.cloud_run_offset_tiles.schema import (
+from cerulean_cloud.cloud_run_infer.schema import (
     InferenceResult,
     InferenceResultStack,
 )
@@ -53,7 +53,7 @@ def get_base_tile_3band(*args, **kwargs):
 )
 def test_create_fixture_inference(
     url="https://0xshe4bmk8.execute-api.eu-central-1.amazonaws.com/",
-    inference_url="https://cerulean-cloud-staging-cr-offset-tiles-49b-5qkjkyomta-ew.a.run.app",
+    inference_url="https://cerulean-cloud-staging-cr-infer-49b-5qkjkyomta-ew.a.run.app",
 ):
     titiler_client = TitilerClient(url=url)
     S1_ID = "S1A_IW_GRDH_1SDV_20200729T034859_20200729T034924_033664_03E6D3_93EF"

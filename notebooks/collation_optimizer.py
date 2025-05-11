@@ -9,7 +9,12 @@ class CollationOptimizer:
     """
 
     def __init__(
-        self, mean_std_dict, slick_source_dict, iter_params, ignore_lone_truth=False
+        self,
+        mean_std_dict,
+        slick_source_dict,
+        iter_params,
+        ignore_lone_truth=False,
+        target_weighting=None,
     ):
         """
         Initializes the optimizer with given mean/std values, data sources, and iteration parameters.
@@ -28,6 +33,19 @@ class CollationOptimizer:
         self.footprint = {2: [], 3: []}
         self.target_over_iterations = []
         self.iter_params = iter_params
+
+        self.target_weightings = (
+            {
+                "dark_slick_infra_source": 1.0,
+                "dark_slick_vessel_source": 1.0,
+                "infra_slick_vessel_source": 1.0,
+                "infra_slick_dark_source": 1.0,
+                "vessel_slick_infra_source": 1.0,
+                "vessel_slick_dark_source": 1.0,
+            }
+            if target_weighting is None
+            else target_weighting
+        )
 
     def collate_dataframe(self, df, types=[1, 2, 3]):
         """
@@ -81,6 +99,8 @@ class CollationOptimizer:
         for _, g in df.groupby(by="slick_id"):
             if len(g) == 1 and self.ignore_lone_truth:
                 continue
+            if not g["truth"].any():
+                continue
             truth_vs_top.append(g["truth"].iloc[g["collated_score"].argmax()])
         return sum(truth_vs_top) / len(truth_vs_top)
 
@@ -96,7 +116,13 @@ class CollationOptimizer:
             self.targets[slick_source_df] = self.evaluate_collation(
                 self.slick_source_dict[slick_source_df]
             )
-        return sum(self.targets.values())
+        weighted_sum = sum(
+            t * w
+            for t, w in zip(self.targets.values(), self.target_weightings.values())
+        )
+        weighted_avg = weighted_sum / sum(self.target_weightings.values())
+        # return sum(self.targets.values())
+        return weighted_avg
 
     def compute_optimal_mean_std(
         self,
@@ -140,8 +166,8 @@ class CollationOptimizer:
         top_means_and_std = obj_func_scores[
             obj_func_scores[:, 2] == obj_func_scores[:, 2].max()
         ]
-        print(f"{len(top_means_and_std)} optimal points found...")
-        return top_means_and_std[-1]
+        print(f"{len(top_means_and_std)} optimal points found... choosing at random")
+        return top_means_and_std[np.random.randint(0, len(top_means_and_std))]
 
     def perform_infra_dark_gradient_ascent(self):
         """

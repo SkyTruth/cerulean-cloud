@@ -10,7 +10,7 @@ from fastapi_utils.timing import add_timing_middleware, record_timing
 from starlette.requests import Request
 
 from cerulean_cloud.auth import api_key_auth
-from cerulean_cloud.cloud_run_offset_tiles.schema import (
+from cerulean_cloud.cloud_run_infer.schema import (
     InferenceResultStack,
     PredictPayload,
 )
