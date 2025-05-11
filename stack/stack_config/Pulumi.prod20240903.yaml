@@ -9,8 +9,8 @@ config:
   cerulean-cloud:infra_keyname: prod20240903-gfw-infra-api-key
   cerulean-cloud:keyname: prod20240903-cerulean-cloud-api-key
   cerulean-cloud:titiler_keyname: prod20240903-titiler-api-key
-  db:db-instance: db-custom-4-15360
-  db:db-mem: "599040"
+  db:db-instance: db-custom-8-32768
+  db:db-mem: "1048576"
   db:db-password:
     secure: v1:3nTUb1x6XlmRI8nM:RMYJGPzPvDJi/aqmD1V8AhR3Nsr3P5Jv8TZ2wZFwFU1EftjdqSw7cRCDf4YYu//EudcJTuW5aty+9eM=
   db:deletion-protection: "false"
