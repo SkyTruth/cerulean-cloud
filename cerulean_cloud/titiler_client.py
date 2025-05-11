@@ -196,8 +196,14 @@ class TitilerClient:
         Returns:
             np.ndarray: The requested image of the bounds of the scene as a numpy array.
         """
-        path = f"bbox/{minx},{miny},{maxx},{maxy}/{width}x{height}.{img_format}"
-        url = urlib.urljoin(self.url, path)
+        url = self.url + (
+            f"bbox/{minx},{miny},{maxx},{maxy}/"
+            f"{width}x{height}.{img_format}"
+            f"?scene_id={scene_id}"
+            f"&bands={band}"
+            f"&scale={scale}"
+            f"&rescale={rescale[0]},{rescale[1]}"
+        )
 
         params = {
             "scene_id": scene_id,
