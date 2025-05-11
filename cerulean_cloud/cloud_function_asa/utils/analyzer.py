@@ -1329,6 +1329,7 @@ class DarkAnalyzer(PointAnalyzer):
         INNER JOIN scene_ids
             ON match.scene_id = scene_ids.scene_id
         WHERE match.score < .01 -- either no match or low confidence match
+        AND DATE(_PARTITIONTIME) BETWEEN '{(self.s1_scene.start_time).strftime("%Y-%m-%d")}' AND '{(self.s1_scene.end_time).strftime("%Y-%m-%d")}'
         ),
 
         -- Step 3: Optimize the unique_infra CTE with pre-filtering using a bounding box
@@ -1367,6 +1368,7 @@ class DarkAnalyzer(PointAnalyzer):
         WHERE pred.length_m > 30 -- only keep detections with length > 30m
         AND pred.presence > 0.99 -- only keep detections with high confidence
         AND infra.structure_id IS NULL -- ignore infra detections because they are captured by the infrastructure analyzer
+        AND pred.date BETWEEN '{(self.s1_scene.start_time).strftime("%Y-%m-%d")}' AND '{(self.s1_scene.end_time).strftime("%Y-%m-%d")}'
         """
 
         df = pandas_gbq.read_gbq(
