@@ -205,14 +205,7 @@ class TitilerClient:
             f"&rescale={rescale[0]},{rescale[1]}"
         )
 
-        params = {
-            "scene_id": scene_id,
-            "bands": band,
-            "scale": scale,
-            "rescale": f"{rescale[0]},{rescale[1]}",
-        }
-
-        resp = await self.client.get(url, params=params, timeout=self.timeout)
+        resp = await self.client.get(url, timeout=self.timeout)
         resp.raise_for_status()  # fail fast on 404/500
 
         with MemoryFile(resp.content) as memfile, memfile.open() as ds:
