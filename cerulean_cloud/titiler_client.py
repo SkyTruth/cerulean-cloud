@@ -196,17 +196,18 @@ class TitilerClient:
         Returns:
             np.ndarray: The requested image of the bounds of the scene as a numpy array.
         """
-        url = urlib.urljoin(
-            self.url, f"crop/{minx},{miny},{maxx},{maxy}/{width}x{height}.{img_format}"
-        )
-        url += f"?scene_id={scene_id}"
-        url += f"&bands={band}"
-        url += f"&scale={scale}"
-        url += f"&rescale={','.join([str(r) for r in rescale])}"
-        resp = await self.client.get(url, timeout=self.timeout)
+        path = f"bbox/{minx},{miny},{maxx},{maxy}/{width}x{height}.{img_format}"
+        url = urlib.urljoin(self.url, path)
 
-        with MemoryFile(resp.content) as memfile:
-            with memfile.open() as dataset:
-                np_img = reshape_as_image(dataset.read())
+        params = {
+            "scene_id": scene_id,
+            "bands": band,
+            "scale": scale,
+            "rescale": f"{rescale[0]},{rescale[1]}",
+        }
 
-        return np_img
+        resp = await self.client.get(url, params=params, timeout=self.timeout)
+        resp.raise_for_status()  # fail fast on 404/500
+
+        with MemoryFile(resp.content) as memfile, memfile.open() as ds:
+            return reshape_as_image(ds.read())  # (H, W, C)
