@@ -214,6 +214,8 @@ async def startup_event() -> None:
             functions=db_settings.functions,
             exclude_functions=db_settings.exclude_functions,
             spatial=False,  # False means allow non-spatial tables
+            datetime_extent=False,  # Avoid precalculating datetime extent to speed up registration
+            spatial_extent=False,  # Avoid precalculating spatial extent to speed up registration
         )
     except asyncpg.exceptions.UndefinedObjectError:
         # This is the case where TiPG is attempting to start up BEFORE
@@ -247,6 +249,8 @@ async def register_table(request: Request):
         functions=db_settings.functions,
         exclude_functions=db_settings.exclude_functions,
         spatial=False,  # False means allow non-spatial tables
+        datetime_extent=False,  # Avoid precalculating datetime extent to speed up registration
+        spatial_extent=False,  # Avoid precalculating spatial extent to speed up registration
     )
 
 
