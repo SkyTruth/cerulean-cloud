@@ -198,16 +198,17 @@ class TitilerClient:
         """
         out_w, out_h = width * scale, height * scale
 
-        url = self.url + (
-            f"/bbox/{minx},{miny},{maxx},{maxy}/"
-            f"{out_w}x{out_h}.{img_format}"
-            f"?scene_id={scene_id}"
-            f"&bands={band}"
-            f"&rescale={rescale[0]},{rescale[1]}"
+        url = urlib.urljoin(
+            self.url, f"bbox/{minx},{miny},{maxx},{maxy}/{out_w}x{out_h}.{img_format}"
         )
-
+        url += f"?scene_id={scene_id}"
+        url += f"&bands={band}"
+        url += f"&rescale={','.join([str(r) for r in rescale])}"
         resp = await self.client.get(url, timeout=self.timeout)
         resp.raise_for_status()  # 404/500 handled here
 
-        with MemoryFile(resp.content) as memfile, memfile.open() as ds:
-            return reshape_as_image(ds.read())
+        with MemoryFile(resp.content) as memfile:
+            with memfile.open() as dataset:
+                np_img = reshape_as_image(dataset.read())
+
+        return np_img
