@@ -45,7 +45,7 @@ class TitilerClient:
             HTTPException: For various HTTP related errors including authentication issues.
         """
         url = urlib.urljoin(self.url, "bounds")
-        url += f"?sceneid={scene_id}"
+        url += f"?scene_id={scene_id}"
         try:
             resp = await self.client.get(url, timeout=self.timeout)
             resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
@@ -74,7 +74,7 @@ class TitilerClient:
                 includes keys such as min, max, mean, count, sum, std...
         """
         url = urlib.urljoin(self.url, "statistics")
-        url += f"?sceneid={scene_id}"
+        url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
         try:
             resp = await self.client.get(url, timeout=self.timeout)
@@ -119,7 +119,7 @@ class TitilerClient:
             str: URL to get XYZ server for a specific scene.
         """
         url = urlib.urljoin(self.url, f"tiles/{z}/{x}/{y}")
-        url += f"?sceneid={scene_id}"
+        url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
         url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
@@ -151,7 +151,7 @@ class TitilerClient:
             np.ndarray: The requested tile of the scene as a numpy array.
         """
         url = urlib.urljoin(self.url, f"tiles/{TMS_TITLE}/{tile.z}/{tile.x}/{tile.y}")
-        url += f"?sceneid={scene_id}"
+        url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
         url += f"&format={img_format}"
         url += f"&scale={scale}"
@@ -201,7 +201,7 @@ class TitilerClient:
         url = urlib.urljoin(
             self.url, f"bbox/{minx},{miny},{maxx},{maxy}/{out_w}x{out_h}.{img_format}"
         )
-        url += f"?sceneid={scene_id}"
+        url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
         resp = await self.client.get(url, timeout=self.timeout)
