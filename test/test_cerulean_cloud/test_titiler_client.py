@@ -21,7 +21,7 @@ async def test_get_bounds(titiler_client, httpx_mock):
     scene_id = S1_IDS[0]
     httpx_mock.add_response(
         method="GET",
-        url=titiler_client.url + f"bounds?scene_id={scene_id}",
+        url=titiler_client.url + f"bounds?sceneid={scene_id}",
         json={"bounds": [32.989094, 43.338009, 36.540836, 45.235191]},
     )
     b = await titiler_client.get_bounds(scene_id)
@@ -34,7 +34,7 @@ async def test_get_statistics(titiler_client, httpx_mock):
     scene_id = S1_IDS[0]
     httpx_mock.add_response(
         method="GET",
-        url=titiler_client.url + f"statistics?scene_id={scene_id}&bands=vv",
+        url=titiler_client.url + f"statistics?sceneid={scene_id}&bands=vv",
         json={
             "vv": {
                 "min": 19,
@@ -95,7 +95,7 @@ async def test_base_tile(titiler_client, tiles_s1_scene, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=titiler_client.url
-        + f"tiles/{TMS_TITLE}/{tile.z}/{tile.x}/{tile.y}?scene_id={scene_id}&bands=vv&format=png&scale=1&rescale=0,255",
+        + f"tiles/{TMS_TITLE}/{tile.z}/{tile.x}/{tile.y}?sceneid={scene_id}&bands=vv&format=png&scale=1&rescale=0,255",
         content=img_bytes,
     )
     array = await titiler_client.get_base_tile(S1_IDS[0], tile=tile)
@@ -116,7 +116,7 @@ async def test_offset_tile(titiler_client, tiles_s1_scene, httpx_mock):
     httpx_mock.add_response(
         method="GET",
         url=titiler_client.url
-        + f"bbox/{minx},{miny},{maxx},{maxy}/256x256.png?scene_id={scene_id}&bands=vv&rescale=0,255",
+        + f"bbox/{minx},{miny},{maxx},{maxy}/256x256.png?sceneid={scene_id}&bands=vv&rescale=0,255",
         content=img_bytes,
     )
 

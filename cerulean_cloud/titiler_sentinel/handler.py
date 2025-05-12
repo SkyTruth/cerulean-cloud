@@ -97,11 +97,11 @@ def viewer(
         context={
             "request": request,
             "tilejson_endpoint": S1Endpoints.url_for(request, "tilejson")
-            + f"?scene_id={scene_id}",
+            + f"?sceneid={scene_id}",
             "info_endpoint": S1Endpoints.url_for(request, "info")
-            + f"?scene_id={scene_id}",
+            + f"?sceneid={scene_id}",
             "stats_endpoint": S1Endpoints.url_for(request, "statistics")
-            + f"?scene_id={scene_id}",
+            + f"?sceneid={scene_id}",
         },
         media_type="text/html",
     )
