@@ -146,6 +146,9 @@ default = gcp.cloudrun.Service(
                         timeout_seconds=240,
                         period_seconds=240,
                         failure_threshold=3,
+                        tcp_socket=gcp.cloudrun.ServiceTemplateSpecContainerStartupProbeTcpSocketArgs(
+                            port=8080,
+                        ),
                     ),
                 ),
             ],
