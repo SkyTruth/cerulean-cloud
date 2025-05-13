@@ -19,7 +19,7 @@ import asyncpg
 import jinja2
 import pydantic_settings
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from mangum import Mangum
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
@@ -259,10 +259,20 @@ def ping():
     """Health check."""
     return {"ping": "pong!"}
 
+
 @app.get("/robots.txt", description="Robots.txt", tags=["Robots.txt"])
-def ping():
-    """Robots.txt"""
-    return FileResponse('/robots.txt')
+def get_robots_txt():
+    """Return the robots.txt file that controls web crawler access to the API.
+
+    This endpoint serves the robots.txt file which provides instructions to web crawlers
+    about which parts of the API they are allowed to access. The file should be placed
+    in the root directory of the project.
+
+    Returns:
+        FileResponse: The robots.txt file content
+    """
+    return FileResponse("robots.txt")
+
 
 logging.getLogger("mangum.lifespan").setLevel(logging.ERROR)
 logging.getLogger("mangum.http").setLevel(logging.ERROR)
