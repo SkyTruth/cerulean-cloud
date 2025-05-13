@@ -152,7 +152,6 @@ class DatabaseClient:
             scihub_ingestion_time=parse(scene_info["sciHubIngestion"], ignoretz=True),
             start_time=parse(scene_info["startTime"]),
             end_time=parse(scene_info["stopTime"]),
-            meta=scene_info,
             url=titiler_url,
             geometry=geom,
         )
