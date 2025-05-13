@@ -6,6 +6,7 @@ COPY cerulean_cloud/ /app/cerulean_cloud/
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 COPY cerulean_cloud/cloud_run_tipg/requirements.txt ./requirements.txt
+COPY cerulean_cloud/robots.txt ./robots.txt 
 
 RUN pip install \
       --no-input \

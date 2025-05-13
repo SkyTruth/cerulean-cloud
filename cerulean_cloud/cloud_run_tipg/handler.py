@@ -259,6 +259,10 @@ def ping():
     """Health check."""
     return {"ping": "pong!"}
 
+@app.get("/robots.txt", description="Robots.txt", tags=["Robots.txt"])
+def ping():
+    """Robots.txt"""
+    return FileResponse('/robots.txt')
 
 logging.getLogger("mangum.lifespan").setLevel(logging.ERROR)
 logging.getLogger("mangum.http").setLevel(logging.ERROR)
