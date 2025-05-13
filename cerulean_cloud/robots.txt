@@ -1,0 +1,92 @@
+# robots.txt
+
+# Block Google’s crawler
+User-agent: Googlebot
+Disallow: /
+
+# Block ByteDance’s crawler
+User-agent: Bytespider
+Disallow: /
+
+# Block OpenAI searchbot
+User-agent: OAI-SearchBot
+Disallow: /
+
+# Block SEO scanners
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: SemrushBot-BA
+Disallow: /
+
+# Block HTTP library clients
+User-agent: Go-http-client
+Disallow: /
+
+# Block Amazon’s crawler
+User-agent: Amazonbot
+Disallow: /
+
+# Block Barkrowler
+User-agent: Barkrowler
+Disallow: /
+
+# Block Apple’s crawler
+User-agent: Applebot
+Disallow: /
+
+# Block Facebook’s external hit tool
+User-agent: facebookexternalhit
+Disallow: /
+
+# Block Microsoft’s crawler
+User-agent: bingbot
+Disallow: /
+
+# Block Common Crawl
+User-agent: CCBot
+Disallow: /
+
+# Block Yandex
+User-agent: YandexBot
+Disallow: /
+
+# Block OpenAI’s GPTBot
+User-agent: GPTBot
+Disallow: /
+
+# Block Anthropic’s ClaudeBot
+User-agent: ClaudeBot
+Disallow: /
+
+# Block Mojeek
+User-agent: MojeekBot
+Disallow: /
+
+# Block ChatGPT-User agent
+User-agent: ChatGPT-User
+Disallow: /
+
+# Block TikTok
+User-agent: TikTokSpider
+Disallow: /
+
+# Block BacklinksExtendedBot
+User-agent: BacklinksExtendedBot
+Disallow: /
+
+# Block Google’s image crawler
+User-agent: Googlebot-Image
+Disallow: /
+
+# Block Googlebot-Mobile via DoCoMo UA
+User-agent: DoCoMo
+Disallow: /
+
+# Block Particle’s webhook bot
+User-agent: ParticleBot
+Disallow: /
+
+# Catch-all: block any other future or unknown bots
+User-agent: *
+Disallow: /
