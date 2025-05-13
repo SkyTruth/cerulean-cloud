@@ -214,7 +214,6 @@ async def handle_asa_request(request):
                                             ],
                                             collated_score=source_row["collated_score"],
                                             rank=source_row["rank"],
-                                            geojson_fc=source_row.get("geojson_fc"),
                                             geometry=(
                                                 source_row["geometry"]
                                                 if isinstance(

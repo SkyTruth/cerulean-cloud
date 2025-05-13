@@ -413,9 +413,10 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
 
         for st_name, group in filtered_ais.groupby("st_name"):
             combined_features = []
-            # Each row has a geojson_fc (a feature collection dict)
-            for fc in group["geojson_fc"]:
-                combined_features.extend(fc.get("features", []))
+            # Each row has a gdf
+            for df in group["df"]:
+                combined_features.extend(df["geometry"])
+                # XXX NEEDS WORK
 
             # Skip if no features exist
             if len(combined_features) == 0:

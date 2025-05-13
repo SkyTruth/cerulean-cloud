@@ -4,7 +4,6 @@ import geopandas as gpd
 import numpy as np
 import pandas as pd
 import pickle
-import json
 
 from geoalchemy2 import WKTElement
 from types import SimpleNamespace
@@ -287,10 +286,6 @@ def filter_and_truncate_trajectories(self):
         # If any points remain, update the trajectory.
         if not spatially_filtered_gdf.empty:
             traj["df"] = spatially_filtered_gdf
-            traj["geojson_fc"] = {
-                "type": "FeatureCollection",
-                "features": json.loads(spatially_filtered_gdf.to_json())["features"],
-            }
             filtered_trajectories[ssvid] = traj
 
     # Update the trajectories with the filtered ones.
@@ -890,9 +885,10 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
 
         for st_name, group in filtered_ais.groupby("st_name"):
             combined_features = []
-            # Each row has a geojson_fc (a feature collection dict)
-            for fc in group["geojson_fc"]:
-                combined_features.extend(fc.get("features", []))
+            # Each row has a gdf
+            for df in group["df"]:
+                combined_features.extend(df["geometry"])
+                # XXX NEEDS WORK
 
             # Skip if no features exist
             if len(combined_features) == 0:

@@ -380,7 +380,6 @@ def upgrade() -> None:
         sa.Column("coincidence_score", sa.Float),
         sa.Column("collated_score", sa.Float),
         sa.Column("rank", sa.BigInteger),
-        sa.Column("geojson_fc", sa.JSON, nullable=False),
         sa.Column("geometry", Geography("GEOMETRY"), nullable=False),
         sa.Column(
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()

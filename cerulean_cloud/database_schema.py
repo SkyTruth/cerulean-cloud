@@ -586,7 +586,6 @@ class SlickToSource(Base):  # noqa
     coincidence_score = Column(Float(53))
     collated_score = Column(Float(53))
     rank = Column(BigInteger)
-    geojson_fc = Column(JSON, nullable=False)
     geometry = Column(
         Geography(srid=4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,

@@ -27,7 +27,6 @@ from shapely.geometry import (
     MultiPolygon,
     Point,
     Polygon,
-    mapping,
 )
 
 from . import constants as c
@@ -370,8 +369,7 @@ class AISAnalyzer(SourceAnalyzer):
 
             # Prepare GeoJSON for display
             interp_gdf = interp_gdf_m.to_crs("4326")
-            display_gdf = interp_gdf[interp_gdf.index <= s1_time].copy()
-            display_gdf["timestamp"] = display_gdf.index.strftime("%Y-%m-%dT%H:%M:%S")
+            interp_gdf = interp_gdf[interp_gdf.index <= s1_time]
 
             traj = {
                 "id": source_id,
@@ -381,10 +379,6 @@ class AISAnalyzer(SourceAnalyzer):
                 "first_timestamp": t_first,
                 "last_timestamp": t_last,
                 "df": interp_gdf,
-                "geojson_fc": {
-                    "type": "FeatureCollection",
-                    "features": json.loads(display_gdf.to_json())["features"],
-                },
             }
             self.ais_trajectories[source_id] = traj
 
@@ -536,7 +530,6 @@ class AISAnalyzer(SourceAnalyzer):
             "ext_name",
             "ext_shiptype",
             "flag",
-            "geojson_fc",
         ]
         entries = []
 
@@ -652,7 +645,6 @@ class AISAnalyzer(SourceAnalyzer):
                 "ext_name": traj["ext_name"],
                 "ext_shiptype": traj["ext_shiptype"],
                 "flag": traj["flag"],
-                "geojson_fc": traj["geojson_fc"],
             }
             entries.append(entry)
 
@@ -1021,28 +1013,6 @@ class PointAnalyzer(SourceAnalyzer):
 
         return coincidence_scores
 
-    def make_geojson_feature(self, geom):
-        """
-        Creates a GeoJSON feature from a Shapely geometry.
-
-        Args:
-            geom (Polygon): The geometry to convert to GeoJSON.
-
-        Returns:
-            dict: The GeoJSON feature.
-        """
-        return {
-            "type": "FeatureCollection",
-            "features": [
-                {
-                    "id": "0",
-                    "type": "Feature",
-                    "geometry": mapping(geom),
-                    "properties": {},  # add extra properties as needed
-                }
-            ],
-        }
-
     def get_endpoint_pairs(
         self, line: LineString, gap_pct: float, primary_pct: float = 0.0
     ):
@@ -1269,7 +1239,6 @@ class InfrastructureAnalyzer(PointAnalyzer):
         results = self.infra_gdf.copy()
         results["coincidence_score"] = self.coincidence_scores
         results = results[results["coincidence_score"] > 0]
-        results["geojson_fc"] = results["geometry"].apply(self.make_geojson_feature)
         results["collated_score"] = results["coincidence_score"].apply(self.collate)
         self.results = results
 
@@ -1443,7 +1412,6 @@ class DarkAnalyzer(PointAnalyzer):
         results = self.dark_objects_gdf.copy()
         results["coincidence_score"] = self.coincidence_scores
         results = results[results["coincidence_score"] > 0]
-        results["geojson_fc"] = results["geometry"].apply(self.make_geojson_feature)
         results["collated_score"] = results["coincidence_score"].apply(self.collate)
 
         self.results = results
