@@ -71,6 +71,7 @@ def upgrade() -> None:
                 sk.geometry as geometry,
                 sts.slick as slick_id,
                 sk.machine_confidence as slick_confidence,
+                s.id as source_id,
                 s.ext_id as mmsi_or_structure_id,
                 st.short_name as source_type,
                 sts.collated_score as source_collated_score,
