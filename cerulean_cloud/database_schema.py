@@ -34,7 +34,6 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm.decl_api import DeclarativeMeta
@@ -173,7 +172,6 @@ class Sentinel1Grd(Base):  # noqa
     scihub_ingestion_time = Column(DateTime)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
-    meta = Column(JSONB(astext_type=Text()))
     url = Column(Text, nullable=False)
     geometry = Column(
         Geography("POLYGON", 4326, from_text="ST_GeogFromText", name="geography"),

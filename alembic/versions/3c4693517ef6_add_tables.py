@@ -8,7 +8,6 @@ Create Date: 2022-06-30 11:45:00.359562
 
 import sqlalchemy as sa
 from geoalchemy2 import Geography, Geometry
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.types import ARRAY
 
 from alembic import op
@@ -77,7 +76,6 @@ def upgrade() -> None:
         sa.Column("scihub_ingestion_time", sa.DateTime),
         sa.Column("start_time", sa.DateTime, nullable=False),
         sa.Column("end_time", sa.DateTime, nullable=False),
-        sa.Column("meta", JSONB),
         sa.Column("url", sa.Text, nullable=False),
         sa.Column("geometry", Geography("POLYGON"), nullable=False),
     )
