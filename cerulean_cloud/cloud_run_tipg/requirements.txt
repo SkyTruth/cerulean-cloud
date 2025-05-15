@@ -2,3 +2,4 @@ pydantic-settings
 tipg~=1.0.0
 uvicorn[standard]
 mangum
+fastapi~=0.110.0
