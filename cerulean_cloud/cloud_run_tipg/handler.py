@@ -199,7 +199,11 @@ add_exception_handlers(app, DEFAULT_STATUS_CODES)
 async def startup_event() -> None:
     """Connect to database on startup."""
     try:
-        await connect_to_db(app, settings=postgres_settings)
+        await connect_to_db(
+            app,
+            settings=postgres_settings,
+            schemas=db_settings.schemas,
+        )
         assert getattr(app.state, "pool", None)
 
         await register_collection_catalog(
@@ -234,7 +238,11 @@ async def shutdown_event() -> None:
 async def register_table(request: Request):
     """Manually register tables"""
     if not getattr(request.app.state, "pool", None):
-        await connect_to_db(request.app, settings=postgres_settings)
+        await connect_to_db(
+            request.app,
+            settings=postgres_settings,
+            schemas=db_settings.schemas,
+        )
 
     assert getattr(request.app.state, "pool", None)
     await register_collection_catalog(
