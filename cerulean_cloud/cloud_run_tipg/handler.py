@@ -208,13 +208,7 @@ async def startup_event() -> None:
 
         await register_collection_catalog(
             app,
-            schemas=db_settings.schemas,
-            exclude_table_schemas=db_settings.exclude_table_schemas,
-            tables=db_settings.tables,
-            exclude_tables=db_settings.exclude_tables,
-            exclude_function_schemas=db_settings.exclude_function_schemas,
-            functions=db_settings.functions,
-            exclude_functions=db_settings.exclude_functions,
+            db_settings=db_settings,
             spatial=False,  # False means allow non-spatial tables
             datetime_extent=False,  # Avoid precalculating datetime extent to speed up registration
             spatial_extent=False,  # Avoid precalculating spatial extent to speed up registration
@@ -247,13 +241,7 @@ async def register_table(request: Request):
     assert getattr(request.app.state, "pool", None)
     await register_collection_catalog(
         request.app,
-        schemas=db_settings.schemas,
-        exclude_table_schemas=db_settings.exclude_table_schemas,
-        tables=db_settings.tables,
-        exclude_tables=db_settings.exclude_tables,
-        exclude_function_schemas=db_settings.exclude_function_schemas,
-        functions=db_settings.functions,
-        exclude_functions=db_settings.exclude_functions,
+        db_settings=db_settings,
         spatial=False,  # False means allow non-spatial tables
         datetime_extent=False,  # Avoid precalculating datetime extent to speed up registration
         spatial_extent=False,  # Avoid precalculating spatial extent to speed up registration
