@@ -35,7 +35,12 @@ from tipg.middleware import CacheControlMiddleware
 from tipg.settings import APISettings, DatabaseSettings
 
 settings = APISettings()
-db_settings = DatabaseSettings()
+db_settings = DatabaseSettings(
+    inspect_options={
+        "datetime_extent": False,
+        "spatial_extent": False,
+    }
+)
 
 
 def extract_table_from_request(request: Request) -> Optional[str]:
@@ -209,9 +214,6 @@ async def startup_event() -> None:
         await register_collection_catalog(
             app,
             db_settings=db_settings,
-            spatial=False,  # False means allow non-spatial tables
-            datetime_extent=False,  # Avoid precalculating datetime extent to speed up registration
-            spatial_extent=False,  # Avoid precalculating spatial extent to speed up registration
         )
     except asyncpg.exceptions.UndefinedObjectError:
         # This is the case where TiPG is attempting to start up BEFORE
@@ -242,9 +244,6 @@ async def register_table(request: Request):
     await register_collection_catalog(
         request.app,
         db_settings=db_settings,
-        spatial=False,  # False means allow non-spatial tables
-        datetime_extent=False,  # Avoid precalculating datetime extent to speed up registration
-        spatial_extent=False,  # Avoid precalculating spatial extent to speed up registration
     )
 
 
