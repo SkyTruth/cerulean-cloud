@@ -169,10 +169,8 @@ templates_location: List[Any] = [
     jinja2.PackageLoader("tipg", "templates"),  # default template directory
 ]
 
-templates = Jinja2Templates(
-    directory="",  # we need to set a dummy directory variable, see https://github.com/encode/starlette/issues/1214
-    loader=jinja2.ChoiceLoader(templates_location),
-)
+templates = Jinja2Templates(directory="cerulean_cloud/cloud_run_tipg/templates/")
+templates.env.loader = jinja2.ChoiceLoader(templates_location)
 
 # Register endpoints.
 endpoints = Endpoints(title=settings.name, templates=templates)
