@@ -170,7 +170,8 @@ templates_location: List[Any] = [
 ]
 
 templates = Jinja2Templates(
-    env=jinja2.Environment(loader=jinja2.ChoiceLoader(templates_location))
+    directory="",  # we need to set a dummy directory variable, see https://github.com/encode/starlette/issues/1214
+    loader=jinja2.ChoiceLoader(templates_location),
 )
 
 # Register endpoints.
