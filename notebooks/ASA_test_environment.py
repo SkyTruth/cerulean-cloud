@@ -718,13 +718,13 @@ slick_ids = [
     # 38666,
     # 38745,
     # 38752,
-    39115,  # three source slick...
-    38941,  # Do we need to increase the slick drift rate?
+    # 39115, # three source slick...
+    # 38941, # Do we need to increase the slick drift rate?
 ]
 
 accumulated_sources = []
 for slick_id in slick_ids:
-    geojson_file_path = download_geojson(slick_id, use_test_db=False)
+    geojson_file_path = download_geojson(slick_id, use_test_db=True)
     slick_gdf = gpd.read_file(geojson_file_path)
     try:
         slick_gdf["centerlines"] = slick_gdf["centerlines"].apply(json.loads)
@@ -797,9 +797,9 @@ plot({2: infra_analyzer}, slick_id, False)
 
 # %%
 a = analyzers[1]
-ssvid = "525061272"
+ssvid = "477810800"
 traj = a.ais_trajectories[ssvid]["df"]
-raw = a.ais_gdf[a.ais_gdf["ssvid"] == ssvid][a.ais_gdf["timestamp"] > ssvid]
+raw = a.ais_gdf[a.ais_gdf["ssvid"] == ssvid]
 plot_ais_trajectory(traj, raw)
 
 # %%
