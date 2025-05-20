@@ -41,6 +41,10 @@ from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 from titiler.core.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from titiler.core.factory import MultiBandTilerFactory
+from fastapi.responses import Response
+from rasterio.enums import Resampling
+from rio_tiler.utils import render
+import numpy as np
 
 app = FastAPI(title="Sentinel-1 API")
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
@@ -108,6 +112,41 @@ def viewer(
 
 
 app.include_router(S1Endpoints.router, dependencies=[Depends(api_key_auth)])
+
+
+@app.get("/part", response_class=Response)
+async def get_part_tile(
+    scene_id: str = Query(..., description="Sentinel-1 scene ID"),
+    bbox: str = Query(..., description="minx,miny,maxx,maxy"),
+    bands: str = Query("vv", description="Band to extract (vv or vh)"),
+    width: int = Query(512, description="output width in pixels"),
+    height: int = Query(512, description="output height in pixels"),
+    rescale: str = Query("0,255", description="min,max for rescaling"),
+    format: str = Query("png", description="output format: png or jpeg"),
+    nodata: int = Query(0, description="source nodata value"),
+):
+    # Parse parameters
+    minx, miny, maxx, maxy = map(float, bbox.split(","))
+    rmin, rmax = map(float, rescale.split(","))
+
+    # Read the requested window
+    with S1L1CReader(scene_id, nodata=nodata) as reader:
+        try:
+            img = reader.part(
+                bbox=(minx, miny, maxx, maxy),
+                bands=[bands],
+                shape=(height, width),
+                resampling=Resampling.bilinear,
+            )
+        except Exception as e:
+            return Response(str(e), status_code=400, media_type="text/plain")
+
+    # Normalize to 8-bit
+    arr = np.clip((img.data - rmin) / (rmax - rmin) * 255, 0, 255).astype("uint8")
+
+    # Render and return
+    content, mime_type = render(arr, format=format)
+    return Response(content, media_type=mime_type)
 
 
 @app.get("/health", description="Health Check", tags=["Health Check"])
