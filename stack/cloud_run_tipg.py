@@ -73,6 +73,22 @@ default = gcp.cloudrun.Service(
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TIPG_NAME", value="Cerulean OGC API"
                         ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_SPATIAL_EXTENT", value="False"
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_DATETIME_EXTENT", value="False"
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_ONLY_SPATIAL_TABLES", value="False"
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_EXCLUDE_FUNCTIONS",
+                            value='["st_squaregrid", "st_hexagongrid", "st_subdivide", "postgis_srs_search", "postgis_srs_all", "postgis_srs", "postgis_srs_codes"]',
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_SORT_COLUMNS", value="False"
+                        ),
                         *[
                             gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                                 name=f"TIPG_TABLE_CONFIG__public_{geom_table}__GEOMCOL",

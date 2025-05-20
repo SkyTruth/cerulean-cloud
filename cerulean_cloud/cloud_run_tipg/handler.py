@@ -13,6 +13,7 @@ Make sure to set in your environment:
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any, List, Optional
 
 import asyncpg
@@ -28,19 +29,14 @@ from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 from tipg import __version__ as tipg_version
 from tipg.collections import register_collection_catalog
-from tipg.database import connect_to_db
+from tipg.database import close_db_connection, connect_to_db
 from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
 from tipg.middleware import CacheControlMiddleware
 from tipg.settings import APISettings, DatabaseSettings
 
 settings = APISettings()
-db_settings = DatabaseSettings(
-    inspect_options={
-        "datetime_extent": False,
-        "spatial_extent": False,
-    }
-)
+db_settings = DatabaseSettings()
 
 
 def extract_table_from_request(request: Request) -> Optional[str]:
@@ -200,32 +196,13 @@ app.add_middleware(CompressionMiddleware)
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
 
 
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Connect to database on startup."""
-    try:
-        await connect_to_db(
-            app,
-            settings=postgres_settings,
-            schemas=db_settings.schemas,
-        )
-        assert getattr(app.state, "pool", None)
-
-        await register_collection_catalog(
-            app,
-            db_settings=db_settings,
-        )
-    except asyncpg.exceptions.UndefinedObjectError:
-        # This is the case where TiPG is attempting to start up BEFORE
-        # the alembic code has had the opportunity to launch the database
-        # You will need to poll the /register endpoint of the tipg URL in order to correctly load the tables
-        # i.e. curl https://some-tipg-url.app/register
-        app.state.collection_catalog = {}
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Close database connection."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    await _initialize_db(app)
+    yield
+    # shutdown
+    await close_db_connection(app)
     if getattr(app.state, "pool", None):
         await app.state.pool.close()
 
@@ -233,18 +210,28 @@ async def shutdown_event() -> None:
 @app.get("/register", include_in_schema=False)
 async def register_table(request: Request):
     """Manually register tables"""
-    if not getattr(request.app.state, "pool", None):
+    await _initialize_db(request.app)
+    return {
+        "status": "ok",
+        "registered": list(request.app.state.collection_catalog.keys()),
+    }
+
+
+async def _initialize_db(app: FastAPI):
+    """Common DB setup: connect and register catalog."""
+    try:
         await connect_to_db(
-            request.app,
+            app,
             settings=postgres_settings,
             schemas=db_settings.schemas,
         )
-
-    assert getattr(request.app.state, "pool", None)
-    await register_collection_catalog(
-        request.app,
-        db_settings=db_settings,
-    )
+        await register_collection_catalog(app, db_settings=db_settings)
+    except asyncpg.exceptions.UndefinedObjectError:
+        # This is the case where TiPG is attempting to start up BEFORE
+        # the alembic code has had the opportunity to launch the database
+        # You will need to poll the /register endpoint of the tipg URL in order to correctly load the tables
+        # i.e. curl https://some-tipg-url.app/register
+        app.state.collection_catalog = {}
 
 
 @app.get("/health", description="Health Check", tags=["Health Check"])
