@@ -12,7 +12,7 @@ class OrchestratorInput(BaseModel):
     """
 
     scene_id: str
-    trigger: Optional[int]
+    trigger: Optional[int] = None
     zoom: Optional[int] = None
     scale: Optional[int] = None
     dry_run: bool = False
