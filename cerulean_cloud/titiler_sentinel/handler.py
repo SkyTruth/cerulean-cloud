@@ -44,6 +44,7 @@ from titiler.core.factory import MultiBandTilerFactory
 from fastapi.responses import Response
 from rasterio.enums import Resampling
 from rio_tiler.utils import render
+import rasterio
 import numpy as np
 
 app = FastAPI(title="Sentinel-1 API")
@@ -130,16 +131,17 @@ async def get_part_tile(
     rmin, rmax = map(float, rescale.split(","))
 
     # Read the requested window
-    with S1L1CReader(scene_id) as reader:
-        try:
-            img = reader.part(
-                bbox=(minx, miny, maxx, maxy),
-                bands=[bands],
-                shape=(height, width),
-                resampling=Resampling.bilinear,
-            )
-        except Exception as e:
-            return Response(str(e), status_code=400, media_type="text/plain")
+    with rasterio.Env(AWS_REQUEST_PAYER="requester"):
+        with S1L1CReader(scene_id) as reader:
+            try:
+                img = reader.part(
+                    bbox=(minx, miny, maxx, maxy),
+                    bands=[bands],
+                    shape=(height, width),
+                    resampling=Resampling.bilinear,
+                )
+            except Exception as e:
+                return Response(str(e), status_code=400, media_type="text/plain")
 
     # Normalize to 8-bit
     arr = np.clip((img.data - rmin) / (rmax - rmin) * 255, 0, 255).astype("uint8")
