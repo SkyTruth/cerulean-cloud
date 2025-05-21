@@ -130,7 +130,7 @@ async def get_part_tile(
     rmin, rmax = map(float, rescale.split(","))
 
     # Read the requested window
-    with S1L1CReader(scene_id, nodata=nodata) as reader:
+    with S1L1CReader(scene_id) as reader:
         try:
             img = reader.part(
                 bbox=(minx, miny, maxx, maxy),
