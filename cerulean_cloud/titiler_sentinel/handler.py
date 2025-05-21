@@ -115,7 +115,7 @@ def viewer(
 app.include_router(S1Endpoints.router, dependencies=[Depends(api_key_auth)])
 
 
-@app.get("/part", response_class=Response)
+@S1Endpoints.router.get("/part", response_class=Response)
 async def get_part_tile(
     scene_id: str = Query(..., description="Sentinel-1 scene ID"),
     bbox: str = Query(..., description="minx,miny,maxx,maxy"),
