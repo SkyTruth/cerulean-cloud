@@ -112,9 +112,6 @@ def viewer(
     )
 
 
-app.include_router(S1Endpoints.router, dependencies=[Depends(api_key_auth)])
-
-
 @S1Endpoints.router.get("/part", response_class=Response)
 async def get_part_tile(
     scene_id: str = Query(..., description="Sentinel-1 scene ID"),
@@ -149,6 +146,9 @@ async def get_part_tile(
     # Render and return
     content, mime_type = render(arr, format=format)
     return Response(content, media_type=mime_type)
+
+
+app.include_router(S1Endpoints.router, dependencies=[Depends(api_key_auth)])
 
 
 @app.get("/health", description="Health Check", tags=["Health Check"])
