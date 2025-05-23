@@ -156,11 +156,24 @@ class PostgresSettings(pydantic_settings.BaseSettings):
 
 postgres_settings = PostgresSettings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # startup
+    await _initialize_db(app)
+    yield
+    # shutdown
+    await close_db_connection(app)
+    if getattr(app.state, "pool", None):
+        await app.state.pool.close()
+
+
 app = FastAPI(
     title=settings.name,
     version=tipg_version,
     openapi_url="/api",
     docs_url="/api.html",
+    lifespan=lifespan,
 )
 
 templates_location: List[Any] = [
@@ -194,17 +207,6 @@ app.add_middleware(AccessControlMiddleware)
 app.add_middleware(CacheControlMiddleware, cachecontrol=settings.cachecontrol)
 app.add_middleware(CompressionMiddleware)
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # startup
-    await _initialize_db(app)
-    yield
-    # shutdown
-    await close_db_connection(app)
-    if getattr(app.state, "pool", None):
-        await app.state.pool.close()
 
 
 @app.get("/register", include_in_schema=False)
