@@ -34,6 +34,7 @@ from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
 from tipg.middleware import CacheControlMiddleware
 from tipg.settings import APISettings, DatabaseSettings
+import asyncio
 
 settings = APISettings()
 db_settings = DatabaseSettings()
@@ -159,8 +160,17 @@ postgres_settings = PostgresSettings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # startup
-    await _initialize_db(app)
+    # Startup
+    max_attempts = 5
+    for attempt in range(max_attempts):
+        try:
+            await _initialize_db(app)
+            break
+        except asyncpg.exceptions.UndefinedObjectError:
+            if attempt < max_attempts - 1:
+                await asyncio.sleep(2)  # Wait and retry
+            else:
+                app.state.collection_catalog = {}
     yield
     # shutdown
     await close_db_connection(app)
