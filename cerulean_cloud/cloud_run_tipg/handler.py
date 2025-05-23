@@ -16,7 +16,6 @@ import os
 from contextlib import asynccontextmanager
 from typing import Any, List, Optional
 
-import asyncpg
 import jinja2
 import pydantic_settings
 from fastapi import FastAPI
@@ -34,7 +33,6 @@ from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
 from tipg.middleware import CacheControlMiddleware
 from tipg.settings import APISettings, DatabaseSettings
-import asyncio
 
 settings = APISettings()
 db_settings = DatabaseSettings()
@@ -160,17 +158,8 @@ postgres_settings = PostgresSettings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    max_attempts = 5
-    for attempt in range(max_attempts):
-        try:
-            await _initialize_db(app)
-            break
-        except asyncpg.exceptions.UndefinedObjectError:
-            if attempt < max_attempts - 1:
-                await asyncio.sleep(2)  # Wait and retry
-            else:
-                app.state.collection_catalog = {}
+    await _initialize_db(app)
+
     yield
     # shutdown
     await close_db_connection(app)
@@ -231,19 +220,12 @@ async def register_table(request: Request):
 
 async def _initialize_db(app: FastAPI):
     """Common DB setup: connect and register catalog."""
-    try:
-        await connect_to_db(
-            app,
-            settings=postgres_settings,
-            schemas=db_settings.schemas,
-        )
-        await register_collection_catalog(app, db_settings=db_settings)
-    except asyncpg.exceptions.UndefinedObjectError:
-        # This is the case where TiPG is attempting to start up BEFORE
-        # the alembic code has had the opportunity to launch the database
-        # You will need to poll the /register endpoint of the tipg URL in order to correctly load the tables
-        # i.e. curl https://some-tipg-url.app/register
-        app.state.collection_catalog = {}
+    await connect_to_db(
+        app,
+        settings=postgres_settings,
+        schemas=db_settings.schemas,
+    )
+    await register_collection_catalog(app, db_settings=db_settings)
 
 
 @app.get("/health", description="Health Check", tags=["Health Check"])
