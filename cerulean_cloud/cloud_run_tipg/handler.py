@@ -255,7 +255,24 @@ if settings.cors_origins:
         allow_headers=["*"],
     )
 
+
 # Custom API key checking for restricted access
+async def _initialize_db(app: FastAPI):
+    """Common DB setup: connect and register catalog."""
+    await connect_to_db(
+        app,
+        settings=postgres_settings,
+        schemas=db_settings.schemas,
+    )
+    await register_collection_catalog(app, db_settings=db_settings)
+
+
+app.add_middleware(
+    CatalogUpdateMiddleware,
+    func=_initialize_db,
+    ttl=300,
+)
+
 app.add_middleware(AccessControlMiddleware)
 
 app.add_middleware(CacheControlMiddleware, cachecontrol=settings.cachecontrol)
@@ -272,23 +289,6 @@ async def register_table(request: Request):
         "status": "ok",
         "registered": list(request.app.state.collection_catalog.keys()),
     }
-
-
-async def _initialize_db(app: FastAPI):
-    """Common DB setup: connect and register catalog."""
-    await connect_to_db(
-        app,
-        settings=postgres_settings,
-        schemas=db_settings.schemas,
-    )
-    await register_collection_catalog(app, db_settings=db_settings)
-
-
-app.add_middleware(
-    CatalogUpdateMiddleware,
-    func=_initialize_db,
-    ttl=300,
-)
 
 
 @app.get("/health", description="Health Check", tags=["Health Check"])
