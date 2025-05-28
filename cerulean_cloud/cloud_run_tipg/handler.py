@@ -32,6 +32,7 @@ from tipg.database import close_db_connection, connect_to_db
 from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
 from tipg.middleware import CacheControlMiddleware
+from tipg.middleware import CatalogUpdateMiddleware
 from tipg.settings import APISettings, DatabaseSettings
 
 settings = APISettings()
@@ -205,6 +206,12 @@ app.add_middleware(AccessControlMiddleware)
 
 app.add_middleware(CacheControlMiddleware, cachecontrol=settings.cachecontrol)
 app.add_middleware(CompressionMiddleware)
+app.add_middleware(
+    CatalogUpdateMiddleware,
+    func=register_collection_catalog,
+    ttl=300,  # 5 minutes, or adjust as needed
+    db_settings=db_settings,  # passed as **kwargs
+)
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
 
 
