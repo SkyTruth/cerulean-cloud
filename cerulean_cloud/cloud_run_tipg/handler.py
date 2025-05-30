@@ -31,8 +31,7 @@ from tipg.collections import register_collection_catalog
 from tipg.database import close_db_connection, connect_to_db
 from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
-from tipg.middleware import CacheControlMiddleware
-from tipg.middleware import CatalogUpdateMiddleware
+from tipg.middleware import CacheControlMiddleware, CatalogUpdateMiddleware
 from tipg.settings import APISettings, DatabaseSettings
 
 settings = APISettings()
