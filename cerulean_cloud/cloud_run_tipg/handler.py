@@ -14,33 +14,26 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
-from typing import Any, Awaitable, Callable, List, Optional
+from typing import Any, List, Optional
 
 import jinja2
 import pydantic_settings
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from mangum import Mangum
-from starlette.background import BackgroundTask
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
 from starlette.templating import Jinja2Templates
-from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette_cramjam.middleware import CompressionMiddleware
-
 from tipg import __version__ as tipg_version
-from tipg.collections import register_collection_catalog, Catalog
+from tipg.collections import register_collection_catalog
 from tipg.database import close_db_connection, connect_to_db
-from tipg.errors import (
-    DEFAULT_STATUS_CODES,
-    add_exception_handlers,
-)
+from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
 from tipg.middleware import CacheControlMiddleware
+from tipg.middleware import CatalogUpdateMiddleware
 from tipg.settings import APISettings, DatabaseSettings
-from tipg.logger import logger
-
 
 settings = APISettings()
 db_settings = DatabaseSettings()
@@ -85,53 +78,6 @@ def get_env_list(env_var: str, default: List[str] = None) -> List[str]:
         return json.loads(raw_value)
     except json.JSONDecodeError:
         return raw_value.split(",")
-
-
-class CatalogUpdateMiddleware:
-    """Middleware to update the catalog cache by calling _initialize_db."""
-
-    def __init__(
-        self,
-        app: ASGIApp,
-        *,
-        func: Callable[[FastAPI], Awaitable[None]],
-        ttl: int = 300,
-    ) -> None:
-        self.app = app
-        self.func = func  # e.g., _initialize_db
-        self.ttl = ttl
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        """Handle call."""
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        request = Request(scope)
-        background: Optional[BackgroundTask] = None
-
-        catalog: Optional[Catalog] = getattr(
-            request.app.state, "collection_catalog", None
-        )
-        last_updated: Optional[datetime] = None
-
-        if catalog:
-            last_updated = catalog.get("last_updated")
-
-        should_refresh = (
-            not catalog
-            or not last_updated
-            or datetime.now() > (last_updated + timedelta(seconds=self.ttl))
-        )
-
-        if should_refresh:
-            logger.debug("Catalog is stale or missing. Triggering background refresh.")
-            background = BackgroundTask(self.func, request.app)
-
-        await self.app(scope, receive, send)
-
-        if background:
-            await background()
 
 
 class AccessControlMiddleware(BaseHTTPMiddleware):
@@ -255,29 +201,17 @@ if settings.cors_origins:
         allow_headers=["*"],
     )
 
-
 # Custom API key checking for restricted access
-async def _initialize_db(app: FastAPI):
-    """Common DB setup: connect and register catalog."""
-    await connect_to_db(
-        app,
-        settings=postgres_settings,
-        schemas=db_settings.schemas,
-    )
-    await register_collection_catalog(app, db_settings=db_settings)
-
-
-app.add_middleware(
-    CatalogUpdateMiddleware,
-    func=_initialize_db,
-    ttl=300,
-)
-
 app.add_middleware(AccessControlMiddleware)
 
 app.add_middleware(CacheControlMiddleware, cachecontrol=settings.cachecontrol)
 app.add_middleware(CompressionMiddleware)
-
+app.add_middleware(
+    CatalogUpdateMiddleware,
+    func=register_collection_catalog,
+    ttl=300,  # 5 minutes, or adjust as needed
+    db_settings=db_settings,  # passed as **kwargs
+)
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
 
 
@@ -289,6 +223,16 @@ async def register_table(request: Request):
         "status": "ok",
         "registered": list(request.app.state.collection_catalog.keys()),
     }
+
+
+async def _initialize_db(app: FastAPI):
+    """Common DB setup: connect and register catalog."""
+    await connect_to_db(
+        app,
+        settings=postgres_settings,
+        schemas=db_settings.schemas,
+    )
+    await register_collection_catalog(app, db_settings=db_settings)
 
 
 @app.get("/health", description="Health Check", tags=["Health Check"])
