@@ -14,7 +14,7 @@ from rasterio.plot import reshape_as_image
 
 from cerulean_cloud.tiling import TMS
 
-TMS_TITLE = TMS.identifier
+TMS_TITLE = TMS.id
 
 logger = logging.getLogger("cerulean_cloud")
 
@@ -196,14 +196,16 @@ class TitilerClient:
         Returns:
             np.ndarray: The requested image of the bounds of the scene as a numpy array.
         """
+        out_w, out_h = width * scale, height * scale
+
         url = urlib.urljoin(
-            self.url, f"crop/{minx},{miny},{maxx},{maxy}/{width}x{height}.{img_format}"
+            self.url, f"bbox/{minx},{miny},{maxx},{maxy}/{out_w}x{out_h}.{img_format}"
         )
         url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
-        url += f"&scale={scale}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
         resp = await self.client.get(url, timeout=self.timeout)
+        resp.raise_for_status()  # 404/500 handled here
 
         with MemoryFile(resp.content) as memfile:
             with memfile.open() as dataset:
