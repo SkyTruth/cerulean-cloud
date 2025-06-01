@@ -1,7 +1,7 @@
 """Turbo-charge indexes, constraints, and JSONB conversion.
 
 Revision ID: b1a2c3d4e5f6
-Revises: 7cd715196b8d
+Revises: c7c033c1cdb5
 Create Date: 2025-05-31 12:34:56
 """
 
@@ -11,7 +11,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "b1a2c3d4e5f6"
-down_revision = "7cd715196b8d"
+down_revision = "c7c033c1cdb5"
 branch_labels = None
 depends_on = None
 
