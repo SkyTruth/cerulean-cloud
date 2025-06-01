@@ -1,4 +1,4 @@
-"""Materialise and index the *_plus views with change-capture refresh.
+"""Materialize and index the *_plus views with change-capture refresh.
 
 Revision ID: 9e8f7d6c5b4a
 Revises: b1a2c3d4e5f6
@@ -16,7 +16,7 @@ depends_on = None
 def upgrade() -> None:
     # ------------------------------------------------------------------ #
     # 0. Drop the plain views (defined in 39277f6278f4) – they’ll be
-    #    replaced by materialised views.
+    #    replaced by materialized views.
     # ------------------------------------------------------------------ #
     for v in ("repeat_source", "source_plus", "slick_plus"):
         op.execute(f"DROP VIEW IF EXISTS {v} CASCADE")
@@ -25,12 +25,21 @@ def upgrade() -> None:
     # 1. Guardrail: one *active* row per (slick, source)
     # ------------------------------------------------------------------ #
     op.execute("""
-        ALTER TABLE slick_to_source
-        ADD CONSTRAINT IF NOT EXISTS slick_to_source_one_active_per_pair
-        UNIQUE (slick, source)
-        WHERE active
+      DO $$
+      BEGIN
+          IF NOT EXISTS (
+              SELECT 1
+              FROM pg_constraint
+              WHERE conname = 'slick_to_source_one_active_per_pair'
+                AND conrelid = 'slick_to_source'::regclass
+          ) THEN
+              ALTER TABLE slick_to_source
+              ADD CONSTRAINT slick_to_source_one_active_per_pair
+              UNIQUE (slick, source)
+              WHERE (active);
+          END IF;
+      END$$;
     """)
-
     # ------------------------------------------------------------------ #
     # 2. Change-capture table & trigger
     # ------------------------------------------------------------------ #
@@ -66,7 +75,7 @@ def upgrade() -> None:
         )
 
     # ------------------------------------------------------------------ #
-    # 3. Materialised VIEW slick_plus
+    # 3. Materialized VIEW slick_plus
     # ------------------------------------------------------------------ #
     op.execute(
         """
@@ -114,7 +123,7 @@ def upgrade() -> None:
     )
 
     # ------------------------------------------------------------------ #
-    # 4. Materialised VIEW source_plus
+    # 4. Materialized VIEW source_plus
     # ------------------------------------------------------------------ #
     op.execute(
         """
@@ -144,7 +153,7 @@ def upgrade() -> None:
     )
 
     # ------------------------------------------------------------------ #
-    # 5. Materialised VIEW repeat_source
+    # 5. Materialized VIEW repeat_source
     # ------------------------------------------------------------------ #
     op.execute(
         """
@@ -183,7 +192,7 @@ def upgrade() -> None:
     )
 
     # ------------------------------------------------------------------ #
-    # 6. Indexes on the materialised views
+    # 6. Indexes on the materialized views
     # ------------------------------------------------------------------ #
     op.execute(
         """
@@ -232,7 +241,7 @@ def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS slick_plus_changes CASCADE")
 
     # ------------------------------------------------------------------ #
-    # Drop the materialised views
+    # Drop the materialized views
     # ------------------------------------------------------------------ #
     for v in ("repeat_source", "source_plus", "slick_plus"):
         op.execute(f"DROP MATERIALIZED VIEW IF EXISTS {v}")
