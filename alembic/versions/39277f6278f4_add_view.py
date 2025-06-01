@@ -95,6 +95,43 @@ def upgrade() -> None:
     )
     op.create_entity(source_plus)
 
+    repeat_source = PGView(
+        schema="public",
+        signature="repeat_source",
+        definition="""
+            WITH agg AS (
+                SELECT 
+                    s.id AS source_id,
+                    count(DISTINCT sl.orchestrator_run) AS occurrence_count,
+                    sum(sl.area) / 1000000 AS total_area
+                FROM slick_to_source sts
+                JOIN source s ON s.id = sts.source
+                JOIN slick sl ON sl.id = sts.slick
+                LEFT JOIN source_to_tag stt ON stt.source = sts.source
+                LEFT JOIN hitl_slick hs ON hs.slick = sl.id
+                WHERE true 
+                    AND sl.active 
+                    AND sl.cls <> 1 
+                    AND (hs.cls IS NULL OR hs.cls <> 1) 
+                    AND sts.active 
+                    AND sts.hitl_verification IS NOT FALSE 
+                    AND (
+                        (s.type = 2 AND sts.rank = 1)
+                        OR 
+                        (s.type = 1 AND sts.collated_score > 0 AND (stt.tag IS NULL OR (stt.tag <> ALL (ARRAY[5, 6, 7]))))
+                    )
+                GROUP BY s.id, s.ext_id, s.type
+            )
+            SELECT agg.source_id,
+            agg.occurrence_count,
+            agg.total_area,
+            row_number() OVER (ORDER BY agg.occurrence_count DESC, agg.total_area DESC) AS global_rank
+            FROM agg
+            ORDER BY agg.occurrence_count DESC, agg.total_area DESC;
+        """,
+    )
+    op.create_entity(repeat_source)
+
 
 def downgrade() -> None:
     """remove views"""
@@ -107,3 +144,8 @@ def downgrade() -> None:
         schema="public", signature="source_plus", definition="// not needed"
     )
     op.drop_entity(source_plus)
+
+    repeat_source = PGView(
+        schema="public", signature="repeat_source", definition="// not needed"
+    )
+    op.drop_entity(repeat_source)
