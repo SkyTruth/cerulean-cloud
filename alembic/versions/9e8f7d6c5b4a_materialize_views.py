@@ -25,20 +25,9 @@ def upgrade() -> None:
     # 1. Guardrail: one *active* row per (slick, source)
     # ------------------------------------------------------------------ #
     op.execute("""
-      DO $$
-      BEGIN
-          IF NOT EXISTS (
-              SELECT 1
-              FROM pg_constraint
-              WHERE conname = 'slick_to_source_one_active_per_pair'
-                AND conrelid = 'slick_to_source'::regclass
-          ) THEN
-              ALTER TABLE slick_to_source
-              ADD CONSTRAINT slick_to_source_one_active_per_pair
-              UNIQUE (slick, source)
-              WHERE (active);
-          END IF;
-      END$$;
+        CREATE UNIQUE INDEX IF NOT EXISTS slick_to_source_one_active_per_pair_idx
+            ON slick_to_source (slick, source)
+            WHERE active;
     """)
     # ------------------------------------------------------------------ #
     # 2. Change-capture table & trigger
@@ -250,6 +239,5 @@ def downgrade() -> None:
     # Drop the partial-unique constraint
     # ------------------------------------------------------------------ #
     op.execute("""
-        ALTER TABLE slick_to_source
-        DROP CONSTRAINT IF EXISTS slick_to_source_one_active_per_pair
+        DROP INDEX IF EXISTS slick_to_source_one_active_per_pair_idx;
     """)
