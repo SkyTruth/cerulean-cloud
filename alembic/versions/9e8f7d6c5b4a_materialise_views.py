@@ -5,8 +5,6 @@ Revises: b1a2c3d4e5f6
 Create Date: 2025-05-31 14:42:00
 """
 
-import sqlalchemy as sa
-
 from alembic import op
 
 revision = "9e8f7d6c5b4a"
@@ -26,12 +24,12 @@ def upgrade() -> None:
     # ------------------------------------------------------------------ #
     # 1. Guardrail: one *active* row per (slick, source)
     # ------------------------------------------------------------------ #
-    op.create_unique_constraint(
-        "slick_to_source_one_active_per_pair",
-        "slick_to_source",
-        ["slick", "source"],
-        postgresql_where=sa.text("active"),
-    )
+    op.execute("""
+        ALTER TABLE slick_to_source
+        ADD CONSTRAINT IF NOT EXISTS slick_to_source_one_active_per_pair
+        UNIQUE (slick, source)
+        WHERE active
+    """)
 
     # ------------------------------------------------------------------ #
     # 2. Change-capture table & trigger
@@ -242,8 +240,7 @@ def downgrade() -> None:
     # ------------------------------------------------------------------ #
     # Drop the partial-unique constraint
     # ------------------------------------------------------------------ #
-    op.drop_constraint(
-        "slick_to_source_one_active_per_pair",
-        "slick_to_source",
-        type_="unique",
-    )
+    op.execute("""
+        ALTER TABLE slick_to_source
+        DROP CONSTRAINT IF EXISTS slick_to_source_one_active_per_pair
+    """)
