@@ -8,6 +8,10 @@ Create Date: 2025-06-01 00:00:00.000000
 
 from alembic import op
 
+# Alembic versions vary across deployments and older versions do not support
+# if_exists/if_not_exists flags on create_index or drop_index.  Using raw SQL
+# keeps the migration robust regardless of the library version.
+
 revision = "15b23d4d9aa1"
 down_revision = "c7c033c1cdb5"
 branch_labels = None
@@ -16,115 +20,108 @@ depends_on = None
 
 def upgrade() -> None:
     """Optimize indexes for frontend performance"""
-    # Drop unused indexes
-    op.drop_index("idx_model_name", table_name="model")
-    op.drop_index("idx_trigger_trigger_time", table_name="trigger")
-    op.drop_index("idx_orchestrator_run_time", table_name="orchestrator_run")
-    op.drop_index("idx_orchestrator_run_git_tag", table_name="orchestrator_run")
-    op.drop_index("idx_orchestrator_run_git_hash", table_name="orchestrator_run")
-    op.drop_index("idx_filter_hash", table_name="filter")
-    op.drop_index("idx_slick_hitl", table_name="slick")
-    op.drop_index("idx_slick_length", table_name="slick")
-    op.drop_index("idx_slick_polsby_popper", table_name="slick")
-    op.drop_index("idx_slick_fill_factor", table_name="slick")
-    op.drop_index("idx_slick_cls", table_name="slick")
-    op.drop_index("idx_slick_to_source_collated_score", table_name="slick_to_source")
-    op.drop_index("idx_source_name", table_name="source")
+    # Drop unused indexes if they exist. Using raw SQL avoids errors when an
+    # index is already absent.
+    for idx in [
+        "idx_model_name",
+        "idx_trigger_trigger_time",
+        "idx_orchestrator_run_time",
+        "idx_orchestrator_run_git_tag",
+        "idx_orchestrator_run_git_hash",
+        "idx_filter_hash",
+        "idx_slick_hitl",
+        "idx_slick_length",
+        "idx_slick_polsby_popper",
+        "idx_slick_fill_factor",
+        "idx_slick_cls",
+        "idx_source_name",
+    ]:
+        op.execute(f"DROP INDEX IF EXISTS {idx}")
 
     # New indexes on frequently queried fields
-    op.create_index("idx_source_ext_id_type", "source", ["ext_id", "type"])
-    op.create_index("idx_slick_to_source_slick", "slick_to_source", ["slick"])
-    op.create_index("idx_slick_to_source_source", "slick_to_source", ["source"])
-    op.create_index("idx_slick_to_source_rank", "slick_to_source", ["rank"])
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_source_ext_id_type ON source (ext_id, type)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_slick_to_source_slick ON slick_to_source (slick)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_slick_to_source_source ON slick_to_source (source)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_slick_to_source_rank ON slick_to_source (rank)"
+    )
 
     # Spatial indexes
-    op.create_index(
-        "idx_slick_geometry",
-        "slick",
-        ["geometry"],
-        postgresql_using="gist",
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_slick_geometry ON slick USING gist (geometry)"
     )
-    op.create_index(
-        "idx_slick_to_source_geometry",
-        "slick_to_source",
-        ["geometry"],
-        postgresql_using="gist",
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_slick_to_source_geometry ON slick_to_source USING gist (geometry)"
     )
-    op.create_index(
-        "idx_sentinel1_grd_geometry",
-        "sentinel1_grd",
-        ["geometry"],
-        postgresql_using="gist",
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sentinel1_grd_geometry ON sentinel1_grd USING gist (geometry)"
     )
-    op.create_index(
-        "idx_orchestrator_run_geometry",
-        "orchestrator_run",
-        ["geometry"],
-        postgresql_using="gist",
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orchestrator_run_geometry ON orchestrator_run USING gist (geometry)"
     )
-    op.create_index(
-        "idx_aoi_geometry",
-        "aoi",
-        ["geometry"],
-        postgresql_using="gist",
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_aoi_geometry ON aoi USING gist (geometry)"
     )
-    op.create_index(
-        "idx_aoi_chunks_geometry",
-        "aoi_chunks",
-        ["geometry"],
-        postgresql_using="gist",
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_aoi_chunks_geometry ON aoi_chunks USING gist (geometry)"
     )
-    op.create_index(
-        "idx_source_infra_geometry",
-        "source_infra",
-        ["geometry"],
-        postgresql_using="gist",
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_source_infra_geometry ON source_infra USING gist (geometry)"
     )
-    op.create_index(
-        "idx_source_dark_geometry",
-        "source_dark",
-        ["geometry"],
-        postgresql_using="gist",
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_source_dark_geometry ON source_dark USING gist (geometry)"
     )
-    op.create_index(
-        "idx_source_natural_geometry",
-        "source_natural",
-        ["geometry"],
-        postgresql_using="gist",
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_source_natural_geometry ON source_natural USING gist (geometry)"
     )
 
 
 def downgrade() -> None:
     """Revert index changes"""
-    op.drop_index("idx_source_natural_geometry", table_name="source_natural")
-    op.drop_index("idx_source_dark_geometry", table_name="source_dark")
-    op.drop_index("idx_source_infra_geometry", table_name="source_infra")
-    op.drop_index("idx_aoi_chunks_geometry", table_name="aoi_chunks")
-    op.drop_index("idx_aoi_geometry", table_name="aoi")
-    op.drop_index("idx_orchestrator_run_geometry", table_name="orchestrator_run")
-    op.drop_index("idx_sentinel1_grd_geometry", table_name="sentinel1_grd")
-    op.drop_index("idx_slick_to_source_geometry", table_name="slick_to_source")
-    op.drop_index("idx_slick_geometry", table_name="slick")
+    for idx in [
+        "idx_source_natural_geometry",
+        "idx_source_dark_geometry",
+        "idx_source_infra_geometry",
+        "idx_aoi_chunks_geometry",
+        "idx_aoi_geometry",
+        "idx_orchestrator_run_geometry",
+        "idx_sentinel1_grd_geometry",
+        "idx_slick_to_source_geometry",
+        "idx_slick_geometry",
+        "idx_slick_to_source_rank",
+        "idx_slick_to_source_source",
+        "idx_slick_to_source_slick",
+        "idx_source_ext_id_type",
+    ]:
+        op.execute(f"DROP INDEX IF EXISTS {idx}")
 
-    op.drop_index("idx_slick_to_source_rank", table_name="slick_to_source")
-    op.drop_index("idx_slick_to_source_source", table_name="slick_to_source")
-    op.drop_index("idx_slick_to_source_slick", table_name="slick_to_source")
-    op.drop_index("idx_source_ext_id_type", table_name="source")
-
-    op.create_index("idx_source_name", "source", ["st_name", "type"])
-    op.create_index("idx_slick_to_source_collated_score", "slick_to_source", ["collated_score"])
-    op.create_index("idx_slick_cls", "slick", ["cls"])
-    op.create_index("idx_slick_fill_factor", "slick", ["fill_factor"])
-    op.create_index("idx_slick_polsby_popper", "slick", ["polsby_popper"])
-    op.create_index("idx_slick_length", "slick", ["length"])
-    op.create_index("idx_slick_hitl", "slick", ["hitl_cls"])
-    op.create_index("idx_filter_hash", "filter", ["hash"])
-    op.create_index("idx_orchestrator_run_git_hash", "orchestrator_run", ["git_hash"])
-    op.create_index("idx_orchestrator_run_git_tag", "orchestrator_run", ["git_tag"])
-    op.create_index(
-        "idx_orchestrator_run_time",
-        "orchestrator_run",
-        ["inference_start_time", "inference_end_time"],
+    op.execute("CREATE INDEX IF NOT EXISTS idx_source_name ON source (st_name, type)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_slick_cls ON slick (cls)")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_slick_fill_factor ON slick (fill_factor)"
     )
-    op.create_index("idx_trigger_trigger_time", "trigger", ["trigger_time"])
-    op.create_index("idx_model_name", "model", ["name"])
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_slick_polsby_popper ON slick (polsby_popper)"
+    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_slick_length ON slick (length)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_slick_hitl ON slick (hitl_cls)")
+    op.execute("CREATE INDEX IF NOT EXISTS idx_filter_hash ON filter (hash)")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orchestrator_run_git_hash ON orchestrator_run (git_hash)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orchestrator_run_git_tag ON orchestrator_run (git_tag)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_orchestrator_run_time ON orchestrator_run (inference_start_time, inference_end_time)"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trigger_trigger_time ON trigger (trigger_time)"
+    )
+    op.execute("CREATE INDEX IF NOT EXISTS idx_model_name ON model (name)")
