@@ -241,6 +241,9 @@ async def handle_asa_request(request):
                             await db_client.deactivate_sources_for_slick(slick.id)
                     await db_client.session.close()
                 print(f"ASA completed for {len(slicks)} slicks in scene {scene_id}")
+                async with db_client.session.begin():
+                    await db_client.refresh_source_caches([s.id for s in slicks])
+                await db_client.session.close()
 
         # Dispose the engine after finishing all DB operations.
         await db_engine.dispose()
