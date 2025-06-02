@@ -80,33 +80,51 @@ def upgrade() -> None:
 
     op.execute(
         """
-        CREATE TABLE IF NOT EXISTS public.repeat_source_cache (
-            source_id BIGINT PRIMARY KEY,
-            occurrence_count BIGINT,
-            total_area DOUBLE PRECISION
-        )
-        """
-    )
-
-    op.execute(
-        """
-        CREATE VIEW IF NOT EXISTS public.repeat_source AS
-        SELECT
-            source_id,
-            occurrence_count,
-            total_area,
-            row_number() OVER (
-                ORDER BY occurrence_count DESC, total_area DESC
-            ) AS global_rank
-        FROM public.repeat_source_cache
-        ORDER BY occurrence_count DESC, total_area DESC
+        CREATE MATERIALIZED VIEW public.repeat_source AS
+            WITH agg AS (
+                SELECT
+                    s.id AS source_id,
+                    count(DISTINCT sl.orchestrator_run) AS occurrence_count,
+                    sum(sl.area) / 1000000 AS total_area
+                FROM slick_to_source sts
+                JOIN source s ON s.id = sts.source
+                JOIN slick sl ON sl.id = sts.slick
+                LEFT JOIN source_to_tag stt ON stt.source = sts.source
+                LEFT JOIN hitl_slick hs ON hs.slick = sl.id
+                WHERE sl.active
+                    AND sl.cls <> 1
+                    AND (hs.cls IS NULL OR hs.cls <> 1)
+                    AND sts.active
+                    AND sts.hitl_verification IS NOT FALSE
+                    AND (
+                        (s.type = 2 AND sts.rank = 1)
+                        OR
+                        (
+                            s.type = 1
+                            AND sts.collated_score > 0
+                            AND (
+                                stt.tag IS NULL
+                                OR (stt.tag <> ALL (ARRAY[5,6,7]))
+                            )
+                        )
+                    )
+                GROUP BY s.id, s.ext_id, s.type
+            )
+            SELECT
+                agg.source_id,
+                agg.occurrence_count,
+                agg.total_area,
+                row_number() OVER (
+                    ORDER BY agg.occurrence_count DESC, agg.total_area DESC
+                ) AS global_rank
+            FROM agg
+            ORDER BY agg.occurrence_count DESC, agg.total_area DESC
         """
     )
 
 
 def downgrade() -> None:
-    op.execute("DROP VIEW IF EXISTS public.repeat_source")
-    op.execute("DROP TABLE IF EXISTS public.repeat_source_cache")
+    op.execute("DROP MATERIALIZED VIEW IF EXISTS public.repeat_source")
     op.execute("DROP TABLE IF EXISTS public.source_plus")
     op.execute("DROP TABLE IF EXISTS public.slick_plus")
 

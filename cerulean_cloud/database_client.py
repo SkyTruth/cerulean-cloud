@@ -495,7 +495,7 @@ class DatabaseClient:
         )
 
     async def refresh_source_caches(self, slick_ids):
-        """Refresh source_plus and repeat_source_cache tables for slicks."""
+        """Refresh source_plus table and repeat_source materialized view."""
         if not slick_ids:
             return
         await self.session.execute(
@@ -530,49 +530,8 @@ class DatabaseClient:
             {"ids": slick_ids},
         )
 
-        res = await self.session.execute(
-            text("SELECT DISTINCT source FROM slick_to_source WHERE slick = ANY(:ids)"),
-            {"ids": slick_ids},
-        )
-        source_ids = [r[0] for r in res]
-        if not source_ids:
-            return
         await self.session.execute(
-            text("DELETE FROM repeat_source_cache WHERE source_id = ANY(:sids)"),
-            {"sids": source_ids},
-        )
-        await self.session.execute(
-            text(
-                """
-                INSERT INTO repeat_source_cache (source_id, occurrence_count, total_area)
-                SELECT agg.source_id,
-                       agg.occurrence_count,
-                       agg.total_area
-                FROM (
-                    SELECT s.id AS source_id,
-                        count(DISTINCT sl.orchestrator_run) AS occurrence_count,
-                        sum(sl.area) / 1000000 AS total_area
-                    FROM slick_to_source sts
-                    JOIN source s ON s.id = sts.source
-                    JOIN slick sl ON sl.id = sts.slick
-                    LEFT JOIN source_to_tag stt ON stt.source = sts.source
-                    LEFT JOIN hitl_slick hs ON hs.slick = sl.id
-                    WHERE sl.active
-                        AND sl.cls <> 1
-                        AND (hs.cls IS NULL OR hs.cls <> 1)
-                        AND sts.active
-                        AND sts.hitl_verification IS NOT FALSE
-                        AND (
-                            (s.type = 2 AND sts.rank = 1) OR
-                            (s.type = 1 AND sts.collated_score > 0 AND (stt.tag IS NULL OR (stt.tag <> ALL (ARRAY[5,6,7]))))
-                        )
-                        AND s.id = ANY(:sids)
-                    GROUP BY s.id, s.ext_id, s.type
-                ) agg
-                ORDER BY agg.occurrence_count DESC, agg.total_area DESC
-                """,
-            ),
-            {"sids": source_ids},
+            text("REFRESH MATERIALIZED VIEW CONCURRENTLY repeat_source")
         )
 
     # EditTheDatabase
