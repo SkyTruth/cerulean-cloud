@@ -300,9 +300,6 @@ def upgrade() -> None:
     op.execute("SELECT _rebuild_source_plus_rows(NULL)")
     op.execute("REFRESH MATERIALIZED VIEW repeat_source")
 
-    # ───────── 9. Ensure caches are current ─────────
-    op.execute("CALL refresh_all_slick_views()")
-
 
 def downgrade() -> None:
     op.execute("""
