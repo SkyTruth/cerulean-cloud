@@ -474,9 +474,10 @@ async def _orchestrate(
                 # Removed all preprocessing of features from within the
                 # database session to avoid holidng locks on the
                 # table while performing un-related calculations.
+                slick_ids = []
                 async with db_client.session.begin():
                     for feat in final_ensemble.get("features"):
-                        _ = await db_client.add_slick(
+                        slick = await db_client.add_slick(
                             orchestrator_run,
                             sentinel1_grd.start_time,
                             feat.get("geometry"),
@@ -485,7 +486,10 @@ async def _orchestrate(
                             feat.get("properties").get("centerlines"),
                             feat.get("properties").get("aspect_ratio_factor"),
                         )
+                        slick_ids.append(slick.id)
                         logger.info("Added slick")
+                async with db_client.session.begin():
+                    await db_client.refresh_slick_plus_cache(slick_ids)
 
                 logger.info("Queueing up Automatic Source Association")
                 add_to_asa_queue(sentinel1_grd.scene_id)
