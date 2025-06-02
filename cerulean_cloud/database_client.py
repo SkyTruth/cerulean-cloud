@@ -7,7 +7,7 @@ import pandas as pd
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
@@ -438,5 +438,13 @@ class DatabaseClient:
         return await update_object(
             self.session, db.SlickToSource, filter_kwargs, update_kwargs
         )
+
+    async def refresh_slick_plus(self):
+        """refresh materialized view slick plus"""
+        await self.session.execute(text("CALL refresh_slick_plus()"))
+
+    async def refresh_source_views(self):
+        """refresh materialized view source plus and repeat source"""
+        await self.session.execute(text("CALL refresh_source_views()"))
 
     # EditTheDatabase

@@ -487,6 +487,8 @@ async def _orchestrate(
                         )
                         logger.info("Added slick")
 
+                    await db_client.refresh_slick_plus()
+
                 logger.info("Queueing up Automatic Source Association")
                 add_to_asa_queue(sentinel1_grd.scene_id)
 
