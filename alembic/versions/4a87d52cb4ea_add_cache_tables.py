@@ -125,6 +125,9 @@ def upgrade() -> None:
             ORDER BY agg.occurrence_count DESC, agg.total_area DESC
         """
     )
+    op.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_repeat_source_source_id ON repeat_source (source_id)"
+    )
     # Create helper functions to refresh cache tables
     op.execute(
         """
@@ -277,6 +280,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("DROP INDEX IF EXISTS idx_repeat_source_source_id")
     op.execute("DROP MATERIALIZED VIEW IF EXISTS public.repeat_source")
     op.execute("DROP FUNCTION IF EXISTS refresh_source_caches(bigint[])")
     op.execute("DROP FUNCTION IF EXISTS refresh_slick_plus_cache(bigint[])")
