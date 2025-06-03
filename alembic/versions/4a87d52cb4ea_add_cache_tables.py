@@ -19,6 +19,10 @@ def upgrade() -> None:
     op.execute("DROP VIEW IF EXISTS public.source_plus")
     op.execute("DROP VIEW IF EXISTS public.repeat_source")
 
+    # Drop existing cache tables if they exist to avoid schema mismatches
+    op.execute("DROP TABLE IF EXISTS public.slick_plus")
+    op.execute("DROP TABLE IF EXISTS public.source_plus")
+
     # Create cache tables
     op.execute(
         """
@@ -127,10 +131,62 @@ def upgrade() -> None:
         CREATE OR REPLACE FUNCTION refresh_slick_plus_cache(ids bigint[])
         RETURNS void LANGUAGE SQL AS $$
             DELETE FROM slick_plus WHERE id = ANY(ids);
-            INSERT INTO slick_plus
+            INSERT INTO slick_plus (
+                id,
+                slick_timestamp,
+                geometry,
+                active,
+                orchestrator_run,
+                create_time,
+                inference_idx,
+                cls,
+                hitl_cls,
+                machine_confidence,
+                precursor_slicks,
+                notes,
+                centerlines,
+                aspect_ratio_factor,
+                length,
+                area,
+                perimeter,
+                centroid,
+                polsby_popper,
+                fill_factor,
+                linearity,
+                s1_scene_id,
+                s1_geometry,
+                cls_short_name,
+                cls_long_name,
+                aoi_type_1_ids,
+                aoi_type_2_ids,
+                aoi_type_3_ids,
+                source_type_1_ids,
+                source_type_2_ids,
+                source_type_3_ids,
+                slick_url
+            )
             SELECT
-                slick.*,
-                slick.length^2 / slick.area / slick.polsby_popper as linearity,
+                slick.id,
+                slick.slick_timestamp,
+                slick.geometry,
+                slick.active,
+                slick.orchestrator_run,
+                slick.create_time,
+                slick.inference_idx,
+                slick.cls,
+                slick.hitl_cls,
+                slick.machine_confidence,
+                slick.precursor_slicks,
+                slick.notes,
+                slick.centerlines,
+                slick.aspect_ratio_factor,
+                slick.length,
+                slick.area,
+                slick.perimeter,
+                slick.centroid,
+                slick.polsby_popper,
+                slick.fill_factor,
+                slick.length^2 / slick.area / slick.polsby_popper AS linearity,
                 sentinel1_grd.scene_id AS s1_scene_id,
                 sentinel1_grd.geometry AS s1_geometry,
                 cls.short_name AS cls_short_name,
@@ -175,18 +231,31 @@ def upgrade() -> None:
         CREATE OR REPLACE FUNCTION refresh_source_caches(ids bigint[])
         RETURNS void LANGUAGE SQL AS $$
             DELETE FROM source_plus WHERE slick_id = ANY(ids);
-            INSERT INTO source_plus
+            INSERT INTO source_plus (
+                geometry,
+                slick_id,
+                slick_confidence,
+                source_id,
+                mmsi_or_structure_id,
+                source_type,
+                source_collated_score,
+                source_rank,
+                create_time,
+                git_tag,
+                slick_url,
+                source_url
+            )
             SELECT
-                sk.geometry as geometry,
-                sts.slick as slick_id,
-                sk.machine_confidence as slick_confidence,
-                s.id as source_id,
-                s.ext_id as mmsi_or_structure_id,
-                st.short_name as source_type,
-                sts.collated_score as source_collated_score,
-                sts.rank as source_rank,
-                sts.create_time as create_time,
-                sts.git_hash as git_tag,
+                sk.geometry AS geometry,
+                sts.slick AS slick_id,
+                sk.machine_confidence AS slick_confidence,
+                s.id AS source_id,
+                s.ext_id AS mmsi_or_structure_id,
+                st.short_name AS source_type,
+                sts.collated_score AS source_collated_score,
+                sts.rank AS source_rank,
+                sts.create_time AS create_time,
+                sts.git_hash AS git_tag,
                 'https://cerulean.skytruth.org/slicks/' || sk.id::text || '?ref=api&slick_id=' || sk.id AS slick_url,
                 'https://cerulean.skytruth.org/?ref=api&' || st.ext_id_name || '=' || s.ext_id AS source_url
             FROM slick_to_source sts
@@ -204,9 +273,7 @@ def upgrade() -> None:
     op.execute(
         "SELECT refresh_slick_plus_cache(ARRAY(SELECT id FROM slick WHERE active))"
     )
-    op.execute(
-        "SELECT refresh_source_caches(ARRAY(SELECT id FROM slick WHERE active))"
-    )
+    op.execute("SELECT refresh_source_caches(ARRAY(SELECT id FROM slick WHERE active))")
 
 
 def downgrade() -> None:
@@ -330,4 +397,3 @@ def downgrade() -> None:
         """,
     )
     op.create_entity(repeat_source)
-
