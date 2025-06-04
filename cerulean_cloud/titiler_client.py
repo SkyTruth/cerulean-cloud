@@ -171,11 +171,10 @@ class TitilerClient:
         miny: float,
         maxx: float,
         maxy: float,
-        width: int = 256,
-        height: int = 256,
+        width: int = 512,
+        height: int = 512,
         band: str = "vv",
         img_format: str = "png",
-        scale: int = 1,
         rescale: Tuple[int, int] = (0, 255),
     ) -> np.ndarray:
         """get offset tile as numpy array (with bounds)
@@ -196,10 +195,8 @@ class TitilerClient:
         Returns:
             np.ndarray: The requested image of the bounds of the scene as a numpy array.
         """
-        out_w, out_h = width * scale, height * scale
-
         url = urlib.urljoin(
-            self.url, f"bbox/{minx},{miny},{maxx},{maxy}/{out_w}x{out_h}.{img_format}"
+            self.url, f"bbox/{minx},{miny},{maxx},{maxy}/{width}x{height}.{img_format}"
         )
         url += f"?scene_id={scene_id}"
         url += f"&bands={band}"
