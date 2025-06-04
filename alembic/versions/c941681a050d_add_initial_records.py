@@ -257,6 +257,7 @@ def upgrade() -> None:
                 read_perm=3,
                 write_perm=2,
                 public=True,
+                source_profile=True,
             ),
             database_schema.Tag(
                 short_name="obs",
@@ -266,6 +267,7 @@ def upgrade() -> None:
                 read_perm=2,
                 write_perm=2,
                 public=False,
+                source_profile=False,
             ),
             database_schema.Tag(
                 short_name="lng",
@@ -276,6 +278,7 @@ def upgrade() -> None:
                 read_perm=3,
                 write_perm=2,
                 public=True,
+                source_profile=True,
             ),
         ]
         session.add_all(tags)
