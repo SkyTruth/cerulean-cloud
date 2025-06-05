@@ -51,9 +51,9 @@ def upgrade() -> None:
         GROUP BY slick_to_aoi.slick
         ) aoi_agg ON aoi_agg.slick = slick.id
      LEFT JOIN ( SELECT slick_to_source.slick,
-            array_agg(source.id) FILTER (WHERE source.type = 1) AS source_type_1_ids,
-            array_agg(source.id) FILTER (WHERE source.type = 2) AS source_type_2_ids,
-            array_agg(source.id) FILTER (WHERE source.type = 3) AS source_type_3_ids
+            array_agg(source.ext_id) FILTER (WHERE source.type = 1) AS source_type_1_ids,
+            array_agg(source.ext_id) FILTER (WHERE source.type = 2) AS source_type_2_ids,
+            array_agg(source.ext_id) FILTER (WHERE source.type = 3) AS source_type_3_ids
            FROM slick_to_source
              JOIN source ON slick_to_source.source = source.id
             WHERE slick_to_source.active = true
