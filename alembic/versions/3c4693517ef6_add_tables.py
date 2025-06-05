@@ -410,6 +410,7 @@ def upgrade() -> None:
         sa.Column("read_perm", sa.BigInteger, sa.ForeignKey("permission.id")),
         sa.Column("write_perm", sa.BigInteger, sa.ForeignKey("permission.id")),
         sa.Column("public", sa.Boolean, nullable=False),
+        sa.Column("source_profile", sa.Boolean, nullable=False),
     )
 
     op.create_table(

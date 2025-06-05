@@ -220,6 +220,7 @@ class Tag(Base):  # noqa
     read_perm = Column(BigInteger)
     write_perm = Column(BigInteger)
     public = Column(Boolean, nullable=False)
+    source_profile = Column(Boolean, nullable=False)
 
 
 class Trigger(Base):  # noqa

@@ -68,9 +68,9 @@ def upgrade() -> None:
             OUT aoi_type_1_ids bigint[],
             OUT aoi_type_2_ids bigint[],
             OUT aoi_type_3_ids bigint[],
-            OUT source_type_1_ids bigint[],
-            OUT source_type_2_ids bigint[],
-            OUT source_type_3_ids bigint[]
+            OUT source_type_1_ids text[],
+            OUT source_type_2_ids text[],
+            OUT source_type_3_ids text[]
         )
             RETURNS SETOF record
             LANGUAGE 'sql'
@@ -144,9 +144,9 @@ def upgrade() -> None:
             OUT aoi_type_1_ids bigint[],
             OUT aoi_type_2_ids bigint[],
             OUT aoi_type_3_ids bigint[],
-            OUT source_type_1_ids bigint[],
-            OUT source_type_2_ids bigint[],
-            OUT source_type_3_ids bigint[]
+            OUT source_type_1_ids text[],
+            OUT source_type_2_ids text[],
+            OUT source_type_3_ids text[]
         )
             RETURNS SETOF record
             LANGUAGE 'sql'
@@ -218,9 +218,9 @@ def upgrade() -> None:
             OUT aoi_type_1_ids bigint[],
             OUT aoi_type_2_ids bigint[],
             OUT aoi_type_3_ids bigint[],
-            OUT source_type_1_ids bigint[],
-            OUT source_type_2_ids bigint[],
-            OUT source_type_3_ids bigint[]
+            OUT source_type_1_ids text[],
+            OUT source_type_2_ids text[],
+            OUT source_type_3_ids text[]
         )
             RETURNS SETOF record
             LANGUAGE 'sql'
