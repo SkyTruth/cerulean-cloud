@@ -79,7 +79,7 @@ def upgrade() -> None:
                 sts.create_time as create_time,
                 sts.git_hash as git_tag,
                 'https://cerulean.skytruth.org/slicks/' || sk.id::text ||'?ref=api&slick_id=' || sk.id AS slick_url,
-                'https://cerulean.skytruth.org/?ref=api&' || st.ext_id_name || '=' || s.ext_id AS source_url
+                'https://cerulean.skytruth.org/?ref=api&source_score=0_Infinity&' || st.ext_id_name || '=' || s.ext_id AS source_url
             FROM
                 slick_to_source sts
             INNER JOIN
