@@ -51,9 +51,9 @@ def upgrade() -> None:
         GROUP BY slick_to_aoi.slick
         ) aoi_agg ON aoi_agg.slick = slick.id
      LEFT JOIN ( SELECT slick_to_source.slick,
-            array_agg(source.id) FILTER (WHERE source.type = 1) AS source_type_1_ids,
-            array_agg(source.id) FILTER (WHERE source.type = 2) AS source_type_2_ids,
-            array_agg(source.id) FILTER (WHERE source.type = 3) AS source_type_3_ids
+            array_agg(source.ext_id) FILTER (WHERE source.type = 1) AS source_type_1_ids,
+            array_agg(source.ext_id) FILTER (WHERE source.type = 2) AS source_type_2_ids,
+            array_agg(source.ext_id) FILTER (WHERE source.type = 3) AS source_type_3_ids
            FROM slick_to_source
              JOIN source ON slick_to_source.source = source.id
             WHERE slick_to_source.active = true
@@ -79,7 +79,7 @@ def upgrade() -> None:
                 sts.create_time as create_time,
                 sts.git_hash as git_tag,
                 'https://cerulean.skytruth.org/slicks/' || sk.id::text ||'?ref=api&slick_id=' || sk.id AS slick_url,
-                'https://cerulean.skytruth.org/?ref=api&' || st.ext_id_name || '=' || s.ext_id AS source_url
+                'https://cerulean.skytruth.org/?ref=api&source_score=0_Infinity&' || st.ext_id_name || '=' || s.ext_id AS source_url
             FROM
                 slick_to_source sts
             INNER JOIN
