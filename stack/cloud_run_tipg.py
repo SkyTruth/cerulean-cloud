@@ -73,6 +73,22 @@ default = gcp.cloudrun.Service(
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TIPG_NAME", value="Cerulean OGC API"
                         ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_SPATIAL_EXTENT", value="False"
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_DATETIME_EXTENT", value="False"
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_ONLY_SPATIAL_TABLES", value="False"
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_EXCLUDE_FUNCTIONS",
+                            value='["st_squaregrid", "st_hexagongrid", "st_subdivide", "postgis_srs_search", "postgis_srs_all", "postgis_srs", "postgis_srs_codes"]',
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_SORT_COLUMNS", value="False"
+                        ),
                         *[
                             gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                                 name=f"TIPG_TABLE_CONFIG__public_{geom_table}__GEOMCOL",
@@ -126,7 +142,7 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="RESTRICTED_COLLECTIONS",
-                            value='["public.aoi_user","public.filter", "public.frequency", "public.verification_token", "public.accounts", "public.sessions", "public.subscription", "public.users", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel", "public.source_dark", "public.source_natural", "public.source_to_tag", "public.tag", "public.hitl_slick", "public.permission", "public.slick", "public.sentinel1_grd", "public.aoi_mpa", "public.aoi_iho", "public.aoi_eez", "public.slick_to_aoi", "public.aoi_chunks", "public.trigger", "public.orchestrator_run"]',
+                            value='["public.aoi_user","public.filter", "public.frequency", "public.verification_token", "public.accounts", "public.sessions", "public.subscription", "public.users", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel", "public.source_dark", "public.source_natural", "public.source_to_tag", "public.tag", "public.hitl_slick", "public.permission", "public.slick", "public.slick_to_aoi", "public.aoi_chunks", "public.trigger", "public.orchestrator_run", "public.repeat_source"]',
                             # EditTheDatabase
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(

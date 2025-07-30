@@ -12,12 +12,12 @@ geoalchemy2
 asyncpg
 fiona==1.9.6
 mapbox-vector-tile
-morecantile==3.4
+morecantile~=6.1.0
 pandas
 requests
 pyproj
 google-auth
-pydantic<2.0
+pydantic~=2.0
 psycopg2-binary
 centerline==1.0.1
 networkx

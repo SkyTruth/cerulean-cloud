@@ -13,13 +13,13 @@ Make sure to set in your environment:
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any, List, Optional
 
-import asyncpg
 import jinja2
 import pydantic_settings
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from mangum import Mangum
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
@@ -28,10 +28,10 @@ from starlette.templating import Jinja2Templates
 from starlette_cramjam.middleware import CompressionMiddleware
 from tipg import __version__ as tipg_version
 from tipg.collections import register_collection_catalog
-from tipg.database import connect_to_db
+from tipg.database import close_db_connection, connect_to_db
 from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
-from tipg.middleware import CacheControlMiddleware
+from tipg.middleware import CacheControlMiddleware, CatalogUpdateMiddleware
 from tipg.settings import APISettings, DatabaseSettings
 
 settings = APISettings()
@@ -155,11 +155,24 @@ class PostgresSettings(pydantic_settings.BaseSettings):
 
 postgres_settings = PostgresSettings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await _initialize_db(app)
+
+    yield
+    # shutdown
+    await close_db_connection(app)
+    if getattr(app.state, "pool", None):
+        await app.state.pool.close()
+
+
 app = FastAPI(
     title=settings.name,
     version=tipg_version,
     openapi_url="/api",
     docs_url="/api.html",
+    lifespan=lifespan,
 )
 
 templates_location: List[Any] = [
@@ -169,10 +182,8 @@ templates_location: List[Any] = [
     jinja2.PackageLoader("tipg", "templates"),  # default template directory
 ]
 
-templates = Jinja2Templates(
-    directory="",  # we need to set a dummy directory variable, see https://github.com/encode/starlette/issues/1214
-    loader=jinja2.ChoiceLoader(templates_location),
-)
+templates = Jinja2Templates(directory="cerulean_cloud/cloud_run_tipg/templates/")
+templates.env.loader = jinja2.ChoiceLoader(templates_location)
 
 # Register endpoints.
 endpoints = Endpoints(title=settings.name, templates=templates)
@@ -194,70 +205,53 @@ app.add_middleware(AccessControlMiddleware)
 
 app.add_middleware(CacheControlMiddleware, cachecontrol=settings.cachecontrol)
 app.add_middleware(CompressionMiddleware)
+app.add_middleware(
+    CatalogUpdateMiddleware,
+    func=register_collection_catalog,
+    ttl=300,  # 5 minutes, or adjust as needed
+    db_settings=db_settings,  # passed as **kwargs
+)
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Connect to database on startup."""
-    try:
-        await connect_to_db(app, settings=postgres_settings)
-        assert getattr(app.state, "pool", None)
-
-        await register_collection_catalog(
-            app,
-            schemas=db_settings.schemas,
-            exclude_table_schemas=db_settings.exclude_table_schemas,
-            tables=db_settings.tables,
-            exclude_tables=db_settings.exclude_tables,
-            exclude_function_schemas=db_settings.exclude_function_schemas,
-            functions=db_settings.functions,
-            exclude_functions=db_settings.exclude_functions,
-            spatial=False,  # False means allow non-spatial tables
-            datetime_extent=False,  # Avoid precalculating datetime extent to speed up registration
-            spatial_extent=False,  # Avoid precalculating spatial extent to speed up registration
-        )
-    except asyncpg.exceptions.UndefinedObjectError:
-        # This is the case where TiPG is attempting to start up BEFORE
-        # the alembic code has had the opportunity to launch the database
-        # You will need to poll the /register endpoint of the tipg URL in order to correctly load the tables
-        # i.e. curl https://some-tipg-url.app/register
-        app.state.collection_catalog = {}
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    """Close database connection."""
-    if getattr(app.state, "pool", None):
-        await app.state.pool.close()
 
 
 @app.get("/register", include_in_schema=False)
 async def register_table(request: Request):
     """Manually register tables"""
-    if not getattr(request.app.state, "pool", None):
-        await connect_to_db(request.app, settings=postgres_settings)
+    await _initialize_db(request.app)
+    return {
+        "status": "ok",
+        "registered": list(request.app.state.collection_catalog.keys()),
+    }
 
-    assert getattr(request.app.state, "pool", None)
-    await register_collection_catalog(
-        request.app,
+
+async def _initialize_db(app: FastAPI):
+    """Common DB setup: connect and register catalog."""
+    await connect_to_db(
+        app,
+        settings=postgres_settings,
         schemas=db_settings.schemas,
-        exclude_table_schemas=db_settings.exclude_table_schemas,
-        tables=db_settings.tables,
-        exclude_tables=db_settings.exclude_tables,
-        exclude_function_schemas=db_settings.exclude_function_schemas,
-        functions=db_settings.functions,
-        exclude_functions=db_settings.exclude_functions,
-        spatial=False,  # False means allow non-spatial tables
-        datetime_extent=False,  # Avoid precalculating datetime extent to speed up registration
-        spatial_extent=False,  # Avoid precalculating spatial extent to speed up registration
     )
+    await register_collection_catalog(app, db_settings=db_settings)
 
 
 @app.get("/health", description="Health Check", tags=["Health Check"])
 def ping():
     """Health check."""
     return {"ping": "pong!"}
+
+
+@app.get("/robots.txt", description="Robots.txt", tags=["Robots.txt"])
+def get_robots_txt():
+    """Return the robots.txt file that controls web crawler access to the API.
+
+    This endpoint serves the robots.txt file which provides instructions to web crawlers
+    about which parts of the API they are allowed to access. The file should be placed
+    in the root directory of the project.
+
+    Returns:
+        FileResponse: The robots.txt file content
+    """
+    return FileResponse("robots.txt")
 
 
 logging.getLogger("mangum.lifespan").setLevel(logging.ERROR)
