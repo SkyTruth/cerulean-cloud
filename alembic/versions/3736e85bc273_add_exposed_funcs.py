@@ -44,6 +44,7 @@ def upgrade() -> None:
             aoi_id text DEFAULT 'NULL',
             source_id text DEFAULT 'NULL',
             source_rank integer DEFAULT 1,
+            collation_threshold double precision DEFAULT NULL,
             OUT id integer,
             OUT linearity double precision,
             OUT slick_timestamp timestamp without time zone,
@@ -68,9 +69,11 @@ def upgrade() -> None:
             OUT aoi_type_1_ids bigint[],
             OUT aoi_type_2_ids bigint[],
             OUT aoi_type_3_ids bigint[],
-            OUT source_type_1_ids bigint[],
-            OUT source_type_2_ids bigint[],
-            OUT source_type_3_ids bigint[]
+            OUT source_type_1_ids text[],
+            OUT source_type_2_ids text[],
+            OUT source_type_3_ids text[],
+            OUT max_source_collated_score double precision,
+            OUT slick_url text
         )
             RETURNS SETOF record
             LANGUAGE 'sql'
@@ -105,12 +108,15 @@ def upgrade() -> None:
                 sp.aoi_type_3_ids,
                 sp.source_type_1_ids,
                 sp.source_type_2_ids,
-                sp.source_type_3_ids
+                sp.source_type_3_ids,
+                sp.max_source_collated_score,
+                sp.slick_url
             FROM public.slick_plus sp
             LEFT JOIN slick_to_source sts ON sts.slick = sp.id AND source_id != 'NULL' AND sts.active
             LEFT JOIN slick_to_aoi sta ON sta.slick = sp.id AND aoi_id != 'NULL'
             WHERE (source_id = 'NULL' OR sts.source = ANY(string_to_array(source_id, ',')::int[]) AND sts.rank <= source_rank)
-            AND (aoi_id = 'NULL' OR sta.aoi = ANY(string_to_array(aoi_id, ',')::int[]));
+            AND (aoi_id = 'NULL' OR sta.aoi = ANY(string_to_array(aoi_id, ',')::int[]))
+            AND (collation_threshold IS NULL OR sp.max_source_collated_score >= collation_threshold);
         $BODY$;
         """
     )
@@ -120,6 +126,7 @@ def upgrade() -> None:
         CREATE OR REPLACE FUNCTION public.get_slicks_by_source(
             source_id text,
             source_rank integer DEFAULT 1,
+            collation_threshold double precision DEFAULT NULL,
             OUT id integer,
             OUT linearity double precision,
             OUT slick_timestamp timestamp without time zone,
@@ -144,9 +151,11 @@ def upgrade() -> None:
             OUT aoi_type_1_ids bigint[],
             OUT aoi_type_2_ids bigint[],
             OUT aoi_type_3_ids bigint[],
-            OUT source_type_1_ids bigint[],
-            OUT source_type_2_ids bigint[],
-            OUT source_type_3_ids bigint[]
+            OUT source_type_1_ids text[],
+            OUT source_type_2_ids text[],
+            OUT source_type_3_ids text[],
+            OUT max_source_collated_score double precision,
+            OUT slick_url text
         )
             RETURNS SETOF record
             LANGUAGE 'sql'
@@ -181,11 +190,14 @@ def upgrade() -> None:
                 sp.aoi_type_3_ids,
                 sp.source_type_1_ids,
                 sp.source_type_2_ids,
-                sp.source_type_3_ids
+                sp.source_type_3_ids,
+                sp.max_source_collated_score,
+                sp.slick_url
             FROM public.slick_plus sp
             JOIN slick_to_source sts ON sts.slick = sp.id AND sts.active
             WHERE sts.source = ANY(string_to_array(source_id, ',')::int[])
-            AND (sts.rank <= source_rank);
+            AND (sts.rank <= source_rank)
+            AND (collation_threshold IS NULL OR sp.max_source_collated_score >= collation_threshold);
         $BODY$;
         """
     )
@@ -194,6 +206,7 @@ def upgrade() -> None:
         """
         CREATE OR REPLACE FUNCTION public.get_slicks_by_aoi(
             aoi_id text,
+            collation_threshold double precision DEFAULT NULL,
             OUT id integer,
             OUT linearity double precision,
             OUT slick_timestamp timestamp without time zone,
@@ -218,9 +231,11 @@ def upgrade() -> None:
             OUT aoi_type_1_ids bigint[],
             OUT aoi_type_2_ids bigint[],
             OUT aoi_type_3_ids bigint[],
-            OUT source_type_1_ids bigint[],
-            OUT source_type_2_ids bigint[],
-            OUT source_type_3_ids bigint[]
+            OUT source_type_1_ids text[],
+            OUT source_type_2_ids text[],
+            OUT source_type_3_ids text[],
+            OUT max_source_collated_score double precision,
+            OUT slick_url text
         )
             RETURNS SETOF record
             LANGUAGE 'sql'
@@ -255,10 +270,13 @@ def upgrade() -> None:
                 sp.aoi_type_3_ids,
                 sp.source_type_1_ids,
                 sp.source_type_2_ids,
-                sp.source_type_3_ids
+                sp.source_type_3_ids,
+                sp.max_source_collated_score,
+                sp.slick_url
             FROM public.slick_plus sp
             JOIN slick_to_aoi sta ON sta.slick = sp.id
-            WHERE sta.aoi = ANY(string_to_array(aoi_id, ',')::int[]);
+            WHERE sta.aoi = ANY(string_to_array(aoi_id, ',')::int[])
+            AND (collation_threshold IS NULL OR sp.max_source_collated_score >= collation_threshold);
         $BODY$;
         """
     )
