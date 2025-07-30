@@ -36,6 +36,7 @@ def upgrade() -> None:
         source_agg.source_type_1_ids,
         source_agg.source_type_2_ids,
         source_agg.source_type_3_ids,
+        source_agg.max_ssm,
         'https://cerulean.skytruth.org/slicks/' || slick.id::text ||'?ref=api&slick_id=' || slick.id AS slick_url
     FROM slick
     JOIN orchestrator_run ON orchestrator_run.id = slick.orchestrator_run
@@ -51,9 +52,10 @@ def upgrade() -> None:
         GROUP BY slick_to_aoi.slick
         ) aoi_agg ON aoi_agg.slick = slick.id
      LEFT JOIN ( SELECT slick_to_source.slick,
-            array_agg(source.id) FILTER (WHERE source.type = 1) AS source_type_1_ids,
-            array_agg(source.id) FILTER (WHERE source.type = 2) AS source_type_2_ids,
-            array_agg(source.id) FILTER (WHERE source.type = 3) AS source_type_3_ids
+            array_agg(source.ext_id) FILTER (WHERE source.type = 1) AS source_type_1_ids,
+            array_agg(source.ext_id) FILTER (WHERE source.type = 2) AS source_type_2_ids,
+            array_agg(source.ext_id) FILTER (WHERE source.type = 3) AS source_type_3_ids,
+            max(slick_to_source.collated_score) AS max_ssm
            FROM slick_to_source
              JOIN source ON slick_to_source.source = source.id
             WHERE slick_to_source.active = true
@@ -79,7 +81,11 @@ def upgrade() -> None:
                 sts.create_time as create_time,
                 sts.git_hash as git_tag,
                 'https://cerulean.skytruth.org/slicks/' || sk.id::text ||'?ref=api&slick_id=' || sk.id AS slick_url,
-                'https://cerulean.skytruth.org/?ref=api&' || st.ext_id_name || '=' || s.ext_id AS source_url
+                CASE
+                    WHEN s.type = 1 THEN ('https://cerulean.skytruth.org/sources/'::text || s.ext_id) || '?ref=api'::text
+                    WHEN s.type = 2 THEN (('https://cerulean.skytruth.org/?ref=api&source_score=0_Infinity&'::text || st.ext_id_name) || '='::text) || s.ext_id
+                    ELSE NULL::text
+                END AS source_url
             FROM
                 slick_to_source sts
             INNER JOIN
