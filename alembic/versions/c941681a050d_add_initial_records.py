@@ -31,43 +31,52 @@ def upgrade() -> None:
             database_schema.Cls(
                 short_name="BACKGROUND",
                 long_name="Background",
+                description="Detections that are unlikely to be slicks (e.g. wind shadow, weather, ice, visual artifacts, over land, internal waves, etc.)",
             ),
             database_schema.Cls(
                 short_name="ANTHRO",
                 long_name="Anthropogenic",
+                description="Detections that appear to be from anthropogenic sources, such as infrastructure, vessels",
             ),
             database_schema.Cls(
                 short_name="NATURAL",
                 long_name="Natural",
+                description="Detections that appear to be from natural sources, such as oil seeps",
             ),
             database_schema.Cls(
                 short_name="INFRA",
                 long_name="Infrastructure",
                 supercls=2,
+                description="Detections that appear to be from infrastructure, such as oil platforms or other man-made structures",
             ),
             database_schema.Cls(
                 short_name="VESSEL",
                 long_name="Vessel",
                 supercls=2,
+                description="Detections that appear to be from vessels, such as ships, boats, or other watercraft",
             ),
             database_schema.Cls(
                 short_name="OLD_VESSEL",
                 long_name="Vessel, old",
                 supercls=5,
+                description="Detections that appear to be from vessels, but are old, so the slick is difficult to identify and the responsible party is very unlikely to be determined",
             ),
             database_schema.Cls(
                 short_name="REC_VESSEL",
                 long_name="Vessel, recent",
                 supercls=5,
+                description="Detections that appear to be from vessels, recent but not visible in the imagery, it may be possible to determine the responsible party, but it is unlikely",
             ),
             database_schema.Cls(
                 short_name="COIN_VESSEL",
                 long_name="Vessel, coincident",
                 supercls=7,
+                description="Detections that appear to be from vessels, and are coincident with a vessel that is visible in the imagery, so the responsible party is highly likely to be determined",
             ),
             database_schema.Cls(
                 short_name="AMBIGUOUS",
                 long_name="Ambiguous",
+                description="Detections that are ambiguous, it is not clear after human review if the detection is oil or some other slick (e.g. wind shadow, precipitation, etc.)",
             ),
         ]
         session.add_all(clses)

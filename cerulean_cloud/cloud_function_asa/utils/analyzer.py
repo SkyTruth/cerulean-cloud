@@ -279,7 +279,7 @@ class AISAnalyzer(SourceAnalyzer):
         ais_proj = self.ais_gdf.to_crs(self.crs_meters)
         existing_ids = set(self.ais_trajectories.keys())
 
-        # 1. Aggregate per‑vessel static bounds, max speed, first/last times
+        # 1. Aggregate per-vessel static bounds, max speed, first/last times
         agg = (
             ais_proj.groupby("ssvid")
             .agg(
@@ -314,14 +314,14 @@ class AISAnalyzer(SourceAnalyzer):
         mask_static = ~(
             (agg.minx > sx1) | (agg.maxx < sx0) | (agg.miny > sy1) | (agg.maxy < sy0)
         )
-        # first‑point buffer intersects?
+        # first-point buffer intersects?
         mask_first = ~(
             (agg.x0 - reach0 > sx1)
             | (agg.x0 + reach0 < sx0)
             | (agg.y0 - reach0 > sy1)
             | (agg.y0 + reach0 < sy0)
         )
-        # last‑point buffer intersects?
+        # last-point buffer intersects?
         mask_last = ~(
             (agg.x1 - reach1 > sx1)
             | (agg.x1 + reach1 < sx0)
