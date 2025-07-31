@@ -119,6 +119,7 @@ def upgrade() -> None:
         sa.Column("short_name", sa.Text, unique=True),
         sa.Column("long_name", sa.Text),
         sa.Column("supercls", sa.BigInteger, sa.ForeignKey("cls.id")),
+        sa.Column("description", sa.Text),
     )
 
     op.create_table(

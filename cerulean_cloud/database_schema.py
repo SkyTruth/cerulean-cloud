@@ -68,6 +68,7 @@ class Cls(Base):  # noqa
     )
     short_name = Column(Text, unique=True)
     long_name = Column(Text)
+    description = Column(Text)
     supercls = Column(ForeignKey("cls.id"))
 
     parent = relationship("Cls", remote_side=[id])
