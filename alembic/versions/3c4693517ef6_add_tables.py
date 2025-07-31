@@ -448,6 +448,7 @@ def downgrade() -> None:
     op.drop_table("source_dark")
     op.drop_table("source_infra")
     op.drop_table("source_vessel")
+    op.drop_table("source_natural")
     op.drop_table("source")
     op.drop_table("source_type")
     op.drop_table("slick_to_aoi")
