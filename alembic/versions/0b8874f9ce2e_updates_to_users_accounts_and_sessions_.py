@@ -37,6 +37,9 @@ def upgrade():
     )
     op.add_column("users", sa.Column("location", sa.String()), nullable=False)
     op.add_column("users", sa.Column("emailConsent", sa.Boolean()), nullable=False)
+    op.add_column("users", sa.Column("banned", sa.Boolean(), server_default="false", nullable=False))
+    op.add_column("users", sa.Column("banReason", sa.String()))
+    op.add_column("users", sa.Column("banExpires", sa.Date()))
 
     op.alter_column("sessions", "expires", new_column_name="expiresAt")
     op.alter_column("sessions", "sessionToken", new_column_name="token")
@@ -52,6 +55,7 @@ def upgrade():
             "updatedAt", sa.DateTime(), server_default=sa.text("now()"), nullable=False
         ),
     )
+    op.add_column("sessions", sa.Column("impersonatedBy", sa.String()))
 
     op.alter_column("accounts", "provider", new_column_name="providerId")
     op.alter_column("accounts", "providerAccountId", new_column_name="accountId")
@@ -89,6 +93,9 @@ def downgrade():
     op.drop_column("users", "organizationType")
     op.drop_column("users", "location")
     op.drop_column("users", "emailConsent")
+    op.drop_column("users", "banExpires")
+    op.drop_column("users", "banReason")
+    op.drop_column("users", "banned")
 
     op.drop_column("accounts", "updatedAt")
     op.drop_column("accounts", "createdAt")
@@ -107,6 +114,7 @@ def downgrade():
 
     op.drop_column("sessions", "updatedAt")
     op.drop_column("sessions", "createdAt")
+    op.drop_column("sessions", "impersonatedBy")
     op.alter_column("sessions", "token", new_column_name="sessionToken")
     op.alter_column("sessions", "expiresAt", new_column_name="expires")
 
