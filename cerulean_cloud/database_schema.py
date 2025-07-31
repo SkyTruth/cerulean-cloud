@@ -25,6 +25,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Computed,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -68,8 +69,8 @@ class Cls(Base):  # noqa
     )
     short_name = Column(Text, unique=True)
     long_name = Column(Text)
-    description = Column(Text)
     supercls = Column(ForeignKey("cls.id"))
+    description = Column(Text)
 
     parent = relationship("Cls", remote_side=[id])
 
@@ -153,7 +154,11 @@ class Model(Base):  # noqa
 class Permission(Base):  # noqa
     __tablename__ = "permission"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('permission_id_seq'::regclass)"),
+    )
     short_name = Column(Text, nullable=False, unique=True)
     long_name = Column(Text, nullable=False)
 
@@ -206,25 +211,6 @@ class SpatialRefSys(Base):  # noqa
     proj4text = Column(String(2048))
 
 
-class Tag(Base):  # noqa
-    __tablename__ = "tag"
-
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('tag_id_seq'::regclass)"),
-    )
-    short_name = Column(Text, nullable=False, unique=True)
-    long_name = Column(Text, nullable=False)
-    description = Column(Text)
-    citation = Column(Text)
-    owner = Column(BigInteger)
-    read_perm = Column(BigInteger)
-    write_perm = Column(BigInteger)
-    public = Column(Boolean, nullable=False)
-    source_profile = Column(Boolean, nullable=False)
-
-
 class Trigger(Base):  # noqa
     __tablename__ = "trigger"
 
@@ -248,11 +234,19 @@ class Users(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('users_id_seq'::regclass)"),
     )
-    name = Column(Text)
-    email = Column(Text)
-    emailVerified = Column(DateTime)
+    firstName = Column(Text, nullable=False)
+    email = Column(Text, nullable=False)
+    emailVerified = Column(Boolean)
     image = Column(Text)
     role = Column(Text)
+    lastName = Column(String)
+    organization = Column(String)
+    organizationType = Column(ARRAY(String()))
+    location = Column(String)
+    emailConsent = Column(Boolean)
+    banned = Column(Boolean)
+    banReason = Column(String)
+    banExpires = Column(Date)
 
 
 class VerificationToken(Base):  # noqa
@@ -273,15 +267,17 @@ class Accounts(Base):  # noqa
     )
     userId = Column(ForeignKey("users.id"), nullable=False)
     type = Column(Text, nullable=False)
-    provider = Column(Text, nullable=False)
-    providerAccountId = Column(Text, nullable=False)
-    refresh_token = Column(Text)
-    access_token = Column(Text)
-    expires_at = Column(BigInteger)
-    id_token = Column(Text)
+    providerId = Column(Text, nullable=False)
+    accountId = Column(Text, nullable=False)
+    refreshToken = Column(Text)
+    accessToken = Column(Text)
+    accessTokenExpiresAt = Column(DateTime)
+    idToken = Column(Text)
     scope = Column(Text)
     session_state = Column(Text)
     token_type = Column(Text)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
 
     users = relationship("Users")
 
@@ -382,8 +378,11 @@ class Sessions(Base):  # noqa
         server_default=text("nextval('sessions_id_seq'::regclass)"),
     )
     userId = Column(ForeignKey("users.id"), nullable=False)
-    expires = Column(DateTime, nullable=False)
-    sessionToken = Column(Text, nullable=False)
+    expiresAt = Column(DateTime, nullable=False)
+    token = Column(Text, nullable=False)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
+    impersonatedBy = Column(String)
 
     users = relationship("Users")
 
@@ -412,8 +411,8 @@ class SourceDark(Source):  # noqa
         nullable=False,
     )
     scene_id = Column(Text)
-    length_m = Column(Float)
-    detection_probability = Column(Float)
+    length_m = Column(Float(53))
+    detection_probability = Column(Float(53))
 
 
 class SourceInfra(Source):  # noqa
@@ -468,6 +467,33 @@ class Subscription(Base):  # noqa
     filter1 = relationship("Filter")
     frequency1 = relationship("Frequency")
     users = relationship("Users")
+
+
+class Tag(Base):  # noqa
+    __tablename__ = "tag"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('tag_id_seq'::regclass)"),
+    )
+    short_name = Column(Text, nullable=False, unique=True)
+    long_name = Column(Text, nullable=False)
+    description = Column(Text)
+    citation = Column(Text)
+    owner = Column(ForeignKey("users.id"))
+    read_perm = Column(ForeignKey("permission.id"))
+    write_perm = Column(ForeignKey("permission.id"))
+    public = Column(Boolean, nullable=False)
+    source_profile = Column(Boolean, nullable=False)
+
+    users = relationship("Users")
+    permission = relationship(
+        "Permission", primaryjoin="Tag.read_perm == Permission.id"
+    )
+    permission1 = relationship(
+        "Permission", primaryjoin="Tag.write_perm == Permission.id"
+    )
 
 
 t_aoi_chunks = Table(
