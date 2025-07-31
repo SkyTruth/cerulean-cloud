@@ -192,6 +192,7 @@ class SourceType(Base):  # noqa
     long_name = Column(Text)
     short_name = Column(Text)
     citation = Column(Text)
+    ext_id_name = Column(Text)
 
 
 class SpatialRefSys(Base):  # noqa

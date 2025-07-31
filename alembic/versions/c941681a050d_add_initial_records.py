@@ -256,6 +256,15 @@ def upgrade() -> None:
         ]
         session.add_all(permissions)
 
+        first_user = database_schema.Users(
+            name="jona",
+            email="jona@cerulean.org",
+            role="ADMIN",
+            emailVerified=datetime.now(),
+        )
+        session.add(first_user)
+        session.flush()  # guarantees system_user.id is available
+
         tags = [
             database_schema.Tag(
                 short_name="fxo",
