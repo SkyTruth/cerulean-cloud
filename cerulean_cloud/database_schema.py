@@ -233,11 +233,24 @@ class Users(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('users_id_seq'::regclass)"),
     )
-    name = Column(Text)
-    email = Column(Text)
-    emailVerified = Column(DateTime)
+    firstName = Column(Text)
+    lastName = Column(Text)
+    name = Column(
+        Text,
+        Computed('(("firstName" || \' \'::text) || "lastName")', persisted=True),
+        nullable=False,
+    )
+    email = Column(Text, nullable=False, unique=True)
+    emailVerified = Column(Boolean)
     image = Column(Text)
     role = Column(Text)
+    organization = Column(Text)
+    organizationType = Column(ARRAY(Text()))
+    location = Column(Text)
+    emailConsent = Column(Boolean)
+    banned = Column(Boolean)
+    banReason = Column(Text)
+    banExpires = Column(DateTime)
 
 
 class VerificationToken(Base):  # noqa
@@ -257,16 +270,15 @@ class Accounts(Base):  # noqa
         server_default=text("nextval('accounts_id_seq'::regclass)"),
     )
     userId = Column(ForeignKey("users.id"), nullable=False)
-    type = Column(Text, nullable=False)
-    provider = Column(Text, nullable=False)
-    providerAccountId = Column(Text, nullable=False)
-    refresh_token = Column(Text)
-    access_token = Column(Text)
-    expires_at = Column(BigInteger)
-    id_token = Column(Text)
+    providerId = Column(Text, nullable=False)
+    accountId = Column(Text, nullable=False)
+    refreshToken = Column(Text)
+    accessToken = Column(Text)
+    accessTokenExpiresAt = Column(DateTime)
+    idToken = Column(Text)
     scope = Column(Text)
-    session_state = Column(Text)
-    token_type = Column(Text)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
 
     users = relationship("Users")
 
@@ -367,8 +379,11 @@ class Sessions(Base):  # noqa
         server_default=text("nextval('sessions_id_seq'::regclass)"),
     )
     userId = Column(ForeignKey("users.id"), nullable=False)
-    expires = Column(DateTime, nullable=False)
-    sessionToken = Column(Text, nullable=False)
+    expiresAt = Column(DateTime, nullable=False)
+    token = Column(Text, nullable=False)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
+    impersonatedBy = Column(Text)
 
     users = relationship("Users")
 
