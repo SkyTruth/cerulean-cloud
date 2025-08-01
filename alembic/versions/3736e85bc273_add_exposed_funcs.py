@@ -313,17 +313,17 @@ def downgrade() -> None:
     )
     op.execute(
         """
-        DROP FUNCTION public.get_slicks_by_source(text, integer);
+        DROP FUNCTION public.get_slicks_by_source(text, integer, double precision);
         """
     )
     op.execute(
         """
-        DROP FUNCTION public.get_slicks_by_aoi(text);
+        DROP FUNCTION public.get_slicks_by_aoi(text, double precision);
         """
     )
     op.execute(
         """
-        DROP FUNCTION public.get_slicks_by_aoi_or_source(text, text, integer);
+        DROP FUNCTION public.get_slicks_by_aoi_or_source(text, text, integer, double precision);
         """
     )
     get_history_slick = PGFunction(
