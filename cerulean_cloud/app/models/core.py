@@ -151,7 +151,7 @@ class Cls(Base):  # noqa
     __tablename__ = "cls"
 
     id = Column(
-        Integer,
+        BigInteger,
         primary_key=True,
         server_default=text("nextval('cls_id_seq'::regclass)"),
     )

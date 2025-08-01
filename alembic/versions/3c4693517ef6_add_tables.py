@@ -115,7 +115,7 @@ def upgrade() -> None:
 
     op.create_table(
         "cls",
-        sa.Column("id", sa.Integer, primary_key=True),
+        sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("short_name", sa.Text, unique=True),
         sa.Column("long_name", sa.Text),
         sa.Column("supercls", sa.BigInteger, sa.ForeignKey("cls.id")),
@@ -187,7 +187,7 @@ def upgrade() -> None:
         sa.Column("user", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
         sa.Column("filter", sa.BigInteger, sa.ForeignKey("filter.id"), nullable=False),
         sa.Column(
-            "frequency", sa.Integer, sa.ForeignKey("frequency.id"), nullable=False
+            "frequency", sa.BigInteger, sa.ForeignKey("frequency.id"), nullable=False
         ),
         sa.Column("active", sa.Boolean),
         sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
