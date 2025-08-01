@@ -28,9 +28,27 @@ def upgrade():
         type_=sa.Boolean(),
         postgresql_using='CASE WHEN "emailVerified" IS NULL THEN FALSE ELSE TRUE END',
     )
-    op.alter_column("users", "name", new_column_name="firstName", nullable=False)
-    op.alter_column("users", "email", nullable=False)
+    op.alter_column(
+        "users",
+        "email",
+        nullable=False,
+    )
+    op.add_column("users", sa.Column("firstName", sa.String()))
     op.add_column("users", sa.Column("lastName", sa.String()))
+    op.execute("""
+        UPDATE users SET "firstName" = "name"
+               """)
+    op.execute(
+        """
+        ALTER TABLE users
+        ALTER COLUMN "name" DROP DEFAULT,
+        ALTER COLUMN "name" SET GENERATED ALWAYS AS (
+            NULLIF(concat_ws(' ', "firstName", "lastName"), '')
+        ) STORED
+        ALTER COLUMN "name" SET NOT NULL
+        """
+    )
+
     op.add_column("users", sa.Column("organization", sa.String()))
     op.add_column("users", sa.Column("organizationType", postgresql.ARRAY(sa.String)))
     op.add_column("users", sa.Column("location", sa.String()))

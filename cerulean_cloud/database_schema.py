@@ -234,7 +234,8 @@ class Users(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('users_id_seq'::regclass)"),
     )
-    firstName = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    firstName = Column(Text)
     email = Column(Text, nullable=False)
     emailVerified = Column(Boolean)
     image = Column(Text)
