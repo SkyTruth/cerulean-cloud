@@ -187,7 +187,7 @@ def upgrade() -> None:
         sa.Column("user", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
         sa.Column("filter", sa.BigInteger, sa.ForeignKey("filter.id"), nullable=False),
         sa.Column(
-            "frequency", sa.Integer, sa.ForeignKey("frequency.id"), nullable=False
+            "frequency", sa.BigInteger, sa.ForeignKey("frequency.id"), nullable=False
         ),
         sa.Column("active", sa.Boolean),
         sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
@@ -448,6 +448,7 @@ def downgrade() -> None:
     op.drop_table("source_dark")
     op.drop_table("source_infra")
     op.drop_table("source_vessel")
+    op.drop_table("source_natural")
     op.drop_table("source")
     op.drop_table("source_type")
     op.drop_table("slick_to_aoi")

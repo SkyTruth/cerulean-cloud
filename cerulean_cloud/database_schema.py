@@ -68,8 +68,8 @@ class Cls(Base):  # noqa
     )
     short_name = Column(Text, unique=True)
     long_name = Column(Text)
-    description = Column(Text)
     supercls = Column(ForeignKey("cls.id"))
+    description = Column(Text)
 
     parent = relationship("Cls", remote_side=[id])
 
@@ -153,7 +153,11 @@ class Model(Base):  # noqa
 class Permission(Base):  # noqa
     __tablename__ = "permission"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('permission_id_seq'::regclass)"),
+    )
     short_name = Column(Text, nullable=False, unique=True)
     long_name = Column(Text, nullable=False)
 
@@ -192,6 +196,7 @@ class SourceType(Base):  # noqa
     long_name = Column(Text)
     short_name = Column(Text)
     citation = Column(Text)
+    ext_id_name = Column(Text)
 
 
 class SpatialRefSys(Base):  # noqa
@@ -203,25 +208,6 @@ class SpatialRefSys(Base):  # noqa
     auth_srid = Column(Integer)
     srtext = Column(String(2048))
     proj4text = Column(String(2048))
-
-
-class Tag(Base):  # noqa
-    __tablename__ = "tag"
-
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('tag_id_seq'::regclass)"),
-    )
-    short_name = Column(Text, nullable=False, unique=True)
-    long_name = Column(Text, nullable=False)
-    description = Column(Text)
-    citation = Column(Text)
-    owner = Column(BigInteger)
-    read_perm = Column(BigInteger)
-    write_perm = Column(BigInteger)
-    public = Column(Boolean, nullable=False)
-    source_profile = Column(Boolean, nullable=False)
 
 
 class Trigger(Base):  # noqa
@@ -411,8 +397,8 @@ class SourceDark(Source):  # noqa
         nullable=False,
     )
     scene_id = Column(Text)
-    length_m = Column(Float)
-    detection_probability = Column(Float)
+    length_m = Column(Float(53))
+    detection_probability = Column(Float(53))
 
 
 class SourceInfra(Source):  # noqa
@@ -467,6 +453,33 @@ class Subscription(Base):  # noqa
     filter1 = relationship("Filter")
     frequency1 = relationship("Frequency")
     users = relationship("Users")
+
+
+class Tag(Base):  # noqa
+    __tablename__ = "tag"
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('tag_id_seq'::regclass)"),
+    )
+    short_name = Column(Text, nullable=False, unique=True)
+    long_name = Column(Text, nullable=False)
+    description = Column(Text)
+    citation = Column(Text)
+    owner = Column(ForeignKey("users.id"))
+    read_perm = Column(ForeignKey("permission.id"))
+    write_perm = Column(ForeignKey("permission.id"))
+    public = Column(Boolean, nullable=False)
+    source_profile = Column(Boolean, nullable=False)
+
+    users = relationship("Users")
+    permission = relationship(
+        "Permission", primaryjoin="Tag.read_perm == Permission.id"
+    )
+    permission1 = relationship(
+        "Permission", primaryjoin="Tag.write_perm == Permission.id"
+    )
 
 
 t_aoi_chunks = Table(
