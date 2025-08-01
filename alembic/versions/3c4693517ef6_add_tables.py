@@ -179,6 +179,8 @@ def upgrade() -> None:
         sa.Column("banned", sa.Boolean, default=False),
         sa.Column("banReason", sa.Text),
         sa.Column("banExpires", sa.DateTime),
+        sa.Column("createdAt", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("updatedAt", sa.DateTime, server_default=sa.func.now()),
     )
 
     op.create_table(
@@ -209,11 +211,13 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "verification_token",
+        "verifications",
+        sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("identifier", sa.Text, nullable=False),
-        sa.Column("expires", sa.DateTime, nullable=False),
-        sa.Column("token", sa.Text, nullable=False),
-        sa.PrimaryKeyConstraint("identifier", "token"),
+        sa.Column("value", sa.Text, nullable=False),
+        sa.Column("expiresAt", sa.DateTime),
+        sa.Column("createdAt", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("updatedAt", sa.DateTime, server_default=sa.func.now()),
     )
 
     op.create_table(
@@ -475,7 +479,7 @@ def downgrade() -> None:
     op.drop_table("aoi_eez")
     op.drop_table("aoi")
     op.drop_table("aoi_type")
-    op.drop_table("verification_token")
+    op.drop_table("verifications")
     op.drop_table("sessions")
     op.drop_table("accounts")
     op.drop_table("subscription")

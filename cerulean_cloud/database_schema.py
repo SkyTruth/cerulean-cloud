@@ -251,14 +251,23 @@ class Users(Base):  # noqa
     banned = Column(Boolean)
     banReason = Column(Text)
     banExpires = Column(DateTime)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
 
 
-class VerificationToken(Base):  # noqa
-    __tablename__ = "verification_token"
+class Verifications(Base):  # noqa
+    __tablename__ = "verifications"
 
-    identifier = Column(Text, primary_key=True, nullable=False)
-    expires = Column(DateTime, nullable=False)
-    token = Column(Text, primary_key=True, nullable=False)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('verifications_id_seq'::regclass)"),
+    )
+    identifier = Column(Text, nullable=False)
+    value = Column(Text, nullable=False)
+    expiresAt = Column(DateTime)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
 
 
 class Accounts(Base):  # noqa
