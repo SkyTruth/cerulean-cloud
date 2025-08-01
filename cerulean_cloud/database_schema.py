@@ -228,11 +228,7 @@ class Trigger(Base):  # noqa
 class Users(Base):  # noqa
     __tablename__ = "users"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('users_id_seq'::regclass)"),
-    )
+    id = Column(Text, primary_key=True)
     firstName = Column(Text)
     lastName = Column(Text)
     name = Column(
@@ -258,11 +254,7 @@ class Users(Base):  # noqa
 class Verifications(Base):  # noqa
     __tablename__ = "verifications"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('verifications_id_seq'::regclass)"),
-    )
+    id = Column(Text, primary_key=True)
     identifier = Column(Text, nullable=False)
     value = Column(Text, nullable=False)
     expiresAt = Column(DateTime)
@@ -273,11 +265,7 @@ class Verifications(Base):  # noqa
 class Accounts(Base):  # noqa
     __tablename__ = "accounts"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('accounts_id_seq'::regclass)"),
-    )
+    id = Column(Text, primary_key=True)
     userId = Column(ForeignKey("users.id"), nullable=False)
     providerId = Column(Text, nullable=False)
     accountId = Column(Text, nullable=False)
@@ -382,11 +370,7 @@ class OrchestratorRun(Base):  # noqa
 class Sessions(Base):  # noqa
     __tablename__ = "sessions"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('sessions_id_seq'::regclass)"),
-    )
+    id = Column(Text, primary_key=True)
     userId = Column(ForeignKey("users.id"), nullable=False)
     expiresAt = Column(DateTime, nullable=False)
     token = Column(Text, nullable=False)
