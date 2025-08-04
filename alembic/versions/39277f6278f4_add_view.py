@@ -24,12 +24,23 @@ def upgrade() -> None:
         signature="slick_plus",
         definition="""
     SELECT
-        slick.*,
+        slick.id,
+        slick.slick_timestamp,
+        slick.geometry,
+        slick.machine_confidence,
+        slick.length,
+        slick.area,
+        slick.perimeter,
+        slick.centroid,
+        slick.polsby_popper,
+        slick.fill_factor,
+        slick.centerlines,
+        slick.aspect_ratio_factor,
         slick.length^2 / slick.area / slick.polsby_popper as linearity,
         sentinel1_grd.scene_id AS s1_scene_id,
         sentinel1_grd.geometry AS s1_geometry,
-        cls.short_name AS cls_short_name,
-        cls.long_name AS cls_long_name,
+        hitl_slick.cls AS hitl_cls,
+        cls.long_name AS hitl_cls_name,
         aoi_agg.aoi_type_1_ids,
         aoi_agg.aoi_type_2_ids,
         aoi_agg.aoi_type_3_ids,
@@ -41,7 +52,14 @@ def upgrade() -> None:
     FROM slick
     JOIN orchestrator_run ON orchestrator_run.id = slick.orchestrator_run
     JOIN sentinel1_grd ON sentinel1_grd.id = orchestrator_run.sentinel1_grd
-    JOIN cls ON cls.id = slick.cls
+    LEFT JOIN LATERAL (
+        SELECT hs.cls, hs.update_time
+        FROM   hitl_slick hs
+        WHERE  hs.slick = slick.id
+        ORDER  BY hs.update_time DESC
+        LIMIT  1
+    ) hitl_slick ON TRUE
+    LEFT JOIN cls ON cls.id = hitl_slick.cls
     LEFT JOIN (
         SELECT slick_to_aoi.slick,
             array_agg(aoi.id) FILTER (WHERE aoi.type = 1) AS aoi_type_1_ids,
@@ -51,7 +69,7 @@ def upgrade() -> None:
         JOIN aoi ON slick_to_aoi.aoi = aoi.id
         GROUP BY slick_to_aoi.slick
         ) aoi_agg ON aoi_agg.slick = slick.id
-     LEFT JOIN ( SELECT slick_to_source.slick,
+    LEFT JOIN ( SELECT slick_to_source.slick,
             array_agg(source.ext_id) FILTER (WHERE source.type = 1) AS source_type_1_ids,
             array_agg(source.ext_id) FILTER (WHERE source.type = 2) AS source_type_2_ids,
             array_agg(source.ext_id) FILTER (WHERE source.type = 3) AS source_type_3_ids,
@@ -60,7 +78,8 @@ def upgrade() -> None:
              JOIN source ON slick_to_source.source = source.id
             WHERE slick_to_source.active = true
           GROUP BY slick_to_source.slick) source_agg ON source_agg.slick = slick.id
-    WHERE slick.active = true;
+    WHERE slick.active = true
+    AND (hitl_slick.cls IS NULL OR hitl_slick.cls != 1);
     """,
     )
     op.create_entity(slick_plus)
