@@ -79,7 +79,8 @@ def upgrade() -> None:
             WHERE slick_to_source.active = true
           GROUP BY slick_to_source.slick) source_agg ON source_agg.slick = slick.id
     WHERE slick.active = true
-    AND (hitl_slick.cls IS NULL OR hitl_slick.cls != 1);
+    AND (hitl_slick.cls IS NULL OR hitl_slick.cls != 1)
+    AND slick.cls != 1;
     """,
     )
     op.create_entity(slick_plus)
