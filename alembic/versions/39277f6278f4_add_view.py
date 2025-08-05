@@ -23,44 +23,78 @@ def upgrade() -> None:
         schema="public",
         signature="slick_plus",
         definition="""
-    SELECT
-        slick.*,
-        slick.length^2 / slick.area / slick.polsby_popper as linearity,
-        sentinel1_grd.scene_id AS s1_scene_id,
-        sentinel1_grd.geometry AS s1_geometry,
-        cls.short_name AS cls_short_name,
-        cls.long_name AS cls_long_name,
-        aoi_agg.aoi_type_1_ids,
-        aoi_agg.aoi_type_2_ids,
-        aoi_agg.aoi_type_3_ids,
-        source_agg.source_type_1_ids,
-        source_agg.source_type_2_ids,
-        source_agg.source_type_3_ids,
-        source_agg.max_source_collated_score,
-        'https://cerulean.skytruth.org/slicks/' || slick.id::text ||'?ref=api&slick_id=' || slick.id AS slick_url
-    FROM slick
-    JOIN orchestrator_run ON orchestrator_run.id = slick.orchestrator_run
-    JOIN sentinel1_grd ON sentinel1_grd.id = orchestrator_run.sentinel1_grd
-    JOIN cls ON cls.id = slick.cls
-    LEFT JOIN (
-        SELECT slick_to_aoi.slick,
-            array_agg(aoi.id) FILTER (WHERE aoi.type = 1) AS aoi_type_1_ids,
-            array_agg(aoi.id) FILTER (WHERE aoi.type = 2) AS aoi_type_2_ids,
-            array_agg(aoi.id) FILTER (WHERE aoi.type = 3) AS aoi_type_3_ids
-        FROM slick_to_aoi
-        JOIN aoi ON slick_to_aoi.aoi = aoi.id
-        GROUP BY slick_to_aoi.slick
-        ) aoi_agg ON aoi_agg.slick = slick.id
-     LEFT JOIN ( SELECT slick_to_source.slick,
-            array_agg(source.ext_id) FILTER (WHERE source.type = 1) AS source_type_1_ids,
-            array_agg(source.ext_id) FILTER (WHERE source.type = 2) AS source_type_2_ids,
-            array_agg(source.ext_id) FILTER (WHERE source.type = 3) AS source_type_3_ids,
-            max(slick_to_source.collated_score) AS max_source_collated_score
-           FROM slick_to_source
-             JOIN source ON slick_to_source.source = source.id
-            WHERE slick_to_source.active = true
-          GROUP BY slick_to_source.slick) source_agg ON source_agg.slick = slick.id
-    WHERE slick.active = true;
+            WITH base AS (
+                SELECT
+                    id,
+                    slick_timestamp,
+                    geometry::geometry,
+                    machine_confidence,
+                    length,
+                    area,
+                    perimeter,
+                    centroid,
+                    polsby_popper,
+                    fill_factor,
+                    centerlines,
+                    aspect_ratio_factor,
+                    cls,
+                    orchestrator_run,
+                    length^2 / area / polsby_popper AS linearity
+                FROM slick
+                WHERE active
+                AND cls != 1
+            )
+            SELECT
+                base.*,
+                sentinel1_grd.scene_id AS s1_scene_id,
+                sentinel1_grd.geometry AS s1_geometry,
+                hs.cls AS hitl_cls,
+                cls.long_name AS hitl_cls_name,
+                aois.aoi_type_1_ids,
+                aois.aoi_type_2_ids,
+                aois.aoi_type_3_ids,
+                srcs.source_type_1_ids,
+                srcs.source_type_2_ids,
+                srcs.source_type_3_ids,
+                srcs.max_source_collated_score,
+                'https://cerulean.skytruth.org/slicks/' || base.id || '?ref=api&slick_id=' || base.id
+                                    AS slick_url
+            FROM base
+            JOIN orchestrator_run ON orchestrator_run.id = base.orchestrator_run
+            JOIN sentinel1_grd ON sentinel1_grd.id = orchestrator_run.sentinel1_grd
+
+            LEFT JOIN LATERAL (
+                SELECT hs.cls
+                FROM   hitl_slick hs
+                WHERE  hs.slick = base.id
+                ORDER  BY hs.update_time DESC
+                LIMIT  1
+            ) AS hs ON TRUE
+            LEFT JOIN cls ON cls.id = hs.cls
+
+            LEFT JOIN LATERAL (
+                SELECT
+                    array_agg(aoi.id) FILTER (WHERE aoi.type = 1) AS aoi_type_1_ids,
+                    array_agg(aoi.id) FILTER (WHERE aoi.type = 2) AS aoi_type_2_ids,
+                    array_agg(aoi.id) FILTER (WHERE aoi.type = 3) AS aoi_type_3_ids
+                FROM   slick_to_aoi sta
+                JOIN   aoi ON aoi.id = sta.aoi
+                WHERE  sta.slick = base.id
+            ) AS aois      ON TRUE
+
+            LEFT JOIN LATERAL (
+                SELECT
+                    array_agg(src.ext_id) FILTER (WHERE src.type = 1) AS source_type_1_ids,
+                    array_agg(src.ext_id) FILTER (WHERE src.type = 2) AS source_type_2_ids,
+                    array_agg(src.ext_id) FILTER (WHERE src.type = 3) AS source_type_3_ids,
+                    MAX(sts.collated_score) AS max_source_collated_score
+                FROM   slick_to_source sts
+                JOIN   source src ON src.id = sts.source
+                WHERE  sts.slick = base.id
+                AND  sts.active = TRUE
+            ) AS srcs  ON TRUE
+
+            WHERE (hs.cls IS NULL OR hs.cls != 1);
     """,
     )
     op.create_entity(slick_plus)
