@@ -257,7 +257,13 @@ def upgrade() -> None:
         session.add_all(permissions)
 
         first_user = database_schema.Users(
-            name="jona", email="jona@cerulean.org", role="ADMIN"
+            firstName="dummy",
+            lastName="dummy",
+            email="dummy@dummy.dummy",
+            role="dummy",
+            organization="dummy",
+            organizationType=["dummy"],
+            location="dummy",
         )
         session.add(first_user)
         session.flush()  # guarantees system_user.id is available

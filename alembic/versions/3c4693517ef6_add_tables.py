@@ -160,11 +160,22 @@ def upgrade() -> None:
     op.create_table(
         "users",
         sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("firstName", sa.Text),
+        sa.Column("lastName", sa.Text),
         sa.Column("name", sa.Text),
-        sa.Column("email", sa.Text),
-        sa.Column("emailVerified", sa.DateTime),
+        sa.Column("email", sa.Text, nullable=False, unique=True),
+        sa.Column("emailVerified", sa.Boolean, default=False),
         sa.Column("image", sa.Text),
         sa.Column("role", sa.Text),
+        sa.Column("organization", sa.Text),
+        sa.Column("organizationType", ARRAY(sa.Text)),
+        sa.Column("location", sa.Text),
+        sa.Column("emailConsent", sa.Boolean, default=False),
+        sa.Column("banned", sa.Boolean, default=False),
+        sa.Column("banReason", sa.Text),
+        sa.Column("banExpires", sa.DateTime),
+        sa.Column("createdAt", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("updatedAt", sa.DateTime, server_default=sa.func.now()),
     )
 
     op.create_table(
@@ -195,35 +206,41 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "verification_token",
+        "verifications",
+        sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("identifier", sa.Text, nullable=False),
-        sa.Column("expires", sa.DateTime, nullable=False),
-        sa.Column("token", sa.Text, nullable=False),
-        sa.PrimaryKeyConstraint("identifier", "token"),
+        sa.Column("value", sa.Text, nullable=False),
+        sa.Column("expiresAt", sa.DateTime),
+        sa.Column("createdAt", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("updatedAt", sa.DateTime, server_default=sa.func.now()),
     )
 
     op.create_table(
         "accounts",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("userId", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
-        sa.Column("type", sa.Text, nullable=False),
-        sa.Column("provider", sa.Text, nullable=False),
-        sa.Column("providerAccountId", sa.Text, nullable=False),
-        sa.Column("refresh_token", sa.Text),
-        sa.Column("access_token", sa.Text),
-        sa.Column("expires_at", sa.BigInteger),
-        sa.Column("id_token", sa.Text),
+        sa.Column("providerId", sa.Text, nullable=False),
+        sa.Column("accountId", sa.Text, nullable=False),
+        sa.Column("refreshToken", sa.Text),
+        sa.Column("accessToken", sa.Text),
+        sa.Column("accessTokenExpiresAt", sa.DateTime),
+        sa.Column("idToken", sa.Text),
         sa.Column("scope", sa.Text),
-        sa.Column("session_state", sa.Text),
-        sa.Column("token_type", sa.Text),
+        sa.Column("createdAt", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("updatedAt", sa.DateTime, server_default=sa.func.now()),
     )
 
     op.create_table(
         "sessions",
         sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("userId", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
-        sa.Column("expires", sa.DateTime, nullable=False),
-        sa.Column("sessionToken", sa.Text, nullable=False),
+        sa.Column("expiresAt", sa.DateTime, nullable=False),
+        sa.Column("token", sa.Text, nullable=False),
+        sa.Column("createdAt", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("updatedAt", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("impersonatedBy", sa.Text),
+        sa.Column("ipAddress", sa.Text),
+        sa.Column("userAgent", sa.Text),
     )
 
     op.create_table(
@@ -459,7 +476,7 @@ def downgrade() -> None:
     op.drop_table("aoi_eez")
     op.drop_table("aoi")
     op.drop_table("aoi_type")
-    op.drop_table("verification_token")
+    op.drop_table("verifications")
     op.drop_table("sessions")
     op.drop_table("accounts")
     op.drop_table("subscription")

@@ -228,45 +228,54 @@ class Trigger(Base):  # noqa
 class Users(Base):  # noqa
     __tablename__ = "users"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('users_id_seq'::regclass)"),
+    id = Column(BigInteger, primary_key=True)
+    firstName = Column(Text)
+    lastName = Column(Text)
+    name = Column(
+        Text,
+        Computed('(("firstName" || \' \'::text) || "lastName")', persisted=True),
+        nullable=False,
     )
-    name = Column(Text)
-    email = Column(Text)
-    emailVerified = Column(DateTime)
+    email = Column(Text, nullable=False, unique=True)
+    emailVerified = Column(Boolean)
     image = Column(Text)
     role = Column(Text)
+    organization = Column(Text)
+    organizationType = Column(ARRAY(Text()))
+    location = Column(Text)
+    emailConsent = Column(Boolean)
+    banned = Column(Boolean)
+    banReason = Column(Text)
+    banExpires = Column(DateTime)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
 
 
-class VerificationToken(Base):  # noqa
-    __tablename__ = "verification_token"
+class Verifications(Base):  # noqa
+    __tablename__ = "verifications"
 
-    identifier = Column(Text, primary_key=True, nullable=False)
-    expires = Column(DateTime, nullable=False)
-    token = Column(Text, primary_key=True, nullable=False)
+    id = Column(BigInteger, primary_key=True)
+    identifier = Column(Text, nullable=False)
+    value = Column(Text, nullable=False)
+    expiresAt = Column(DateTime)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
 
 
 class Accounts(Base):  # noqa
     __tablename__ = "accounts"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('accounts_id_seq'::regclass)"),
-    )
+    id = Column(BigInteger, primary_key=True)
     userId = Column(ForeignKey("users.id"), nullable=False)
-    type = Column(Text, nullable=False)
-    provider = Column(Text, nullable=False)
-    providerAccountId = Column(Text, nullable=False)
-    refresh_token = Column(Text)
-    access_token = Column(Text)
-    expires_at = Column(BigInteger)
-    id_token = Column(Text)
+    providerId = Column(Text, nullable=False)
+    accountId = Column(Text, nullable=False)
+    refreshToken = Column(Text)
+    accessToken = Column(Text)
+    accessTokenExpiresAt = Column(DateTime)
+    idToken = Column(Text)
     scope = Column(Text)
-    session_state = Column(Text)
-    token_type = Column(Text)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
 
     users = relationship("Users")
 
@@ -361,14 +370,15 @@ class OrchestratorRun(Base):  # noqa
 class Sessions(Base):  # noqa
     __tablename__ = "sessions"
 
-    id = Column(
-        BigInteger,
-        primary_key=True,
-        server_default=text("nextval('sessions_id_seq'::regclass)"),
-    )
+    id = Column(BigInteger, primary_key=True)
     userId = Column(ForeignKey("users.id"), nullable=False)
-    expires = Column(DateTime, nullable=False)
-    sessionToken = Column(Text, nullable=False)
+    expiresAt = Column(DateTime, nullable=False)
+    token = Column(Text, nullable=False)
+    createdAt = Column(DateTime, server_default=text("now()"))
+    updatedAt = Column(DateTime, server_default=text("now()"))
+    impersonatedBy = Column(Text)
+    ipAddress = Column(Text)
+    userAgent = Column(Text)
 
     users = relationship("Users")
 
