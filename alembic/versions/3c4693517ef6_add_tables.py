@@ -159,7 +159,7 @@ def upgrade() -> None:
 
     op.create_table(
         "users",
-        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("firstName", sa.Text),
         sa.Column("lastName", sa.Text),
         sa.Column("name", sa.Text),
@@ -207,7 +207,7 @@ def upgrade() -> None:
 
     op.create_table(
         "verifications",
-        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("identifier", sa.Text, nullable=False),
         sa.Column("value", sa.Text, nullable=False),
         sa.Column("expiresAt", sa.DateTime),
@@ -217,7 +217,7 @@ def upgrade() -> None:
 
     op.create_table(
         "accounts",
-        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("userId", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
         sa.Column("providerId", sa.Text, nullable=False),
         sa.Column("accountId", sa.Text, nullable=False),
@@ -232,13 +232,15 @@ def upgrade() -> None:
 
     op.create_table(
         "sessions",
-        sa.Column("id", sa.Text, primary_key=True),
+        sa.Column("id", sa.BigInteger, primary_key=True),
         sa.Column("userId", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
         sa.Column("expiresAt", sa.DateTime, nullable=False),
         sa.Column("token", sa.Text, nullable=False),
         sa.Column("createdAt", sa.DateTime, server_default=sa.func.now()),
         sa.Column("updatedAt", sa.DateTime, server_default=sa.func.now()),
         sa.Column("impersonatedBy", sa.Text),
+        sa.Column("ipAddress", sa.Text),
+        sa.Column("userAgent", sa.Text),
     )
 
     op.create_table(
