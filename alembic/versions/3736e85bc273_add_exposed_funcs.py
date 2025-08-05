@@ -49,12 +49,6 @@ def upgrade() -> None:
             OUT linearity double precision,
             OUT slick_timestamp timestamp without time zone,
             OUT geometry geography,
-            OUT active boolean,
-            OUT orchestrator_run integer,
-            OUT create_time timestamp without time zone,
-            OUT inference_idx integer,
-            OUT cls integer,
-            OUT hitl_cls integer,
             OUT machine_confidence double precision,
             OUT length double precision,
             OUT area double precision,
@@ -62,10 +56,12 @@ def upgrade() -> None:
             OUT centroid geography,
             OUT polsby_popper double precision,
             OUT fill_factor double precision,
+            OUT centerlines json,
+            OUT aspect_ratio_factor double precision,
+            OUT hitl_cls integer,
+            OUT hitl_cls_name text,
             OUT s1_scene_id character varying,
             OUT s1_geometry geography,
-            OUT cls_short_name text,
-            OUT cls_long_name text,
             OUT aoi_type_1_ids bigint[],
             OUT aoi_type_2_ids bigint[],
             OUT aoi_type_3_ids bigint[],
@@ -81,17 +77,11 @@ def upgrade() -> None:
             IMMUTABLE PARALLEL SAFE
             ROWS 1000
         AS $BODY$
-            select distinct
+            select distinct on (sp.id)
                 sp.id,
                 sp.linearity,
                 sp.slick_timestamp,
                 sp.geometry,
-                sp.active,
-                sp.orchestrator_run,
-                sp.create_time,
-                sp.inference_idx,
-                sp.cls,
-                sp.hitl_cls,
                 sp.machine_confidence,
                 sp.length,
                 sp.area,
@@ -99,10 +89,12 @@ def upgrade() -> None:
                 sp.centroid,
                 sp.polsby_popper,
                 sp.fill_factor,
+                sp.centerlines,
+                sp.aspect_ratio_factor,
+                sp.hitl_cls,
+                sp.hitl_cls_name,
                 sp.s1_scene_id,
                 sp.s1_geometry,
-                sp.cls_short_name,
-                sp.cls_long_name,
                 sp.aoi_type_1_ids,
                 sp.aoi_type_2_ids,
                 sp.aoi_type_3_ids,
@@ -112,11 +104,20 @@ def upgrade() -> None:
                 sp.max_source_collated_score,
                 sp.slick_url
             FROM public.slick_plus sp
-            LEFT JOIN slick_to_source sts ON sts.slick = sp.id AND source_id != 'NULL' AND sts.active
-            LEFT JOIN slick_to_aoi sta ON sta.slick = sp.id AND aoi_id != 'NULL'
-            WHERE (source_id = 'NULL' OR sts.source = ANY(string_to_array(source_id, ',')::int[]) AND sts.rank <= source_rank)
-            AND (aoi_id = 'NULL' OR sta.aoi = ANY(string_to_array(aoi_id, ',')::int[]))
-            AND (collation_threshold IS NULL OR sp.max_source_collated_score >= collation_threshold);
+            LEFT JOIN slick_to_source sts
+                   ON sts.slick  = sp.id
+                  AND source_id  != 'NULL'
+                  AND sts.active
+            LEFT JOIN slick_to_aoi sta
+                   ON sta.slick  = sp.id
+                  AND aoi_id     != 'NULL'
+            WHERE  (source_id = 'NULL'
+                    OR sts.source = ANY (string_to_array(source_id, ',')::int[])
+                    AND sts.rank  <= source_rank)
+              AND  (aoi_id   = 'NULL'
+                    OR sta.aoi  = ANY (string_to_array(aoi_id, ',')::int[]))
+              AND  (collation_threshold IS NULL
+                    OR sp.max_source_collated_score >= collation_threshold);
         $BODY$;
         """
     )
@@ -131,12 +132,6 @@ def upgrade() -> None:
             OUT linearity double precision,
             OUT slick_timestamp timestamp without time zone,
             OUT geometry geography,
-            OUT active boolean,
-            OUT orchestrator_run integer,
-            OUT create_time timestamp without time zone,
-            OUT inference_idx integer,
-            OUT cls integer,
-            OUT hitl_cls integer,
             OUT machine_confidence double precision,
             OUT length double precision,
             OUT area double precision,
@@ -144,10 +139,12 @@ def upgrade() -> None:
             OUT centroid geography,
             OUT polsby_popper double precision,
             OUT fill_factor double precision,
+            OUT centerlines json,
+            OUT aspect_ratio_factor double precision,
+            OUT hitl_cls integer,
+            OUT hitl_cls_name text,
             OUT s1_scene_id character varying,
             OUT s1_geometry geography,
-            OUT cls_short_name text,
-            OUT cls_long_name text,
             OUT aoi_type_1_ids bigint[],
             OUT aoi_type_2_ids bigint[],
             OUT aoi_type_3_ids bigint[],
@@ -163,17 +160,11 @@ def upgrade() -> None:
             IMMUTABLE PARALLEL SAFE
             ROWS 1000
         AS $BODY$
-            select distinct
+            select distinct on (sp.id)
                 sp.id,
                 sp.linearity,
                 sp.slick_timestamp,
                 sp.geometry,
-                sp.active,
-                sp.orchestrator_run,
-                sp.create_time,
-                sp.inference_idx,
-                sp.cls,
-                sp.hitl_cls,
                 sp.machine_confidence,
                 sp.length,
                 sp.area,
@@ -181,10 +172,12 @@ def upgrade() -> None:
                 sp.centroid,
                 sp.polsby_popper,
                 sp.fill_factor,
+                sp.centerlines,
+                sp.aspect_ratio_factor,
+                sp.hitl_cls,
+                sp.hitl_cls_name,
                 sp.s1_scene_id,
                 sp.s1_geometry,
-                sp.cls_short_name,
-                sp.cls_long_name,
                 sp.aoi_type_1_ids,
                 sp.aoi_type_2_ids,
                 sp.aoi_type_3_ids,
@@ -211,12 +204,6 @@ def upgrade() -> None:
             OUT linearity double precision,
             OUT slick_timestamp timestamp without time zone,
             OUT geometry geography,
-            OUT active boolean,
-            OUT orchestrator_run integer,
-            OUT create_time timestamp without time zone,
-            OUT inference_idx integer,
-            OUT cls integer,
-            OUT hitl_cls integer,
             OUT machine_confidence double precision,
             OUT length double precision,
             OUT area double precision,
@@ -224,10 +211,12 @@ def upgrade() -> None:
             OUT centroid geography,
             OUT polsby_popper double precision,
             OUT fill_factor double precision,
+            OUT centerlines json,
+            OUT aspect_ratio_factor double precision,
+            OUT hitl_cls integer,
+            OUT hitl_cls_name text,
             OUT s1_scene_id character varying,
             OUT s1_geometry geography,
-            OUT cls_short_name text,
-            OUT cls_long_name text,
             OUT aoi_type_1_ids bigint[],
             OUT aoi_type_2_ids bigint[],
             OUT aoi_type_3_ids bigint[],
@@ -243,17 +232,11 @@ def upgrade() -> None:
             IMMUTABLE PARALLEL SAFE
             ROWS 1000
         AS $BODY$
-            select distinct
+            select distinct on (sp.id)
                 sp.id,
                 sp.linearity,
                 sp.slick_timestamp,
                 sp.geometry,
-                sp.active,
-                sp.orchestrator_run,
-                sp.create_time,
-                sp.inference_idx,
-                sp.cls,
-                sp.hitl_cls,
                 sp.machine_confidence,
                 sp.length,
                 sp.area,
@@ -261,10 +244,12 @@ def upgrade() -> None:
                 sp.centroid,
                 sp.polsby_popper,
                 sp.fill_factor,
+                sp.centerlines,
+                sp.aspect_ratio_factor,
+                sp.hitl_cls,
+                sp.hitl_cls_name,
                 sp.s1_scene_id,
                 sp.s1_geometry,
-                sp.cls_short_name,
-                sp.cls_long_name,
                 sp.aoi_type_1_ids,
                 sp.aoi_type_2_ids,
                 sp.aoi_type_3_ids,
