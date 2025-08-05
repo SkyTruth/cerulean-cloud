@@ -6,6 +6,8 @@ Create Date: 2022-07-01 14:03:52.485218
 
 """
 
+from sqlalchemy import text
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -57,6 +59,12 @@ def upgrade() -> None:
     op.create_index("idx_slick_fill_factor", "slick", ["fill_factor"])
     op.create_index("idx_slick_orchestrator_run", "slick", ["orchestrator_run"])
     op.create_index("idx_slick_cls", "slick", ["cls"])
+    op.create_index(
+        "idx_slick_geom",
+        "slick",
+        [text("(geometry::geometry)")],
+        postgresql_using="gist",
+    )
 
     op.create_index("idx_source_to_tag_source", "source_to_tag", ["source"])
     op.create_index("idx_source_to_tag_tag", "source_to_tag", ["tag"])
@@ -97,3 +105,4 @@ def downgrade() -> None:
     op.drop_index("idx_slick_fill_factor", "slick")
     op.drop_index("idx_slick_orchestrator_run", "slick")
     op.drop_index("idx_slick_cls", "slick")
+    op.drop_index("idx_slick_geom", "slick")
