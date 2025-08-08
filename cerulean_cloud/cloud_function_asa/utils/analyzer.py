@@ -144,7 +144,7 @@ class AISAnalyzer(SourceAnalyzer):
             "max_slick_drift_time", c.MAX_SLICK_DRIFT_TIME
         )
         self.num_timesteps = kwargs.get("num_timesteps", c.NUM_TIMESTEPS)
-        self.ais_project_id = kwargs.get("ais_project_id", c.AIS_PROJECT_ID)
+        self.gfw_project_id = kwargs.get("gfw_project_id", c.GFW_PROJECT_ID)
         self.w_temporal = kwargs.get("w_temporal", c.W_TEMPORAL)
         self.w_proximity = kwargs.get("w_proximity", c.W_PROXIMITY)
         self.w_parity = kwargs.get("w_parity", c.W_PARITY)
@@ -201,7 +201,7 @@ class AISAnalyzer(SourceAnalyzer):
         """
         df = pandas_gbq.read_gbq(
             sql,
-            project_id=self.ais_project_id,
+            project_id=self.gfw_project_id,
             credentials=self.credentials,
         )
         latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
@@ -242,7 +242,7 @@ class AISAnalyzer(SourceAnalyzer):
             """
         df = pandas_gbq.read_gbq(
             sql,
-            project_id=self.ais_project_id,
+            project_id=self.gfw_project_id,
             credentials=self.credentials,
         )
         df["timestamp"] = (
@@ -1295,7 +1295,7 @@ class DarkAnalyzer(PointAnalyzer):
         self.credentials = Credentials.from_service_account_info(
             json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
         )
-        self.gfw_project_id = "global-fishing-watch"
+        self.gfw_project_id = kwargs.get("gfw_project_id", c.GFW_PROJECT_ID)
         self.s1_scene = s1_scene
         self.dark_objects_gdf = kwargs.get("dark_vessels_gdf", None)
         if self.dark_objects_gdf is None:

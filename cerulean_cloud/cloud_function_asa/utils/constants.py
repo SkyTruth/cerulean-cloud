@@ -9,7 +9,7 @@ NUM_TIMESTEPS = (HOURS_BEFORE + HOURS_AFTER) * TIMESTEPS_PER_HOUR + 1
 T_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 # BUFFERING PARAMETERS FOR AIS
-AIS_PROJECT_ID = "world-fishing-827"
+GFW_PROJECT_ID = "world-fishing-827"
 MAX_SLICK_DRIFT_TIME = 3  # hours
 SPREAD_RATE = 3000  # meters/hr perpendicular to vessel track
 AIS_SCENE_BUFFER = 10000  # buffer around GRD envelope to capture AIS
