@@ -144,7 +144,7 @@ class AISAnalyzer(SourceAnalyzer):
             "max_slick_drift_time", c.MAX_SLICK_DRIFT_TIME
         )
         self.num_timesteps = kwargs.get("num_timesteps", c.NUM_TIMESTEPS)
-        self.ais_project_id = kwargs.get("ais_project_id", c.AIS_PROJECT_ID)
+        self.gfw_project_id = kwargs.get("gfw_project_id", c.GFW_PROJECT_ID)
         self.w_temporal = kwargs.get("w_temporal", c.W_TEMPORAL)
         self.w_proximity = kwargs.get("w_proximity", c.W_PROXIMITY)
         self.w_parity = kwargs.get("w_parity", c.W_PARITY)
@@ -197,11 +197,11 @@ class AISAnalyzer(SourceAnalyzer):
         """
         sql = """
             SELECT MAX(date) AS latest_date
-            FROM `world-fishing-827.pipe_ais_v3_published.stats_daily`;
+            FROM `global-fishing-watch.pipe_ais_v3_published.stats_daily`;
         """
         df = pandas_gbq.read_gbq(
             sql,
-            project_id=self.ais_project_id,
+            project_id=self.gfw_project_id,
             credentials=self.credentials,
         )
         latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
@@ -231,9 +231,9 @@ class AISAnalyzer(SourceAnalyzer):
                 ves.best.best_flag as flag,
                 ves.best.best_vessel_class as best_shiptype
             FROM
-                `world-fishing-827.pipe_ais_v3_published.messages` as seg
+                `global-fishing-watch.pipe_ais_v3_published.messages` as seg
             LEFT JOIN
-                `world-fishing-827.pipe_ais_v3_published.vi_ssvid_v20250201` as ves
+                `global-fishing-watch.pipe_ais_v3_published.vi_ssvid_v20250201` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE TRUE
                 -- AND clean_segs IS TRUE
@@ -242,7 +242,7 @@ class AISAnalyzer(SourceAnalyzer):
             """
         df = pandas_gbq.read_gbq(
             sql,
-            project_id=self.ais_project_id,
+            project_id=self.gfw_project_id,
             credentials=self.credentials,
         )
         df["timestamp"] = (
@@ -1295,7 +1295,7 @@ class DarkAnalyzer(PointAnalyzer):
         self.credentials = Credentials.from_service_account_info(
             json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
         )
-        self.gfw_project_id = "world-fishing-827"
+        self.gfw_project_id = kwargs.get("gfw_project_id", c.GFW_PROJECT_ID)
         self.s1_scene = s1_scene
         self.dark_objects_gdf = kwargs.get("dark_vessels_gdf", None)
         if self.dark_objects_gdf is None:
@@ -1325,7 +1325,7 @@ class DarkAnalyzer(PointAnalyzer):
         -- Step 2: Filter the match table by joining with scene_ids
         filtered_matches AS (
         SELECT match.*
-        FROM `world-fishing-827.pipe_sar_v1_published.detect_scene_match_pipe_v3` AS match
+        FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v3` AS match
         INNER JOIN scene_ids
             ON match.scene_id = scene_ids.scene_id
         WHERE match.score < .01 -- either no match or low confidence match
@@ -1340,7 +1340,7 @@ class DarkAnalyzer(PointAnalyzer):
             PARTITION BY infra.structure_id
             ORDER BY infra.label_confidence DESC  -- Assuming you want the highest confidence
             ) AS rn
-        FROM `world-fishing-827.pipe_sar_v1_published.published_infrastructure` AS infra
+        FROM `global-fishing-watch.pipe_sar_v1_published.published_infrastructure` AS infra
         INNER JOIN filtered_matches AS match
             -- Define a rough bounding box around detection points to limit infra records
             ON ABS(infra.lat - match.detect_lat) < 0.001  -- Approx ~100 meters latitude
@@ -1356,7 +1356,7 @@ class DarkAnalyzer(PointAnalyzer):
             match.detect_lat AS detect_lat,
             match.detect_lon AS detect_lon,
             pred.length_m AS length_m,
-        FROM `world-fishing-827.pipe_sar_v1_published.detect_scene_pred` AS pred
+        FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_pred` AS pred
         INNER JOIN filtered_matches AS match
             ON pred.detect_id = match.detect_id
         LEFT JOIN unique_infra AS infra
@@ -1459,7 +1459,7 @@ class DarkAnalyzer(PointAnalyzer):
         target_data_date = self.s1_scene.start_time
         sql = f"""
             SELECT COUNT(*) > 0 as data_available
-            FROM `world-fishing-827.pipe_sar_v1_published.detect_scene_match` 
+            FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match` 
             WHERE scene_id = '{self.s1_scene.scene_id}'
             AND TIMESTAMP_TRUNC(_PARTITIONTIME, DAY) = TIMESTAMP("{target_data_date.strftime("%Y-%m-%d")}");
         """
