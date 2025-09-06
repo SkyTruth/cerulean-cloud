@@ -454,9 +454,23 @@ def upgrade() -> None:
         sa.Column("is_duplicate", sa.Boolean),
     )
 
+    op.create_table(
+        "hitl_request",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
+        sa.Column("user", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
+        sa.Column("date_requested", sa.DateTime),
+        sa.Column("date_reviewed", sa.DateTime),
+        sa.Column("date_notified", sa.DateTime),
+    )
+    op.create_unique_constraint(
+        "uq_hitl_request_slick_user", "hitl_request", ["slick", "user"]
+    )
+
 
 def downgrade() -> None:
     """drop tables"""
+    op.drop_table("hitl_request")
     op.drop_table("hitl_slick")
     op.drop_table("source_to_tag")
     op.drop_table("tag")

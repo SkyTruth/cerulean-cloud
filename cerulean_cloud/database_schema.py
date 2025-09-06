@@ -32,6 +32,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -553,6 +554,25 @@ class SourceToTag(Base):  # noqa
 
     source1 = relationship("Source")
     tag1 = relationship("Tag")
+
+
+class HitlRequest(Base):  # noqa
+    __tablename__ = "hitl_request"
+    __table_args__ = (UniqueConstraint("slick", "user"),)
+
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('hitl_request_id_seq'::regclass)"),
+    )
+    slick = Column(ForeignKey("slick.id"), nullable=False)
+    user = Column(ForeignKey("users.id"), nullable=False)
+    date_requested = Column(DateTime)
+    date_reviewed = Column(DateTime)
+    date_notified = Column(DateTime)
+
+    slick1 = relationship("Slick")
+    users = relationship("Users")
 
 
 class HitlSlick(Base):  # noqa
