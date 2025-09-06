@@ -456,10 +456,10 @@ def upgrade() -> None:
 
     op.create_table(
         "hitl_request",
-        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column("id", sa.BigInteger, primary_key=True, autoincrement=True),
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
         sa.Column("user", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
-        sa.Column("date_requested", sa.DateTime),
+        sa.Column("date_requested", sa.DateTime, server_default=sa.func.now()),
         sa.Column("date_reviewed", sa.DateTime),
         sa.Column("date_notified", sa.DateTime),
     )
@@ -470,6 +470,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """drop tables"""
+    op.drop_constraint("uq_hitl_request_slick_user", "hitl_request", type_="unique")
     op.drop_table("hitl_request")
     op.drop_table("hitl_slick")
     op.drop_table("source_to_tag")
