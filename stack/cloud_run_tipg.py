@@ -142,7 +142,7 @@ default = gcp.cloudrun.Service(
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="RESTRICTED_COLLECTIONS",
-                            value='["public.aoi_user","public.filter", "public.frequency", "public.verification_token", "public.accounts", "public.sessions", "public.subscription", "public.users", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel", "public.source_dark", "public.source_natural", "public.source_to_tag", "public.tag", "public.hitl_slick", "public.permission", "public.slick", "public.slick_to_aoi", "public.aoi_chunks", "public.trigger", "public.orchestrator_run", "public.repeat_source"]',
+                            value='["public.aoi_user","public.filter", "public.frequency", "public.verification_token", "public.accounts", "public.sessions", "public.subscription", "public.users", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel", "public.source_dark", "public.source_natural", "public.source_to_tag", "public.tag", "public.hitl_slick", "public.permission", "public.slick", "public.slick_to_aoi", "public.aoi_chunks", "public.trigger", "public.orchestrator_run", "public.repeat_source", "public.hitl_request"]',
                             # EditTheDatabase
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
