@@ -460,8 +460,8 @@ def upgrade() -> None:
         sa.Column("slick", sa.BigInteger, sa.ForeignKey("slick.id"), nullable=False),
         sa.Column("user", sa.BigInteger, sa.ForeignKey("users.id"), nullable=False),
         sa.Column("date_requested", sa.DateTime, server_default=sa.func.now()),
-        sa.Column("date_reviewed", sa.DateTime),
         sa.Column("date_notified", sa.DateTime),
+        sa.Column("escalation", sa.Text),
     )
     op.create_unique_constraint(
         "uq_hitl_request_slick_user", "hitl_request", ["slick", "user"]

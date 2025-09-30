@@ -568,8 +568,8 @@ class HitlRequest(Base):  # noqa
     slick = Column(ForeignKey("slick.id"), nullable=False)
     user = Column(ForeignKey("users.id"), nullable=False)
     date_requested = Column(DateTime, server_default=text("now()"))
-    date_reviewed = Column(DateTime)
     date_notified = Column(DateTime)
+    escalation = Column(Text)
 
     slick1 = relationship("Slick")
     users = relationship("Users")
