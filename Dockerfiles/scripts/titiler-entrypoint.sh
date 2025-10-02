@@ -69,9 +69,21 @@ fi
 #    - all package markers (__init__.py) to preserve package identity
 #    - our app entry files (handler.py, auth.py)
 find /var/task -type f -name '*.py' \
-  ! -name '__init__.py' \
   ! -path '/var/task/handler.py' \
   ! -path '/var/task/auth.py' \
+  ! -path '/var/task/fastapi/*' \
+  ! -path '/var/task/starlette/*' \
+  ! -path '/var/task/pydantic/*' \
+  ! -path '/var/task/pydantic_core/*' \
+  ! -path '/var/task/titiler/*' \
+  ! -path '/var/task/rio_tiler/*' \
+  ! -path '/var/task/rio_tiler_pds/*' \
+  ! -path '/var/task/mangum/*' \
+  ! -path '/var/task/starlette_cramjam/*' \
+  ! -path '/var/task/jinja2/*' \
+  ! -path '/var/task/anyio/*' \
+  ! -path '/var/task/sniffio/*' \
+  ! -name '__init__.py' \
   -delete || (
   echo "[ERR] Failed to remove .py sources"
   exit 1
