@@ -25,29 +25,41 @@ pip install \
   exit 1
 )
 
-echo "[INFO] Reduce package size and remove useless files"
-find . -type f -name '*.pyc' | while read f; do n=$(echo "$f" | sed 's/__pycache__\///' | sed 's/.cpython-[2-3][0-9]//'); cp "$f" "$n"; done || (
-  echo "[ERR] Failed ..."
+echo "[INFO] Reduce package size: keep only bytecode (pyc) + app files"
+
+# 1) Precompile all installed modules to bytecode into __pycache__
+python - <<'PY'
+import compileall
+import sys
+
+ok = compileall.compile_dir('/var/task', force=True, quiet=1, workers=0)
+sys.exit(0 if ok else 1)
+PY
+if [ $? -ne 0 ]; then
+  echo "[ERR] Failed to precompile python files"
+  exit 1
+fi
+
+# 2) Remove source .py files except our application entry and support files
+find /var/task -type f -name '*.py' \
+  ! -path '/var/task/handler.py' \
+  ! -path '/var/task/auth.py' \
+  -delete || (
+  echo "[ERR] Failed to remove .py sources"
   exit 1
 )
-find . -type d -a -name '__pycache__' -print0 | xargs -0 rm -rf || (
-  echo "[ERR] Failed ..."
+
+# 3) Remove test folders and large docs to trim size
+find /var/task -type d -name 'tests' -print0 | xargs -0 rm -rf || (
+  echo "[ERR] Failed to remove tests"
   exit 1
 )
-find /var/task -type d -a -name 'tests' -print0 | xargs -0 rm -rf || (
-  echo "[ERR] Failed ..."
-  exit 1
-)
-rm -rdf /var/task/numpy/doc/ || (
-  echo "[ERR] Failed ..."
-  exit 1
-)
-rm -rdf /var/task/stack || (
-  echo "[ERR] Failed ..."
-  exit 1
-)
-find /var/task -type d -name "*.dist-info" -exec rm -r {} + || (
-  echo "[ERR] Failed ..."
+[ -d /var/task/numpy/doc ] && rm -rf /var/task/numpy/doc || true
+[ -d /var/task/stack ] && rm -rf /var/task/stack || true
+
+# 4) Remove dist-info metadata (not needed at runtime)
+find /var/task -type d -name '*.dist-info' -print0 | xargs -0 rm -rf || (
+  echo "[ERR] Failed to remove dist-info"
   exit 1
 )
 
