@@ -12,13 +12,25 @@ cd /var/task || (
   exit 1
 )
 
+echo "[INFO] Installing base wheels (numpy 1.26) to avoid builds ..."
 pip install \
     --no-input \
     --disable-pip-version-check \
     --no-warn-script-location \
-    --isolated \
     --no-cache-dir \
-    --upgrade \
+    --only-binary=:all: \
+    --target /var/task \
+    "numpy>=1.26,<2.0" || (
+  echo "[ERR] Failed to preinstall numpy wheel"
+  exit 1
+)
+
+echo "[INFO] Installing application requirements (binary-only, no build isolation) ..."
+PIP_NO_BUILD_ISOLATION=1 PIP_ONLY_BINARY=:all: pip install \
+    --no-input \
+    --disable-pip-version-check \
+    --no-warn-script-location \
+    --no-cache-dir \
     --target /var/task \
     -r requirements.txt || (
   echo "[ERR] Failed to install Python packages"
