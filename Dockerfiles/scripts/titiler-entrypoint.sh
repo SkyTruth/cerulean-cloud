@@ -40,25 +40,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# 2) Copy compiled bytecode out of __pycache__ alongside packages (module.pyc)
-find /var/task -type f -path '*/__pycache__/*.pyc' | while read -r f; do \
-  dir=$(dirname "$f"); \
-  parent=$(dirname "$dir"); \
-  base=$(basename "$f"); \
-  destname=$(echo "$base" | sed -E 's/\.cpython-[0-9]+\.pyc$/.pyc/'); \
-  cp "$f" "$parent/$destname"; \
-done || ( \
-  echo "[ERR] Failed to place compiled bytecode"; \
-  exit 1 \
-)
-
-# 3) Remove __pycache__ directories
-find /var/task -type d -name '__pycache__' -print0 | xargs -0 rm -rf || (
-  echo "[ERR] Failed to remove __pycache__"
-  exit 1
-)
-
-# 4) Remove source .py files except our application entry and support files
+# 2) Remove source .py files except our application entry and support files
 find /var/task -type f -name '*.py' \
   ! -path '/var/task/handler.py' \
   ! -path '/var/task/auth.py' \
@@ -67,7 +49,7 @@ find /var/task -type f -name '*.py' \
   exit 1
 )
 
-# 5) Remove test folders and large docs to trim size
+# 3) Remove test folders and large docs to trim size
 find /var/task -type d -name 'tests' -print0 | xargs -0 rm -rf || (
   echo "[ERR] Failed to remove tests"
   exit 1
@@ -75,11 +57,27 @@ find /var/task -type d -name 'tests' -print0 | xargs -0 rm -rf || (
 [ -d /var/task/numpy/doc ] && rm -rf /var/task/numpy/doc || true
 [ -d /var/task/stack ] && rm -rf /var/task/stack || true
 
-# 6) Remove dist-info metadata (not needed at runtime)
+# 4) Remove dist-info metadata (not needed at runtime)
 find /var/task -type d -name '*.dist-info' -print0 | xargs -0 rm -rf || (
   echo "[ERR] Failed to remove dist-info"
   exit 1
 )
+
+# 5) Sanity check imports before zipping
+python - <<'PY'
+mods = [
+    'fastapi', 'starlette', 'mangum',
+    'titiler.core', 'rio_tiler', 'rio_tiler_pds',
+    'jinja2', 'markupsafe', 'anyio', 'sniffio'
+]
+for m in mods:
+    __import__(m)
+print('Import sanity check: OK')
+PY
+if [ $? -ne 0 ]; then
+  echo "[ERR] Import sanity check failed"
+  exit 1
+fi
 
 # shellcheck disable=SC2035
 echo "[INFO] Creating package.zip"
