@@ -26,6 +26,19 @@ pip install \
 )
 
 echo "[INFO] Installing application requirements (binary-only, no build isolation) ..."
+echo "[INFO] Preinstall pydantic-core and pydantic wheels explicitly"
+pip install \
+    --no-input \
+    --disable-pip-version-check \
+    --no-warn-script-location \
+    --no-cache-dir \
+    --only-binary=:all: \
+    --target /var/task \
+    'pydantic-core>=2.16,<2.19' 'pydantic>=2.5,<2.8' || (
+  echo "[ERR] Failed to preinstall pydantic/pydantic-core"
+  exit 1
+)
+
 PIP_NO_BUILD_ISOLATION=1 PIP_ONLY_BINARY=:all: pip install \
     --no-input \
     --disable-pip-version-check \
