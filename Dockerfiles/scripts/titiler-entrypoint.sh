@@ -75,11 +75,10 @@ find /var/task -type d -name '__pycache__' -print0 | xargs -0 rm -rf || (
 find /var/task -type f -name '*.py' \
   ! -path '/var/task/handler.py' \
   ! -path '/var/task/auth.py' \
-  ! -path '/var/task/fastapi/__init__.py' \
-  ! -path '/var/task/fastapi/param_functions.py' \
-  ! -path '/var/task/fastapi/params.py' \
-  ! -path '/var/task/fastapi/applications.py' \
-  ! -path '/var/task/starlette/__init__.py' \
+  ! -path '/var/task/fastapi/*' \
+  ! -path '/var/task/starlette/*' \
+  ! -path '/var/task/pydantic/*' \
+  ! -path '/var/task/pydantic_core/*' \
   -delete || (
   echo "[ERR] Failed to remove .py sources"
   exit 1
@@ -102,6 +101,10 @@ find /var/task -type d -name '*.dist-info' -print0 | xargs -0 rm -rf || (
 # 5) Sanity check imports before zipping
 echo "[INFO] Listing fastapi package contents (top-level)"
 find /var/task/fastapi -maxdepth 1 -type f -print | sort | head -n 50 || true
+echo "[INFO] Listing pydantic_core contents"
+ls -l /var/task/pydantic_core || true
+echo "[INFO] Probing for pydantic_core extension (.so)"
+ls -l /var/task/pydantic_core/*.so || true
 
 # 7) Sanity check imports from a zipped archive (simulate Lambda zipimport)
 echo "[INFO] Creating temporary test zip and validating imports from it"
