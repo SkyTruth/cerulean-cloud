@@ -65,33 +65,13 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# 2) Copy compiled bytecode out of __pycache__ to top-level as module.pyc
-echo "[INFO] Promoting bytecode from __pycache__ to top-level .pyc"
-find /var/task -type f -path '*/__pycache__/*.pyc' | while read -r f; do \
-  dir=$(dirname "$f"); \
-  parent=$(dirname "$dir"); \
-  base=$(basename "$f"); \
-  destname=$(echo "$base" | sed -E 's/\.cpython-[0-9]+\.pyc$/.pyc/'); \
-  cp "$f" "$parent/$destname"; \
-done || ( \
-  echo "[ERR] Failed to place compiled bytecode"; \
-  exit 1 \
-)
-
-# 3) Remove __pycache__ directories
-find /var/task -type d -name '__pycache__' -print0 | xargs -0 rm -rf || (
-  echo "[ERR] Failed to remove __pycache__"
-  exit 1
-)
-
-# 4) Remove source .py files except our application entry and support files
+# 2) Remove source .py files except:
+#    - all package markers (__init__.py) to preserve package identity
+#    - our app entry files (handler.py, auth.py)
 find /var/task -type f -name '*.py' \
+  ! -name '__init__.py' \
   ! -path '/var/task/handler.py' \
   ! -path '/var/task/auth.py' \
-  ! -path '/var/task/fastapi/*' \
-  ! -path '/var/task/starlette/*' \
-  ! -path '/var/task/pydantic/*' \
-  ! -path '/var/task/pydantic_core/*' \
   -delete || (
   echo "[ERR] Failed to remove .py sources"
   exit 1
@@ -105,7 +85,7 @@ find /var/task -type d -name 'tests' -print0 | xargs -0 rm -rf || (
 [ -d /var/task/numpy/doc ] && rm -rf /var/task/numpy/doc || true
 [ -d /var/task/stack ] && rm -rf /var/task/stack || true
 
-# 6) Remove dist-info metadata (not needed at runtime)
+# 4) Remove dist-info metadata (not needed at runtime)
 find /var/task -type d -name '*.dist-info' -print0 | xargs -0 rm -rf || (
   echo "[ERR] Failed to remove dist-info"
   exit 1
@@ -119,27 +99,19 @@ ls -l /var/task/pydantic_core || true
 echo "[INFO] Probing for pydantic_core extension (.so)"
 ls -l /var/task/pydantic_core/*.so || true
 
-# 7) Sanity check imports from a zipped archive (simulate Lambda zipimport)
-echo "[INFO] Creating temporary test zip and validating imports from it"
-rm -f /tmp/package-test.zip
-zip -r9q /tmp/package-test.zip * || (
-  echo "[ERR] Failed to create test zip"
-  exit 1
-)
+# 5) Sanity check imports from /var/task (Lambda extracts zip to /var/task)
 python - <<'PY'
-import sys
-sys.path.insert(0, '/tmp/package-test.zip')
-print('sys.path[0]=', sys.path[0])
 from fastapi import Depends, FastAPI, Query
 from starlette.middleware.cors import CORSMiddleware
 from mangum import Mangum
 from titiler.core.factory import MultiBandTilerFactory
 from rio_tiler_pds.sentinel.aws import S1L1CReader
-import jinja2, markupsafe, anyio, sniffio
-print('Zipped import sanity check: OK')
+import pydantic_core, jinja2, markupsafe, anyio, sniffio
+print('Import sanity check: OK')
+print('pydantic_core at:', getattr(pydantic_core, '__file__', None))
 PY
 if [ $? -ne 0 ]; then
-  echo "[ERR] Zipped import sanity check failed"
+  echo "[ERR] Import sanity check failed"
   exit 1
 fi
 
