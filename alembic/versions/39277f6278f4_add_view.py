@@ -147,7 +147,7 @@ def upgrade() -> None:
                 FROM slick_to_source sts
                 JOIN source s ON s.id = sts.source
                 JOIN slick sl ON sl.id = sts.slick
-                LEFT JOIN source_to_tag stt ON stt.source = sts.source
+                LEFT JOIN source_to_tag stt ON stt.source_ext_id = s.ext_id AND stt.source_type = s.type
                 LEFT JOIN hitl_slick hs ON hs.slick = sl.id
                 WHERE true 
                     AND sl.active 
