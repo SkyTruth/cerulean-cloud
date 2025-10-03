@@ -83,6 +83,8 @@ find /var/task -type f -name '*.py' \
   ! -path '/var/task/jinja2/*' \
   ! -path '/var/task/anyio/*' \
   ! -path '/var/task/sniffio/*' \
+  ! -path '/var/task/typing_extensions.py' \
+  ! -path '/var/task/annotated_types.py' \
   ! -name '__init__.py' \
   -delete || (
   echo "[ERR] Failed to remove .py sources"
@@ -119,6 +121,7 @@ from mangum import Mangum
 from titiler.core.factory import MultiBandTilerFactory
 from rio_tiler_pds.sentinel.aws import S1L1CReader
 import pydantic_core, jinja2, markupsafe, anyio, sniffio
+import typing_extensions, annotated_types
 print('Import sanity check: OK')
 print('pydantic_core at:', getattr(pydantic_core, '__file__', None))
 PY
