@@ -343,6 +343,7 @@ def upgrade() -> None:
         ),
         sa.Column("st_name", sa.Text, nullable=False),
         sa.Column("ext_id", sa.Text, nullable=False),
+        sa.UniqueConstraint("ext_id", "type", name="uq_source_extid_type"),
     )
 
     op.create_table(
