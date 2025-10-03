@@ -83,6 +83,8 @@ find /var/task -type f -name '*.py' \
   ! -path '/var/task/jinja2/*' \
   ! -path '/var/task/anyio/*' \
   ! -path '/var/task/sniffio/*' \
+  ! -path '/var/task/numpy/*' \
+  ! -path '/var/task/numpy*.py' \
   ! -path '/var/task/typing_extensions.py' \
   ! -path '/var/task/annotated_types.py' \
   ! -name '__init__.py' \
@@ -122,8 +124,10 @@ from titiler.core.factory import MultiBandTilerFactory
 from rio_tiler_pds.sentinel.aws import S1L1CReader
 import pydantic_core, jinja2, markupsafe, anyio, sniffio
 import typing_extensions, annotated_types
+import numpy as _np
 print('Import sanity check: OK')
 print('pydantic_core at:', getattr(pydantic_core, '__file__', None))
+print('numpy at:', getattr(_np, '__file__', None), 'version:', _np.__version__)
 PY
 if [ $? -ne 0 ]; then
   echo "[ERR] Import sanity check failed"
