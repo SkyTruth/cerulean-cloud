@@ -179,12 +179,15 @@ default = gcp.cloudrun.Service(
         metadata=dict(
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
+                "run.googleapis.com/launch-stage": "BETA",
             },
         ),
     ),
-    # Provide an empty metadata block to ensure path exists; annotations ignored via opts
+    # Provide valid launch-stage to satisfy API validation
     metadata=gcp.cloudrun.ServiceMetadataArgs(
-        annotations={},
+        annotations={
+            "run.googleapis.com/launch-stage": "BETA",
+        },
     ),
     traffics=[
         gcp.cloudrun.ServiceTrafficArgs(
