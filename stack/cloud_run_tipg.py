@@ -51,7 +51,10 @@ secret_accessor_binding = gcp.secretmanager.SecretIamMember(
 service_name = construct_name("cr-tipg")
 default = gcp.cloudrun.Service(
     service_name,
-    opts=pulumi.ResourceOptions(depends_on=[secret_accessor_binding]),
+    opts=pulumi.ResourceOptions(
+        depends_on=[secret_accessor_binding],
+        ignore_changes=["metadata.annotations"],
+    ),
     name=service_name,
     location=pulumi.Config("gcp").require("region"),
     autogenerate_revision_name=True,
