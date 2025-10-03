@@ -80,7 +80,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """drop indices"""
-    op.drop_index("idx_source_to_tag_source", "source_to_tag")
+    # Drop indexes created on source_to_tag
+    op.drop_index("idx_source_to_tag_source_type", "source_to_tag")
+    op.drop_index("idx_source_to_tag_source_ext_id", "source_to_tag")
+    op.drop_index("idx_source_to_tag_source_pair", "source_to_tag")
     op.drop_index("idx_source_to_tag_tag", "source_to_tag")
 
     op.drop_index("idx_model_name", "model")
