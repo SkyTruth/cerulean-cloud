@@ -53,7 +53,10 @@ default = gcp.cloudrun.Service(
     service_name,
     opts=pulumi.ResourceOptions(
         depends_on=[secret_accessor_binding],
-        ignore_changes=["metadata.annotations"],
+        ignore_changes=[
+            "metadata.annotations",
+            "template.metadata.annotations",
+        ],
     ),
     name=service_name,
     location=pulumi.Config("gcp").require("region"),
@@ -179,7 +182,10 @@ default = gcp.cloudrun.Service(
             },
         ),
     ),
-    # Remove launch-stage annotation to avoid API validation issues
+    # Provide an empty metadata block to ensure path exists; annotations ignored via opts
+    metadata=gcp.cloudrun.ServiceMetadataArgs(
+        annotations={},
+    ),
     traffics=[
         gcp.cloudrun.ServiceTrafficArgs(
             percent=100,
