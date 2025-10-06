@@ -28,6 +28,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     String,
     Table,
@@ -229,14 +230,14 @@ class Trigger(Base):  # noqa
 class Users(Base):  # noqa
     __tablename__ = "users"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('users_id_seq'::regclass)"),
+    )
     firstName = Column(Text)
     lastName = Column(Text)
-    name = Column(
-        Text,
-        Computed('(("firstName" || \' \'::text) || "lastName")', persisted=True),
-        nullable=False,
-    )
+    name = Column(Text)
     email = Column(Text, nullable=False, unique=True)
     emailVerified = Column(Boolean)
     image = Column(Text)
@@ -255,7 +256,11 @@ class Users(Base):  # noqa
 class Verifications(Base):  # noqa
     __tablename__ = "verifications"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('verifications_id_seq'::regclass)"),
+    )
     identifier = Column(Text, nullable=False)
     value = Column(Text, nullable=False)
     expiresAt = Column(DateTime)
@@ -266,7 +271,11 @@ class Verifications(Base):  # noqa
 class Accounts(Base):  # noqa
     __tablename__ = "accounts"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('accounts_id_seq'::regclass)"),
+    )
     userId = Column(ForeignKey("users.id"), nullable=False)
     providerId = Column(Text, nullable=False)
     accountId = Column(Text, nullable=False)
@@ -371,7 +380,11 @@ class OrchestratorRun(Base):  # noqa
 class Sessions(Base):  # noqa
     __tablename__ = "sessions"
 
-    id = Column(BigInteger, primary_key=True)
+    id = Column(
+        BigInteger,
+        primary_key=True,
+        server_default=text("nextval('sessions_id_seq'::regclass)"),
+    )
     userId = Column(ForeignKey("users.id"), nullable=False)
     expiresAt = Column(DateTime, nullable=False)
     token = Column(Text, nullable=False)
@@ -386,6 +399,7 @@ class Sessions(Base):  # noqa
 
 class Source(Base):  # noqa
     __tablename__ = "source"
+    __table_args__ = (UniqueConstraint("ext_id", "type"),)
 
     id = Column(
         BigInteger,
@@ -547,12 +561,18 @@ class Slick(Base):  # noqa
 
 class SourceToTag(Base):  # noqa
     __tablename__ = "source_to_tag"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["source_ext_id", "source_type"], ["source.ext_id", "source.type"]
+        ),
+    )
 
-    source = Column(ForeignKey("source.id"), primary_key=True, nullable=False)
+    source_ext_id = Column(Text, primary_key=True, nullable=False)
+    source_type = Column(BigInteger, primary_key=True, nullable=False)
     tag = Column(ForeignKey("tag.id"), primary_key=True, nullable=False)
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
-    source1 = relationship("Source")
+    source_ext = relationship("Source")
     tag1 = relationship("Tag")
 
 

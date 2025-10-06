@@ -343,6 +343,7 @@ def upgrade() -> None:
         ),
         sa.Column("st_name", sa.Text, nullable=False),
         sa.Column("ext_id", sa.Text, nullable=False),
+        sa.UniqueConstraint("ext_id", "type", name="uq_source_extid_type"),
     )
 
     op.create_table(
@@ -433,12 +434,18 @@ def upgrade() -> None:
 
     op.create_table(
         "source_to_tag",
-        sa.Column("source", sa.BigInteger, sa.ForeignKey("source.id"), nullable=False),
+        sa.Column("source_ext_id", sa.Text, nullable=False),
+        sa.Column("source_type", sa.BigInteger, nullable=False),
         sa.Column("tag", sa.BigInteger, sa.ForeignKey("tag.id"), nullable=False),
         sa.Column(
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
-        sa.PrimaryKeyConstraint("source", "tag"),
+        sa.ForeignKeyConstraint(
+            ["source_ext_id", "source_type"],
+            ["source.ext_id", "source.type"],
+            name="fk_source_to_tag_source_extid_type",
+        ),
+        sa.PrimaryKeyConstraint("source_ext_id", "source_type", "tag"),
     )
 
     op.create_table(
