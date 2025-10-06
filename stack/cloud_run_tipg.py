@@ -179,7 +179,7 @@ default = gcp.cloudrun.Service(
         metadata=dict(
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
-                "run.googleapis.com/launch-stage": "BETA",
+                # Do NOT set launch-stage at the template level; API rejects it here.
             },
         ),
     ),
