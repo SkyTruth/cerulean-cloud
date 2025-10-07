@@ -440,11 +440,6 @@ def upgrade() -> None:
         sa.Column(
             "create_time", sa.DateTime, nullable=False, server_default=sa.func.now()
         ),
-        sa.ForeignKeyConstraint(
-            ["source_ext_id", "source_type"],
-            ["source.ext_id", "source.type"],
-            name="fk_source_to_tag_source_extid_type",
-        ),
         sa.PrimaryKeyConstraint("source_ext_id", "source_type", "tag"),
     )
 

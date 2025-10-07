@@ -28,7 +28,6 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
-    ForeignKeyConstraint,
     Integer,
     String,
     Table,
@@ -561,11 +560,6 @@ class Slick(Base):  # noqa
 
 class SourceToTag(Base):  # noqa
     __tablename__ = "source_to_tag"
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["source_ext_id", "source_type"], ["source.ext_id", "source.type"]
-        ),
-    )
 
     source_ext_id = Column(Text, primary_key=True, nullable=False)
     source_type = Column(BigInteger, primary_key=True, nullable=False)
