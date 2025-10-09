@@ -11,7 +11,18 @@
 5. Replace this definition:
     Base: DeclarativeMeta = declarative_base()
     metadata = Base.metadata
-6. Paste this comment
+6.  Add the following to source_to_tag (There's no way to have sqlacodegen output this relationship without a DB FK):
+        from sqlalchemy import and_
+        from sqlalchemy.orm import foreign, relationship
+        source_ext = relationship(
+            "Source",
+            primaryjoin=lambda: and_(
+                foreign(SourceToTag.source_ext_id) == Source.ext_id,
+                foreign(SourceToTag.source_type)   == Source.type,
+            ),
+            foreign_keys=lambda: [SourceToTag.source_ext_id, SourceToTag.source_type],
+        )
+7. Paste this comment
 """
 
 from geoalchemy2.types import Geography, Geometry
@@ -33,10 +44,11 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    and_,
     text,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import foreign, relationship
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
 Base: DeclarativeMeta = declarative_base()
@@ -566,7 +578,14 @@ class SourceToTag(Base):  # noqa
     tag = Column(ForeignKey("tag.id"), primary_key=True, nullable=False)
     create_time = Column(DateTime, nullable=False, server_default=text("now()"))
 
-    source_ext = relationship("Source")
+    source_ext = relationship(
+        "Source",
+        primaryjoin=lambda: and_(
+            foreign(SourceToTag.source_ext_id) == Source.ext_id,
+            foreign(SourceToTag.source_type) == Source.type,
+        ),
+        foreign_keys=lambda: [SourceToTag.source_ext_id, SourceToTag.source_type],
+    )
     tag1 = relationship("Tag")
 
 
