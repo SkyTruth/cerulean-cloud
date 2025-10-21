@@ -20,3 +20,11 @@ pydantic~=2.0
 psycopg2-binary
 centerline==1.0.1
 networkx
+# Pin Google client stack to avoid resolver backtracking on Py3.11 builds
+google-api-core==2.24.1
+grpcio==1.60.2
+grpcio-status==1.60.2
+googleapis-common-protos==1.70.0
+protobuf==3.20.3
+google-cloud-bigquery==3.38.0
+google-cloud-bigquery-storage==2.33.1
