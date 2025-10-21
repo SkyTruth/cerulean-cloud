@@ -28,7 +28,7 @@ RUN pip install \
 
 COPY cerulean_cloud/ /app/cerulean_cloud/
 
-FROM gcr.io/distroless/python3-debian11:debug-nonroot AS final
+FROM gcr.io/distroless/python3-debian12:debug-nonroot AS final
 
 USER nonroot:nonroot
 
