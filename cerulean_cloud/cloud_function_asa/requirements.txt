@@ -1,5 +1,5 @@
 pandas_gbq==0.18.1
-google-cloud-tasks==2.9.1
+google-cloud-tasks==2.14.1
 sqlalchemy==1.4.32
 geopandas==1.0.1
 numpy<2.0.0
@@ -25,6 +25,6 @@ google-api-core==2.24.1
 grpcio==1.60.2
 grpcio-status==1.60.2
 googleapis-common-protos==1.70.0
-protobuf==3.20.3
+protobuf==4.25.3
 google-cloud-bigquery==3.38.0
 google-cloud-bigquery-storage==2.33.1
