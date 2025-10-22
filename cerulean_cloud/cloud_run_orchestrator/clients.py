@@ -96,6 +96,7 @@ class CloudRunInferenceClient:
             *tile_bounds,
             width=hw,
             height=hw,
+            clamp_to_bounds=True,
             rescale=rescale,
         )
 

@@ -181,6 +181,7 @@ class TitilerClient:
         band: str = "vv",
         img_format: str = "png",
         rescale: Tuple[int, int] = (0, 255),
+        clamp_to_bounds: bool = False,
     ) -> np.ndarray:
         """get offset tile as numpy array (with bounds)
 
@@ -200,15 +201,17 @@ class TitilerClient:
         Returns:
             np.ndarray: The requested image of the bounds of the scene as a numpy array.
         """
-        # Clip requested bbox to scene bounds to avoid boundless reads in WarpedVRT
-        try:
-            scene_bounds = self._bounds_cache.get(scene_id)
-            if scene_bounds is None:
-                scene_bounds = await self.get_bounds(scene_id)
-        except Exception:
-            scene_bounds = None
+        # Optionally clip requested bbox to scene bounds to avoid boundless reads in WarpedVRT
+        scene_bounds = None
+        if clamp_to_bounds:
+            try:
+                scene_bounds = self._bounds_cache.get(scene_id)
+                if scene_bounds is None:
+                    scene_bounds = await self.get_bounds(scene_id)
+            except Exception:
+                scene_bounds = None
 
-        if scene_bounds is not None:
+        if clamp_to_bounds and scene_bounds is not None:
             sb_minx, sb_miny, sb_maxx, sb_maxy = scene_bounds
             req_w = maxx - minx
             req_h = maxy - miny
@@ -260,7 +263,7 @@ class TitilerClient:
             ] = sub_img
             return canvas
 
-        # Fallback: no bounds available, try direct request (may 500 on boundless)
+        # Fallback/direct: no clamping requested or no bounds available; perform direct request
         url = urlib.urljoin(
             self.url, f"bbox/{minx},{miny},{maxx},{maxy}/{width}x{height}.{img_format}"
         )
