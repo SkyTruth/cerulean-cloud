@@ -41,7 +41,11 @@ def upgrade() -> None:
         "idx_orchestrator_run_sentinel1_grd", "orchestrator_run", ["sentinel1_grd"]
     )
 
-    op.create_index("idx_source_name", "source", ["st_name", "type"])
+    op.create_index("idx_source_ext_id_type", "source", ["ext_id", "type"])
+    op.create_index("idx_source_ext_id", "source", ["ext_id"])
+    op.execute(
+        'CREATE INDEX idx_source_ext_id_first_three_chars ON "source" ((left(ext_id, 3)));'
+    )
 
     op.create_index(
         "idx_slick_to_source_collated_score", "slick_to_source", ["collated_score"]
@@ -103,7 +107,9 @@ def downgrade() -> None:
     op.drop_index("idx_slick_to_aoi_aoi", "slick_to_aoi")
     op.drop_index("idx_slick_to_aoi_slick", "slick_to_aoi")
 
-    op.drop_index("idx_source_name", "source")
+    op.drop_index("idx_source_ext_id_type", "source")
+    op.drop_index("idx_source_ext_id", "source")
+    op.drop_index("idx_source_ext_id_first_three_chars", "source")
 
     op.drop_index("idx_slick_to_source_collated_score", "slick_to_source")
 
