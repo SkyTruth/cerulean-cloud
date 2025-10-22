@@ -225,6 +225,14 @@ class TitilerClient:
             if ixmin >= ixmax or iymin >= iymax or req_w <= 0 or req_h <= 0:
                 return np.zeros((height, width, 1), dtype=np.uint8)
 
+            # Nudge inward slightly to avoid edge-bound boundless reads in WarpedVRT
+            epsx = max((ixmax - ixmin) * 1e-6, 1e-7)
+            epsy = max((iymax - iymin) * 1e-6, 1e-7)
+            ixmin = min(max(ixmin + epsx, sb_minx), sb_maxx)
+            ixmax = max(min(ixmax - epsx, sb_maxx), sb_minx)
+            iymin = min(max(iymin + epsy, sb_miny), sb_maxy)
+            iymax = max(min(iymax - epsy, sb_maxy), sb_miny)
+
             # Proportional size of intersection in output pixels
             out_w = int(round(width * ((ixmax - ixmin) / req_w)))
             out_h = int(round(height * ((iymax - iymin) / req_h)))
@@ -249,12 +257,16 @@ class TitilerClient:
             sub_url += f"?scene_id={scene_id}"
             sub_url += f"&bands={band}"
             sub_url += f"&rescale={','.join([str(r) for r in rescale])}"
-            sub_resp = await self.client.get(sub_url, timeout=self.timeout)
-            sub_resp.raise_for_status()
+            try:
+                sub_resp = await self.client.get(sub_url, timeout=self.timeout)
+                sub_resp.raise_for_status()
 
-            with MemoryFile(sub_resp.content) as memfile:
-                with memfile.open() as dataset:
-                    sub_img = reshape_as_image(dataset.read())
+                with MemoryFile(sub_resp.content) as memfile:
+                    with memfile.open() as dataset:
+                        sub_img = reshape_as_image(dataset.read())
+            except Exception:
+                # As a safety net, return an empty tile rather than failing the whole request
+                return np.zeros((height, width, 1), dtype=np.uint8)
 
             # Prepare full-size canvas and paste
             canvas = np.zeros((height, width, sub_img.shape[2]), dtype=sub_img.dtype)
