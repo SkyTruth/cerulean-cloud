@@ -11,12 +11,18 @@ fi
 cd /var/task
 
 # Ensure we install with the same interpreter as the Lambda runtime
+# Prefer and require prebuilt wheels to avoid compiling native deps in Lambda build image
+python3 -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
+export PIP_PREFER_BINARY=1
+export PIP_ONLY_BINARY=":all:"
 if ! python3 -m pip install \
     --no-input \
     --disable-pip-version-check \
     --no-warn-script-location \
     --isolated \
     --no-cache-dir \
+    --prefer-binary \
+    --only-binary=:all: \
     --upgrade \
     --target /var/task \
     -r requirements.txt; then
