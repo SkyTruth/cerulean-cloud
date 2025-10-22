@@ -29,6 +29,8 @@ class TitilerClient:
             headers={"Authorization": f"Bearer {os.getenv('TITILER_API_KEY')}"}
         )
         self.timeout = timeout
+        # simple in-memory cache for scene bounds to avoid extra HTTP calls
+        self._bounds_cache: Dict[str, List[float]] = {}
 
     async def get_bounds(self, scene_id: str) -> List[float]:
         """fetch bounds of a scene
@@ -49,7 +51,10 @@ class TitilerClient:
         try:
             resp = await self.client.get(url, timeout=self.timeout)
             resp.raise_for_status()  # Raises error for 4XX or 5XX status codes
-            return resp.json()["bounds"]
+            bounds = resp.json()["bounds"]
+            # cache for later bbox requests
+            self._bounds_cache[scene_id] = bounds
+            return bounds
         except Exception as e:
             logger.error(
                 {
@@ -195,6 +200,67 @@ class TitilerClient:
         Returns:
             np.ndarray: The requested image of the bounds of the scene as a numpy array.
         """
+        # Clip requested bbox to scene bounds to avoid boundless reads in WarpedVRT
+        try:
+            scene_bounds = self._bounds_cache.get(scene_id)
+            if scene_bounds is None:
+                scene_bounds = await self.get_bounds(scene_id)
+        except Exception:
+            scene_bounds = None
+
+        if scene_bounds is not None:
+            sb_minx, sb_miny, sb_maxx, sb_maxy = scene_bounds
+            req_w = maxx - minx
+            req_h = maxy - miny
+            # Compute intersection
+            ixmin = max(minx, sb_minx)
+            iymin = max(miny, sb_miny)
+            ixmax = min(maxx, sb_maxx)
+            iymax = min(maxy, sb_maxy)
+
+            # If no overlap, return an empty tile
+            if ixmin >= ixmax or iymin >= iymax or req_w <= 0 or req_h <= 0:
+                return np.zeros((height, width, 1), dtype=np.uint8)
+
+            # Proportional size of intersection in output pixels
+            out_w = int(round(width * ((ixmax - ixmin) / req_w)))
+            out_h = int(round(height * ((iymax - iymin) / req_h)))
+            out_w = max(1, min(width, out_w))
+            out_h = max(1, min(height, out_h))
+
+            # Offsets (origin at top-left of requested bbox)
+            off_x = int(round(width * ((ixmin - minx) / req_w)))
+            off_y = int(round(height * ((maxy - iymax) / req_h)))
+            off_x = max(0, min(width - 1, off_x))
+            off_y = max(0, min(height - 1, off_y))
+
+            # Ensure paste region fits
+            out_w = min(out_w, width - off_x)
+            out_h = min(out_h, height - off_y)
+
+            # Fetch just the intersection from Titiler
+            sub_url = urlib.urljoin(
+                self.url,
+                f"bbox/{ixmin},{iymin},{ixmax},{iymax}/{out_w}x{out_h}.{img_format}",
+            )
+            sub_url += f"?scene_id={scene_id}"
+            sub_url += f"&bands={band}"
+            sub_url += f"&rescale={','.join([str(r) for r in rescale])}"
+            sub_resp = await self.client.get(sub_url, timeout=self.timeout)
+            sub_resp.raise_for_status()
+
+            with MemoryFile(sub_resp.content) as memfile:
+                with memfile.open() as dataset:
+                    sub_img = reshape_as_image(dataset.read())
+
+            # Prepare full-size canvas and paste
+            canvas = np.zeros((height, width, sub_img.shape[2]), dtype=sub_img.dtype)
+            canvas[
+                off_y : off_y + sub_img.shape[0], off_x : off_x + sub_img.shape[1], :
+            ] = sub_img
+            return canvas
+
+        # Fallback: no bounds available, try direct request (may 500 on boundless)
         url = urlib.urljoin(
             self.url, f"bbox/{minx},{miny},{maxx},{maxy}/{width}x{height}.{img_format}"
         )
@@ -202,10 +268,7 @@ class TitilerClient:
         url += f"&bands={band}"
         url += f"&rescale={','.join([str(r) for r in rescale])}"
         resp = await self.client.get(url, timeout=self.timeout)
-        resp.raise_for_status()  # 404/500 handled here
-
+        resp.raise_for_status()
         with MemoryFile(resp.content) as memfile:
             with memfile.open() as dataset:
-                np_img = reshape_as_image(dataset.read())
-
-        return np_img
+                return reshape_as_image(dataset.read())
