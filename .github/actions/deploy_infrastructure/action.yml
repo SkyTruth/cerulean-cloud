@@ -76,6 +76,18 @@ runs:
         command: up
         stack-name: ${{ inputs.environment }}
 
+    # Clear any pending operations in the main stack before deploy
+    - name: Pulumi refresh (best-effort)
+      uses: pulumi/actions@v5
+      continue-on-error: true
+      env:
+        PULUMI_CONFIG_PASSPHRASE: ${{ inputs.pulumi-stack-passphrase }}
+      with:
+        pulumi-version: ${{ inputs.pulumi-version }}
+        command: refresh
+        stack-name: ${{ inputs.environment }}
+        color: auto
+
     # Copy shared database_client.py files
     - name: Copy Shared File
       shell: bash

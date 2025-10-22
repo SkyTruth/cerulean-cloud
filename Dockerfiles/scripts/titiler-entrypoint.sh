@@ -10,7 +10,12 @@ fi
 
 cd /var/task
 
+# Prefer prebuilt wheels and upgrade pip tooling for better resolver behavior
+export PIP_PREFER_BINARY=1
+export PIP_ONLY_BINARY=":all:"
+
 # Ensure we install with the same interpreter as the Lambda runtime
+python3 -m pip install --upgrade pip setuptools wheel >/dev/null 2>&1 || true
 if ! python3 -m pip install \
     --no-input \
     --disable-pip-version-check \
@@ -19,6 +24,7 @@ if ! python3 -m pip install \
     --no-cache-dir \
     --upgrade \
     --target /var/task \
+    --only-binary=:all: \
     -r requirements.txt; then
   echo "[ERR] Failed to install Python packages"
   exit 1
