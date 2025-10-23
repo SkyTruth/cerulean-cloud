@@ -47,7 +47,7 @@ lambda_package_archive = lambda_package_path.apply(lambda x: pulumi.FileArchive(
 
 lambda_sentinel1_topic = aws.lambda_.Function(
     resource_name=construct_name("lambda-sentinel1-sub"),
-    runtime="python3.9",
+    runtime="python3.11",
     code=lambda_package_path,
     handler="handler.lambda_handler",
     role=iam_for_lambda.arn,
