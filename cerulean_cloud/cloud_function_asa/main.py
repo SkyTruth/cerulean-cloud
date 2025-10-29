@@ -225,6 +225,22 @@ async def handle_asa_request(request):
                                             ),
                                         )
                                 else:
+                                    print(
+                                        "xxx229 source_row['slick_to_source_id']: ",
+                                        source_row["slick_to_source_id"],
+                                    )
+                                    print(
+                                        "xxx233 type(source_row['slick_to_source_id']): ",
+                                        type(source_row["slick_to_source_id"]),
+                                    )
+                                    print(
+                                        "xxx237 int(source_row['slick_to_source_id']): ",
+                                        int(source_row["slick_to_source_id"]),
+                                    )
+                                    print(
+                                        "xxx241 type(int(source_row['slick_to_source_id'])): ",
+                                        type(int(source_row["slick_to_source_id"])),
+                                    )
                                     await db_client.update_slick_to_source(
                                         filter_kwargs={
                                             "id": source_row["slick_to_source_id"]
