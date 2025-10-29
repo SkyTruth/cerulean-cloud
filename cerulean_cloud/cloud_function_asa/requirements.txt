@@ -1,10 +1,9 @@
-asyncio==3.4.3
-pandas_gbq==0.17.6
-google-cloud-tasks==2.9.1
+pandas_gbq==0.18.1
+google-cloud-tasks==2.14.1
 sqlalchemy==1.4.32
 geopandas==1.0.1
 numpy<2.0.0
-scipy==1.8.0
+scipy==1.10.1
 shapely==2.0.1
 Flask>=1.0,<3.0
 functions-framework==3.0.0
@@ -21,3 +20,11 @@ pydantic~=2.0
 psycopg2-binary
 centerline==1.0.1
 networkx
+# Pin Google client stack to avoid resolver backtracking on Py3.11 builds
+google-api-core==2.24.1
+grpcio==1.60.2
+grpcio-status==1.60.2
+googleapis-common-protos==1.70.0
+protobuf==4.25.3
+google-cloud-bigquery==3.38.0
+google-cloud-bigquery-storage==2.33.1
