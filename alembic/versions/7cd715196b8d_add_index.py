@@ -41,7 +41,7 @@ def upgrade() -> None:
         "idx_orchestrator_run_sentinel1_grd", "orchestrator_run", ["sentinel1_grd"]
     )
 
-    op.create_index("idx_source_name", "source", ["st_name", "type"])
+    op.create_index("idx_source_name", "source", ["ext_id", "type"])
 
     op.create_index(
         "idx_slick_to_source_collated_score", "slick_to_source", ["collated_score"]

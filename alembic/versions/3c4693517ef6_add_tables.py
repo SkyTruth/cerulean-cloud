@@ -341,7 +341,6 @@ def upgrade() -> None:
         sa.Column(
             "type", sa.BigInteger, sa.ForeignKey("source_type.id"), nullable=False
         ),
-        sa.Column("st_name", sa.Text, nullable=False),
         sa.Column("ext_id", sa.Text, nullable=False),
         sa.UniqueConstraint("ext_id", "type", name="uq_source_extid_type"),
     )

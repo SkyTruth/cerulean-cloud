@@ -528,7 +528,6 @@ class AISAnalyzer(SourceAnalyzer):
         """
         # Define the output columns.
         columns = [
-            "st_name",
             "ext_id",
             "geometry",
             "coincidence_score",
@@ -644,7 +643,6 @@ class AISAnalyzer(SourceAnalyzer):
             # Create a LineString geometry from the AIS trajectory points.
             traj_line = LineString([p.coords[0] for p in traj["df"]["geometry"]])
             entry = {
-                "st_name": traj["id"],
                 "ext_id": traj["id"],
                 "geometry": traj_line,
                 "coincidence_score": aggregated_total,
@@ -1176,7 +1174,6 @@ class InfrastructureAnalyzer(PointAnalyzer):
         df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
         if only_oil:
             df = df[df["label"] == "oil"].copy()
-        df["st_name"] = df["structure_id"].apply(str)
         df["ext_id"] = df["structure_id"].apply(str)
         df["type"] = self.source_type
 
@@ -1385,15 +1382,9 @@ class DarkAnalyzer(PointAnalyzer):
         # XXX need a better solution for a unique name here.
         # This code chooses the ssvid, or if that is null, the structure_id, or if that is null, the length_m.
         def make_unique_id(row):
-            # if pd.notna(row["ssvid"]):
-            #     return "V" + str(row["ssvid"])
-            # elif pd.notna(row["structure_id"]):
-            #     return "I" + str(row["structure_id"])
-            # else:
             return "D" + str(row["length_m"])
 
-        df["st_name"] = df.apply(make_unique_id, axis=1)
-        df["ext_id"] = df["st_name"]
+        df["ext_id"] = df.apply(make_unique_id, axis=1)
         df["type"] = self.source_type
 
         self.dark_objects_gdf = gpd.GeoDataFrame(df, crs="4326").reset_index(drop=True)

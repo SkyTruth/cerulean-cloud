@@ -286,7 +286,7 @@ def get_closest_point_near_timestamp(
 def plot(analyzers, slick_id, black=True, num_ais=5):
     """
     Combines the plots of AIS buffered geometries and infrastructure coincidence scores,
-    with a legend showing colors corresponding to each st_name.
+    with a legend showing colors corresponding to each ext_id.
 
     Parameters:
     - analyzers (dict): Dictionary containing Analyzer objects with keys 1 and/or 2.
@@ -326,42 +326,42 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
 
     # Plot the AIS buffered geometries if ais_analyzer is present
     if ais_analyzer is not None:
-        # Ensure 'st_name' exists in results
-        if "st_name" in ais_analyzer.results.columns:
+        # Ensure 'ext_id' exists in results
+        if "ext_id" in ais_analyzer.results.columns:
             ranked_results = (
                 ais_analyzer.results.sort_values("collated_score", ascending=False)
                 .reset_index(drop=True)
                 .iloc[:num_ais]
             )
-            # Filter  where st_name is in results.st_name
+            # Filter  where ext_id is in results.ext_id
             filtered_ais = ais_analyzer.results[
-                ais_analyzer.results["st_name"].isin(ranked_results["st_name"].values)
+                ais_analyzer.results["ext_id"].isin(ranked_results["ext_id"].values)
             ]
 
-            # Get unique st_name values
-            unique_st_names = filtered_ais["st_name"].unique()
-            num_st_names = len(unique_st_names)
+            # Get unique ext_id values
+            unique_ext_ids = filtered_ais["ext_id"].unique()
+            num_ext_ids = len(unique_ext_ids)
 
-            # Assign a unique color to each st_name using a colormap
-            cmap = plt.get_cmap("rainbow", num_st_names)
-            st_name_to_color = {
-                st_name: cmap(i) for i, st_name in enumerate(unique_st_names)
+            # Assign a unique color to each ext_id using a colormap
+            cmap = plt.get_cmap("rainbow", num_ext_ids)
+            ext_id_to_color = {
+                ext_id: cmap(i) for i, ext_id in enumerate(unique_ext_ids)
             }
 
-            # Plot each group of st_name with its corresponding color
-            for st_name, group in filtered_ais.groupby("st_name"):
+            # Plot each group of ext_id with its corresponding color
+            for ext_id, group in filtered_ais.groupby("ext_id"):
                 group.plot(
-                    ax=ax, color=st_name_to_color[st_name], alpha=0.5, label=st_name
+                    ax=ax, color=ext_id_to_color[ext_id], alpha=0.5, label=ext_id
                 )
 
-            # Create legend handles for st_name
-            st_name_patches = [
-                Patch(facecolor=st_name_to_color[st_name], label=st_name)
-                for st_name in unique_st_names
+            # Create legend handles for ext_id
+            ext_id_patches = [
+                Patch(facecolor=ext_id_to_color[ext_id], label=ext_id)
+                for ext_id in unique_ext_ids
             ]
         else:
             print(
-                "Warning: 'st_name' column not found in results. AIS buffered geometries will not be colored by 'st_name'."
+                "Warning: 'ext_id' column not found in results. AIS buffered geometries will not be colored by 'ext_id'."
             )
             # Plot AIS  geometries without color coding
             colors = plt.cm.get_cmap("viridis", len(ais_analyzer.results))
@@ -373,9 +373,9 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                     alpha=0.8,
                     label="AIS" if row.Index == 0 else "",
                 )
-            st_name_patches = []
+            ext_id_patches = []
 
-        for st_name, group in filtered_ais.groupby("st_name"):
+        for ext_id, group in filtered_ais.groupby("ext_id"):
             # Loop over consecutive points and add arrows
             for idx, row in group.iterrows():
                 geom = row.geometry
@@ -403,7 +403,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                             xy=(next_point.x, next_point.y),
                             xytext=(base_point.x, base_point.y),
                             arrowprops=dict(
-                                arrowstyle="->", color=st_name_to_color[st_name], lw=1
+                                arrowstyle="->", color=ext_id_to_color[ext_id], lw=1
                             ),
                         )
 
@@ -411,7 +411,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
         # Define the timestamp at which the marker should be placed
         s1_time = np.datetime64(ais_analyzer.s1_scene.start_time)
 
-        for st_name, group in filtered_ais.groupby("st_name"):
+        for ext_id, group in filtered_ais.groupby("ext_id"):
             combined_features = []
             # Each row has a geojson_fc (a feature collection dict)
             for fc in group["geojson_fc"]:
@@ -443,14 +443,14 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                     y,
                     marker="o",
                     markersize=1 if feat is not closest_feature else 2,
-                    color=st_name_to_color.get(st_name, "black")
+                    color=ext_id_to_color.get(ext_id, "black")
                     if feat is not closest_feature
                     else "black",
                 )
 
-        for st_name, group in filtered_ais.groupby("st_name"):
-            # Obtain the longest centerline for the st_name; assumes slick_centerlines has a 'st_name' column
-            gdf = ais_analyzer.ais_trajectories[st_name]["df"]
+        for ext_id, group in filtered_ais.groupby("ext_id"):
+            # Obtain the longest centerline for the ext_id; assumes slick_centerlines has a 'ext_id' column
+            gdf = ais_analyzer.ais_trajectories[ext_id]["df"]
             longest_centerline = (
                 ais_analyzer.slick_centerlines.sort_values("length", ascending=False)
                 .iloc[0]
@@ -468,26 +468,24 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
                 [cl_tail.x, start_traj_point.x],
                 [cl_tail.y, start_traj_point.y],
                 linestyle=":",
-                color=st_name_to_color.get(st_name, "black"),
+                color=ext_id_to_color.get(ext_id, "black"),
             )
             ax.plot(
                 [cl_head.x, end_traj_point.x],
                 [cl_head.y, end_traj_point.y],
                 linestyle=":",
-                color=st_name_to_color.get(st_name, "black"),
+                color=ext_id_to_color.get(ext_id, "black"),
             )
 
-            if s1_time in ais_analyzer.ais_trajectories[st_name]["df"].index:
-                geom = ais_analyzer.ais_trajectories[st_name]["df"].geometry.loc[
-                    s1_time
-                ]
+            if s1_time in ais_analyzer.ais_trajectories[ext_id]["df"].index:
+                geom = ais_analyzer.ais_trajectories[ext_id]["df"].geometry.loc[s1_time]
                 ax.plot(
                     geom.x,
                     geom.y,
                     marker="d",
                     markersize=8,
                     markerfacecolor="none",
-                    color=st_name_to_color.get(st_name, "black"),
+                    color=ext_id_to_color.get(ext_id, "black"),
                 )
 
     # Plot the centroid
@@ -603,14 +601,14 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
     # Optionally, add a legend
     handles, labels = ax.get_legend_handles_labels()
 
-    # If st_name_patches exist, add them to the legend
-    if "st_name_patches" in locals() and st_name_patches:
+    # If ext_id_patches exist, add them to the legend
+    if "ext_id_patches" in locals() and ext_id_patches:
         # Existing handles (e.g., Slick Polygons, Centroid, Infrastructure Points)
-        # plus st_name_patches
-        combined_handles = st_name_patches.copy()
-        combined_labels = [patch.get_label() for patch in st_name_patches]
+        # plus ext_id_patches
+        combined_handles = ext_id_patches.copy()
+        combined_labels = [patch.get_label() for patch in ext_id_patches]
 
-        # Get existing handles excluding st_name patches
+        # Get existing handles excluding ext_id patches
         existing_handles = []
         existing_labels = []
         for handle, label in zip(handles, labels):
@@ -623,7 +621,7 @@ def plot(analyzers, slick_id, black=True, num_ais=5):
         combined_handles.extend(existing_handles)
         combined_labels.extend(existing_labels)
 
-        plt.legend(handles=combined_handles, labels=combined_labels, title="st_name")
+        plt.legend(handles=combined_handles, labels=combined_labels, title="ext_id")
     else:
         if handles:
             # Remove duplicate labels
