@@ -29,6 +29,7 @@ from shapely.geometry import (
     Polygon,
     mapping,
 )
+from sklearn.cluster import DBSCAN
 
 from . import constants as c
 from .scoring import (
@@ -839,12 +840,7 @@ class PointAnalyzer(SourceAnalyzer):
         # Buffer and filter target points
         slick_buffered = combined_geometry_m.buffer(self.cutoff_radius)
 
-        # scene_date = pd.to_datetime(self.s1_scene.scene_id[17:25], format="%Y%m%d") # XXX Not working because of a bug in how GFW records the first and last date.
-        filtered_points = points_m[
-            points_m.geometry.within(slick_buffered)
-            # & (infra_gdf["structure_start_date"] < scene_date)
-            # & (infra_gdf["structure_end_date"] > scene_date)
-        ]
+        filtered_points = points_m[points_m.geometry.within(slick_buffered)]
 
         return filtered_points
 
@@ -1158,12 +1154,9 @@ class InfrastructureAnalyzer(PointAnalyzer):
             self.infra_gdf = self.retrieve_infrastructure_data()
         self.coincidence_scores = np.zeros(len(self.infra_gdf))
 
-    def retrieve_infrastructure_data(self, only_oil=True):
+    def retrieve_infrastructure_data(self):
         """
         Loads infrastructure data from the GFW API.
-
-        Parameters:
-            only_oil (bool): Whether to filter the data to only include oil infrastructure.
 
         Returns:
             GeoDataFrame: GeoDataFrame containing infrastructure points.
@@ -1172,21 +1165,19 @@ class InfrastructureAnalyzer(PointAnalyzer):
         # zxy = self.select_enveloping_tile() # Something's wrong with this code. Ex. [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C"] should have 2 nearby infras
         mvt_data = self.download_mvt_tile()
         df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
-        if only_oil:
-            df = df[df["label"] == "oil"].copy()
-        df["ext_id"] = df["structure_id"].apply(str)
-        df["type"] = self.source_type
-
-        datetime_fields = ["structure_start_date", "structure_end_date"]
-        for field in datetime_fields:
-            if field in df.columns:
-                df.loc[df[field] == "", field] = str(int(time.time() * 1000))
-                df[field] = pd.to_numeric(df[field], errors="coerce")
-                df[field] = pd.to_datetime(df[field], unit="ms", errors="coerce")
-        df = df.reset_index(drop=True)
-        return gpd.GeoDataFrame(
-            df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
-        )
+        for field in ["structure_start_date", "structure_end_date"]:
+            df[field] = pd.to_datetime(
+                pd.to_numeric(df[field].replace("", np.nan)), unit="ms"
+            ).fillna(pd.Timestamp.now().to_period("M").start_time)
+        sites = self.sites_from_points(df, pd.Timestamp(self.s1_scene.scene_id[17:25]))
+        sites["ext_id"] = sites["structure_id"].astype(str)
+        sites["type"] = self.source_type
+        gdf = sites[
+            sites.is_oil
+            & (sites.is_persistent | sites.is_visible_today)
+            & sites.is_current
+        ]
+        return gdf.reset_index(drop=True)
 
     def select_enveloping_tile(self, max_zoom=20):
         """
@@ -1231,6 +1222,73 @@ class InfrastructureAnalyzer(PointAnalyzer):
         except Exception:
             print(f"Error decoding tile z={z}, x={x}, y={y}: {response.content}")
             raise Exception(response.content)
+
+    def sites_from_points(
+        self,
+        df: pd.DataFrame,
+        target_date: pd.Timestamp = pd.Timestamp("now"),
+        radius_m: float = 100.0,
+    ) -> gpd.GeoDataFrame:
+        """
+        Converts a DataFrame of points to a clustered and reduced GeoDataFrame of sites.
+        """
+        df = df.copy()
+        target_date = target_date.to_period("M").start_time
+        df = df[df["structure_start_date"] <= target_date]
+        df["structure_end_date"] = df["structure_end_date"].clip(upper=target_date)
+
+        df["is_oil"] = df["label"] == "oil"
+        X = np.deg2rad(np.c_[df.lat, df.lon])
+        df["cluster_id"] = DBSCAN(
+            eps=radius_m / 6_371_000.0, min_samples=1, metric="haversine"
+        ).fit_predict(X)
+
+        df["duration"] = (
+            df["structure_end_date"] - df["structure_start_date"]
+        ).dt.total_seconds()
+        df["lon_num"] = df["lon"] * df["duration"]
+        df["lat_num"] = df["lat"] * df["duration"]
+        df["structure_id"] = df["structure_id"].astype(int)
+
+        # Aggregate, keeping both simple means and weighted numerators
+        sites = df.groupby("cluster_id").agg(
+            structure_id=("structure_id", "min"),
+            lon_mean=("lon", "mean"),
+            lat_mean=("lat", "mean"),
+            lon_num=("lon_num", "sum"),
+            lat_num=("lat_num", "sum"),
+            weight_sum=("duration", "sum"),
+            site_start_date=("structure_start_date", "min"),
+            site_end_date=("structure_end_date", "max"),
+            is_oil=("is_oil", "any"),
+            structure_list=("structure_id", "unique"),
+        )
+
+        # Time-weighted average; fall back to simple mean if all durations are zero
+        nonzero = sites["weight_sum"] > 0.0
+        sites["lon"] = np.where(
+            nonzero, sites["lon_num"] / sites["weight_sum"], sites["lon_mean"]
+        )
+        sites["lat"] = np.where(
+            nonzero, sites["lat_num"] / sites["weight_sum"], sites["lat_mean"]
+        )
+
+        sites = sites.drop(
+            columns=["lon_mean", "lat_mean", "lon_num", "lat_num", "weight_sum"]
+        )
+
+        duration = sites["site_end_date"] - sites["site_start_date"]
+        last_seen = target_date - sites["site_end_date"]
+
+        sites["is_persistent"] = duration >= pd.Timedelta("183 days")
+        sites["is_visible_today"] = last_seen <= pd.Timedelta("31 days")
+        sites["is_current"] = last_seen <= pd.Timedelta("366 days")
+
+        return gpd.GeoDataFrame(
+            sites,
+            geometry=gpd.points_from_xy(sites["lon"], sites["lat"]),
+            crs="epsg:4326",
+        )
 
     def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
