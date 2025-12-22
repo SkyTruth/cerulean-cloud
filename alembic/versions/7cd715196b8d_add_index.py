@@ -69,6 +69,24 @@ def upgrade() -> None:
         [text("(geometry::geometry)")],
         postgresql_using="gist",
     )
+    op.create_index(
+        "idx_slick_geom_3857",
+        "slick",
+        ["geom_3857"],
+        postgresql_using="gist",
+    )
+    op.create_index(
+        "idx_slick_geom_3857_simplified",
+        "slick",
+        ["geom_3857_simplified"],
+        postgresql_using="gist",
+    )
+    op.create_index(
+        "idx_slick_centroid_3857",
+        "slick",
+        ["centroid_3857"],
+        postgresql_using="gist",
+    )
 
     op.create_index(
         "idx_source_to_tag_source_pair",

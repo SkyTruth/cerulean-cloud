@@ -155,6 +155,24 @@ def upgrade() -> None:
         sa.Column("centroid", Geography("POINT")),
         sa.Column("polsby_popper", sa.Float),
         sa.Column("fill_factor", sa.Float),
+        sa.Column(
+            "geom_3857_simplified",
+            Geometry(
+                "GEOMETRY",
+                srid=3857,
+                computed="ST_SimplifyPreserveTopology(ST_Transform(geometry::geometry, 3857), 100)",
+            ),
+        ),
+        sa.Column(
+            "centroid_3857",
+            Geography("POINT", srid=3857, computed="ST_Transform(centroid, 3857)"),
+        ),
+        sa.Column(
+            "geom_3857",
+            Geometry(
+                "GEOMETRY", srid=3857, computed="ST_Transform(geometry::geometry, 3857)"
+            ),
+        ),
     )
 
     op.create_table(
