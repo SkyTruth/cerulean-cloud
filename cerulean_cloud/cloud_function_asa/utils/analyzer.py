@@ -196,14 +196,18 @@ class AISAnalyzer(SourceAnalyzer):
         (X = days since capture) and removes the ASA from run_flags.
         """
         sql = """
-            SELECT MAX(date) AS latest_date
-            FROM `global-fishing-watch.pipe_ais_v3_published.stats_daily`;
+            SELECT MAX(date) as latest_date
+            FROM `global-fishing-watch.pipe_ais_v4_published.segs_activity_daily`
+            WHERE date > DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH);
         """
         df = pandas_gbq.read_gbq(
             sql,
             project_id=self.gfw_project_id,
             credentials=self.credentials,
         )
+        # if Null, then GFW database is more than 1 month out of date!!! Major issue... return False
+        if df["latest_date"].iloc[0] is None:
+            return False
         latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
         target_data_date = self.ais_end_time
 
@@ -231,9 +235,9 @@ class AISAnalyzer(SourceAnalyzer):
                 ves.best.best_flag as flag,
                 ves.best.best_vessel_class as best_shiptype
             FROM
-                `global-fishing-watch.pipe_ais_v3_published.messages` as seg
+                `global-fishing-watch.pipe_ais_v4_published.messages` as seg
             LEFT JOIN
-                `global-fishing-watch.pipe_ais_v3_published.vi_ssvid_v20250201` as ves
+                `global-fishing-watch.pipe_ais_v4_published.vi_ssvid20250201` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE TRUE
                 -- AND clean_segs IS TRUE
