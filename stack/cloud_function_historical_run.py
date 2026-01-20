@@ -60,7 +60,7 @@ fxn = cloudfunctionsv2.Function(
     location=pulumi.Config("gcp").require("region"),
     description="Cloud Function for Historical Run",
     build_config={
-        "runtime": "python39",
+        "runtime": "python311",
         "entry_point": "main",
         "source": {
             "storage_source": {
