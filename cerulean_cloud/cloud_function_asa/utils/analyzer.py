@@ -198,7 +198,7 @@ class AISAnalyzer(SourceAnalyzer):
         sql = """
             SELECT MAX(date) as latest_date
             FROM `global-fishing-watch.pipe_ais_v4_published.segs_activity_daily`
-            WHERE date > DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH);
+            WHERE date != '1979-01-01'
         """
         df = pandas_gbq.read_gbq(
             sql,
