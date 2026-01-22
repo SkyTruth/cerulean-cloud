@@ -140,4 +140,9 @@ def downgrade() -> None:
     op.drop_index("idx_slick_fill_factor", "slick")
     op.drop_index("idx_slick_orchestrator_run", "slick")
     op.drop_index("idx_slick_cls", "slick")
+
+    # Drop all slick geometry-related indexes created in upgrade()
+    op.drop_index("idx_slick_centroid_3857", "slick")
+    op.drop_index("idx_slick_geom_3857_simplified", "slick")
+    op.drop_index("idx_slick_geom_3857", "slick")
     op.drop_index("idx_slick_geom", "slick")
