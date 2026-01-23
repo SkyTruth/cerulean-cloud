@@ -2,13 +2,34 @@
 Code for handling queue requests for Automatic Source Association
 """
 
+import hashlib
 import json
 import os
 from datetime import datetime, timedelta, timezone
 
+from google.api_core.exceptions import AlreadyExists
 from google.auth import compute_engine
 from google.cloud import tasks_v2
 from google.protobuf import timestamp_pb2
+
+
+def _canonical_run_flags(run_flags):
+    """Return a stable string representation for run_flags."""
+    if not run_flags:
+        return "ALL"
+    return "-".join(sorted(set(run_flags)))
+
+
+def _task_id(scene_id, run_flags, scheduled_date_utc):
+    """Build a deterministic Cloud Tasks task_id for ASA.
+
+    Task IDs must be unique within the queue. We dedupe by (scene_id, run_flags, scheduled day).
+    """
+    flags = _canonical_run_flags(run_flags)
+    # Keep task_id short and safe by hashing the flags segment (in case flags grow).
+    flags_hash = hashlib.sha256(flags.encode("utf-8")).hexdigest()[:10]
+    yyyymmdd = scheduled_date_utc.strftime("%Y%m%d")
+    return f"asa-{scene_id}-{flags_hash}-{yyyymmdd}"
 
 
 def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0):
@@ -36,6 +57,12 @@ def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0):
     url = os.getenv("FUNCTION_URL")
     dry_run = os.getenv("ASA_IS_DRY_RUN", "").lower() == "true"
 
+    if not project or not location or not queue or not url:
+        raise ValueError(
+            "Missing required env vars for Cloud Tasks enqueue: "
+            "PROJECT_ID, GCPREGION, ASA_QUEUE, FUNCTION_URL"
+        )
+
     # Construct the fully qualified queue name.
     parent = client.queue_path(project, location, queue)
 
@@ -44,7 +71,13 @@ def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0):
     if run_flags:
         payload["run_flags"] = run_flags
 
+    d = datetime.now(tz=timezone.utc) + timedelta(days=days_to_delay)
+    task_name = client.task_path(
+        project, location, queue, _task_id(scene_id, run_flags, d.date())
+    )
+
     task = {
+        "name": task_name,
         "http_request": {  # Specify the type of request.
             "http_method": tasks_v2.HttpMethod.POST,
             "url": url,  # The url path that the task will be sent to.
@@ -53,10 +86,8 @@ def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0):
                 "Authorization": f"Bearer {os.getenv('API_KEY')}",
             },
             "body": json.dumps(payload).encode(),
-        }
+        },
     }
-
-    d = datetime.now(tz=timezone.utc) + timedelta(days=days_to_delay)
 
     # Create Timestamp protobuf.
     timestamp = timestamp_pb2.Timestamp()
@@ -66,7 +97,11 @@ def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0):
     task["schedule_time"] = timestamp
 
     # Use the client to build and send the task.
-    response = client.create_task(request={"parent": parent, "task": task})
+    try:
+        response = client.create_task(request={"parent": parent, "task": task})
+    except AlreadyExists:
+        print(f"Task already exists (deduped): {task_name}")
+        return task_name
 
     print(f"Created task {response.name}")
     return response
