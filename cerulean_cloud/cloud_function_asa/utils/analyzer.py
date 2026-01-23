@@ -237,7 +237,7 @@ class AISAnalyzer(SourceAnalyzer):
             FROM
                 `global-fishing-watch.pipe_ais_v4_published.messages` as seg
             LEFT JOIN
-                `global-fishing-watch.pipe_ais_v4_published.vi_ssvid20250201` as ves
+                `global-fishing-watch.pipe_ais_identity_v4_published.vi_ssvid` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE TRUE
                 -- AND clean_segs IS TRUE
