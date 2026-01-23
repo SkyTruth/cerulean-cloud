@@ -32,7 +32,7 @@ def _task_id(scene_id, run_flags, scheduled_date_utc):
     return f"asa-{scene_id}-{flags_hash}-{yyyymmdd}"
 
 
-def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0):
+def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0, task_suffix=None):
     """
     Adds a new task to Google Cloud Tasks for Automatic Source Association.
 
@@ -72,9 +72,11 @@ def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0):
         payload["run_flags"] = run_flags
 
     d = datetime.now(tz=timezone.utc) + timedelta(days=days_to_delay)
-    task_name = client.task_path(
-        project, location, queue, _task_id(scene_id, run_flags, d.date())
-    )
+    task_id = _task_id(scene_id, run_flags, d.date())
+    if task_suffix:
+        suffix_hash = hashlib.sha256(str(task_suffix).encode("utf-8")).hexdigest()[:8]
+        task_id = f"{task_id}-{suffix_hash}"
+    task_name = client.task_path(project, location, queue, task_id)
 
     task = {
         "name": task_name,
