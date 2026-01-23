@@ -403,16 +403,24 @@ class DatabaseClient:
         )
 
     async def get_previous_asa(self, slick_id):
-        """Return a list of ASA types that have been run for a slick."""
+        """Return a list of ASA analyzer short_names that have been run for a slick.
+
+        Note: We return SourceType.short_name (e.g. "VESSEL", "INFRA") rather than
+        Source.type (an integer FK) because the ASA runner compares against
+        analyzer.short_name.
+        """
         return (
             (
                 await self.session.execute(
-                    select(db.Source.type)
+                    select(db.SourceType.short_name)
+                    .distinct()
+                    .select_from(db.SlickToSource)
                     .join(db.SlickToSource.source1)
+                    .join(db.Source.source_type)
                     .where(
                         and_(
                             db.SlickToSource.slick == slick_id,
-                            db.SlickToSource.active,
+                            db.SlickToSource.active.is_(True),
                         )
                     )
                 )
