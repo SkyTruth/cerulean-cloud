@@ -1,4 +1,5 @@
 import geopandas as gpd
+from joblib import load
 
 
 def add_geom_columns(
@@ -35,3 +36,17 @@ def add_geom_columns(
     if feature_columns is not None:
         return slick_gdf_newProj[feature_columns]
     return slick_gdf_newProj
+
+
+def predict_geometric_slick_potential(
+    slick_gdf: gpd.GeoDataFrame,
+    model_path: str = None,
+) -> gpd.GeoDataFrame:
+    """
+    Compute geometric slick potential from geometric predictors.
+    """
+    rf = load(model_path)
+    feature_columns = rf.feature_names_
+    X = add_geom_columns(slick_gdf, feature_columns)
+    y_prob = rf.predict_proba(X)[:, 1]
+    return y_prob
