@@ -173,6 +173,7 @@ default = gcp.cloudrun.Service(
         metadata=dict(
             annotations={
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
+                "autoscaling.knative.dev/maxScale": "3",
             },
         ),
     ),
