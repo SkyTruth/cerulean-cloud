@@ -1329,7 +1329,7 @@ class DarkAnalyzer(PointAnalyzer):
         -- Step 2: Filter the match table by joining with scene_ids
         filtered_matches AS (
         SELECT match.*
-        FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v3` AS match
+        FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v4` AS match
         INNER JOIN scene_ids
             ON match.scene_id = scene_ids.scene_id
         WHERE match.score < .01 -- either no match or low confidence match
