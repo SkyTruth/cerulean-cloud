@@ -1,7 +1,17 @@
 import geopandas as gpd
 
 
-def add_geom_columns(slick_gdf):
+def add_geom_columns(
+    slick_gdf: gpd.GeoDataFrame,
+    feature_columns: list[str] = None,
+) -> gpd.GeoDataFrame:
+    """
+    Add geometry-derived feature columns for MultiPolygon geometries.
+
+    This function assumes the geometry column contains MultiPolygon objects
+    and computes several area-based features after projecting the data
+    to an equal-area CRS.
+    """
     slick_gdf = gpd.GeoDataFrame(slick_gdf)
 
     slick_gdf["geometry_count"] = slick_gdf["geometry"].apply(
@@ -22,5 +32,6 @@ def add_geom_columns(slick_gdf):
         return sorted(areas)[middle]
 
     slick_gdf_newProj["median_area"] = slick_gdf_newProj["geometry"].apply(median_area)
-
+    if feature_columns is not None:
+        return slick_gdf_newProj[feature_columns]
     return slick_gdf_newProj
