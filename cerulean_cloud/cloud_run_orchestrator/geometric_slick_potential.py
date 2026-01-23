@@ -1,5 +1,9 @@
+from pathlib import Path
 import geopandas as gpd
 from joblib import load
+
+_THIS_DIR = Path(__file__).resolve().parent
+_DEFAULT_MODEL_PATH = _THIS_DIR / "gsp_rf_85_acc_74_F1_20260123.joblib"
 
 
 def add_geom_columns(
@@ -40,13 +44,23 @@ def add_geom_columns(
 
 def predict_geometric_slick_potential(
     slick_gdf: gpd.GeoDataFrame,
-    model_path: str = None,
-) -> gpd.GeoDataFrame:
+    model_path: Path | str = _DEFAULT_MODEL_PATH,
+):
     """
     Compute geometric slick potential from geometric predictors.
+
+    The model path is resolved relative to this module, not the caller.
     """
+    model_path = Path(model_path)
+
+    if not model_path.exists():
+        raise FileNotFoundError(
+            f"Geometric slick potential model not found at: {model_path}"
+        )
+
     rf = load(model_path)
+
     feature_columns = rf.feature_names_
     X = add_geom_columns(slick_gdf, feature_columns)
-    y_prob = rf.predict_proba(X)[:, 1]
-    return y_prob
+
+    return rf.predict_proba(X)[:, 1]
