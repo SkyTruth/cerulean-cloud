@@ -16,6 +16,7 @@ class OrchestratorInput(BaseModel):
     zoom: Optional[int] = None
     scale: Optional[int] = None
     dry_run: bool = False
+    manual_trigger: bool = False
 
 
 class OrchestratorResult(BaseModel):
