@@ -130,7 +130,8 @@ def main(request):
     )
     print(row)
 
-    handler_queue(filtered_scenes, row["id"])
+    manual_trigger = bool(request_json.get("manual_trigger", False))
+    handler_queue(filtered_scenes, row["id"], manual_trigger=manual_trigger)
 
     return "Success!"
 
@@ -161,7 +162,7 @@ def handle_notification(request_json, ocean_poly):
     return filtered_scenes
 
 
-def handler_queue(filtered_scenes, trigger_id):
+def handler_queue(filtered_scenes, trigger_id, manual_trigger=False):
     """handler queue"""
     # Create a client.
     client = tasks_v2.CloudTasksClient()
@@ -188,6 +189,8 @@ def handler_queue(filtered_scenes, trigger_id):
         }
 
         payload = {"scene_id": scene, "trigger": trigger_id, "dry_run": dry_run}
+        if manual_trigger:
+            payload["manual_trigger"] = True
         print(payload)
         # Add the payload to the request.
         if payload is not None:
