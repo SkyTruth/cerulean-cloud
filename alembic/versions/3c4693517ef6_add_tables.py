@@ -427,6 +427,9 @@ def upgrade() -> None:
         sa.Column("hitl_time", sa.DateTime),
         sa.Column("hitl_notes", sa.Text),
     )
+    op.create_unique_constraint(
+        "uq_slick_to_source_slick_source", "slick_to_source", ["slick", "source"]
+    )
 
     op.create_table(
         "permission",
@@ -495,6 +498,9 @@ def downgrade() -> None:
     op.drop_table("source_to_tag")
     op.drop_table("tag")
     op.drop_table("permission")
+    op.drop_constraint(
+        "uq_slick_to_source_slick_source", "slick_to_source", type_="unique"
+    )
     op.drop_table("slick_to_source")
     op.drop_table("source_dark")
     op.drop_table("source_infra")
