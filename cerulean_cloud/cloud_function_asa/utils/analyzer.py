@@ -96,23 +96,27 @@ class SourceAnalyzer:
         )
 
     def reschedule_for_later(self, run_flags):
+        """
+        Backoff schedule (by scene age, in days since capture):
+          - Re-attempt daily until day 7.
+          - Then re-attempt every 7 days up to a month after capture.
+        """
         days_since = (datetime.utcnow() - self.s1_scene.start_time).days
         if days_since < 7:
-            add_to_asa_queue(
-                self.s1_scene.scene_id,
-                run_flags=run_flags,
-                days_to_delay=1,
-            )
-        elif days_since < 30:
-            add_to_asa_queue(
-                self.s1_scene.scene_id,
-                run_flags=run_flags,
-                days_to_delay=days_since,
-            )
+            days_to_delay = 1
+        elif days_since < 32:
+            days_to_delay = 7
         else:
             print(
-                f"Skipping reschedule for {self.s1_scene.scene_id} because it was captured {days_since} days ago (more than 30 days)"
+                f"Skipping reschedule for {self.s1_scene.scene_id}: captured {days_since} days ago"
             )
+            return
+
+        add_to_asa_queue(
+            self.s1_scene.scene_id,
+            run_flags=run_flags,
+            days_to_delay=days_to_delay,
+        )
 
 
 class AISAnalyzer(SourceAnalyzer):
