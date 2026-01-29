@@ -30,6 +30,9 @@ from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
+from cerulean_cloud.cloud_run_orchestrator.geometric_slick_potential import (
+    predict_geometric_slick_potential,
+)
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
@@ -462,6 +465,14 @@ async def _orchestrate(
                     feat["properties"]["centerlines"] = centerlines_geojson
                     feat["properties"]["aspect_ratio_factor"] = aspect_ratio_factor
 
+                    logger.info("Computing geometric slick potential")
+                    slick_gdf["aspect_ratio_factor"] = aspect_ratio_factor
+                    slick_gdf["machine_confidence"] = feat["properties"][
+                        "machine_confidence"
+                    ]
+                    feat["properties"]["geometric_slick_potential"] = (
+                        predict_geometric_slick_potential(slick_gdf).values[0]
+                    )
                 logger.info(
                     {
                         "message": "Adding slicks to database",
@@ -484,6 +495,7 @@ async def _orchestrate(
                             feat.get("properties").get("machine_confidence"),
                             feat.get("properties").get("centerlines"),
                             feat.get("properties").get("aspect_ratio_factor"),
+                            feat.get("properties").get("geometric_slick_potential"),
                         )
                         logger.info("Added slick")
 
