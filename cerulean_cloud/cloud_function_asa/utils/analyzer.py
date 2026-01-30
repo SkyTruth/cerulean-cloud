@@ -1152,6 +1152,11 @@ class InfrastructureAnalyzer(PointAnalyzer):
         self.coinc_std = kwargs.get("coinc_std", c.INFRA_STD)
 
         self.infra_gdf = kwargs.get("infra_gdf", None)
+        self.blacklist_ids = kwargs.get("blacklist_ids", None)
+        if self.blacklist_ids is None:
+            self.blacklist_ids = pd.read_csv(c.INFRA_BLACKLIST_PATH)[
+                "structure_id"
+            ].values
 
         if self.infra_gdf is None:
             self.infra_api_token = os.getenv("INFRA_API_TOKEN")
@@ -1178,8 +1183,9 @@ class InfrastructureAnalyzer(PointAnalyzer):
         sites["type"] = self.source_type
         gdf = sites[
             sites.is_oil
-            & (sites.is_persistent | sites.is_visible_today)
-            & sites.is_current
+            # & (sites.is_persistent | sites.is_visible_today)  # Using blacklist instead of persistence
+            # & sites.is_current  # Using blacklist instead of current
+            & ~sites.is_blacklisted
         ]
         return gdf.reset_index(drop=True)
 
@@ -1287,6 +1293,7 @@ class InfrastructureAnalyzer(PointAnalyzer):
         sites["is_persistent"] = duration >= pd.Timedelta("183 days")
         sites["is_visible_today"] = last_seen <= pd.Timedelta("31 days")
         sites["is_current"] = last_seen <= pd.Timedelta("366 days")
+        sites["is_blacklisted"] = sites["structure_id"].isin(self.blacklist_ids)
 
         return gpd.GeoDataFrame(
             sites,
