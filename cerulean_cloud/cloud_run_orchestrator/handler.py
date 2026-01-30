@@ -471,7 +471,7 @@ async def _orchestrate(
                         "machine_confidence"
                     ]
                     feat["properties"]["geometric_slick_potential"] = (
-                        predict_geometric_slick_potential(slick_gdf).values[0]
+                        predict_geometric_slick_potential(slick_gdf)[0]
                     )
                 logger.info(
                     {
