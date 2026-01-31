@@ -383,6 +383,9 @@ def upgrade() -> None:
         sa.Column("sovereign", sa.Text),
         sa.Column("orig_yr", sa.DateTime),
         sa.Column("last_known_status", sa.Text),
+        sa.Column("first_detection", sa.DateTime),
+        sa.Column("last_detection", sa.DateTime),
+        sa.Column("mmsi", sa.Text),
     )
 
     op.create_table(

@@ -1152,11 +1152,6 @@ class InfrastructureAnalyzer(PointAnalyzer):
         self.coinc_std = kwargs.get("coinc_std", c.INFRA_STD)
 
         self.infra_gdf = kwargs.get("infra_gdf", None)
-        self.blacklist_ids = kwargs.get("blacklist_ids", None)
-        if self.blacklist_ids is None:
-            self.blacklist_ids = pd.read_csv(c.INFRA_BLACKLIST_PATH)[
-                "structure_id"
-            ].values
 
         if self.infra_gdf is None:
             self.infra_api_token = os.getenv("INFRA_API_TOKEN")
@@ -1183,9 +1178,8 @@ class InfrastructureAnalyzer(PointAnalyzer):
         sites["type"] = self.source_type
         gdf = sites[
             sites.is_oil
-            # & (sites.is_persistent | sites.is_visible_today)  # Using blacklist instead of persistence
-            # & sites.is_current  # Using blacklist instead of current
-            & ~sites.is_blacklisted
+            # & (sites.is_persistent | sites.is_visible_today)  # Using tag "phantom" instead of persistence
+            # & sites.is_current  # Using tag "phantom" instead of current
         ]
         return gdf.reset_index(drop=True)
 
@@ -1268,8 +1262,8 @@ class InfrastructureAnalyzer(PointAnalyzer):
             lon_num=("lon_num", "sum"),
             lat_num=("lat_num", "sum"),
             weight_sum=("duration", "sum"),
-            site_start_date=("structure_start_date", "min"),
-            site_end_date=("structure_end_date", "max"),
+            first_detection=("structure_start_date", "min"),
+            last_detection=("structure_end_date", "max"),
             is_oil=("is_oil", "any"),
             structure_list=("structure_id", "unique"),
         )
@@ -1287,13 +1281,12 @@ class InfrastructureAnalyzer(PointAnalyzer):
             columns=["lon_mean", "lat_mean", "lon_num", "lat_num", "weight_sum"]
         )
 
-        duration = sites["site_end_date"] - sites["site_start_date"]
-        last_seen = target_date - sites["site_end_date"]
+        duration = sites["last_detection"] - sites["first_detection"]
+        last_seen = target_date - sites["last_detection"]
 
         sites["is_persistent"] = duration >= pd.Timedelta("183 days")
         sites["is_visible_today"] = last_seen <= pd.Timedelta("31 days")
         sites["is_current"] = last_seen <= pd.Timedelta("366 days")
-        sites["is_blacklisted"] = sites["structure_id"].isin(self.blacklist_ids)
 
         return gpd.GeoDataFrame(
             sites,

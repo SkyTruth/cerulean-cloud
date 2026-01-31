@@ -450,6 +450,9 @@ class SourceInfra(Source):  # noqa
     sovereign = Column(Text)
     orig_yr = Column(DateTime)
     last_known_status = Column(Text)
+    first_detection = Column(DateTime)
+    last_detection = Column(DateTime)
+    mmsi = Column(Text)
 
 
 class SourceNatural(Source):  # noqa
