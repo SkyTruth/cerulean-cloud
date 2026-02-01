@@ -1178,8 +1178,8 @@ class InfrastructureAnalyzer(PointAnalyzer):
         sites["type"] = self.source_type
         gdf = sites[
             sites.is_oil
-            # & (sites.is_persistent | sites.is_visible_today)  # Using tag "phantom" instead of persistence
-            # & sites.is_current  # Using tag "phantom" instead of current
+            # & (sites.is_persistent | sites.is_visible_today)  # Using tag "exc" instead of persistence
+            # & sites.is_current  # Using tag "exc" instead of current
         ]
         return gdf.reset_index(drop=True)
 
