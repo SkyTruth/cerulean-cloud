@@ -98,6 +98,7 @@ def add_geom_columns(
 def predict_geometric_slick_potential(
     slick_gdf: gpd.GeoDataFrame,
     model_path: Path | str = _DEFAULT_MODEL_PATH,
+    preprocess=True,
 ):
     """
     Compute geometric slick potential from geometric predictors.
@@ -114,6 +115,10 @@ def predict_geometric_slick_potential(
     rf = load(model_path)
 
     feature_columns = rf.feature_names_
-    X = add_geom_columns(slick_gdf, feature_columns)
+    X = (
+        add_geom_columns(slick_gdf, feature_columns)
+        if preprocess
+        else slick_gdf[feature_columns]
+    )
 
     return rf.predict_proba(X)[:, 1]
