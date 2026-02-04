@@ -170,7 +170,3 @@ def compute_aspect_ratio_factor(
     # Note slwbear is between 1 and infinity, so the following transformation moves it between 0 and 1
     arf = 1 - math.exp((1 - clwbear) / ar_ref)  # Aspect Ratio Factor
     return arf
-
-
-def geometric_slick_potential(slick_gdf):
-    pass
