@@ -195,7 +195,7 @@ class AISAnalyzer(SourceAnalyzer):
 
     def check_data_availability(self):
         """
-        Checks if stats_daily has data for date = (image_timestamp + hours_after).
+        Checks if segs_activity_daily has data for date = (image_timestamp + hours_after).
         If not, and if the image is <30 days old, schedules an ASA retry after X days
         (X = days since capture) and removes the ASA from run_flags.
         """
@@ -1467,7 +1467,7 @@ class DarkAnalyzer(PointAnalyzer):
         target_data_date = self.s1_scene.start_time
         sql = f"""
             SELECT COUNT(*) > 0 as data_available
-            FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match` 
+            FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v4`
             WHERE scene_id = '{self.s1_scene.scene_id}'
             AND TIMESTAMP_TRUNC(_PARTITIONTIME, DAY) = TIMESTAMP("{target_data_date.strftime("%Y-%m-%d")}");
         """
