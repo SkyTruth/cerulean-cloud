@@ -195,9 +195,9 @@ class AISAnalyzer(SourceAnalyzer):
 
     def check_data_availability(self):
         """
-        Checks if segs_activity_daily has data for date = (image_timestamp + hours_after).
-        If not, and if the image is <30 days old, schedules an ASA retry after X days
-        (X = days since capture) and removes the ASA from run_flags.
+        Checks if segs_activity_daily has data for the target day
+        (image_timestamp + hours_after). Day granularity is intentional:
+        same-day availability is sufficient.
         """
         sql = """
             SELECT MAX(date) as latest_date
@@ -212,10 +212,10 @@ class AISAnalyzer(SourceAnalyzer):
         # if Null, then GFW database is more than 1 month out of date!!! Major issue... return False
         if df["latest_date"].iloc[0] is None:
             return False
-        latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
-        target_data_date = self.ais_end_time
+        latest_data_day = pd.to_datetime(df["latest_date"].iloc[0]).date()
+        target_data_day = self.ais_end_time.date()
 
-        return latest_data_date >= target_data_date
+        return latest_data_day >= target_data_day
 
     def retrieve_ais_data(self):
         """
@@ -1306,8 +1306,6 @@ class DarkAnalyzer(PointAnalyzer):
         self.gfw_project_id = kwargs.get("gfw_project_id", c.GFW_PROJECT_ID)
         self.s1_scene = s1_scene
         self.dark_objects_gdf = kwargs.get("dark_vessels_gdf", None)
-        if self.dark_objects_gdf is None:
-            self.retrieve_sar_detection_data()
         self.closing_buffer = kwargs.get("closing_buffer", c.DARK_CLOSING_BUFFER)
         self.decay_theta = kwargs.get("decay_theta", c.DARK_DECAY_THETA)
         self.decay_radius = kwargs.get("decay_radius", c.DARK_DECAY_RADIUS)
@@ -1412,7 +1410,6 @@ class DarkAnalyzer(PointAnalyzer):
         """
 
         start_time = time.time()
-        self.coincidence_scores = np.zeros(len(self.dark_objects_gdf))
         self.slick_gdf = slick_gdf
 
         if self.data_is_available is None:
@@ -1423,6 +1420,12 @@ class DarkAnalyzer(PointAnalyzer):
             # Catches both False cases for persistent analyzer and newly calculated availability
             return pd.DataFrame()
 
+        if self.dark_objects_gdf is None:
+            self.retrieve_sar_detection_data()
+        if self.dark_objects_gdf.empty:
+            return pd.DataFrame()
+
+        self.coincidence_scores = np.zeros(len(self.dark_objects_gdf))
         self.combined_geometry, _, _ = self.process_slicks()
 
         filtered_dark_objects = self.filter_points(
