@@ -32,6 +32,7 @@ from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.geometric_slick_potential import (
     predict_geometric_slick_potential,
+    add_geom_columns,
 )
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
@@ -470,8 +471,17 @@ async def _orchestrate(
                     slick_gdf["machine_confidence"] = feat["properties"][
                         "machine_confidence"
                     ]
+                    slick_gdf = add_geom_columns(slick_gdf)
+                    feat["properties"]["perimeter"] = slick_gdf["perimeter"].iloc[0]
+                    feat["properties"]["area"] = slick_gdf["area"].iloc[0]
+                    feat["properties"]["polsby_popper"] = slick_gdf[
+                        "polsby_popper"
+                    ].iloc[0]
+                    feat["properties"]["fill_factor"] = slick_gdf["fill_factor"].iloc[0]
                     feat["properties"]["geometric_slick_potential"] = (
-                        predict_geometric_slick_potential(slick_gdf)[0]
+                        predict_geometric_slick_potential(slick_gdf, preprocess=False)[
+                            0
+                        ]
                     )
                 logger.info(
                     {
@@ -496,6 +506,10 @@ async def _orchestrate(
                             feat.get("properties").get("centerlines"),
                             feat.get("properties").get("aspect_ratio_factor"),
                             feat.get("properties").get("geometric_slick_potential"),
+                            feat.get("properties").get("area"),
+                            feat.get("properties").get("perimeter"),
+                            feat.get("properties").get("polsby_popper"),
+                            feat.get("properties").get("fill_factor"),
                         )
                         logger.info("Added slick")
 
