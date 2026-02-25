@@ -514,7 +514,12 @@ async def _orchestrate(
                         logger.info("Added slick")
 
                 logger.info("Queueing up Automatic Source Association")
-                add_to_asa_queue(sentinel1_grd.scene_id)
+                add_to_asa_queue(
+                    sentinel1_grd.scene_id,
+                    task_suffix=f"run-{orchestrator_run.id}"
+                    if payload.manual_trigger
+                    else None,
+                )
 
         except Exception as e:
             success = False

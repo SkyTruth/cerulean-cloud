@@ -47,6 +47,7 @@ from sqlalchemy import (
     and_,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import foreign, relationship
 from sqlalchemy.orm.decl_api import DeclarativeMeta
@@ -254,7 +255,7 @@ class Users(Base):  # noqa
     image = Column(Text)
     role = Column(Text)
     organization = Column(Text)
-    organizationType = Column(ARRAY(Text()))
+    organizationType = Column(JSONB)
     location = Column(Text)
     emailConsent = Column(Boolean)
     banned = Column(Boolean)

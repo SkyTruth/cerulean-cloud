@@ -8,6 +8,7 @@ from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
 from sqlalchemy import and_, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
@@ -285,8 +286,22 @@ class DatabaseClient:
         return source
 
     async def insert_slick_to_source(self, **kwargs):
-        """add a new slick_to_source"""
-        return await insert(self.session, db.SlickToSource, **kwargs)
+        """Insert a new slick_to_source, or update it if it already exists."""
+        insert_stmt = pg_insert(db.SlickToSource.__table__).values(**kwargs)
+        upsert_stmt = insert_stmt.on_conflict_do_update(
+            index_elements=["slick", "source"],
+            set_={
+                "active": insert_stmt.excluded.active,
+                "git_hash": insert_stmt.excluded.git_hash,
+                "git_tag": insert_stmt.excluded.git_tag,
+                "coincidence_score": insert_stmt.excluded.coincidence_score,
+                "collated_score": insert_stmt.excluded.collated_score,
+                "rank": insert_stmt.excluded.rank,
+                "geojson_fc": insert_stmt.excluded.geojson_fc,
+                "geometry": insert_stmt.excluded.geometry,
+            },
+        )
+        return await self.session.execute(upsert_stmt)
 
     async def get_slicks_from_scene_id(
         self,
@@ -413,16 +428,24 @@ class DatabaseClient:
         )
 
     async def get_previous_asa(self, slick_id):
-        """Return a list of ASA types that have been run for a slick."""
+        """Return a list of ASA analyzer short_names that have been run for a slick.
+
+        Note: We return SourceType.short_name (e.g. "VESSEL", "INFRA") rather than
+        Source.type (an integer FK) because the ASA runner compares against
+        analyzer.short_name.
+        """
         return (
             (
                 await self.session.execute(
-                    select(db.Source.type)
+                    select(db.SourceType.short_name)
+                    .distinct()
+                    .select_from(db.SlickToSource)
                     .join(db.SlickToSource.source1)
+                    .join(db.Source.source_type)
                     .where(
                         and_(
                             db.SlickToSource.slick == slick_id,
-                            db.SlickToSource.active,
+                            db.SlickToSource.active.is_(True),
                         )
                     )
                 )

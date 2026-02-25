@@ -156,6 +156,23 @@ def upgrade() -> None:
         sa.Column("polsby_popper", sa.Float),
         sa.Column("fill_factor", sa.Float),
         sa.Column("geometric_slick_potential", sa.Float),
+        sa.Column(
+            "geom_3857_simplified",
+            Geometry("GEOMETRY", srid=3857, spatial_index=False),
+            sa.Computed(
+                "ST_SimplifyPreserveTopology(ST_Transform(geometry::geometry, 3857), 100)"
+            ),
+        ),
+        sa.Column(
+            "centroid_3857",
+            Geometry("POINT", srid=3857, spatial_index=False),
+            sa.Computed("ST_Transform(centroid::geometry, 3857)"),
+        ),
+        sa.Column(
+            "geom_3857",
+            Geometry("GEOMETRY", srid=3857, spatial_index=False),
+            sa.Computed("ST_Transform(geometry::geometry, 3857)"),
+        ),
     )
 
     op.create_table(
@@ -169,7 +186,7 @@ def upgrade() -> None:
         sa.Column("image", sa.Text),
         sa.Column("role", sa.Text),
         sa.Column("organization", sa.Text),
-        sa.Column("organizationType", ARRAY(sa.Text)),
+        sa.Column("organizationType", sa.dialects.postgresql.JSONB),
         sa.Column("location", sa.Text),
         sa.Column("emailConsent", sa.Boolean, default=False),
         sa.Column("banned", sa.Boolean, default=False),
@@ -411,6 +428,9 @@ def upgrade() -> None:
         sa.Column("hitl_time", sa.DateTime),
         sa.Column("hitl_notes", sa.Text),
     )
+    op.create_unique_constraint(
+        "uq_slick_to_source_slick_source", "slick_to_source", ["slick", "source"]
+    )
 
     op.create_table(
         "permission",
@@ -479,6 +499,9 @@ def downgrade() -> None:
     op.drop_table("source_to_tag")
     op.drop_table("tag")
     op.drop_table("permission")
+    op.drop_constraint(
+        "uq_slick_to_source_slick_source", "slick_to_source", type_="unique"
+    )
     op.drop_table("slick_to_source")
     op.drop_table("source_dark")
     op.drop_table("source_infra")
