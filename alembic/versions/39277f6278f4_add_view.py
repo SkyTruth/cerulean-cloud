@@ -37,7 +37,7 @@ def upgrade() -> None:
                     fill_factor,
                     centerlines,
                     aspect_ratio_factor,
-                    geometric_slick_potential,
+                    geometric_slick_potential AS slick_potential,
                     cls,
                     orchestrator_run,
                     length^2 / area / polsby_popper AS linearity
