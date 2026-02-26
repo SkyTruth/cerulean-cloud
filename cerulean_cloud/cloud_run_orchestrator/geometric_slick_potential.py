@@ -3,9 +3,17 @@ import geopandas as gpd
 from joblib import load
 import numpy as np
 from pyproj import Geod
+from shapely.geometry import MultiPolygon
 
 _THIS_DIR = Path(__file__).resolve().parent
 _DEFAULT_MODEL_PATH = _THIS_DIR / "gsp_rf_85_acc_74_F1_20260123.joblib"
+
+
+def _to_valid_multipolygon(g):
+    g = g.buffer(0)
+    if g.geom_type == "Polygon":
+        return MultiPolygon([g])
+    return g
 
 
 def postgis_geography_perimeter(geom):
@@ -49,6 +57,7 @@ def add_geom_columns(
     to an equal-area CRS.
     """
     slick_gdf = gpd.GeoDataFrame(slick_gdf)
+    slick_gdf["geometry"] = slick_gdf["geometry"].apply(_to_valid_multipolygon)
 
     slick_gdf["geometry_count"] = slick_gdf["geometry"].apply(
         lambda geom: len(geom.geoms)
