@@ -7,6 +7,16 @@ from shapely.geometry import MultiPolygon
 
 _THIS_DIR = Path(__file__).resolve().parent
 _DEFAULT_MODEL_PATH = _THIS_DIR / "gsp_rf_85_acc_74_F1_20260123.joblib"
+_GSP_MODEL = None
+_GSP_MODEL_PATH = None
+
+
+def get_gsp_model(model_path: str):
+    global _GSP_MODEL, _GSP_MODEL_PATH
+    if _GSP_MODEL is None or _GSP_MODEL_PATH != model_path:
+        _GSP_MODEL = load(model_path)
+        _GSP_MODEL_PATH = model_path
+    return _GSP_MODEL
 
 
 def _to_valid_multipolygon(g):
@@ -121,7 +131,7 @@ def predict_geometric_slick_potential(
             f"Geometric slick potential model not found at: {model_path}"
         )
 
-    rf = load(model_path)
+    rf = get_gsp_model(model_path)
 
     feature_columns = rf.feature_names_
     X = (
