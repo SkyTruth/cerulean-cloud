@@ -217,7 +217,7 @@ class DatabaseClient:
     ):
         """add a slick"""
         # use buffer(0) to attempt to fix any invalid geometries
-        s = shape(slick_shape).buffer(0)
+        s = shape(slick_shape)
         if not isinstance(s, MultiPolygon):
             s = MultiPolygon([s])
 
