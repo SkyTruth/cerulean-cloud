@@ -1235,15 +1235,33 @@ class InfrastructureAnalyzer(PointAnalyzer):
         self,
         df: pd.DataFrame,
         target_date: pd.Timestamp = pd.Timestamp("now"),
-        radius_m: float = 100.0,
+        radius_m: float = 150.0,
     ) -> gpd.GeoDataFrame:
         """
         Converts a DataFrame of points to a clustered and reduced GeoDataFrame of sites.
         """
         df = df.copy()
         target_date = target_date.to_period("M").start_time
-        df = df[df["structure_start_date"] <= target_date]
+        df = df[df["structure_start_date"] <= target_date].copy()
         df["structure_end_date"] = df["structure_end_date"].clip(upper=target_date)
+        if df.empty:
+            return gpd.GeoDataFrame(
+                columns=[
+                    "structure_id",
+                    "first_detection",
+                    "last_detection",
+                    "is_oil",
+                    "structure_list",
+                    "is_persistent",
+                    "is_visible_today",
+                    "is_current",
+                    "lon",
+                    "lat",
+                    "geometry",
+                ],
+                geometry="geometry",
+                crs="epsg:4326",
+            )
 
         df["is_oil"] = df["label"] == "oil"
         X = np.deg2rad(np.c_[df.lat, df.lon])

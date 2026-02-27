@@ -109,7 +109,7 @@ async def handle_asa_request(request):
                             slick.id
                         ] = await db_client.get_id_collated_score_pairs(slick.id)
 
-                excluded_sources = await db_client.get_ext_ids_for_tag(
+                excluded_source_refs = await db_client.get_source_refs_for_tag(
                     EXCLUDE_TAG_SHORT_NAME
                 )
 
@@ -172,9 +172,20 @@ async def handle_asa_request(request):
                             [fresh_ranked_sources, res], ignore_index=True
                         )
 
-                    if not fresh_ranked_sources.empty:
-                        mask = fresh_ranked_sources["ext_id"].isin(excluded_sources)
-                        fresh_ranked_sources = fresh_ranked_sources[~mask]
+                    if not fresh_ranked_sources.empty and excluded_source_refs:
+                        pairs = pd.MultiIndex.from_arrays(
+                            [
+                                fresh_ranked_sources["ext_id"],
+                                fresh_ranked_sources["type"],
+                            ]
+                        )
+                        excluded_pairs = pd.MultiIndex.from_tuples(
+                            list(excluded_source_refs)
+                        )
+
+                        fresh_ranked_sources = fresh_ranked_sources[
+                            ~pairs.isin(excluded_pairs)
+                        ]
 
                     print(
                         f"{len(fresh_ranked_sources)} sources found for Slick ID: {slick.id}, after running {[analyzer.short_name for analyzer in analyzers_to_run]}"
