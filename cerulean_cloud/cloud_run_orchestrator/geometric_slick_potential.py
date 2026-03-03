@@ -4,6 +4,10 @@ from joblib import load
 import numpy as np
 from pyproj import Geod
 from shapely.geometry import MultiPolygon
+from geoalchemy2.shape import to_shape
+from datetime import datetime
+from sqlalchemy import select, update, and_, bindparam
+import cerulean_cloud.database_schema as db
 
 _THIS_DIR = Path(__file__).resolve().parent
 _DEFAULT_MODEL_PATH = _THIS_DIR / "gsp_rf_85_acc_74_F1_20260123.joblib"
@@ -141,3 +145,127 @@ def predict_geometric_slick_potential(
     )
 
     return rf.predict_proba(X)[:, 1]
+
+
+def slicks_to_gdf(slick_rows) -> gpd.GeoDataFrame:
+    """
+    Build a single GeoDataFrame from an iterable of Slick ORM objects or row objects
+    that have .id, .slick_timestamp, .geometry, .aspect_ratio_factor, .machine_confidence.
+    """
+    records = []
+    for s in slick_rows:
+        records.append(
+            {
+                "id": s.id,
+                "slick_timestamp": s.slick_timestamp,
+                "geometry": to_shape(s.geometry),
+                "aspect_ratio_factor": s.aspect_ratio_factor,
+                "machine_confidence": s.machine_confidence,
+            }
+        )
+
+    return gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326")
+
+
+async def backfill_gsp_daterange_batched(
+    client,
+    start_dt: datetime,
+    end_dt: datetime,
+    *,
+    batch_size: int = 2000,
+    overwrite: bool = False,
+):
+    """
+    Stable batched backfill for geometric_slick_potential.
+
+    - Uses keyset pagination (id > last_id)
+    - Does NOT filter IS NULL in SQL (prevents skipping)
+    - Filters NULL rows in Python
+    - Bulk UPDATE via executemany
+    - Commits per batch
+    """
+
+    total_scanned = 0
+    total_updated = 0
+    last_id = 0
+
+    while True:
+        stmt = (
+            select(db.Slick)
+            .where(
+                and_(
+                    db.Slick.id > last_id,
+                    db.Slick.slick_timestamp >= start_dt,
+                    db.Slick.slick_timestamp < end_dt,
+                    db.Slick.active.is_(True),
+                )
+            )
+            .order_by(db.Slick.id.asc())
+            .limit(batch_size)
+        )
+
+        result = await client.session.execute(stmt)
+        slicks = result.scalars().all()
+
+        if not slicks:
+            break
+
+        total_scanned += len(slicks)
+
+        # ---- Filter rows to update in Python ----
+        if overwrite:
+            slicks_to_update = slicks
+        else:
+            slicks_to_update = [
+                s for s in slicks if s.geometric_slick_potential is None
+            ]
+
+        if slicks_to_update:
+            # ---- Build GeoDataFrame ----
+            gdf = slicks_to_gdf(slicks_to_update)
+
+            # ---- Predict in batch ----
+            preds = predict_geometric_slick_potential(
+                gdf,
+                preprocess=True,
+            )
+
+            # ---- Prepare bulk update payload ----
+            payload = []
+            for s, p in zip(slicks_to_update, preds):
+                if p is None:
+                    continue
+                fp = float(p)
+                if fp != fp:  # guard against NaN
+                    continue
+                payload.append(
+                    {
+                        "b_id": int(s.id),
+                        "b_gsp": fp,
+                    }
+                )
+
+            if payload:
+                stmt_update = (
+                    update(db.Slick)
+                    .where(db.Slick.id == bindparam("b_id"))
+                    .values(geometric_slick_potential=bindparam("b_gsp"))
+                )
+
+                result = await client.session.execute(stmt_update, payload)
+                total_updated += len(payload)
+
+                await client.session.commit()
+
+        last_id = slicks[-1].id
+
+        print(
+            f"Scanned: {total_scanned:,} | "
+            f"Updated: {total_updated:,} | "
+            f"Last ID: {last_id}"
+        )
+
+    return {
+        "total_scanned": total_scanned,
+        "total_updated": total_updated,
+    }
