@@ -6,7 +6,7 @@ import json
 import os
 import time
 from datetime import datetime, timedelta
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import geopandas as gpd
 import mapbox_vector_tile
@@ -1234,13 +1234,14 @@ class InfrastructureAnalyzer(PointAnalyzer):
     def sites_from_points(
         self,
         df: pd.DataFrame,
-        target_date: pd.Timestamp = pd.Timestamp("now"),
+        target_date: Optional[pd.Timestamp] = None,
         radius_m: float = 150.0,
     ) -> gpd.GeoDataFrame:
         """
         Converts a DataFrame of points to a clustered and reduced GeoDataFrame of sites.
         """
         df = df.copy()
+        target_date = pd.Timestamp(target_date) if target_date else pd.Timestamp.now()
         target_date = target_date.to_period("M").start_time
         df = df[df["structure_start_date"] <= target_date].copy()
         df["structure_end_date"] = df["structure_end_date"].clip(upper=target_date)
