@@ -39,11 +39,7 @@ def upgrade() -> None:
             _geom := _geog::geometry;
             oriented_envelope := st_orientedenvelope(_geom);
             oe_ring := st_exteriorring(oriented_envelope);
-            NEW.area := st_area(_geog);
             NEW.centroid := st_centroid(_geog);
-            NEW.perimeter = st_perimeter(_geog);
-            NEW.polsby_popper := 4.0 * pi() * NEW.area / (NEW.perimeter ^ 2.0);
-            NEW.fill_factor := NEW.area / st_area(oriented_envelope::geography);
             NEW.length := GREATEST(
                 st_distance(
                     st_pointn(oe_ring,1)::geography,

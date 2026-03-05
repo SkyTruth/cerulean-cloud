@@ -96,23 +96,27 @@ class SourceAnalyzer:
         )
 
     def reschedule_for_later(self, run_flags):
+        """
+        Backoff schedule (by scene age, in days since capture):
+          - Re-attempt daily until day 7.
+          - Then re-attempt every 7 days up to a month after capture.
+        """
         days_since = (datetime.utcnow() - self.s1_scene.start_time).days
         if days_since < 7:
-            add_to_asa_queue(
-                self.s1_scene.scene_id,
-                run_flags=run_flags,
-                days_to_delay=1,
-            )
-        elif days_since < 30:
-            add_to_asa_queue(
-                self.s1_scene.scene_id,
-                run_flags=run_flags,
-                days_to_delay=days_since,
-            )
+            days_to_delay = 1
+        elif days_since < 32:
+            days_to_delay = 7
         else:
             print(
-                f"Skipping reschedule for {self.s1_scene.scene_id} because it was captured {days_since} days ago (more than 30 days)"
+                f"Skipping reschedule for {self.s1_scene.scene_id}: captured {days_since} days ago"
             )
+            return
+
+        add_to_asa_queue(
+            self.s1_scene.scene_id,
+            run_flags=run_flags,
+            days_to_delay=days_to_delay,
+        )
 
 
 class AISAnalyzer(SourceAnalyzer):
@@ -191,19 +195,23 @@ class AISAnalyzer(SourceAnalyzer):
 
     def check_data_availability(self):
         """
-        Checks if stats_daily has data for date = (image_timestamp + hours_after).
+        Checks if segs_activity_daily has data for date = (image_timestamp + hours_after).
         If not, and if the image is <30 days old, schedules an ASA retry after X days
         (X = days since capture) and removes the ASA from run_flags.
         """
         sql = """
-            SELECT MAX(date) AS latest_date
-            FROM `global-fishing-watch.pipe_ais_v3_published.stats_daily`;
+            SELECT MAX(date) as latest_date
+            FROM `global-fishing-watch.pipe_ais_v4_published.segs_activity_daily`
+            WHERE date != '1979-01-01'
         """
         df = pandas_gbq.read_gbq(
             sql,
             project_id=self.gfw_project_id,
             credentials=self.credentials,
         )
+        # if Null, then GFW database is more than 1 month out of date!!! Major issue... return False
+        if df["latest_date"].iloc[0] is None:
+            return False
         latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
         target_data_date = self.ais_end_time
 
@@ -231,9 +239,9 @@ class AISAnalyzer(SourceAnalyzer):
                 ves.best.best_flag as flag,
                 ves.best.best_vessel_class as best_shiptype
             FROM
-                `global-fishing-watch.pipe_ais_v3_published.messages` as seg
+                `global-fishing-watch.pipe_ais_v4_published.messages` as seg
             LEFT JOIN
-                `global-fishing-watch.pipe_ais_v3_published.vi_ssvid_v20250201` as ves
+                `global-fishing-watch.pipe_ais_identity_v4_published.vi_ssvid` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE TRUE
                 -- AND clean_segs IS TRUE
@@ -1325,7 +1333,7 @@ class DarkAnalyzer(PointAnalyzer):
         -- Step 2: Filter the match table by joining with scene_ids
         filtered_matches AS (
         SELECT match.*
-        FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v3` AS match
+        FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v4` AS match
         INNER JOIN scene_ids
             ON match.scene_id = scene_ids.scene_id
         WHERE match.score < .01 -- either no match or low confidence match
@@ -1459,7 +1467,7 @@ class DarkAnalyzer(PointAnalyzer):
         target_data_date = self.s1_scene.start_time
         sql = f"""
             SELECT COUNT(*) > 0 as data_available
-            FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match` 
+            FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v4`
             WHERE scene_id = '{self.s1_scene.scene_id}'
             AND TIMESTAMP_TRUNC(_PARTITIONTIME, DAY) = TIMESTAMP("{target_data_date.strftime("%Y-%m-%d")}");
         """

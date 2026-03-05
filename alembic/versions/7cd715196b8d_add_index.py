@@ -41,7 +41,11 @@ def upgrade() -> None:
         "idx_orchestrator_run_sentinel1_grd", "orchestrator_run", ["sentinel1_grd"]
     )
 
-    op.create_index("idx_source_name", "source", ["st_name", "type"])
+    op.create_index("idx_source_ext_id_type", "source", ["ext_id", "type"])
+    op.create_index("idx_source_ext_id", "source", ["ext_id"])
+    op.execute(
+        'CREATE INDEX idx_source_ext_id_first_three_chars ON "source" ((left(ext_id, 3)));'
+    )
 
     op.create_index(
         "idx_slick_to_source_collated_score", "slick_to_source", ["collated_score"]
@@ -63,6 +67,24 @@ def upgrade() -> None:
         "idx_slick_geom",
         "slick",
         [text("(geometry::geometry)")],
+        postgresql_using="gist",
+    )
+    op.create_index(
+        "idx_slick_geom_3857",
+        "slick",
+        ["geom_3857"],
+        postgresql_using="gist",
+    )
+    op.create_index(
+        "idx_slick_geom_3857_simplified",
+        "slick",
+        ["geom_3857_simplified"],
+        postgresql_using="gist",
+    )
+    op.create_index(
+        "idx_slick_centroid_3857",
+        "slick",
+        ["centroid_3857"],
         postgresql_using="gist",
     )
 
@@ -103,7 +125,9 @@ def downgrade() -> None:
     op.drop_index("idx_slick_to_aoi_aoi", "slick_to_aoi")
     op.drop_index("idx_slick_to_aoi_slick", "slick_to_aoi")
 
-    op.drop_index("idx_source_name", "source")
+    op.drop_index("idx_source_ext_id_type", "source")
+    op.drop_index("idx_source_ext_id", "source")
+    op.drop_index("idx_source_ext_id_first_three_chars", "source")
 
     op.drop_index("idx_slick_to_source_collated_score", "slick_to_source")
 
@@ -116,4 +140,9 @@ def downgrade() -> None:
     op.drop_index("idx_slick_fill_factor", "slick")
     op.drop_index("idx_slick_orchestrator_run", "slick")
     op.drop_index("idx_slick_cls", "slick")
+
+    # Drop all slick geometry-related indexes created in upgrade()
+    op.drop_index("idx_slick_centroid_3857", "slick")
+    op.drop_index("idx_slick_geom_3857_simplified", "slick")
+    op.drop_index("idx_slick_geom_3857", "slick")
     op.drop_index("idx_slick_geom", "slick")

@@ -131,6 +131,9 @@ dmypy.json
 # Local .terraform directories
 **/.terraform/*
 
+# Local binaries
+cloud-sql-proxy.exe
+
 # .tfstate files
 *.tfstate
 *.tfstate.*

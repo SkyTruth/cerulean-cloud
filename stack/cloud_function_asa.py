@@ -37,11 +37,12 @@ queue = cloudtasks.Queue(
         max_dispatches_per_second=1,
     ),
     retry_config=cloudtasks.QueueRetryConfigArgs(
-        max_attempts=1,
+        # Allow limited retries for transient downstream failures (e.g., BigQuery hiccups).
+        max_attempts=3,
         max_backoff="300s",
-        max_doublings=1,
-        max_retry_duration="4s",
-        min_backoff="60s",
+        max_doublings=3,
+        max_retry_duration="600s",
+        min_backoff="10s",
     ),
     stackdriver_logging_config=cloudtasks.QueueStackdriverLoggingConfigArgs(
         sampling_ratio=0.9,
@@ -151,7 +152,7 @@ fxn = cloudfunctionsv2.Function(
     location=region,
     description="Cloud Function for ASA",
     build_config={
-        "runtime": "python39",
+        "runtime": "python311",
         "entry_point": "main",
         "source": {
             "storage_source": {
