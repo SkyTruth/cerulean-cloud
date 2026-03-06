@@ -9,7 +9,6 @@ import pandas as pd
 from flask import abort
 from shapely import wkb
 from utils.analyzer import ASA_MAPPING
-from utils.constants import EXCLUDE_TAG_SHORT_NAME
 
 import cerulean_cloud.database_schema as db
 from cerulean_cloud.centerlines import calculate_centerlines
@@ -109,10 +108,6 @@ async def handle_asa_request(request):
                             slick.id
                         ] = await db_client.get_id_collated_score_pairs(slick.id)
 
-                excluded_source_refs = await db_client.get_source_refs_for_tag(
-                    EXCLUDE_TAG_SHORT_NAME
-                )
-
             await db_client.session.close()
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
@@ -171,21 +166,6 @@ async def handle_asa_request(request):
                         fresh_ranked_sources = pd.concat(
                             [fresh_ranked_sources, res], ignore_index=True
                         )
-
-                    if not fresh_ranked_sources.empty and excluded_source_refs:
-                        pairs = pd.MultiIndex.from_arrays(
-                            [
-                                fresh_ranked_sources["ext_id"],
-                                fresh_ranked_sources["type"],
-                            ]
-                        )
-                        excluded_pairs = pd.MultiIndex.from_tuples(
-                            list(excluded_source_refs)
-                        )
-
-                        fresh_ranked_sources = fresh_ranked_sources[
-                            ~pairs.isin(excluded_pairs)
-                        ]
 
                     print(
                         f"{len(fresh_ranked_sources)} sources found for Slick ID: {slick.id}, after running {[analyzer.short_name for analyzer in analyzers_to_run]}"

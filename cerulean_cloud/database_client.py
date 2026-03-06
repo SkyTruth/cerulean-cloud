@@ -236,22 +236,6 @@ class DatabaseClient:
             self.session, db.Source, error_if_absent, type=source_type, ext_id=ext_id
         )
 
-    async def get_source_refs_for_tag(
-        self, tag_short_name: str
-    ) -> set[tuple[str, int]]:
-        """
-        Return (source_ext_id, source_type) pairs for all sources tagged with `tag_short_name`.
-        """
-        tag = await get(self.session, db.Tag, False, short_name=tag_short_name)
-        if not tag:
-            return set()
-
-        query = select(db.SourceToTag.source_ext_id, db.SourceToTag.source_type).where(
-            db.SourceToTag.tag == tag.id
-        )
-        result = await self.session.execute(query)
-        return {(ext_id, int(source_type)) for ext_id, source_type in result.all()}
-
     async def get_or_insert_ranked_source(self, source_row):
         """add a new source"""
         existing_source = await self.get_source(

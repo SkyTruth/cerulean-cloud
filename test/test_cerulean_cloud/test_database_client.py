@@ -2,12 +2,13 @@
 
 import json
 from datetime import datetime
+from pathlib import Path
 
 import geojson
 import pytest
 import sqlalchemy as sa
 from geoalchemy2.shape import from_shape
-from shapely.geometry import MultiPolygon, box
+from shapely.geometry import MultiPolygon, Point, box
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -197,3 +198,141 @@ async def test_update_orchestrator(setup_database, engine):
         )
         o_r = o_r.scalars().first()
         assert o_r.success is True
+
+
+@pytest.mark.asyncio
+async def test_exc_tag_sync_script(setup_database, engine):
+    async with engine.begin() as conn:
+        await conn.exec_driver_sql(Path("scripts/exc_tag_sync.sql").read_text())
+
+    now = datetime.utcnow()
+
+    async with DatabaseClient(engine) as db_client:
+        async with db_client.session.begin():
+            trigger = database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")
+            model = database_schema.Model(
+                type="TEST",
+                file_path="model-path",
+                layers=[],
+                cls_map={},
+                tile_width_m=10,
+                tile_width_px=256,
+                thresholds={},
+            )
+            sentinel1_grd = database_schema.Sentinel1Grd(
+                scene_id="scene-exc-test",
+                absolute_orbit_number=1,
+                mode="IW",
+                polarization="VV",
+                scihub_ingestion_time=now,
+                start_time=now,
+                end_time=now,
+                url="https://example.com",
+                geometry=from_shape(box(0, 0, 1, 1)),
+            )
+            orchestrator_run = database_schema.OrchestratorRun(
+                inference_start_time=now,
+                inference_end_time=now,
+                inference_run_logs="",
+                geometry=from_shape(box(0, 0, 1, 1)),
+                trigger1=trigger,
+                model1=model,
+                sentinel1_grd1=sentinel1_grd,
+            )
+            slick = database_schema.Slick(
+                slick_timestamp=now,
+                geometry=from_shape(MultiPolygon([box(0, 0, 1, 1)])),
+                active=True,
+                orchestrator_run1=orchestrator_run,
+                inference_idx=1,
+            )
+            source_type = database_schema.SourceType(
+                id=2,
+                table_name="source_infra",
+                long_name="Infrastructure",
+                short_name="INFRA",
+                ext_id_name="structure_id",
+            )
+            exc_tag = database_schema.Tag(
+                short_name="exc",
+                long_name="Exclude",
+                public=False,
+                source_profile=True,
+            )
+            source_1 = database_schema.Source(type=2, ext_id="src-1")
+
+            db_client.session.add_all(
+                [
+                    trigger,
+                    model,
+                    sentinel1_grd,
+                    orchestrator_run,
+                    slick,
+                    source_type,
+                    exc_tag,
+                    source_1,
+                ]
+            )
+            await db_client.session.flush()
+
+            slick_to_source_1 = database_schema.SlickToSource(
+                slick=slick.id,
+                source=source_1.id,
+                active=True,
+                geojson_fc={},
+                geometry=from_shape(Point(0, 0)),
+            )
+            db_client.session.add(slick_to_source_1)
+            db_client.session.add(
+                database_schema.SourceToTag(
+                    source_ext_id="src-2",
+                    source_type=2,
+                    tag=exc_tag.id,
+                )
+            )
+
+        async with db_client.session.begin():
+            db_client.session.add(
+                database_schema.SourceToTag(
+                    source_ext_id="src-1",
+                    source_type=2,
+                    tag=exc_tag.id,
+                )
+            )
+
+        await db_client.session.refresh(slick_to_source_1)
+        assert slick_to_source_1.active is False
+
+        async with db_client.session.begin():
+            slick_to_source_1.active = True
+
+        await db_client.session.refresh(slick_to_source_1)
+        assert slick_to_source_1.active is False
+
+        async with db_client.session.begin():
+            source_2 = database_schema.Source(type=2, ext_id="src-2")
+            db_client.session.add(source_2)
+            await db_client.session.flush()
+            slick_to_source_2 = database_schema.SlickToSource(
+                slick=slick.id,
+                source=source_2.id,
+                active=True,
+                geojson_fc={},
+                geometry=from_shape(Point(1, 1)),
+            )
+            db_client.session.add(slick_to_source_2)
+
+        await db_client.session.refresh(slick_to_source_2)
+        assert slick_to_source_2.active is False
+
+        async with db_client.session.begin():
+            await db_client.session.execute(
+                sa.delete(database_schema.SourceToTag).where(
+                    database_schema.SourceToTag.source_ext_id == "src-1",
+                    database_schema.SourceToTag.source_type == 2,
+                    database_schema.SourceToTag.tag == exc_tag.id,
+                )
+            )
+
+        await db_client.session.refresh(slick_to_source_1)
+        assert slick_to_source_1.active is True
