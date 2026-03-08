@@ -153,19 +153,24 @@ def upgrade() -> None:
                     AND sl.active 
                     AND sl.cls <> 1 
                     AND (hs.cls IS NULL OR hs.cls <> 1) 
+                    AND (stt.tag IS NULL OR stt.tag <> 12)
                     AND sts.active 
                     AND sts.hitl_verification IS NOT FALSE 
                     AND (
-                        (s.type = 2 AND sts.rank = 1)
+                        (s.type = 2 
+                            AND sts.rank = 1)
                         OR 
-                        (s.type = 1 AND sts.collated_score > 0 AND (stt.tag IS NULL OR (stt.tag <> ALL (ARRAY[5, 6, 7]))))
+                        (s.type = 1 
+                            AND (sts.hitl_verification OR sts.collated_score > 0::double precision) 
+                            AND (stt.tag IS NULL OR (stt.tag <> ALL (ARRAY[5, 6, 7]))))
                     )
                 GROUP BY s.id, s.ext_id, s.type
             )
-            SELECT agg.source_id,
-            agg.occurrence_count,
-            agg.total_area,
-            row_number() OVER (ORDER BY agg.occurrence_count DESC, agg.total_area DESC) AS global_rank
+            SELECT 
+                agg.source_id,
+                agg.occurrence_count,
+                agg.total_area,
+                row_number() OVER (ORDER BY agg.occurrence_count DESC, agg.total_area DESC) AS global_rank
             FROM agg
             ORDER BY agg.occurrence_count DESC, agg.total_area DESC;
         """,

@@ -22,4 +22,5 @@ pandas_gbq==0.18.1
 sqlalchemy==1.4.32
 centerline==1.0.1
 scipy==1.10.1
+scikit-learn==1.7.2
 google-cloud-logging==3.11.3
