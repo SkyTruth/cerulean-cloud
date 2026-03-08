@@ -301,6 +301,17 @@ def upgrade() -> None:
                 public=True,
                 source_profile=True,
             ),
+            database_schema.Tag(
+                short_name="exc",
+                long_name="Excluded",
+                description="Sources that should be excluded from ASA",
+                citation="SkyTruth",
+                owner=1,
+                read_perm=2,
+                write_perm=2,
+                public=False,
+                source_profile=False,
+            ),
         ]
         session.add_all(tags)
 
