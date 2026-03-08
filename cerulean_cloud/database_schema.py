@@ -419,7 +419,6 @@ class Source(Base):  # noqa
         server_default=text("nextval('source_id_seq'::regclass)"),
     )
     type = Column(ForeignKey("source_type.id"), nullable=False)
-    st_name = Column(Text, nullable=False)
     ext_id = Column(Text, nullable=False)
 
     source_type = relationship("SourceType")
@@ -451,6 +450,9 @@ class SourceInfra(Source):  # noqa
     sovereign = Column(Text)
     orig_yr = Column(DateTime)
     last_known_status = Column(Text)
+    first_detection = Column(DateTime)
+    last_detection = Column(DateTime)
+    mmsi = Column(Text)
 
 
 class SourceNatural(Source):  # noqa

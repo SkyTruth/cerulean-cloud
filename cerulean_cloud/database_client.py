@@ -244,10 +244,6 @@ class DatabaseClient:
         if existing_source:
             return existing_source
 
-        for k, v in source_row.items():
-            if isinstance(v, base.BaseGeometry):
-                source_row[k] = str(v)
-
         # Create a mapping from table names (stored in SourceType) to ORM classes
         tablename_to_class = {
             subclass.__tablename__: subclass for subclass in db.Source.__subclasses__()
@@ -261,11 +257,16 @@ class DatabaseClient:
             3: [c.name for c in db.SourceDark.__table__.columns],  # Dark Vessels
             4: [c.name for c in db.SourceNatural.__table__.columns],  # Natural Seeps
         }
-        insert_dict = {
-            k: v
-            for k, v in source_row.items()
-            if not pd.isna(v) and k in (common_cols + insert_cols[source_row["type"]])
-        }
+        allowed_cols = set(common_cols + insert_cols[int(source_row["type"])])
+        insert_dict = {}
+        for k, v in source_row.items():
+            if k not in allowed_cols:
+                continue
+            if isinstance(v, base.BaseGeometry):
+                v = str(v)
+            if pd.isna(v):
+                continue
+            insert_dict[k] = v
 
         source_type_obj = await get(self.session, db.SourceType, id=source_row["type"])
 
