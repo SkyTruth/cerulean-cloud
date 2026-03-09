@@ -7,7 +7,7 @@ import geojson
 import pytest
 import sqlalchemy as sa
 from geoalchemy2.shape import from_shape
-from shapely.geometry import MultiPolygon, box
+from shapely.geometry import MultiPolygon, Point, box
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -197,3 +197,110 @@ async def test_update_orchestrator(setup_database, engine):
         )
         o_r = o_r.scalars().first()
         assert o_r.success is True
+
+
+@pytest.mark.asyncio
+async def test_normalize_active_slick_to_source_ranks_enforces_cap(
+    setup_database, engine
+):
+    titiler_client = TitilerClient("some_url")
+    async with DatabaseClient(engine) as db_client:
+        async with db_client.session.begin():
+            db_client.session.add(
+                database_schema.SourceType(
+                    id=2,
+                    table_name="source_infra",
+                    long_name="Infrastructure",
+                    short_name="INFRA",
+                    ext_id_name="ext_id",
+                )
+            )
+            db_client.session.add(
+                database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")
+            )
+            db_client.session.add(
+                database_schema.Model(file_path="model_path", name="model_path")
+            )
+
+            with open("test/test_cerulean_cloud/fixtures/productInfo.json") as src:
+                info = json.load(src)
+
+            sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
+                info["id"],
+                info,
+                titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
+            )
+            trigger = await db_client.get_trigger()
+            model = await db_client.get_db_model("model_path")
+            orchestrator_run = await db_client.add_orchestrator(
+                datetime.now(),
+                datetime.now(),
+                1,
+                1,
+                "",
+                "",
+                "",
+                1,
+                1,
+                [1, 2, 3, 4],
+                trigger,
+                model,
+                sentinel1_grd,
+            )
+            slick = await db_client.add_slick(
+                orchestrator_run,
+                sentinel1_grd.start_time,
+                box(1, 2, 3, 4),
+                1,
+                0.99,
+                None,
+                None,
+            )
+
+            for idx in range(16):
+                point = Point(idx, idx)
+                source = database_schema.SourceInfra(
+                    type=2,
+                    st_name="INFRA",
+                    ext_id=f"infrastructure-{idx}",
+                    geometry=from_shape(point),
+                )
+                db_client.session.add(source)
+                await db_client.session.flush()
+                db_client.session.add(
+                    database_schema.SlickToSource(
+                        slick=slick.id,
+                        source=source.id,
+                        active=True,
+                        git_hash="test",
+                        git_tag="test",
+                        coincidence_score=float(idx),
+                        collated_score=float(idx),
+                        rank=99 - idx,
+                        geojson_fc={},
+                        geometry=from_shape(point),
+                    )
+                )
+
+        async with db_client.session.begin():
+            await db_client.normalize_active_slick_to_source_ranks(slick.id, 8)
+
+        slick_to_sources = (
+            (
+                await db_client.session.execute(
+                    sa.select(database_schema.SlickToSource).where(
+                        database_schema.SlickToSource.slick == slick.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        active_rows = [row for row in slick_to_sources if row.active]
+        inactive_rows = [row for row in slick_to_sources if not row.active]
+
+        assert len(active_rows) == 8
+        assert {row.collated_score for row in active_rows} == set(range(8, 16))
+        assert {row.rank for row in active_rows} == set(range(1, 9))
+        assert {row.rank for row in inactive_rows} == set(range(9, 17))

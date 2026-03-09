@@ -194,6 +194,7 @@ async def handle_asa_request(request):
                         only_record_top = 2 * len(ASA_MAPPING)
 
                         async with db_client.session.begin():
+                            await db_client.lock_slick(slick.id)
                             if overwrite_previous:
                                 print(f"Deactivating sources for slick {slick.id}")
                                 await db_client.deactivate_sources_for_slick(slick.id)
@@ -239,6 +240,9 @@ async def handle_asa_request(request):
                                             "active": idx < only_record_top,
                                         },
                                     )
+                            await db_client.normalize_active_slick_to_source_ranks(
+                                slick.id, only_record_top
+                            )
                             print(f"ASA complete for slick {slick.id}")
                     elif overwrite_previous:
                         async with db_client.session.begin():

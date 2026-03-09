@@ -418,6 +418,12 @@ class DatabaseClient:
             .values(active=False)
         )
 
+    async def lock_slick(self, slick_id):
+        """Serialize source-association writes for a slick."""
+        await self.session.execute(
+            select(db.Slick.id).where(db.Slick.id == slick_id).with_for_update()
+        )
+
     async def get_previous_asa(self, slick_id):
         """Return a list of ASA analyzer short_names that have been run for a slick.
 
@@ -460,6 +466,27 @@ class DatabaseClient:
         )
         result = await self.session.execute(query)
         return result.all()
+
+    async def normalize_active_slick_to_source_ranks(self, slick_id, max_active):
+        """Re-rank active sources for a slick and deactivate anything past the cap."""
+        result = await self.session.execute(
+            select(db.SlickToSource)
+            .where(
+                and_(
+                    db.SlickToSource.slick == slick_id,
+                    db.SlickToSource.active.is_(True),
+                )
+            )
+            .order_by(
+                db.SlickToSource.collated_score.desc(),
+                db.SlickToSource.id.asc(),
+            )
+        )
+
+        for rank, slick_to_source in enumerate(result.scalars(), start=1):
+            slick_to_source.rank = rank
+            slick_to_source.active = rank <= max_active
+            self.session.add(slick_to_source)
 
     async def update_slick_to_source(self, filter_kwargs: dict, update_kwargs: dict):
         """
