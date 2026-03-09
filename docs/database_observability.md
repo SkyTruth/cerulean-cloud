@@ -58,3 +58,8 @@ psql "$DB_URL" -v ON_ERROR_STOP=1 -f scripts/db_observability_report.sql \
 - `SHOW track_functions;`
 - `SELECT relname, n_mod_since_analyze, last_autoanalyze, last_autovacuum FROM pg_stat_user_tables WHERE relname IN ('slick', 'slick_to_source', 'slick_to_aoi', 'orchestrator_run', 'sentinel1_grd');`
 - `SELECT queryid, calls, total_exec_time, mean_exec_time, query FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 25;`
+
+## Related tuning artifacts
+
+- Hot-path read indexes and plan-capture workflow: [docs/hot_path_index_pack.md](hot_path_index_pack.md)
+- Hot-path EXPLAIN capture script: [scripts/db_hot_path_index_explain.sql](../scripts/db_hot_path_index_explain.sql)

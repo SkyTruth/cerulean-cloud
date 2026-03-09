@@ -1,0 +1,248 @@
+Timing is on.
+SET
+Time: 93.185 ms
+=== Latest HITL per slick ===
+                                                                                  QUERY PLAN                                                                                   
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop Left Join  (cost=1013492.10..1014021.65 rows=200 width=24) (actual time=1334.518..1339.659 rows=200 loops=1)
+   Buffers: shared hit=1129783
+   ->  Limit  (cost=1013491.81..1013515.15 rows=200 width=16) (actual time=1334.492..1339.462 rows=200 loops=1)
+         Buffers: shared hit=1129383
+         ->  Gather Merge  (cost=1013491.81..1127120.48 rows=973892 width=16) (actual time=1334.490..1339.447 rows=200 loops=1)
+               Workers Planned: 2
+               Workers Launched: 2
+               Buffers: shared hit=1129383
+               ->  Sort  (cost=1012491.79..1013709.15 rows=486946 width=16) (actual time=1331.054..1331.060 rows=152 loops=3)
+                     Sort Key: slick.create_time DESC
+                     Sort Method: top-N heapsort  Memory: 43kB
+                     Buffers: shared hit=1129383
+                     Worker 0:  Sort Method: top-N heapsort  Memory: 43kB
+                     Worker 1:  Sort Method: top-N heapsort  Memory: 43kB
+                     ->  Parallel Bitmap Heap Scan on slick  (cost=615.70..991446.33 rows=486946 width=16) (actual time=35.304..1291.096 rows=394721 loops=3)
+                           Recheck Cond: active
+                           Rows Removed by Index Recheck: 60730
+                           Filter: (cls <> 1)
+                           Rows Removed by Filter: 132515
+                           Heap Blocks: lossy=413067
+                           Buffers: shared hit=1129309
+                           ->  Bitmap Index Scan on slick_active_true_ts_brin_idx  (cost=0.00..323.54 rows=1715610 width=0) (actual time=37.726..37.727 rows=11292600 loops=1)
+                                 Buffers: shared hit=49
+   ->  Limit  (cost=0.29..2.50 rows=1 width=16) (actual time=0.001..0.001 rows=0 loops=200)
+         Buffers: shared hit=400
+         ->  Index Scan using idx_hitl_slick_slick_update_desc on hitl_slick hs  (cost=0.29..2.50 rows=1 width=16) (actual time=0.001..0.001 rows=0 loops=200)
+               Index Cond: (slick = slick.id)
+               Buffers: shared hit=400
+ Planning:
+   Buffers: shared hit=529
+ Planning Time: 1.300 ms
+ Execution Time: 1339.876 ms
+
+Time: 1428.557 ms (00:01.429)
+=== Latest HITL per user and slick ===
+                                                                              QUERY PLAN                                                                              
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop  (cost=915.97..1423.19 rows=200 width=32) (actual time=6.550..6.885 rows=200 loops=1)
+   Buffers: shared hit=732
+   ->  Limit  (cost=915.69..916.19 rows=200 width=24) (actual time=6.524..6.546 rows=200 loops=1)
+         Buffers: shared hit=132
+         ->  Sort  (cost=915.69..943.24 rows=11022 width=24) (actual time=6.522..6.533 rows=200 loops=1)
+               Sort Key: (max(hs.update_time)) DESC
+               Sort Method: top-N heapsort  Memory: 50kB
+               Buffers: shared hit=132
+               ->  HashAggregate  (cost=329.10..439.32 rows=11022 width=24) (actual time=3.988..5.407 rows=11203 loops=1)
+                     Group Key: hs."user", hs.slick
+                     Batches: 1  Memory Usage: 1425kB
+                     Buffers: shared hit=132
+                     ->  Seq Scan on hitl_slick hs  (cost=0.00..244.63 rows=11263 width=24) (actual time=0.005..0.755 rows=11263 loops=1)
+                           Buffers: shared hit=132
+   ->  Limit  (cost=0.29..2.50 rows=1 width=16) (actual time=0.001..0.001 rows=1 loops=200)
+         Buffers: shared hit=600
+         ->  Index Scan using idx_hitl_slick_user_slick_update_desc on hitl_slick hs_1  (cost=0.29..2.50 rows=1 width=16) (actual time=0.001..0.001 rows=1 loops=200)
+               Index Cond: (("user" = hs."user") AND (slick = hs.slick))
+               Buffers: shared hit=600
+ Planning:
+   Buffers: shared hit=37
+ Planning Time: 0.284 ms
+ Execution Time: 7.271 ms
+
+Time: 93.540 ms
+=== Active per-source lookup ===
+                                                                                                  QUERY PLAN                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=129280.78..129280.81 rows=10 width=24) (actual time=991.037..991.056 rows=200 loops=1)
+   Buffers: shared hit=1669556
+   ->  Sort  (cost=129280.78..129280.81 rows=10 width=24) (actual time=991.035..991.043 rows=200 loops=1)
+         Sort Key: sts.rank, sts.slick DESC
+         Sort Method: top-N heapsort  Memory: 54kB
+         Buffers: shared hit=1669556
+         ->  Nested Loop  (cost=129275.90..129280.61 rows=10 width=24) (actual time=990.180..990.891 rows=498 loops=1)
+               Buffers: shared hit=1669553
+               ->  Limit  (cost=129275.48..129275.48 rows=1 width=16) (actual time=990.120..990.122 rows=1 loops=1)
+                     Buffers: shared hit=1668814
+                     ->  Sort  (cost=129275.48..129524.76 rows=99712 width=16) (actual time=990.118..990.120 rows=1 loops=1)
+                           Sort Key: (count(*)) DESC
+                           Sort Method: top-N heapsort  Memory: 25kB
+                           Buffers: shared hit=1668814
+                           ->  GroupAggregate  (cost=0.43..128776.92 rows=99712 width=16) (actual time=0.086..950.372 rows=423572 loops=1)
+                                 Group Key: slick_to_source.source
+                                 Buffers: shared hit=1668814
+                                 ->  Index Only Scan using idx_sts_active_source_rank_slick on slick_to_source  (cost=0.43..118585.51 rows=1838857 width=8) (actual time=0.021..751.334 rows=1844905 loops=1)
+                                       Heap Fetches: 643796
+                                       Buffers: shared hit=1668814
+               ->  Index Only Scan using idx_sts_active_source_rank_slick on slick_to_source sts  (cost=0.43..5.03 rows=10 width=24) (actual time=0.053..0.722 rows=498 loops=1)
+                     Index Cond: ((source = slick_to_source.source) AND (rank <= 3))
+                     Heap Fetches: 498
+                     Buffers: shared hit=739
+ Planning:
+   Buffers: shared hit=255
+ Planning Time: 0.913 ms
+ Execution Time: 991.117 ms
+
+Time: 1113.247 ms (00:01.113)
+=== Active per-slick best score lookup ===
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=125620.60..125620.62 rows=10 width=16) (actual time=582.663..582.666 rows=10 loops=1)
+   Buffers: shared hit=321283
+   ->  Sort  (cost=125620.60..125620.66 rows=24 width=16) (actual time=582.662..582.664 rows=10 loops=1)
+         Sort Key: sts.collated_score DESC NULLS LAST
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=321283
+         ->  Nested Loop  (cost=125592.94..125620.08 rows=24 width=16) (actual time=582.636..582.648 rows=16 loops=1)
+               Buffers: shared hit=321280
+               ->  Limit  (cost=125592.51..125592.52 rows=1 width=16) (actual time=582.608..582.609 rows=1 loops=1)
+                     Buffers: shared hit=321261
+                     ->  Sort  (cost=125592.51..125786.29 rows=77509 width=16) (actual time=582.606..582.607 rows=1 loops=1)
+                           Sort Key: (count(*)) DESC
+                           Sort Method: top-N heapsort  Memory: 25kB
+                           Buffers: shared hit=321261
+                           ->  GroupAggregate  (cost=0.43..125204.97 rows=77509 width=16) (actual time=0.018..541.619 rows=445847 loops=1)
+                                 Group Key: slick_to_source.slick
+                                 Buffers: shared hit=321261
+                                 ->  Index Only Scan using idx_sts_active_slick_rank on slick_to_source  (cost=0.43..115235.59 rows=1838857 width=8) (actual time=0.014..361.283 rows=1844905 loops=1)
+                                       Heap Fetches: 643796
+                                       Buffers: shared hit=321261
+               ->  Index Scan using idx_sts_active_slick_rank on slick_to_source sts  (cost=0.43..27.31 rows=24 width=24) (actual time=0.021..0.030 rows=16 loops=1)
+                     Index Cond: (slick = slick_to_source.slick)
+                     Buffers: shared hit=19
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.283 ms
+ Execution Time: 582.711 ms
+
+Time: 674.078 ms
+=== Active per-slick rank lookup ===
+                                                                                              QUERY PLAN                                                                                               
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=125620.60..125620.62 rows=10 width=16) (actual time=574.319..574.322 rows=10 loops=1)
+   Buffers: shared hit=321280
+   ->  Sort  (cost=125620.60..125620.66 rows=24 width=16) (actual time=574.317..574.319 rows=10 loops=1)
+         Sort Key: sts.rank
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=321280
+         ->  Nested Loop  (cost=125592.94..125620.08 rows=24 width=16) (actual time=574.300..574.311 rows=16 loops=1)
+               Buffers: shared hit=321280
+               ->  Limit  (cost=125592.51..125592.52 rows=1 width=16) (actual time=574.275..574.276 rows=1 loops=1)
+                     Buffers: shared hit=321261
+                     ->  Sort  (cost=125592.51..125786.29 rows=77509 width=16) (actual time=574.273..574.273 rows=1 loops=1)
+                           Sort Key: (count(*)) DESC
+                           Sort Method: top-N heapsort  Memory: 25kB
+                           Buffers: shared hit=321261
+                           ->  GroupAggregate  (cost=0.43..125204.97 rows=77509 width=16) (actual time=0.027..533.911 rows=445847 loops=1)
+                                 Group Key: slick_to_source.slick
+                                 Buffers: shared hit=321261
+                                 ->  Index Only Scan using idx_sts_active_slick_rank on slick_to_source  (cost=0.43..115235.59 rows=1838857 width=8) (actual time=0.021..356.644 rows=1844905 loops=1)
+                                       Heap Fetches: 643796
+                                       Buffers: shared hit=321261
+               ->  Index Scan using idx_sts_active_slick_rank on slick_to_source sts  (cost=0.43..27.31 rows=24 width=24) (actual time=0.017..0.025 rows=16 loops=1)
+                     Index Cond: (slick = slick_to_source.slick)
+                     Buffers: shared hit=19
+ Planning Time: 0.274 ms
+ Execution Time: 574.367 ms
+
+Time: 674.283 ms
+=== HITL request inbox by user ===
+                                                                       QUERY PLAN                                                                       
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=5.23..5.24 rows=3 width=24) (actual time=0.082..0.089 rows=52 loops=1)
+   Buffers: shared hit=2
+   ->  Sort  (cost=5.23..5.24 rows=3 width=24) (actual time=0.081..0.084 rows=52 loops=1)
+         Sort Key: hr.date_requested DESC
+         Sort Method: quicksort  Memory: 29kB
+         Buffers: shared hit=2
+         ->  Hash Join  (cost=2.96..5.21 rows=3 width=24) (actual time=0.054..0.072 rows=52 loops=1)
+               Hash Cond: (hr."user" = su."user")
+               Buffers: shared hit=2
+               ->  Seq Scan on hitl_request hr  (cost=0.00..1.96 rows=96 width=32) (actual time=0.007..0.015 rows=96 loops=1)
+                     Buffers: shared hit=1
+               ->  Hash  (cost=2.95..2.95 rows=1 width=8) (actual time=0.041..0.042 rows=1 loops=1)
+                     Buckets: 1024  Batches: 1  Memory Usage: 9kB
+                     Buffers: shared hit=1
+                     ->  Subquery Scan on su  (cost=2.94..2.95 rows=1 width=8) (actual time=0.034..0.036 rows=1 loops=1)
+                           Buffers: shared hit=1
+                           ->  Limit  (cost=2.94..2.94 rows=1 width=16) (actual time=0.034..0.035 rows=1 loops=1)
+                                 Buffers: shared hit=1
+                                 ->  Sort  (cost=2.94..3.02 rows=33 width=16) (actual time=0.034..0.034 rows=1 loops=1)
+                                       Sort Key: (count(*)) DESC
+                                       Sort Method: top-N heapsort  Memory: 25kB
+                                       Buffers: shared hit=1
+                                       ->  HashAggregate  (cost=2.44..2.77 rows=33 width=16) (actual time=0.026..0.029 rows=25 loops=1)
+                                             Group Key: hitl_request."user"
+                                             Batches: 1  Memory Usage: 24kB
+                                             Buffers: shared hit=1
+                                             ->  Seq Scan on hitl_request  (cost=0.00..1.96 rows=96 width=8) (actual time=0.002..0.009 rows=96 loops=1)
+                                                   Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=61 read=1
+ Planning Time: 0.406 ms
+ Execution Time: 0.144 ms
+
+Time: 91.433 ms
+=== Vessel lookup by flag ===
+                                                                                        QUERY PLAN                                                                                        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=5819.28..7951.71 rows=200 width=12) (actual time=34.477..36.659 rows=200 loops=1)
+   Buffers: shared hit=4361
+   ->  Nested Loop  (cost=5819.28..17856.86 rows=1129 width=12) (actual time=34.477..36.646 rows=200 loops=1)
+         Join Filter: (sv.flag = sf.flag)
+         Rows Removed by Join Filter: 3282
+         Buffers: shared hit=4361
+         ->  Index Scan using source_vessel_pkey on source_vessel sv  (cost=0.42..8060.20 rows=265186 width=12) (actual time=0.010..0.905 rows=3482 loops=1)
+               Buffers: shared hit=1774
+         ->  Materialize  (cost=5818.86..5818.88 rows=1 width=4) (actual time=0.010..0.010 rows=1 loops=3482)
+               Buffers: shared hit=2587
+               ->  Subquery Scan on sf  (cost=5818.86..5818.87 rows=1 width=4) (actual time=34.448..35.031 rows=1 loops=1)
+                     Buffers: shared hit=2587
+                     ->  Limit  (cost=5818.86..5818.86 rows=1 width=12) (actual time=34.448..35.029 rows=1 loops=1)
+                           Buffers: shared hit=2587
+                           ->  Sort  (cost=5818.86..5819.34 rows=194 width=12) (actual time=34.447..35.028 rows=1 loops=1)
+                                 Sort Key: (count(*)) DESC
+                                 Sort Method: top-N heapsort  Memory: 25kB
+                                 Buffers: shared hit=2587
+                                 ->  Finalize GroupAggregate  (cost=5792.67..5817.89 rows=194 width=12) (actual time=34.221..34.994 rows=232 loops=1)
+                                       Group Key: source_vessel.flag
+                                       Buffers: shared hit=2587
+                                       ->  Gather Merge  (cost=5792.67..5814.98 rows=194 width=12) (actual time=34.210..34.911 rows=448 loops=1)
+                                             Workers Planned: 1
+                                             Workers Launched: 1
+                                             Buffers: shared hit=2587
+                                             ->  Sort  (cost=4792.66..4793.14 rows=194 width=12) (actual time=31.729..31.739 rows=224 loops=2)
+                                                   Sort Key: source_vessel.flag
+                                                   Sort Method: quicksort  Memory: 35kB
+                                                   Buffers: shared hit=2587
+                                                   Worker 0:  Sort Method: quicksort  Memory: 35kB
+                                                   ->  Partial HashAggregate  (cost=4783.35..4785.29 rows=194 width=12) (actual time=31.470..31.490 rows=224 loops=2)
+                                                         Group Key: source_vessel.flag
+                                                         Batches: 1  Memory Usage: 64kB
+                                                         Buffers: shared hit=2579
+                                                         Worker 0:  Batches: 1  Memory Usage: 64kB
+                                                         ->  Parallel Seq Scan on source_vessel  (cost=0.00..4138.92 rows=128886 width=4) (actual time=0.008..16.061 rows=115499 loops=2)
+                                                               Filter: (flag IS NOT NULL)
+                                                               Rows Removed by Filter: 26642
+                                                               Buffers: shared hit=2579
+ Planning:
+   Buffers: shared hit=36
+ Planning Time: 0.358 ms
+ Execution Time: 36.734 ms
+
+Time: 134.011 ms
