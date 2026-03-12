@@ -30,42 +30,49 @@ TRANSLATION_CSV_PATH = (
 )
 TRANSLATION_CONFIG = {
     "cls": {
+        "base_table_name": "cls",
         "table_name": "cls_i18n",
         "id_column": "cls_id",
         "id_type": sa.Integer(),
         "fields": ("long_name", "description"),
     },
     "tag": {
+        "base_table_name": "tag",
         "table_name": "tag_i18n",
         "id_column": "tag_id",
         "id_type": sa.BigInteger(),
         "fields": ("long_name", "description", "citation"),
     },
     "aoi_type": {
+        "base_table_name": "aoi_type",
         "table_name": "aoi_type_i18n",
         "id_column": "aoi_type_id",
         "id_type": sa.BigInteger(),
         "fields": ("long_name", "citation"),
     },
     "source_type": {
+        "base_table_name": "source_type",
         "table_name": "source_type_i18n",
         "id_column": "source_type_id",
         "id_type": sa.BigInteger(),
         "fields": ("long_name", "citation"),
     },
     "frequency": {
+        "base_table_name": "frequency",
         "table_name": "frequency_i18n",
         "id_column": "frequency_id",
         "id_type": sa.BigInteger(),
         "fields": ("long_name",),
     },
     "permission": {
+        "base_table_name": "permission",
         "table_name": "permission_i18n",
         "id_column": "permission_id",
         "id_type": sa.BigInteger(),
         "fields": ("long_name",),
     },
     "layer": {
+        "base_table_name": "layer",
         "table_name": "layer_i18n",
         "id_column": "layer_id",
         "id_type": sa.Integer(),
@@ -101,18 +108,43 @@ def _i18n_seed_table(entity_type: str):
     return sa.table(config["table_name"], *columns)
 
 
+def _lookup_table(entity_type: str):
+    config = TRANSLATION_CONFIG[entity_type]
+    return sa.table(
+        config["base_table_name"],
+        sa.column("id", config["id_type"]),
+        sa.column("short_name", sa.Text()),
+    )
+
+
+def _load_entity_id_map(entity_type: str):
+    table = _lookup_table(entity_type)
+    bind = op.get_bind()
+    rows = bind.execute(sa.select(table.c.short_name, table.c.id)).fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
 def _build_translation_seed_rows():
     if not TRANSLATION_CSV_PATH.exists():
         raise RuntimeError(
             f"Missing translation seed CSV required by migration: {TRANSLATION_CSV_PATH}"
         )
 
+    entity_id_maps = {
+        entity_type: _load_entity_id_map(entity_type)
+        for entity_type in TRANSLATION_CONFIG
+    }
     grouped = defaultdict(dict)
+    skipped_keys = set()
     with TRANSLATION_CSV_PATH.open(newline="", encoding="utf-8") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
             entity_type = row["entity_type"]
-            entity_id = int(row["entity_id"])
+            context_key = row["context_key"]
+            entity_id = entity_id_maps[entity_type].get(context_key)
+            if entity_id is None:
+                skipped_keys.add((entity_type, context_key))
+                continue
             field_name = row["field_name"]
             for locale in TRANSLATION_LOCALES:
                 group = grouped[(entity_type, entity_id, locale)]
@@ -120,6 +152,16 @@ def _build_translation_seed_rows():
                 value = row[locale] or None
                 if value is not None:
                     group[field_name] = value
+
+    if skipped_keys:
+        skipped_list = ", ".join(
+            f"{entity_type}:{context_key}"
+            for entity_type, context_key in sorted(skipped_keys)
+        )
+        print(
+            "Skipping translation seed rows for vocabulary entries not present in this "
+            f"database: {skipped_list}"
+        )
 
     seed_rows = {entity_type: [] for entity_type in TRANSLATION_CONFIG}
     for (entity_type, entity_id, locale), values in sorted(grouped.items()):

@@ -224,6 +224,28 @@ class SpatialRefSys(Base):  # noqa
     proj4text = Column(String(2048))
 
 
+class SupportedLocale(Base):  # noqa
+    __tablename__ = "supported_locale"
+    __table_args__ = (
+        CheckConstraint("(NOT is_default) OR (fallback_code IS NULL)"),
+        CheckConstraint("(fallback_code IS NULL) OR (fallback_code <> code)"),
+        CheckConstraint("code = lower(code)"),
+        CheckConstraint("text_direction = ANY (ARRAY['ltr'::text, 'rtl'::text])"),
+    )
+
+    code = Column(Text, primary_key=True)
+    english_name = Column(Text, nullable=False)
+    native_name = Column(Text, nullable=False)
+    text_direction = Column(Text, nullable=False, server_default=text("'ltr'::text"))
+    fallback_code = Column(ForeignKey("supported_locale.code"))
+    is_default = Column(Boolean, nullable=False, server_default=text("false"))
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    sort_order = Column(Integer, nullable=False)
+    notes = Column(Text)
+
+    parent = relationship("SupportedLocale", remote_side=[code])
+
+
 class Trigger(Base):  # noqa
     __tablename__ = "trigger"
 
@@ -358,6 +380,134 @@ class AoiUser(Aoi):  # noqa
     users = relationship("Users")
 
 
+class AoiTypeI18n(Base):  # noqa
+    __tablename__ = "aoi_type_i18n"
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(long_name, citation) > 0"),
+        CheckConstraint(
+            "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])"
+        ),
+        CheckConstraint(
+            "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])"
+        ),
+    )
+
+    aoi_type_id = Column(
+        ForeignKey("aoi_type.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    locale = Column(
+        ForeignKey("supported_locale.code"), primary_key=True, nullable=False
+    )
+    long_name = Column(Text)
+    citation = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'published'::text"))
+    quality = Column(Text, nullable=False, server_default=text("'human'::text"))
+    source_checksum = Column(Text, nullable=False)
+    updated_by = Column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+
+    aoi_type = relationship("AoiType")
+    supported_locale = relationship("SupportedLocale")
+    users = relationship("Users")
+
+
+class ClsI18n(Base):  # noqa
+    __tablename__ = "cls_i18n"
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(long_name, description) > 0"),
+        CheckConstraint(
+            "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])"
+        ),
+        CheckConstraint(
+            "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])"
+        ),
+    )
+
+    cls_id = Column(
+        ForeignKey("cls.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    locale = Column(
+        ForeignKey("supported_locale.code"), primary_key=True, nullable=False
+    )
+    long_name = Column(Text)
+    description = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'published'::text"))
+    quality = Column(Text, nullable=False, server_default=text("'human'::text"))
+    source_checksum = Column(Text, nullable=False)
+    updated_by = Column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+
+    cls = relationship("Cls")
+    supported_locale = relationship("SupportedLocale")
+    users = relationship("Users")
+
+
+class FrequencyI18n(Base):
+    __tablename__ = "frequency_i18n"
+    __table_args__ = (
+        CheckConstraint("long_name IS NOT NULL"),
+        CheckConstraint(
+            "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])"
+        ),
+        CheckConstraint(
+            "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])"
+        ),
+    )
+
+    frequency_id = Column(
+        ForeignKey("frequency.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    locale = Column(
+        ForeignKey("supported_locale.code"), primary_key=True, nullable=False
+    )
+    long_name = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'published'::text"))
+    quality = Column(Text, nullable=False, server_default=text("'human'::text"))
+    source_checksum = Column(Text, nullable=False)
+    updated_by = Column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+
+    frequency = relationship("Frequency")
+    supported_locale = relationship("SupportedLocale")
+    users = relationship("Users")
+
+
+class LayerI18n(Base):  # noqa
+    __tablename__ = "layer_i18n"
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(long_name, notes, citation) > 0"),
+        CheckConstraint(
+            "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])"
+        ),
+        CheckConstraint(
+            "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])"
+        ),
+    )
+
+    layer_id = Column(
+        ForeignKey("layer.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    locale = Column(
+        ForeignKey("supported_locale.code"), primary_key=True, nullable=False
+    )
+    long_name = Column(Text)
+    notes = Column(Text)
+    citation = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'published'::text"))
+    quality = Column(Text, nullable=False, server_default=text("'human'::text"))
+    source_checksum = Column(Text, nullable=False)
+    updated_by = Column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+
+    layer = relationship("Layer")
+    supported_locale = relationship("SupportedLocale")
+    users = relationship("Users")
+
+
 class OrchestratorRun(Base):  # noqa
     __tablename__ = "orchestrator_run"
 
@@ -387,6 +537,39 @@ class OrchestratorRun(Base):  # noqa
     model1 = relationship("Model")
     sentinel1_grd1 = relationship("Sentinel1Grd")
     trigger1 = relationship("Trigger")
+
+
+class PermissionI18n(Base):  # noqa
+    __tablename__ = "permission_i18n"
+    __table_args__ = (
+        CheckConstraint("long_name IS NOT NULL"),
+        CheckConstraint(
+            "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])"
+        ),
+        CheckConstraint(
+            "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])"
+        ),
+    )
+
+    permission_id = Column(
+        ForeignKey("permission.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    locale = Column(
+        ForeignKey("supported_locale.code"), primary_key=True, nullable=False
+    )
+    long_name = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'published'::text"))
+    quality = Column(Text, nullable=False, server_default=text("'human'::text"))
+    source_checksum = Column(Text, nullable=False)
+    updated_by = Column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+
+    supported_locale = relationship("SupportedLocale")
+    permission = relationship("Permission")
+    users = relationship("Users")
 
 
 class Sessions(Base):  # noqa
@@ -472,6 +655,40 @@ class SourceVessel(Source):  # noqa
     ext_name = Column(Text)
     ext_shiptype = Column(Text)
     flag = Column(Text)
+
+
+class SourceTypeI18n(Base):  # noqa
+    __tablename__ = "source_type_i18n"
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(long_name, citation) > 0"),
+        CheckConstraint(
+            "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])"
+        ),
+        CheckConstraint(
+            "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])"
+        ),
+    )
+
+    source_type_id = Column(
+        ForeignKey("source_type.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    locale = Column(
+        ForeignKey("supported_locale.code"), primary_key=True, nullable=False
+    )
+    long_name = Column(Text)
+    citation = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'published'::text"))
+    quality = Column(Text, nullable=False, server_default=text("'human'::text"))
+    source_checksum = Column(Text, nullable=False)
+    updated_by = Column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+
+    supported_locale = relationship("SupportedLocale")
+    source_type = relationship("SourceType")
+    users = relationship("Users")
 
 
 class Subscription(Base):  # noqa
@@ -568,6 +785,21 @@ class Slick(Base):  # noqa
     )
     polsby_popper = Column(Float(53))
     fill_factor = Column(Float(53))
+    geom_3857_simplified = Column(
+        Geometry(srid=3857, from_text="ST_GeomFromEWKT", name="geometry"),
+        Computed(
+            "st_simplifypreservetopology(st_transform((geometry)::geometry, 3857), (100)::double precision)",
+            persisted=True,
+        ),
+    )
+    centroid_3857 = Column(
+        Geometry("POINT", 3857, from_text="ST_GeomFromEWKT", name="geometry"),
+        Computed("st_transform((centroid)::geometry, 3857)", persisted=True),
+    )
+    geom_3857 = Column(
+        Geometry(srid=3857, from_text="ST_GeomFromEWKT", name="geometry"),
+        Computed("st_transform((geometry)::geometry, 3857)", persisted=True),
+    )
 
     cls1 = relationship("Cls")
     orchestrator_run1 = relationship("OrchestratorRun")
@@ -590,6 +822,39 @@ class SourceToTag(Base):  # noqa
         foreign_keys=lambda: [SourceToTag.source_ext_id, SourceToTag.source_type],
     )
     tag1 = relationship("Tag")
+
+
+class TagI18n(Base):  # noqa
+    __tablename__ = "tag_i18n"
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(long_name, description, citation) > 0"),
+        CheckConstraint(
+            "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])"
+        ),
+        CheckConstraint(
+            "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])"
+        ),
+    )
+
+    tag_id = Column(
+        ForeignKey("tag.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    locale = Column(
+        ForeignKey("supported_locale.code"), primary_key=True, nullable=False
+    )
+    long_name = Column(Text)
+    description = Column(Text)
+    citation = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'published'::text"))
+    quality = Column(Text, nullable=False, server_default=text("'human'::text"))
+    source_checksum = Column(Text, nullable=False)
+    updated_by = Column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+    updated_at = Column(DateTime(True), nullable=False, server_default=text("now()"))
+
+    supported_locale = relationship("SupportedLocale")
+    tag = relationship("Tag")
+    users = relationship("Users")
 
 
 class HitlRequest(Base):  # noqa
@@ -653,6 +918,7 @@ t_slick_to_aoi = Table(
 
 class SlickToSource(Base):  # noqa
     __tablename__ = "slick_to_source"
+    __table_args__ = (UniqueConstraint("slick", "source"),)
 
     id = Column(
         BigInteger,
