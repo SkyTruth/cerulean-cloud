@@ -1,0 +1,137 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;700&display=swap");
+@import "../website/styles.css";
+
+:root {
+  --bg: #f8f3ea;
+  --surface: #fffdf9;
+  --surface-2: #f6f0e6;
+  --text: #2d241c;
+  --muted: #6f6254;
+  --border: #e4d9c7;
+  --accent: #aa5f19;
+  --accent-ink: #784114;
+  --good: #556b2f;
+  --code-bg: #241d19;
+  --code-text: #f8ecd9;
+  --shadow-soft: 0 12px 28px rgba(61, 43, 27, 0.08);
+}
+
+body {
+  font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(1000px 580px at 3% -10%, rgba(170, 95, 25, 0.14), transparent 62%),
+    radial-gradient(900px 520px at 96% 3%, rgba(85, 107, 47, 0.13), transparent 58%),
+    linear-gradient(180deg, #fbf7f0 0%, #f5efe4 100%);
+}
+
+.brand h1,
+.section h2,
+.section h3,
+.section h4 {
+  font-family: "Fraunces", Georgia, serif;
+  letter-spacing: -0.03em;
+}
+
+.brand-mark {
+  background: linear-gradient(145deg, #6c3a13, #aa5f19 55%, #6c8f2b);
+}
+
+.eyebrow {
+  border-color: #e7c39b;
+  background: #f8e7d4;
+  color: #8f4a10;
+}
+
+.hero-card {
+  border-color: #ead7c1;
+  background: linear-gradient(170deg, #fffaf3, #f6eee2);
+}
+
+.callout {
+  border-left-color: var(--accent);
+  background: #f8efe2;
+}
+
+.nav-link:hover,
+.nav-link.is-active,
+.toc-link:hover,
+.toc-link.is-active {
+  color: var(--accent-ink);
+  background: #f4e7d4;
+}
+
+.endpoint {
+  border-color: #ead7c1;
+  background: #fbf4ea;
+}
+
+.method {
+  background: #e8f0d8;
+  color: #52662b;
+}
+
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+.catalog-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.9rem;
+  background: linear-gradient(180deg, rgba(255, 251, 245, 0.95), rgba(247, 239, 226, 0.95));
+}
+
+.catalog-card h4 {
+  margin-bottom: 0.45rem;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.6rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.56rem;
+  border-radius: 999px;
+  border: 1px solid #ead7c1;
+  background: #fff8ef;
+  color: #6d4822;
+  font-size: 0.76rem;
+}
+
+.link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+}
+
+.link-chip {
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.34rem 0.72rem;
+  background: #fffaf2;
+  color: var(--accent-ink);
+  font-size: 0.84rem;
+}
+
+.status-note {
+  margin-top: 0.55rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+@media (max-width: 980px) {
+  .catalog-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

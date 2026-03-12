@@ -1,0 +1,828 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="SkyTruth Mining API Guide for querying annual mining footprints, permit datasets, highwall detections, e-AMLIS, counties, and HUC boundaries."
+    />
+    <title>SkyTruth Mining API Guide</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">M</span>
+        <div>
+          <p class="brand-label">SkyTruth Mining</p>
+          <h1>Mining API Guide</h1>
+        </div>
+      </div>
+      <button id="menuToggle" class="menu-toggle" aria-expanded="false" aria-controls="sidebar">
+        Navigation
+      </button>
+      <a class="top-link" href="https://api.mining.skytruth.org/" target="_blank" rel="noreferrer"
+        >Open Live API Docs</a
+      >
+    </header>
+
+    <div class="layout">
+      <aside id="sidebar" class="sidebar">
+        <nav aria-label="Primary">
+          <label class="nav-search-label" for="navSearch">Filter sections</label>
+          <input
+            id="navSearch"
+            class="nav-search"
+            type="search"
+            placeholder="Type to filter..."
+            autocomplete="off"
+          />
+
+          <p class="nav-group-title">Getting Started</p>
+          <a href="#overview" class="nav-link">Overview</a>
+          <a href="#quickstart" class="nav-link">Quickstart</a>
+          <a href="#query-model" class="nav-link">Query Model</a>
+          <a href="#filters" class="nav-link">Filters</a>
+          <a href="#responses" class="nav-link">Responses</a>
+
+          <p class="nav-group-title">Collections</p>
+          <a href="#collection-annual-mining" class="nav-link">public.annual_mining</a>
+          <a href="#collection-state-permits" class="nav-link">public.state_permits_*</a>
+          <a href="#collection-highwall-detections" class="nav-link">public.highwall_detections</a>
+          <a href="#collection-eamlis" class="nav-link">public.eamlis</a>
+          <a href="#collection-counties" class="nav-link">public.counties</a>
+          <a href="#collection-huc-boundaries" class="nav-link">public.huc_boundaries</a>
+
+          <p class="nav-group-title">Examples</p>
+          <a href="#example-1a" class="nav-link">1a. Mine Footprints</a>
+          <a href="#example-1b" class="nav-link">1b. WV Permits</a>
+          <a href="#example-1c" class="nav-link">1c. Highwalls</a>
+          <a href="#example-2a" class="nav-link">2a. Mines by Permit ID</a>
+          <a href="#example-2b" class="nav-link">2b. Mines by Mine Name</a>
+          <a href="#example-2c" class="nav-link">2c. Permits by Mine ID</a>
+          <a href="#example-2d" class="nav-link">2d. Highwalls by Permit</a>
+          <a href="#example-3" class="nav-link">3. Download GeoJSON</a>
+          <a href="#example-4" class="nav-link">4. e-AMLIS BBox</a>
+
+          <p class="nav-group-title">Reference</p>
+          <a href="#coverage" class="nav-link">Coverage & Sources</a>
+          <a href="#glossary" class="nav-link">Selected Attributes</a>
+          <a href="#citation" class="nav-link">Citation</a>
+        </nav>
+      </aside>
+
+      <main class="content">
+        <section id="overview" class="section hero">
+          <div class="eyebrow">Public API</div>
+          <h2>SkyTruth Mining API Guide</h2>
+          <p>
+            SkyTruth publishes an OGC API Features-compatible TiPG endpoint at
+            <a href="https://api.mining.skytruth.org/" target="_blank" rel="noreferrer"
+              >https://api.mining.skytruth.org/</a
+            > for mining footprints, permit datasets, highwall detections, and supporting
+            reference layers. This page translates the existing Mining API guide script into a
+            structured reference modeled on the same approach as the Cerulean docs site.
+          </p>
+          <div class="hero-grid">
+            <div class="hero-card">
+              <p class="hero-label">Base URL</p>
+              <code>https://api.mining.skytruth.org/</code>
+            </div>
+            <div class="hero-card">
+              <p class="hero-label">Main pattern</p>
+              <code>GET /collections/{collectionId}/items</code>
+            </div>
+            <div class="hero-card">
+              <p class="hero-label">Coverage</p>
+              <code>SkyTruth mining + permit + reference layers</code>
+            </div>
+          </div>
+          <div class="callout">
+            <p>
+              For bulk downloads of MTM datasets, use
+              <a href="https://skytruth.org/mtr-data-files/" target="_blank" rel="noreferrer"
+                >MTM Data Files</a
+              >.
+            </p>
+          </div>
+          <div class="callout">
+            <p>
+              For API semantics and filter syntax, see
+              <a href="https://developmentseed.org/tipg/" target="_blank" rel="noreferrer"
+                >TiPG</a
+              >
+              and
+              <a
+                href="https://cran.r-project.org/web/packages/rstac/vignettes/rstac-02-cql2.html"
+                target="_blank"
+                rel="noreferrer"
+                >CQL-2</a
+              >.
+            </p>
+          </div>
+          <div class="catalog-grid">
+            <article class="catalog-card">
+              <h4>Mine footprints</h4>
+              <p>Annual mining footprints from 1985-2025, with `final` and `provisional` status.</p>
+              <div class="badge-row">
+                <span class="badge">public.annual_mining</span>
+                <span class="badge">SkyTruth</span>
+              </div>
+            </article>
+            <article class="catalog-card">
+              <h4>Permit datasets</h4>
+              <p>State permit tables for Kentucky, Tennessee, Virginia, and West Virginia.</p>
+              <div class="badge-row">
+                <span class="badge">public.state_permits_ky</span>
+                <span class="badge">public.state_permits_tn</span>
+                <span class="badge">public.state_permits_va</span>
+                <span class="badge">public.state_permits_wv</span>
+              </div>
+            </article>
+            <article class="catalog-card">
+              <h4>Reference layers</h4>
+              <p>Highwall detections, e-AMLIS, counties, and HUC boundaries for context and joins.</p>
+              <div class="badge-row">
+                <span class="badge">public.highwall_detections</span>
+                <span class="badge">public.eamlis</span>
+                <span class="badge">public.counties</span>
+                <span class="badge">public.huc_boundaries</span>
+              </div>
+            </article>
+          </div>
+          <div class="link-row">
+            <a class="link-chip" href="https://api.mining.skytruth.org/" target="_blank" rel="noreferrer"
+              >API landing page</a
+            >
+            <a
+              class="link-chip"
+              href="https://api.mining.skytruth.org/collections"
+              target="_blank"
+              rel="noreferrer"
+              >Collections list</a
+            >
+            <a
+              class="link-chip"
+              href="https://skytruth.org/mtr-data-files/"
+              target="_blank"
+              rel="noreferrer"
+              >Bulk data files</a
+            >
+          </div>
+        </section>
+
+        <section id="quickstart" class="section">
+          <h3>Quickstart</h3>
+          <p>
+            Start with a bounding-box query against <code>public.annual_mining</code>. The sample
+            coordinates come directly from the existing guide.
+          </p>
+          <div class="code-example">
+            <div class="code-toolbar">
+              <div class="lang-tabs">
+                <button class="lang-tab is-active" data-lang="bash">cURL</button>
+                <button class="lang-tab" data-lang="python">Python</button>
+              </div>
+              <button class="copy-btn" type="button">Copy</button>
+            </div>
+            <pre class="code-block is-active" data-lang="bash"><code>curl --globoff \
+  'https://api.mining.skytruth.org/collections/public.annual_mining/items?bbox=-81.8156,37.7981,-81.7882,37.8484&amp;limit=50' \
+  -H 'Content-Type: application/json;'</code></pre>
+            <pre class="code-block" data-lang="python"><code>import requests
+
+url = (
+    "https://api.mining.skytruth.org/collections/public.annual_mining/items"
+    "?bbox=-81.8156,37.7981,-81.7882,37.8484"
+    "&amp;limit=50"
+)
+
+data = requests.get(url).json()
+print("Returned:", len(data.get("features", [])))</code></pre>
+          </div>
+          <div class="callout">
+            <p>
+              The guide’s example bbox falls in the Central Appalachian study area:
+              <code>-81.8156,37.7981,-81.7882,37.8484</code>.
+            </p>
+          </div>
+        </section>
+
+        <section id="query-model" class="section">
+          <h3>Query Model</h3>
+          <p>
+            Mining API requests are standard TiPG item queries. Most examples use a mix of bbox,
+            direct property filters, and CQL-2 spatial predicates.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Parameter</th>
+                <th>Type</th>
+                <th>Usage</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>bbox</code></td>
+                <td>minX,minY,maxX,maxY</td>
+                <td>Primary spatial filter for examples in the guide.</td>
+              </tr>
+              <tr>
+                <td><code>limit</code></td>
+                <td>integer</td>
+                <td>Caps the number of returned features.</td>
+              </tr>
+              <tr>
+                <td><code>filter</code></td>
+                <td>CQL-2 text</td>
+                <td>
+                  Used for attribute filters like <code>data_status NE 'provisional'</code> and
+                  geometry predicates like <code>s_intersects(geom,...)</code>.
+                </td>
+              </tr>
+              <tr>
+                <td><code>id</code></td>
+                <td>string</td>
+                <td>Specific annual mining footprint identifier. Some IDs require URL encoding.</td>
+              </tr>
+              <tr>
+                <td><code>permit_id</code></td>
+                <td>string</td>
+                <td>Direct permit lookup on state permit collections.</td>
+              </tr>
+              <tr>
+                <td><code>mine_name</code></td>
+                <td>string</td>
+                <td>Facility name lookup on permit collections.</td>
+              </tr>
+              <tr>
+                <td><code>f</code></td>
+                <td>string</td>
+                <td>Output format, e.g. <code>geojson</code> or <code>csv</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="filters" class="section">
+          <h3>Filters</h3>
+          <ul>
+            <li>Bounding boxes use <code>min_x,min_y,max_x,max_y</code>.</li>
+            <li>
+              Annual mine footprints can be filtered by <code>data_status</code>; the guide uses
+              <code>data_status NE 'provisional'</code> to keep only cleaned yearly footprints.
+            </li>
+            <li>
+              Cross-dataset workflows use <code>s_intersects(geom,&lt;geometry&gt;)</code> in
+              CQL-2 text filters.
+            </li>
+            <li>
+              Some mine IDs are not URL-safe. The guide explicitly encodes
+              <code>-303538+140420</code> before passing it as an <code>id</code> query.
+            </li>
+            <li>
+              Permit data is state-specific. Raw field consistency between
+              <code>public.state_permits_ky</code>, <code>_tn</code>, <code>_va</code>, and
+              <code>_wv</code> is not guaranteed.
+            </li>
+          </ul>
+          <pre class="code-block static"><code>filter=data_status NE 'provisional'
+filter=s_intersects(geom,&lt;geometry&gt;)
+id=-303538%2B140420</code></pre>
+        </section>
+
+        <section id="responses" class="section">
+          <h3>Responses</h3>
+          <p>Collection item endpoints typically return a GeoJSON FeatureCollection.</p>
+          <pre class="code-block static"><code>{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "...",
+      "geometry": { "...": "..." },
+      "properties": { "...": "..." }
+    }
+  ]
+}</code></pre>
+        </section>
+
+        <section id="collection-annual-mining" class="section collection">
+          <h3><code>public.annual_mining</code></h3>
+          <p>Annual mine footprint polygons with year and data-cleaning status.</p>
+          <div class="endpoint">
+            <span class="method">GET</span>
+            <code>/collections/public.annual_mining/items</code>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>geom</code></td>
+                <td>Polygon geometry representing the mine footprint.</td>
+              </tr>
+              <tr>
+                <td><code>id</code></td>
+                <td>Unique mine footprint ID.</td>
+              </tr>
+              <tr>
+                <td><code>mining_year</code></td>
+                <td>Year in which the footprint was detected.</td>
+              </tr>
+              <tr>
+                <td><code>data_status</code></td>
+                <td><code>final</code> or <code>provisional</code>.</td>
+              </tr>
+              <tr>
+                <td><code>area</code></td>
+                <td>Footprint area in square meters.</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="link-row">
+            <a
+              class="link-chip"
+              href="https://api.mining.skytruth.org/collections/public.annual_mining/items"
+              target="_blank"
+              rel="noreferrer"
+              >Open collection</a
+            >
+          </div>
+        </section>
+
+        <section id="collection-state-permits" class="section collection">
+          <h3><code>public.state_permits_*</code></h3>
+          <p>
+            State permit datasets are published separately for Kentucky, Tennessee, Virginia, and
+            West Virginia. The guide notes that attribute consistency is partial, not guaranteed.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Collection</th>
+                <th>Coverage</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>public.state_permits_ky</code></td>
+                <td>Kentucky</td>
+                <td>KyGovMaps, FOIA, and OSMRE GeoMine-derived fields.</td>
+              </tr>
+              <tr>
+                <td><code>public.state_permits_tn</code></td>
+                <td>Tennessee</td>
+                <td>OSMRE GeoMine plus FOIA bond data.</td>
+              </tr>
+              <tr>
+                <td><code>public.state_permits_va</code></td>
+                <td>Virginia</td>
+                <td>Virginia Department of Energy, OSMRE GeoMine, and FOIA merges.</td>
+              </tr>
+              <tr>
+                <td><code>public.state_permits_wv</code></td>
+                <td>West Virginia</td>
+                <td>WVDEP TAGIS, permit search, FOIA, and GeoMine-derived fields.</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="status-note">
+            Common normalized fields used across the guide include <code>permit_id</code>,
+            <code>mine_name</code>, <code>permittee</code>, <code>mine_status</code>,
+            <code>bond_status</code>, <code>avail_bond</code>, <code>full_bond</code>, and
+            <code>surf_mine</code>.
+          </p>
+        </section>
+
+        <section id="collection-highwall-detections" class="section collection">
+          <h3><code>public.highwall_detections</code></h3>
+          <p>
+            Highwall detection geometries and cost/reclamation attributes. The guide marks this
+            dataset as “coming soon” for some regions, so queries may legitimately return zero
+            features depending on coverage.
+          </p>
+          <div class="endpoint">
+            <span class="method">GET</span>
+            <code>/collections/public.highwall_detections/items</code>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Field</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>highwall_id</code></td>
+                <td>Unique highwall identifier.</td>
+              </tr>
+              <tr>
+                <td><code>rec_status</code></td>
+                <td>Reclamation status from visual interpretation.</td>
+              </tr>
+              <tr>
+                <td><code>first_mined_yr</code> / <code>last_mined_yr</code></td>
+                <td>Derived range for mining activity timing.</td>
+              </tr>
+              <tr>
+                <td><code>length</code> / <code>height</code></td>
+                <td>Primary geometric measurements used in downstream estimates.</td>
+              </tr>
+              <tr>
+                <td><code>min_cost</code> / <code>mid_cost</code> / <code>max_cost</code></td>
+                <td>Estimated reclamation cost range.</td>
+              </tr>
+              <tr>
+                <td><code>permit_id</code> / <code>mine_name</code></td>
+                <td>Associated permit and mine metadata.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="collection-eamlis" class="section collection">
+          <h3><code>public.eamlis</code></h3>
+          <p>
+            OSMRE Abandoned Mine Land Inventory System problem areas hosted by SkyTruth. The source
+            guide notes this hosted copy was last updated on <code>2025/10/24</code>.
+          </p>
+          <div class="endpoint">
+            <span class="method">GET</span>
+            <code>/collections/public.eamlis/items</code>
+          </div>
+          <p class="status-note">
+            Example fields include <code>amlis_key</code>, <code>pa_name</code>,
+            <code>county</code>, <code>watershed</code>, <code>mine_type</code>, and
+            <code>ore_types</code>.
+          </p>
+        </section>
+
+        <section id="collection-counties" class="section collection">
+          <h3><code>public.counties</code></h3>
+          <p>
+            County boundaries filtered to the Central Appalachian study area. Data originates from
+            the U.S. Census Bureau TIGER/Line shapefiles accessed on <code>2025/11/06</code>.
+          </p>
+          <div class="endpoint">
+            <span class="method">GET</span>
+            <code>/collections/public.counties/items</code>
+          </div>
+        </section>
+
+        <section id="collection-huc-boundaries" class="section collection">
+          <h3><code>public.huc_boundaries</code></h3>
+          <p>
+            Watershed Boundary Dataset records filtered to the same study area. The guide documents
+            a custom <code>st_id</code> field because some source records share the same
+            <code>objectid</code>.
+          </p>
+          <div class="endpoint">
+            <span class="method">GET</span>
+            <code>/collections/public.huc_boundaries/items</code>
+          </div>
+        </section>
+
+        <section id="example-1a" class="section example">
+          <h4>Example 1a: Mine footprints within a bounding box</h4>
+          <pre class="code-block static"><code>curl --globoff \
+  'https://api.mining.skytruth.org/collections/public.annual_mining/items?bbox=-81.8156,37.7981,-81.7882,37.8484&amp;limit=50' \
+  -H 'Content-Type: application/json;'</code></pre>
+        </section>
+
+        <section id="example-1b" class="section example">
+          <h4>Example 1b: West Virginia permits within a bounding box</h4>
+          <pre class="code-block static"><code>curl --globoff \
+  'https://api.mining.skytruth.org/collections/public.state_permits_wv/items?bbox=-81.8156,37.7981,-81.7882,37.8484&amp;limit=50' \
+  -H 'Content-Type: application/json;'</code></pre>
+        </section>
+
+        <section id="example-1c" class="section example">
+          <h4>Example 1c: Highwalls within a bounding box</h4>
+          <p>Some regions may return no features yet.</p>
+          <pre class="code-block static"><code>curl --globoff \
+  'https://api.mining.skytruth.org/collections/public.highwall_detections/items?bbox=-81.8156,37.7981,-81.7882,37.8484&amp;limit=50' \
+  -H 'Content-Type: application/json;'</code></pre>
+        </section>
+
+        <section id="example-2a" class="section example">
+          <h4>Example 2a: Return mine footprints that intersect a permit ID</h4>
+          <p>
+            This workflow fetches a permit geometry first, then intersects annual mining footprints
+            while excluding provisional data.
+          </p>
+          <pre class="code-block static"><code>import requests
+import urllib.parse
+from shapely.geometry import shape
+
+permit = requests.get(
+    "https://api.mining.skytruth.org/collections/public.state_permits_wv/items?permit_id=S501889"
+).json()["features"][0]
+
+filter_text = (
+    f"s_intersects(geom,{shape(permit['geometry']).wkt}) "
+    "AND data_status NE 'provisional'"
+)
+
+mine_url = (
+    "https://api.mining.skytruth.org/collections/public.annual_mining/items?filter="
+    + urllib.parse.quote(filter_text)
+)
+
+mine_features = requests.get(mine_url).json()["features"]</code></pre>
+        </section>
+
+        <section id="example-2b" class="section example">
+          <h4>Example 2b: Return mine footprints that intersect a mine name lookup</h4>
+          <pre class="code-block static"><code>import requests
+import urllib.parse
+from shapely.geometry import shape
+
+permit = requests.get(
+    "https://api.mining.skytruth.org/collections/public.state_permits_wv/items?mine_name=HOBET 21 WEST RIDGE SURFACE"
+).json()["features"][0]
+
+filter_text = (
+    f"s_intersects(geom,{shape(permit['geometry']).wkt}) "
+    "AND data_status NE 'provisional'"
+)
+
+mine_url = (
+    "https://api.mining.skytruth.org/collections/public.annual_mining/items?filter="
+    + urllib.parse.quote(filter_text)
+    + "&amp;limit=100"
+)
+
+mine_features = requests.get(mine_url).json()["features"]</code></pre>
+        </section>
+
+        <section id="example-2c" class="section example">
+          <h4>Example 2c: Return permits that intersect a specific mine footprint ID</h4>
+          <pre class="code-block static"><code>import requests
+import urllib.parse
+from shapely.geometry import shape
+
+mine_id = urllib.parse.quote("-303538+140420")
+mine = requests.get(
+    f"https://api.mining.skytruth.org/collections/public.annual_mining/items?id={mine_id}"
+).json()["features"][0]
+
+filter_text = f"s_intersects(geom,{shape(mine['geometry']).wkt})"
+permit_url = (
+    "https://api.mining.skytruth.org/collections/public.state_permits_wv/items?filter="
+    + urllib.parse.quote(filter_text)
+)
+
+permit_features = requests.get(permit_url).json()["features"]</code></pre>
+        </section>
+
+        <section id="example-2d" class="section example">
+          <h4>Example 2d: Return highwalls that intersect a permit ID</h4>
+          <p>
+            The source guide used a placeholder collection name for this example. The live API
+            collection is <code>public.highwall_detections</code>.
+          </p>
+          <pre class="code-block static"><code>import requests
+import urllib.parse
+from shapely.geometry import shape
+
+permit = requests.get(
+    "https://api.mining.skytruth.org/collections/public.state_permits_wv/items?permit_id=S501889"
+).json()["features"][0]
+
+filter_text = f"s_intersects(geom,{shape(permit['geometry']).wkt})"
+highwall_url = (
+    "https://api.mining.skytruth.org/collections/public.highwall_detections/items?filter="
+    + urllib.parse.quote(filter_text)
+)
+
+highwall_features = requests.get(highwall_url).json()["features"]</code></pre>
+        </section>
+
+        <section id="example-3" class="section example">
+          <h4>Example 3: Download data as GeoJSON</h4>
+          <pre class="code-block static"><code>curl --globoff \
+  'https://api.mining.skytruth.org/collections/public.annual_mining/items?bbox=-81.8156,37.7981,-81.7882,37.8484&amp;limit=50' \
+  -o example_3.geojson</code></pre>
+        </section>
+
+        <section id="example-4" class="section example">
+          <h4>Example 4: View e-AMLIS records within a bounding box</h4>
+          <pre class="code-block static"><code>curl --globoff \
+  'https://api.mining.skytruth.org/collections/public.eamlis/items?bbox=-81.515,38.154,-81.363,38.250&amp;limit=500' \
+  -H 'Content-Type: application/json;'</code></pre>
+        </section>
+
+        <section id="coverage" class="section">
+          <h3>Coverage & Sources</h3>
+          <div class="catalog-grid">
+            <article class="catalog-card">
+              <h4>SkyTruth datasets</h4>
+              <p>
+                The source guide lists annual mining footprints for <code>1985-2025</code> and a
+                live highwall detections collection with evolving coverage.
+              </p>
+            </article>
+            <article class="catalog-card">
+              <h4>Third-party reference layers</h4>
+              <p>
+                e-AMLIS was accessed on <code>2025/10/24</code>. Watershed Boundary Dataset and
+                Census TIGER county data were accessed on <code>2025/11/06</code> and then clipped
+                to the Central Appalachian study area.
+              </p>
+            </article>
+            <article class="catalog-card">
+              <h4>Permit data provenance</h4>
+              <p>
+                State permit boundaries were assembled from state mining databases, FOIA requests,
+                and OSMRE GeoMine. Per-state raw fields differ.
+              </p>
+            </article>
+          </div>
+          <div class="callout">
+            <p>
+              The guide explicitly documents a custom <code>st_id</code> in
+              <code>public.huc_boundaries</code> because some source <code>objectid</code> values
+              are duplicated.
+            </p>
+          </div>
+        </section>
+
+        <section id="glossary" class="section">
+          <h3>Selected Attributes</h3>
+          <p>
+            These are the key attributes surfaced in the source guide. For exhaustive schemas, use
+            the live collection pages.
+          </p>
+
+          <h4>Annual mining footprints</h4>
+          <table>
+            <thead>
+              <tr>
+                <th>Attribute</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>geom</code></td>
+                <td>Mine footprint geometry.</td>
+              </tr>
+              <tr>
+                <td><code>area</code></td>
+                <td>Footprint area in square meters.</td>
+              </tr>
+              <tr>
+                <td><code>data_status</code></td>
+                <td><code>final</code> or <code>provisional</code>.</td>
+              </tr>
+              <tr>
+                <td><code>id</code></td>
+                <td>Unique footprint identifier.</td>
+              </tr>
+              <tr>
+                <td><code>mining_year</code></td>
+                <td>Detected mining year.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>Common normalized permit fields</h4>
+          <table>
+            <thead>
+              <tr>
+                <th>Attribute</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>permit_id</code></td>
+                <td>Permit identifier used for direct lookups.</td>
+              </tr>
+              <tr>
+                <td><code>mine_name</code></td>
+                <td>Mine, facility, or operation name.</td>
+              </tr>
+              <tr>
+                <td><code>permittee</code></td>
+                <td>Compiled permittee name.</td>
+              </tr>
+              <tr>
+                <td><code>mine_status</code></td>
+                <td>Compiled mine status description.</td>
+              </tr>
+              <tr>
+                <td><code>bond_status</code></td>
+                <td>Standardized bond status.</td>
+              </tr>
+              <tr>
+                <td><code>avail_bond</code> / <code>full_bond</code></td>
+                <td>Available bond amounts for reclamation calculations.</td>
+              </tr>
+              <tr>
+                <td><code>surf_mine</code></td>
+                <td>Derived flag indicating whether the permit is a surface mine.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>Highwall detections</h4>
+          <table>
+            <thead>
+              <tr>
+                <th>Attribute</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>highwall_id</code></td>
+                <td>Unique highwall identifier.</td>
+              </tr>
+              <tr>
+                <td><code>rec_status</code> / <code>rec_status_yr</code></td>
+                <td>Reclamation status and imagery year used to assess it.</td>
+              </tr>
+              <tr>
+                <td><code>first_mined_yr</code> / <code>last_mined_yr</code></td>
+                <td>Mining date range derived from annual footprint timing.</td>
+              </tr>
+              <tr>
+                <td><code>length</code> / <code>height</code></td>
+                <td>Primary geometric measurements for segment characterization.</td>
+              </tr>
+              <tr>
+                <td><code>min_cost</code> / <code>mid_cost</code> / <code>max_cost</code></td>
+                <td>Estimated reclamation cost range.</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>Reference layers</h4>
+          <table>
+            <thead>
+              <tr>
+                <th>Collection</th>
+                <th>Fields called out in the guide</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>public.eamlis</code></td>
+                <td>
+                  <code>amlis_key</code>, <code>pa_name</code>, <code>county</code>,
+                  <code>watershed</code>, <code>mine_type</code>, <code>ore_types</code>
+                </td>
+              </tr>
+              <tr>
+                <td><code>public.counties</code></td>
+                <td>
+                  <code>name</code>, <code>geoid</code>, <code>statefp</code>,
+                  <code>countyfp</code>, <code>aland</code>, <code>awater</code>
+                </td>
+              </tr>
+              <tr>
+                <td><code>public.huc_boundaries</code></td>
+                <td><code>st_id</code> plus source watershed identifiers such as <code>objectid</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="citation" class="section">
+          <h3>Citation</h3>
+          <pre class="code-block static"><code>SkyTruth Mining API. Query: [Brief description of your query].
+Retrieved [YYYY/MM/DD] from https://api.mining.skytruth.org/</code></pre>
+          <p class="footnote">
+            This page was translated from the existing Mining API guide script and cross-checked
+            against the live Mining API collections on March 11, 2026.
+          </p>
+        </section>
+      </main>
+
+      <aside class="toc">
+        <div class="toc-inner">
+          <p class="toc-title">On This Page</p>
+          <a href="#overview" class="toc-link">Overview</a>
+          <a href="#quickstart" class="toc-link">Quickstart</a>
+          <a href="#query-model" class="toc-link">Query Model</a>
+          <a href="#filters" class="toc-link">Filters</a>
+          <a href="#responses" class="toc-link">Responses</a>
+          <a href="#coverage" class="toc-link">Coverage & Sources</a>
+          <a href="#glossary" class="toc-link">Selected Attributes</a>
+          <a href="#citation" class="toc-link">Citation</a>
+        </div>
+      </aside>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
