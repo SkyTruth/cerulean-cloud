@@ -13,6 +13,10 @@ from utils.analyzer import ASA_MAPPING
 import cerulean_cloud.database_schema as db
 from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.database_client import DatabaseClient, get_engine, update_object
+from geometric_slick_potential import (
+    gsp_feature_frame_from_slick,
+    predict_geometric_slick_potential,
+)
 
 
 def verify_api_key(request):
@@ -135,6 +139,27 @@ async def handle_asa_request(request):
                                 update_kwargs={
                                     "centerlines": slick.centerlines,
                                     "aspect_ratio_factor": slick.aspect_ratio_factor,
+                                },
+                            )
+                        await db_client.session.close()
+
+                    if slick.geometric_slick_potential is None:
+                        print(
+                            f"Computing geometric slick potential for slick {slick.id}"
+                        )
+                        gsp_gdf = gsp_feature_frame_from_slick(slick, slick_geom)
+                        slick.geometric_slick_potential = float(
+                            predict_geometric_slick_potential(
+                                gsp_gdf, preprocess=False
+                            )[0]
+                        )
+                        async with db_client.session.begin():
+                            await update_object(
+                                db_client.session,
+                                db.Slick,
+                                filter_kwargs={"id": slick.id},
+                                update_kwargs={
+                                    "geometric_slick_potential": slick.geometric_slick_potential,
                                 },
                             )
                         await db_client.session.close()

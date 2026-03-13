@@ -39,7 +39,20 @@ def upgrade() -> None:
             _geom := _geog::geometry;
             oriented_envelope := st_orientedenvelope(_geom);
             oe_ring := st_exteriorring(oriented_envelope);
+            NEW.geometry_count := st_numgeometries(_geom);
+            NEW.largest_area := (
+                SELECT MAX(st_area((poly.geom)::geography))
+                FROM st_dump(_geom) AS poly
+            );
+            NEW.median_area := (
+                SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY st_area((poly.geom)::geography))
+                FROM st_dump(_geom) AS poly
+            );
+            NEW.area := st_area(_geog);
             NEW.centroid := st_centroid(_geog);
+            NEW.perimeter = st_perimeter(_geog);
+            NEW.polsby_popper := 4.0 * pi() * NEW.area / (NEW.perimeter ^ 2.0);
+            NEW.fill_factor := NEW.area / st_area(oriented_envelope::geography);
             NEW.length := GREATEST(
                 st_distance(
                     st_pointn(oe_ring,1)::geography,

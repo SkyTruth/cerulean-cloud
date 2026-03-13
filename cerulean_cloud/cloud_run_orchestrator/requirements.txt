@@ -29,7 +29,6 @@ torch==2.0.1+cpu
 torchvision==0.15.2+cpu
 scipy
 scikit-image
-scikit-learn
 pydantic~=2.0
 google-cloud-logging==3.11.3
 centerline==1.0.1

@@ -209,11 +209,6 @@ class DatabaseClient:
         machine_confidence,
         centerlines,
         aspect_ratio_factor,
-        geometric_slick_potential,
-        area,
-        perimeter,
-        polsby_popper,
-        fill_factor,
     ):
         """add a slick"""
         # use buffer(0) to attempt to fix any invalid geometries
@@ -232,11 +227,6 @@ class DatabaseClient:
             machine_confidence=machine_confidence,
             centerlines=centerlines,
             aspect_ratio_factor=aspect_ratio_factor,
-            geometric_slick_potential=geometric_slick_potential,
-            area=area,
-            perimeter=perimeter,
-            polsby_popper=polsby_popper,
-            fill_factor=fill_factor,
         )
         return slick
 

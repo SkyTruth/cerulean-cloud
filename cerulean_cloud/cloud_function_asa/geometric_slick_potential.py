@@ -9,6 +9,16 @@ _THIS_DIR = Path(__file__).resolve().parent
 _DEFAULT_MODEL_PATH = _THIS_DIR / "gsp_rf_85_acc_74_F1_20260123.joblib"
 _GSP_MODEL = None
 _GSP_MODEL_PATH = None
+_GSP_FEATURE_COLUMNS = (
+    "area",
+    "polsby_popper",
+    "fill_factor",
+    "aspect_ratio_factor",
+    "geometry_count",
+    "largest_area",
+    "median_area",
+    "machine_confidence",
+)
 
 
 def get_gsp_model(model_path: str):
@@ -112,6 +122,22 @@ def add_geom_columns(
     if feature_columns is not None:
         return slick_gdf_newProj[feature_columns]
     return slick_gdf_newProj
+
+
+def gsp_feature_frame_from_slick(slick, geometry) -> gpd.GeoDataFrame:
+    missing_fields = [
+        field for field in _GSP_FEATURE_COLUMNS if getattr(slick, field, None) is None
+    ]
+    if missing_fields:
+        raise ValueError(
+            f"Cannot compute geometric slick potential; slick is missing fields: {missing_fields}"
+        )
+
+    return gpd.GeoDataFrame(
+        [{field: getattr(slick, field) for field in _GSP_FEATURE_COLUMNS}],
+        geometry=[geometry],
+        crs="4326",
+    )
 
 
 def predict_geometric_slick_potential(
