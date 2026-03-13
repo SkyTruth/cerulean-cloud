@@ -112,9 +112,7 @@ async def handle_asa_request(request):
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
             if len(slicks) > 0:
-                analyzers = [
-                    ASA_MAPPING[source_type](s1_scene) for source_type in run_flags
-                ]
+                analyzer_cache = {}
                 random.shuffle(slicks)  # Allows rerunning a scene to skip bugs
                 for slick in slicks:
                     # Convert slick geometry to GeoDataFrame
@@ -152,12 +150,19 @@ async def handle_asa_request(request):
                         print(
                             f"Skipping analyzers: {skip_analyzers} for slick {slick.id} because aspect ratio is too low: {slick.aspect_ratio_factor}"
                         )
-                    analyzers_to_run = [
-                        analyzer
-                        for analyzer in analyzers
-                        if analyzer.short_name not in previous_asa[slick.id]
-                        and analyzer.short_name not in skip_analyzers
+                    analyzer_names_to_run = [
+                        analyzer_name
+                        for analyzer_name in run_flags
+                        if analyzer_name not in previous_asa[slick.id]
+                        and analyzer_name not in skip_analyzers
                     ]
+                    analyzers_to_run = []
+                    for analyzer_name in analyzer_names_to_run:
+                        analyzer = analyzer_cache.get(analyzer_name)
+                        if analyzer is None:
+                            analyzer = ASA_MAPPING[analyzer_name](s1_scene)
+                            analyzer_cache[analyzer_name] = analyzer
+                        analyzers_to_run.append(analyzer)
 
                     fresh_ranked_sources = pd.DataFrame()
 

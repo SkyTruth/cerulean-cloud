@@ -28,7 +28,7 @@ instance = gcp.sql.DatabaseInstance(
             # the database. Since we know this is not likely the case we will leave
             # this value at the suggest 50MB
             # work_mem: Converted from 50 MB to 51200 KB
-            dict(name="work_mem", value="51200"),
+            dict(name="work_mem", value=pulumi.Config("db").require("db-work-mem")),
             # Can be significantly higher than work_mem (and necessary
             # in our case due to the costly operations performed on insert)
             # maintenance_work_mem: Converted from 512 MB to 524288 KB
@@ -47,6 +47,14 @@ instance = gcp.sql.DatabaseInstance(
             dict(name="min_wal_size", value="1024"),
             # max_wal_size: Converted from 4 GB to 4096 MB
             dict(name="max_wal_size", value="4096"),
+            dict(
+                name="max_parallel_workers",
+                value=pulumi.Config("db").require("db-parallel-workers"),
+            ),
+            dict(
+                name="max_worker_processes",
+                value=pulumi.Config("db").require("db-worker-processes"),
+            ),
         ],
     ),
     deletion_protection=pulumi.Config("db").require("deletion-protection"),
