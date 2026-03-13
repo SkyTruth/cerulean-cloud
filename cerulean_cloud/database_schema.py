@@ -568,6 +568,7 @@ class Slick(Base):  # noqa
     )
     polsby_popper = Column(Float(53))
     fill_factor = Column(Float(53))
+    geometric_slick_potential = Column(Float(53))
 
     cls1 = relationship("Cls")
     orchestrator_run1 = relationship("OrchestratorRun")

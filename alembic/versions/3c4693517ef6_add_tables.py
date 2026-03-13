@@ -155,6 +155,7 @@ def upgrade() -> None:
         sa.Column("centroid", Geography("POINT")),
         sa.Column("polsby_popper", sa.Float),
         sa.Column("fill_factor", sa.Float),
+        sa.Column("geometric_slick_potential", sa.Float),
         sa.Column(
             "geom_3857_simplified",
             Geometry("GEOMETRY", srid=3857, spatial_index=False),
