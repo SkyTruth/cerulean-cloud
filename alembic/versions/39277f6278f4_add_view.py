@@ -29,6 +29,7 @@ def upgrade() -> None:
                     slick_timestamp,
                     geometry::geometry,
                     machine_confidence,
+                    geometric_slick_potential AS slick_confidence,
                     length,
                     area,
                     perimeter,
