@@ -40,6 +40,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Table,
     Text,
@@ -568,7 +569,7 @@ class Slick(Base):  # noqa
     )
     polsby_popper = Column(Float(53))
     fill_factor = Column(Float(53))
-    geometry_count = Column(Integer)
+    geometry_count = Column(SmallInteger)
     largest_area = Column(Float(53))
     median_area = Column(Float(53))
     geometric_slick_potential = Column(Float(53))
