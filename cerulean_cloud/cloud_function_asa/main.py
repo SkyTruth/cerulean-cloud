@@ -7,6 +7,9 @@ import random
 import geopandas as gpd
 import pandas as pd
 from flask import abort
+from geometric_slick_potential import (
+    predict_geometric_slick_potential,
+)
 from shapely import wkb
 from utils.analyzer import ASA_MAPPING
 
@@ -81,7 +84,7 @@ async def handle_asa_request(request):
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
         run_flags = request_json.get("run_flags")  # list of source_type short_names
-        if not run_flags:
+        if run_flags is None:
             run_flags = list(ASA_MAPPING.keys())
         elif any(run_flag not in ASA_MAPPING.keys() for run_flag in run_flags):
             raise ValueError(
@@ -135,6 +138,24 @@ async def handle_asa_request(request):
                                 update_kwargs={
                                     "centerlines": slick.centerlines,
                                     "aspect_ratio_factor": slick.aspect_ratio_factor,
+                                },
+                            )
+                        await db_client.session.close()
+
+                    if slick.geometric_slick_potential is None:
+                        print(
+                            f"Computing geometric slick potential for slick {slick.id}"
+                        )
+                        slick.geometric_slick_potential = (
+                            predict_geometric_slick_potential(slick)
+                        )
+                        async with db_client.session.begin():
+                            await update_object(
+                                db_client.session,
+                                db.Slick,
+                                filter_kwargs={"id": slick.id},
+                                update_kwargs={
+                                    "geometric_slick_potential": slick.geometric_slick_potential,
                                 },
                             )
                         await db_client.session.close()
