@@ -7,15 +7,15 @@ import random
 import geopandas as gpd
 import pandas as pd
 from flask import abort
+from geometric_slick_potential import (
+    predict_geometric_slick_potential,
+)
 from shapely import wkb
 from utils.analyzer import ASA_MAPPING
 
 import cerulean_cloud.database_schema as db
 from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.database_client import DatabaseClient, get_engine, update_object
-from geometric_slick_potential import (
-    predict_geometric_slick_potential,
-)
 
 
 def verify_api_key(request):
@@ -84,7 +84,7 @@ async def handle_asa_request(request):
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
         run_flags = request_json.get("run_flags")  # list of source_type short_names
-        if not run_flags:
+        if run_flags is None:
             run_flags = list(ASA_MAPPING.keys())
         elif any(run_flag not in ASA_MAPPING.keys() for run_flag in run_flags):
             raise ValueError(
