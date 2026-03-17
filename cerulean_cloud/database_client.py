@@ -418,6 +418,12 @@ class DatabaseClient:
             .values(active=False)
         )
 
+    async def lock_slick(self, slick_id):
+        """Serialize source-association writes for a slick."""
+        await self.session.execute(
+            select(db.Slick.id).where(db.Slick.id == slick_id).with_for_update()
+        )
+
     async def deactivate_sources_for_slick_by_source_type(
         self, slick_id, source_type_short_names
     ):

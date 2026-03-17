@@ -96,11 +96,6 @@ async def handle_asa_request(request):
             async with db_client.session.begin():
                 s1_scene = await db_client.get_scene_from_id(scene_id)
                 slicks = await db_client.get_slicks_from_scene_id(scene_id)
-                previous_collated_scores = {}
-                for slick in slicks:
-                    previous_collated_scores[
-                        slick.id
-                    ] = await db_client.get_id_collated_score_pairs(slick.id)
 
             await db_client.session.close()
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
@@ -185,20 +180,25 @@ async def handle_asa_request(request):
                         f"{len(fresh_ranked_sources)} sources found for Slick ID: {slick.id}, after running these analyzers:{[analyzer.short_name for analyzer in analyzers_to_run]}"
                     )
 
-                    # Get the results from previous ASA runs
-                    old_ranked_sources = pd.DataFrame(
-                        [
-                            (slick_to_source_id, collated_score)
-                            for slick_to_source_id, collated_score, source_type_short_name in previous_collated_scores[
-                                slick.id
-                            ]
-                            if source_type_short_name not in analyzer_names_to_run
-                        ],
-                        columns=["slick_to_source_id", "collated_score"],
-                    )
-
                     if analyzer_names_to_run:
                         async with db_client.session.begin():
+                            await db_client.lock_slick(slick.id)
+
+                            # Read retained rows after taking the slick lock so reranking
+                            # reflects the latest committed state for this slick.
+                            current_collated_scores = (
+                                await db_client.get_id_collated_score_pairs(slick.id)
+                            )
+                            old_ranked_sources = pd.DataFrame(
+                                [
+                                    (slick_to_source_id, collated_score)
+                                    for slick_to_source_id, collated_score, source_type_short_name in current_collated_scores
+                                    if source_type_short_name
+                                    not in analyzer_names_to_run
+                                ],
+                                columns=["slick_to_source_id", "collated_score"],
+                            )
+
                             # Deactivate old sources for analyzers that were run
                             print(
                                 f"Deactivating sources for slick {slick.id}: {analyzer_names_to_run}"
