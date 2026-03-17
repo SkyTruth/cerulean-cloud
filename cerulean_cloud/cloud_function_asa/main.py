@@ -263,6 +263,8 @@ async def handle_asa_request(request):
                                         },
                                     )
                         await db_client.session.close()
+                    else:
+                        print(f"No analyzers to run or reranking for slick {slick.id}")
                     print(f"ASA complete for slick {slick.id}")
                 print(f"ASA completed for {len(slicks)} slicks in scene {scene_id}")
 
