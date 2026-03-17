@@ -418,6 +418,28 @@ class DatabaseClient:
             .values(active=False)
         )
 
+    async def deactivate_sources_for_slick_by_source_type(
+        self, slick_id, source_type_short_names
+    ):
+        """Deactivate slick_to_source rows for a slick limited to source types."""
+        if not source_type_short_names:
+            return
+
+        await self.session.execute(
+            update(db.SlickToSource)
+            .where(
+                and_(
+                    db.SlickToSource.slick == slick_id,
+                    db.SlickToSource.source.in_(
+                        select(db.Source.id)
+                        .join(db.Source.source_type)
+                        .where(db.SourceType.short_name.in_(source_type_short_names))
+                    ),
+                )
+            )
+            .values(active=False)
+        )
+
     async def get_previous_asa(self, slick_id):
         """Return a list of ASA analyzer short_names that have been run for a slick.
 

@@ -186,9 +186,13 @@ async def handle_asa_request(request):
                         analyzers_to_run.append(analyzer)
 
                     fresh_ranked_sources = pd.DataFrame()
+                    completed_analyzers = []
 
                     for analyzer in analyzers_to_run:
                         res = analyzer.compute_coincidence_scores(slick_gdf)
+                        if getattr(analyzer, "data_is_available", True) is False:
+                            continue
+                        completed_analyzers.append(analyzer.short_name)
                         fresh_ranked_sources = pd.concat(
                             [fresh_ranked_sources, res], ignore_index=True
                         )
@@ -215,9 +219,13 @@ async def handle_asa_request(request):
                         only_record_top = 2 * len(ASA_MAPPING)
 
                         async with db_client.session.begin():
-                            if overwrite_previous:
-                                print(f"Deactivating sources for slick {slick.id}")
-                                await db_client.deactivate_sources_for_slick(slick.id)
+                            if overwrite_previous and completed_analyzers:
+                                print(
+                                    f"Deactivating sources for slick {slick.id}: {completed_analyzers}"
+                                )
+                                await db_client.deactivate_sources_for_slick_by_source_type(
+                                    slick.id, completed_analyzers
+                                )
                             print(f"Adding sources for slick {slick.id}")
                             for idx, source_row in combined_df.iterrows():
                                 if pd.isna(source_row["slick_to_source_id"]):
@@ -261,10 +269,14 @@ async def handle_asa_request(request):
                                         },
                                     )
                             print(f"ASA complete for slick {slick.id}")
-                    elif overwrite_previous:
+                    elif overwrite_previous and completed_analyzers:
                         async with db_client.session.begin():
-                            print(f"Deactivating sources for slick {slick.id}")
-                            await db_client.deactivate_sources_for_slick(slick.id)
+                            print(
+                                f"Deactivating sources for slick {slick.id}: {completed_analyzers}"
+                            )
+                            await db_client.deactivate_sources_for_slick_by_source_type(
+                                slick.id, completed_analyzers
+                            )
                     await db_client.session.close()
                 print(f"ASA completed for {len(slicks)} slicks in scene {scene_id}")
 
