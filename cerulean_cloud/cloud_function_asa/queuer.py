@@ -5,6 +5,7 @@ Code for handling queue requests for Automatic Source Association
 import hashlib
 import json
 import os
+import random
 from datetime import datetime, timedelta, timezone
 
 from google.api_core.exceptions import AlreadyExists
@@ -32,7 +33,21 @@ def _task_id(scene_id, run_flags, scheduled_date_utc):
     return f"asa-{scene_id}-{flags_hash}-{yyyymmdd}"
 
 
-def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0, task_suffix=None):
+def _schedule_time(days_to_delay, jitter_seconds=0):
+    """Build the task schedule time, with optional jitter to spread retries."""
+    scheduled_for = datetime.now(tz=timezone.utc) + timedelta(days=days_to_delay)
+    if jitter_seconds > 0:
+        scheduled_for += timedelta(seconds=random.randint(0, jitter_seconds))
+    return scheduled_for
+
+
+def add_to_asa_queue(
+    scene_id,
+    run_flags=[],
+    days_to_delay=0,
+    task_suffix=None,
+    jitter_seconds=0,
+):
     """
     Adds a new task to Google Cloud Tasks for Automatic Source Association.
 
@@ -40,6 +55,7 @@ def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0, task_suffix=None):
         scene_id (str): The ID of the scene for which Automatic Source Association is needed.
         run_flags (list): A list of flags to run the task with.
         days_to_delay (int): The number of days to delay the task.
+        jitter_seconds (int): Max random jitter to add to the scheduled time.
     Returns:
         google.cloud.tasks_v2.types.Task: The created Task object.
 
@@ -71,8 +87,10 @@ def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0, task_suffix=None):
     if run_flags:
         payload["run_flags"] = run_flags
 
-    d = datetime.now(tz=timezone.utc) + timedelta(days=days_to_delay)
-    task_id = _task_id(scene_id, run_flags, d.date())
+    scheduled_for = _schedule_time(
+        days_to_delay=days_to_delay, jitter_seconds=jitter_seconds
+    )
+    task_id = _task_id(scene_id, run_flags, scheduled_for.date())
     if task_suffix:
         suffix_hash = hashlib.sha256(str(task_suffix).encode("utf-8")).hexdigest()[:8]
         task_id = f"{task_id}-{suffix_hash}"
@@ -93,7 +111,7 @@ def add_to_asa_queue(scene_id, run_flags=[], days_to_delay=0, task_suffix=None):
 
     # Create Timestamp protobuf.
     timestamp = timestamp_pb2.Timestamp()
-    timestamp.FromDatetime(d)
+    timestamp.FromDatetime(scheduled_for)
 
     # Add the timestamp to the tasks.
     task["schedule_time"] = timestamp

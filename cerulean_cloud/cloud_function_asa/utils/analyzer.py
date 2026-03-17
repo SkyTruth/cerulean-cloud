@@ -117,6 +117,7 @@ class SourceAnalyzer:
             self.s1_scene.scene_id,
             run_flags=run_flags,
             days_to_delay=days_to_delay,
+            jitter_seconds=60 * 60,
         )
 
 
