@@ -440,44 +440,28 @@ class DatabaseClient:
             .values(active=False)
         )
 
-    async def get_previous_asa(self, slick_id):
-        """Return a list of ASA analyzer short_names that have been run for a slick.
-
-        Note: We return SourceType.short_name (e.g. "VESSEL", "INFRA") rather than
-        Source.type (an integer FK) because the ASA runner compares against
-        analyzer.short_name.
-        """
-        return (
-            (
-                await self.session.execute(
-                    select(db.SourceType.short_name)
-                    .distinct()
-                    .select_from(db.SlickToSource)
-                    .join(db.SlickToSource.source1)
-                    .join(db.Source.source_type)
-                    .where(
-                        and_(
-                            db.SlickToSource.slick == slick_id,
-                            db.SlickToSource.active.is_(True),
-                        )
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-
     async def get_id_collated_score_pairs(self, slick_id):
         """
-        Return a list of (id, collated_score) pairs for a given slick.
+        Return active slick_to_source ranking rows for a given slick.
 
         :param slick_id: The ID of the slick to query.
-        :return: List of tuples containing (id, collated_score).
+        :return: List of tuples containing
+            (slick_to_source_id, collated_score, source_type_short_name).
         """
-        query = select(db.SlickToSource.id, db.SlickToSource.collated_score).where(
-            and_(
-                db.SlickToSource.slick == slick_id,
-                db.SlickToSource.active.is_(True),
+        query = (
+            select(
+                db.SlickToSource.id,
+                db.SlickToSource.collated_score,
+                db.SourceType.short_name,
+            )
+            .select_from(db.SlickToSource)
+            .join(db.SlickToSource.source1)
+            .join(db.Source.source_type)
+            .where(
+                and_(
+                    db.SlickToSource.slick == slick_id,
+                    db.SlickToSource.active.is_(True),
+                )
             )
         )
         result = await self.session.execute(query)
