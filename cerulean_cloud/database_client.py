@@ -388,6 +388,7 @@ class DatabaseClient:
         # Create an update query object
         update_query = (
             update(db.Slick)
+            .execution_options(synchronize_session=False)
             .where(
                 db.Slick.id.in_(
                     select(db.Slick.id)
@@ -414,6 +415,7 @@ class DatabaseClient:
         """deactivate sources for slick"""
         await self.session.execute(
             update(db.SlickToSource)
+            .execution_options(synchronize_session=False)
             .where(db.SlickToSource.slick == slick_id)
             .values(active=False)
         )
@@ -433,6 +435,7 @@ class DatabaseClient:
 
         await self.session.execute(
             update(db.SlickToSource)
+            .execution_options(synchronize_session=False)
             .where(
                 and_(
                     db.SlickToSource.slick == slick_id,
