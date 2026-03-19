@@ -6,6 +6,7 @@ import cloud_function_historical_run
 import cloud_function_scene_relevancy
 import cloud_run_infer
 import cloud_run_orchestrator
+import cloud_run_sea_ice
 import cloud_run_tipg
 import database
 import pulumi
@@ -27,3 +28,5 @@ pulumi.export("historical_run_url", cloud_function_historical_run.fxn.url)
 pulumi.export("alerts_uri", cloud_function_alerts.fxn.service_config.uri)
 pulumi.export("asa_url", cloud_function_asa.fxn.url)
 pulumi.export("sns_topic_subscription", sns_subscription.sentinel1_sqs_target.arn)
+if cloud_run_sea_ice.default is not None:
+    pulumi.export("sea_ice_sync_url", cloud_run_sea_ice.default.statuses[0].url)

@@ -1,0 +1,29 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        gdal-bin \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY cerulean_cloud/cloud_run_sea_ice/requirements.txt ./requirements.txt
+
+RUN pip install \
+      --no-input \
+      --disable-pip-version-check \
+      --compile \
+      --no-warn-script-location \
+      --no-cache-dir \
+      --upgrade \
+      -r ./requirements.txt \
+      && rm requirements.txt
+
+COPY cerulean_cloud/ /app/cerulean_cloud/
+
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT [ "python", "-m", "uvicorn", "cerulean_cloud.cloud_run_sea_ice.handler:app", "--host", "0.0.0.0", "--proxy-headers" ]

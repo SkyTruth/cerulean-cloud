@@ -64,6 +64,9 @@ cloud_run_orchestrator_image_url = registry_url.apply(
 cloud_run_tipg_image_url = registry_url.apply(
     lambda url: f"{url}/{construct_name_images('cr-tipg-image')}"
 )
+cloud_run_sea_ice_image_url = registry_url.apply(
+    lambda url: f"{url}/{construct_name_images('cr-sea-ice-image')}"
+)
 registry_info = None  # use gcloud for authentication.
 
 model_weights = get_file_from_gcs(
@@ -99,5 +102,14 @@ cloud_run_tipg_image = docker.Image(
         target="final",
     ),
     image_name=cloud_run_tipg_image_url,
+    registry=registry_info,
+)
+cloud_run_sea_ice_image = docker.Image(
+    construct_name_images("cr-sea-ice-image"),
+    build=docker.DockerBuildArgs(
+        context="../",
+        dockerfile="../Dockerfiles/Dockerfile.cloud_run_sea_ice",
+    ),
+    image_name=cloud_run_sea_ice_image_url,
     registry=registry_info,
 )

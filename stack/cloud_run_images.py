@@ -40,6 +40,9 @@ cloud_run_orchestrator_image_url = (
 cloud_run_tipg_image_url = (
     f"{artifact_registry_url}/{construct_name_images('cr-tipg-image')}:latest"
 )
+cloud_run_sea_ice_image_url = (
+    f"{artifact_registry_url}/{construct_name_images('cr-sea-ice-image')}:latest"
+)
 
 cloud_run_infer_registry_image = docker.get_registry_image(
     name=cloud_run_infer_image_url,
@@ -51,6 +54,10 @@ cloud_run_orchestrator_registry_image = docker.get_registry_image(
 )
 cloud_run_tipg_registry_image = docker.get_registry_image(
     name=cloud_run_tipg_image_url,
+    opts=pulumi.InvokeOptions(provider=docker_provider),
+)
+cloud_run_sea_ice_registry_image = docker.get_registry_image(
+    name=cloud_run_sea_ice_image_url,
     opts=pulumi.InvokeOptions(provider=docker_provider),
 )
 
@@ -72,5 +79,11 @@ cloud_run_tipg_image = docker.RemoteImage(
     construct_name_images("remote-tipg"),
     name=cloud_run_tipg_registry_image.name,
     pull_triggers=[cloud_run_tipg_registry_image.sha256_digest],
+    opts=pulumi.ResourceOptions(provider=docker_provider),
+)
+cloud_run_sea_ice_image = docker.RemoteImage(
+    construct_name_images("remote-sea-ice"),
+    name=cloud_run_sea_ice_registry_image.name,
+    pull_triggers=[cloud_run_sea_ice_registry_image.sha256_digest],
     opts=pulumi.ResourceOptions(provider=docker_provider),
 )
