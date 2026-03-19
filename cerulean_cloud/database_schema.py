@@ -40,6 +40,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Table,
     Text,
@@ -419,7 +420,6 @@ class Source(Base):  # noqa
         server_default=text("nextval('source_id_seq'::regclass)"),
     )
     type = Column(ForeignKey("source_type.id"), nullable=False)
-    st_name = Column(Text, nullable=False)
     ext_id = Column(Text, nullable=False)
 
     source_type = relationship("SourceType")
@@ -451,6 +451,9 @@ class SourceInfra(Source):  # noqa
     sovereign = Column(Text)
     orig_yr = Column(DateTime)
     last_known_status = Column(Text)
+    first_detection = Column(DateTime)
+    last_detection = Column(DateTime)
+    mmsi = Column(Text)
 
 
 class SourceNatural(Source):  # noqa
@@ -566,6 +569,10 @@ class Slick(Base):  # noqa
     )
     polsby_popper = Column(Float(53))
     fill_factor = Column(Float(53))
+    geometry_count = Column(SmallInteger)
+    largest_area = Column(Float(53))
+    median_area = Column(Float(53))
+    geometric_slick_potential = Column(Float(53))
 
     cls1 = relationship("Cls")
     orchestrator_run1 = relationship("OrchestratorRun")

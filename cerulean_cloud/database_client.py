@@ -244,10 +244,6 @@ class DatabaseClient:
         if existing_source:
             return existing_source
 
-        for k, v in source_row.items():
-            if isinstance(v, base.BaseGeometry):
-                source_row[k] = str(v)
-
         # Create a mapping from table names (stored in SourceType) to ORM classes
         tablename_to_class = {
             subclass.__tablename__: subclass for subclass in db.Source.__subclasses__()
@@ -261,11 +257,16 @@ class DatabaseClient:
             3: [c.name for c in db.SourceDark.__table__.columns],  # Dark Vessels
             4: [c.name for c in db.SourceNatural.__table__.columns],  # Natural Seeps
         }
-        insert_dict = {
-            k: v
-            for k, v in source_row.items()
-            if not pd.isna(v) and k in (common_cols + insert_cols[source_row["type"]])
-        }
+        allowed_cols = set(common_cols + insert_cols[int(source_row["type"])])
+        insert_dict = {}
+        for k, v in source_row.items():
+            if k not in allowed_cols:
+                continue
+            if isinstance(v, base.BaseGeometry):
+                v = str(v)
+            if pd.isna(v):
+                continue
+            insert_dict[k] = v
 
         source_type_obj = await get(self.session, db.SourceType, id=source_row["type"])
 
@@ -387,6 +388,7 @@ class DatabaseClient:
         # Create an update query object
         update_query = (
             update(db.Slick)
+            .execution_options(synchronize_session=False)
             .where(
                 db.Slick.id.in_(
                     select(db.Slick.id)
@@ -413,48 +415,62 @@ class DatabaseClient:
         """deactivate sources for slick"""
         await self.session.execute(
             update(db.SlickToSource)
+            .execution_options(synchronize_session=False)
             .where(db.SlickToSource.slick == slick_id)
             .values(active=False)
         )
 
-    async def get_previous_asa(self, slick_id):
-        """Return a list of ASA analyzer short_names that have been run for a slick.
+    async def lock_slick(self, slick_id):
+        """Serialize source-association writes for a slick."""
+        await self.session.execute(
+            select(db.Slick.id).where(db.Slick.id == slick_id).with_for_update()
+        )
 
-        Note: We return SourceType.short_name (e.g. "VESSEL", "INFRA") rather than
-        Source.type (an integer FK) because the ASA runner compares against
-        analyzer.short_name.
-        """
-        return (
-            (
-                await self.session.execute(
-                    select(db.SourceType.short_name)
-                    .distinct()
-                    .select_from(db.SlickToSource)
-                    .join(db.SlickToSource.source1)
-                    .join(db.Source.source_type)
-                    .where(
-                        and_(
-                            db.SlickToSource.slick == slick_id,
-                            db.SlickToSource.active.is_(True),
-                        )
-                    )
+    async def deactivate_sources_for_slick_by_source_type(
+        self, slick_id, source_type_short_names
+    ):
+        """Deactivate slick_to_source rows for a slick limited to source types."""
+        if not source_type_short_names:
+            return
+
+        await self.session.execute(
+            update(db.SlickToSource)
+            .execution_options(synchronize_session=False)
+            .where(
+                and_(
+                    db.SlickToSource.slick == slick_id,
+                    db.SlickToSource.source.in_(
+                        select(db.Source.id)
+                        .join(db.Source.source_type)
+                        .where(db.SourceType.short_name.in_(source_type_short_names))
+                    ),
                 )
             )
-            .scalars()
-            .all()
+            .values(active=False)
         )
 
     async def get_id_collated_score_pairs(self, slick_id):
         """
-        Return a list of (id, collated_score) pairs for a given slick.
+        Return active slick_to_source ranking rows for a given slick.
 
         :param slick_id: The ID of the slick to query.
-        :return: List of tuples containing (id, collated_score).
+        :return: List of tuples containing
+            (slick_to_source_id, collated_score, source_type_short_name).
         """
-        query = select(db.SlickToSource.id, db.SlickToSource.collated_score).where(
-            and_(
-                db.SlickToSource.slick == slick_id,
-                db.SlickToSource.active.is_(True),
+        query = (
+            select(
+                db.SlickToSource.id,
+                db.SlickToSource.collated_score,
+                db.SourceType.short_name,
+            )
+            .select_from(db.SlickToSource)
+            .join(db.SlickToSource.source1)
+            .join(db.Source.source_type)
+            .where(
+                and_(
+                    db.SlickToSource.slick == slick_id,
+                    db.SlickToSource.active.is_(True),
+                )
             )
         )
         result = await self.session.execute(query)

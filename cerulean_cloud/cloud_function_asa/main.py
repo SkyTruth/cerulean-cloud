@@ -7,6 +7,9 @@ import random
 import geopandas as gpd
 import pandas as pd
 from flask import abort
+from geometric_slick_potential import (
+    predict_geometric_slick_potential,
+)
 from shapely import wkb
 from utils.analyzer import ASA_MAPPING
 
@@ -81,40 +84,24 @@ async def handle_asa_request(request):
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
         run_flags = request_json.get("run_flags")  # list of source_type short_names
-        if not run_flags:
+        if run_flags is None:
             run_flags = list(ASA_MAPPING.keys())
         elif any(run_flag not in ASA_MAPPING.keys() for run_flag in run_flags):
             raise ValueError(
                 f"Invalid run_flag provided. {run_flags} not in {ASA_MAPPING.keys()}"
             )
 
-        overwrite_previous = request_json.get("overwrite_previous", False)
         db_engine = get_engine(db_url=os.getenv("DB_URL"))
         async with DatabaseClient(db_engine) as db_client:
             async with db_client.session.begin():
                 s1_scene = await db_client.get_scene_from_id(scene_id)
                 slicks = await db_client.get_slicks_from_scene_id(scene_id)
-                previous_asa = {}
-                previous_collated_scores = {}
-                for slick in slicks:
-                    if overwrite_previous:
-                        previous_asa[slick.id] = []
-                        previous_collated_scores[slick.id] = []
-                    else:
-                        previous_asa[slick.id] = await db_client.get_previous_asa(
-                            slick.id
-                        )
-                        previous_collated_scores[
-                            slick.id
-                        ] = await db_client.get_id_collated_score_pairs(slick.id)
 
             await db_client.session.close()
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
             if len(slicks) > 0:
-                analyzers = [
-                    ASA_MAPPING[source_type](s1_scene) for source_type in run_flags
-                ]
+                analyzer_cache = {}
                 random.shuffle(slicks)  # Allows rerunning a scene to skip bugs
                 for slick in slicks:
                     # Convert slick geometry to GeoDataFrame
@@ -141,6 +128,25 @@ async def handle_asa_request(request):
                             )
                         await db_client.session.close()
 
+                    if slick.geometric_slick_potential is None:
+                        print(
+                            f"Computing geometric slick potential for slick {slick.id}"
+                        )
+                        slick.geometric_slick_potential = (
+                            predict_geometric_slick_potential(slick)
+                        )
+                        async with db_client.session.begin():
+                            await update_object(
+                                db_client.session,
+                                db.Slick,
+                                filter_kwargs={"id": slick.id},
+                                update_kwargs={
+                                    "geometric_slick_potential": slick.geometric_slick_potential,
+                                },
+                            )
+                        await db_client.session.close()
+
+                    # Determine analyzers_to_run
                     skip_analyzers = (
                         []
                         if slick.aspect_ratio_factor > 0.35
@@ -152,46 +158,68 @@ async def handle_asa_request(request):
                         print(
                             f"Skipping analyzers: {skip_analyzers} for slick {slick.id} because aspect ratio is too low: {slick.aspect_ratio_factor}"
                         )
-                    analyzers_to_run = [
-                        analyzer
-                        for analyzer in analyzers
-                        if analyzer.short_name not in previous_asa[slick.id]
-                        and analyzer.short_name not in skip_analyzers
+                    analyzer_names_to_run = [
+                        flag for flag in run_flags if flag not in skip_analyzers
                     ]
+                    analyzers_to_run = []
+                    for analyzer_name in analyzer_names_to_run:
+                        analyzer = analyzer_cache.get(analyzer_name)
+                        if analyzer is None:
+                            analyzer = ASA_MAPPING[analyzer_name](s1_scene)
+                            analyzer_cache[analyzer_name] = analyzer
+                        analyzers_to_run.append(analyzer)
 
+                    # Run the analyzers
                     fresh_ranked_sources = pd.DataFrame()
-
                     for analyzer in analyzers_to_run:
                         res = analyzer.compute_coincidence_scores(slick_gdf)
                         fresh_ranked_sources = pd.concat(
                             [fresh_ranked_sources, res], ignore_index=True
                         )
-
                     print(
-                        f"{len(fresh_ranked_sources)} sources found for Slick ID: {slick.id}, after running {[analyzer.short_name for analyzer in analyzers_to_run]}"
+                        f"{len(fresh_ranked_sources)} sources found for Slick ID: {slick.id}, after running these analyzers:{[analyzer.short_name for analyzer in analyzers_to_run]}"
                     )
-                    if len(fresh_ranked_sources) > 0:
-                        old_ranked_sources = pd.DataFrame(
-                            previous_collated_scores[slick.id],
-                            columns=["slick_to_source_id", "collated_score"],
-                        )
-                        combined_df = pd.concat(
-                            [old_ranked_sources, fresh_ranked_sources],
-                            ignore_index=True,
-                        )
-                        combined_df.sort_values(
-                            "collated_score", ascending=False, inplace=True
-                        )
-                        combined_df.reset_index(drop=True, inplace=True)
-                        combined_df["rank"] = combined_df.index + 1
 
-                        # Might want to increase this to save the top 3 per Source Type
-                        only_record_top = 2 * len(ASA_MAPPING)
-
+                    if analyzer_names_to_run:
                         async with db_client.session.begin():
-                            if overwrite_previous:
-                                print(f"Deactivating sources for slick {slick.id}")
-                                await db_client.deactivate_sources_for_slick(slick.id)
+                            await db_client.lock_slick(slick.id)
+
+                            # Read retained rows after taking the slick lock so reranking
+                            # reflects the latest committed state for this slick.
+                            current_collated_scores = (
+                                await db_client.get_id_collated_score_pairs(slick.id)
+                            )
+                            old_ranked_sources = pd.DataFrame(
+                                [
+                                    (slick_to_source_id, collated_score)
+                                    for slick_to_source_id, collated_score, source_type_short_name in current_collated_scores
+                                    if source_type_short_name
+                                    not in analyzer_names_to_run
+                                ],
+                                columns=["slick_to_source_id", "collated_score"],
+                            )
+
+                            # Deactivate old sources for analyzers that were run
+                            print(
+                                f"Deactivating sources for slick {slick.id}: {analyzer_names_to_run}"
+                            )
+                            await db_client.deactivate_sources_for_slick_by_source_type(
+                                slick.id, analyzer_names_to_run
+                            )
+
+                            # Begin reranking logic
+                            combined_df = pd.concat(
+                                [old_ranked_sources, fresh_ranked_sources],
+                                ignore_index=True,
+                            )
+                            combined_df = combined_df.sort_values(
+                                "collated_score", ascending=False
+                            ).reset_index(drop=True)
+                            combined_df["rank"] = combined_df.index + 1
+
+                            # Might want to increase this to save the top 3 per Source Type
+                            only_record_top = 2 * len(ASA_MAPPING)
+
                             print(f"Adding sources for slick {slick.id}")
                             for idx, source_row in combined_df.iterrows():
                                 if pd.isna(source_row["slick_to_source_id"]):
@@ -234,12 +262,10 @@ async def handle_asa_request(request):
                                             "active": idx < only_record_top,
                                         },
                                     )
-                            print(f"ASA complete for slick {slick.id}")
-                    elif overwrite_previous:
-                        async with db_client.session.begin():
-                            print(f"Deactivating sources for slick {slick.id}")
-                            await db_client.deactivate_sources_for_slick(slick.id)
-                    await db_client.session.close()
+                        await db_client.session.close()
+                    else:
+                        print(f"No analyzers to run or reranking for slick {slick.id}")
+                    print(f"ASA complete for slick {slick.id}")
                 print(f"ASA completed for {len(slicks)} slicks in scene {scene_id}")
 
         # Dispose the engine after finishing all DB operations.

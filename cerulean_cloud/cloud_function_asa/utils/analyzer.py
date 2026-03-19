@@ -6,7 +6,7 @@ import json
 import os
 import time
 from datetime import datetime, timedelta
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import geopandas as gpd
 import mapbox_vector_tile
@@ -29,6 +29,7 @@ from shapely.geometry import (
     Polygon,
     mapping,
 )
+from sklearn.cluster import DBSCAN
 
 from . import constants as c
 from .scoring import (
@@ -116,6 +117,7 @@ class SourceAnalyzer:
             self.s1_scene.scene_id,
             run_flags=run_flags,
             days_to_delay=days_to_delay,
+            jitter_seconds=60 * 60,
         )
 
 
@@ -195,23 +197,27 @@ class AISAnalyzer(SourceAnalyzer):
 
     def check_data_availability(self):
         """
-        Checks if stats_daily has data for date = (image_timestamp + hours_after).
-        If not, and if the image is <30 days old, schedules an ASA retry after X days
-        (X = days since capture) and removes the ASA from run_flags.
+        Checks if segs_activity_daily has data for the target day
+        (image_timestamp + hours_after). Day granularity is intentional:
+        same-day availability is sufficient.
         """
         sql = """
-            SELECT MAX(date) AS latest_date
-            FROM `global-fishing-watch.pipe_ais_v3_published.stats_daily`;
+            SELECT MAX(date) as latest_date
+            FROM `global-fishing-watch.pipe_ais_v4_published.segs_activity_daily`
+            WHERE date != '1979-01-01'
         """
         df = pandas_gbq.read_gbq(
             sql,
             project_id=self.gfw_project_id,
             credentials=self.credentials,
         )
-        latest_data_date = pd.to_datetime(df["latest_date"].iloc[0])
-        target_data_date = self.ais_end_time
+        # if Null, then GFW database is more than 1 month out of date!!! Major issue... return False
+        if df["latest_date"].iloc[0] is None:
+            return False
+        latest_data_day = pd.to_datetime(df["latest_date"].iloc[0]).date()
+        target_data_day = self.ais_end_time.date()
 
-        return latest_data_date >= target_data_date
+        return latest_data_day >= target_data_day
 
     def retrieve_ais_data(self):
         """
@@ -235,9 +241,9 @@ class AISAnalyzer(SourceAnalyzer):
                 ves.best.best_flag as flag,
                 ves.best.best_vessel_class as best_shiptype
             FROM
-                `global-fishing-watch.pipe_ais_v3_published.messages` as seg
+                `global-fishing-watch.pipe_ais_v4_published.messages` as seg
             LEFT JOIN
-                `global-fishing-watch.pipe_ais_v3_published.vi_ssvid_v20250201` as ves
+                `global-fishing-watch.pipe_ais_identity_v4_published.vi_ssvid` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE TRUE
                 -- AND clean_segs IS TRUE
@@ -532,7 +538,6 @@ class AISAnalyzer(SourceAnalyzer):
         """
         # Define the output columns.
         columns = [
-            "st_name",
             "ext_id",
             "geometry",
             "coincidence_score",
@@ -648,7 +653,6 @@ class AISAnalyzer(SourceAnalyzer):
             # Create a LineString geometry from the AIS trajectory points.
             traj_line = LineString([p.coords[0] for p in traj["df"]["geometry"]])
             entry = {
-                "st_name": traj["id"],
                 "ext_id": traj["id"],
                 "geometry": traj_line,
                 "coincidence_score": aggregated_total,
@@ -845,12 +849,7 @@ class PointAnalyzer(SourceAnalyzer):
         # Buffer and filter target points
         slick_buffered = combined_geometry_m.buffer(self.cutoff_radius)
 
-        # scene_date = pd.to_datetime(self.s1_scene.scene_id[17:25], format="%Y%m%d") # XXX Not working because of a bug in how GFW records the first and last date.
-        filtered_points = points_m[
-            points_m.geometry.within(slick_buffered)
-            # & (infra_gdf["structure_start_date"] < scene_date)
-            # & (infra_gdf["structure_end_date"] > scene_date)
-        ]
+        filtered_points = points_m[points_m.geometry.within(slick_buffered)]
 
         return filtered_points
 
@@ -1164,12 +1163,9 @@ class InfrastructureAnalyzer(PointAnalyzer):
             self.infra_gdf = self.retrieve_infrastructure_data()
         self.coincidence_scores = np.zeros(len(self.infra_gdf))
 
-    def retrieve_infrastructure_data(self, only_oil=True):
+    def retrieve_infrastructure_data(self):
         """
         Loads infrastructure data from the GFW API.
-
-        Parameters:
-            only_oil (bool): Whether to filter the data to only include oil infrastructure.
 
         Returns:
             GeoDataFrame: GeoDataFrame containing infrastructure points.
@@ -1178,22 +1174,19 @@ class InfrastructureAnalyzer(PointAnalyzer):
         # zxy = self.select_enveloping_tile() # Something's wrong with this code. Ex. [3105854, 'S1A_IW_GRDH_1SDV_20230806T221833_20230806T221858_049761_05FBD2_577C"] should have 2 nearby infras
         mvt_data = self.download_mvt_tile()
         df = pd.DataFrame([d["properties"] for d in mvt_data["main"]["features"]])
-        if only_oil:
-            df = df[df["label"] == "oil"].copy()
-        df["st_name"] = df["structure_id"].apply(str)
-        df["ext_id"] = df["structure_id"].apply(str)
-        df["type"] = self.source_type
-
-        datetime_fields = ["structure_start_date", "structure_end_date"]
-        for field in datetime_fields:
-            if field in df.columns:
-                df.loc[df[field] == "", field] = str(int(time.time() * 1000))
-                df[field] = pd.to_numeric(df[field], errors="coerce")
-                df[field] = pd.to_datetime(df[field], unit="ms", errors="coerce")
-        df = df.reset_index(drop=True)
-        return gpd.GeoDataFrame(
-            df, geometry=gpd.points_from_xy(df.lon, df.lat), crs="epsg:4326"
-        )
+        for field in ["structure_start_date", "structure_end_date"]:
+            df[field] = pd.to_datetime(
+                pd.to_numeric(df[field].replace("", np.nan)), unit="ms"
+            ).fillna(pd.Timestamp.now().to_period("M").start_time)
+        sites = self.sites_from_points(df, pd.Timestamp(self.s1_scene.scene_id[17:25]))
+        sites["ext_id"] = sites["structure_id"].astype(str)
+        sites["type"] = self.source_type
+        gdf = sites[
+            sites.is_oil
+            # & (sites.is_persistent | sites.is_visible_today)  # Using tag "exc" instead of persistence
+            # & sites.is_current  # Using tag "exc" instead of current
+        ]
+        return gdf.reset_index(drop=True)
 
     def select_enveloping_tile(self, max_zoom=20):
         """
@@ -1238,6 +1231,92 @@ class InfrastructureAnalyzer(PointAnalyzer):
         except Exception:
             print(f"Error decoding tile z={z}, x={x}, y={y}: {response.content}")
             raise Exception(response.content)
+
+    def sites_from_points(
+        self,
+        df: pd.DataFrame,
+        target_date: Optional[pd.Timestamp] = None,
+        radius_m: float = 150.0,
+    ) -> gpd.GeoDataFrame:
+        """
+        Converts a DataFrame of points to a clustered and reduced GeoDataFrame of sites.
+        """
+        df = df.copy()
+        target_date = pd.Timestamp(target_date) if target_date else pd.Timestamp.now()
+        target_date = target_date.to_period("M").start_time
+        df = df[df["structure_start_date"] <= target_date].copy()
+        df["structure_end_date"] = df["structure_end_date"].clip(upper=target_date)
+        if df.empty:
+            return gpd.GeoDataFrame(
+                columns=[
+                    "structure_id",
+                    "first_detection",
+                    "last_detection",
+                    "is_oil",
+                    "structure_list",
+                    "is_persistent",
+                    "is_visible_today",
+                    "is_current",
+                    "lon",
+                    "lat",
+                    "geometry",
+                ],
+                geometry="geometry",
+                crs="epsg:4326",
+            )
+
+        df["is_oil"] = df["label"] == "oil"
+        X = np.deg2rad(np.c_[df.lat, df.lon])
+        df["cluster_id"] = DBSCAN(
+            eps=radius_m / 6_371_000.0, min_samples=1, metric="haversine"
+        ).fit_predict(X)
+
+        df["duration"] = (
+            df["structure_end_date"] - df["structure_start_date"]
+        ).dt.total_seconds()
+        df["lon_num"] = df["lon"] * df["duration"]
+        df["lat_num"] = df["lat"] * df["duration"]
+        df["structure_id"] = df["structure_id"].astype(int)
+
+        # Aggregate, keeping both simple means and weighted numerators
+        sites = df.groupby("cluster_id").agg(
+            structure_id=("structure_id", "min"),
+            lon_mean=("lon", "mean"),
+            lat_mean=("lat", "mean"),
+            lon_num=("lon_num", "sum"),
+            lat_num=("lat_num", "sum"),
+            weight_sum=("duration", "sum"),
+            first_detection=("structure_start_date", "min"),
+            last_detection=("structure_end_date", "max"),
+            is_oil=("is_oil", "any"),
+            structure_list=("structure_id", "unique"),
+        )
+
+        # Time-weighted average; fall back to simple mean if all durations are zero
+        nonzero = sites["weight_sum"] > 0.0
+        sites["lon"] = np.where(
+            nonzero, sites["lon_num"] / sites["weight_sum"], sites["lon_mean"]
+        )
+        sites["lat"] = np.where(
+            nonzero, sites["lat_num"] / sites["weight_sum"], sites["lat_mean"]
+        )
+
+        sites = sites.drop(
+            columns=["lon_mean", "lat_mean", "lon_num", "lat_num", "weight_sum"]
+        )
+
+        duration = sites["last_detection"] - sites["first_detection"]
+        last_seen = target_date - sites["last_detection"]
+
+        sites["is_persistent"] = duration >= pd.Timedelta("183 days")
+        sites["is_visible_today"] = last_seen <= pd.Timedelta("31 days")
+        sites["is_current"] = last_seen <= pd.Timedelta("366 days")
+
+        return gpd.GeoDataFrame(
+            sites,
+            geometry=gpd.points_from_xy(sites["lon"], sites["lat"]),
+            crs="epsg:4326",
+        )
 
     def compute_coincidence_scores(self, slick_gdf: gpd.GeoDataFrame):
         """
@@ -1302,8 +1381,6 @@ class DarkAnalyzer(PointAnalyzer):
         self.gfw_project_id = kwargs.get("gfw_project_id", c.GFW_PROJECT_ID)
         self.s1_scene = s1_scene
         self.dark_objects_gdf = kwargs.get("dark_vessels_gdf", None)
-        if self.dark_objects_gdf is None:
-            self.retrieve_sar_detection_data()
         self.closing_buffer = kwargs.get("closing_buffer", c.DARK_CLOSING_BUFFER)
         self.decay_theta = kwargs.get("decay_theta", c.DARK_DECAY_THETA)
         self.decay_radius = kwargs.get("decay_radius", c.DARK_DECAY_RADIUS)
@@ -1329,7 +1406,7 @@ class DarkAnalyzer(PointAnalyzer):
         -- Step 2: Filter the match table by joining with scene_ids
         filtered_matches AS (
         SELECT match.*
-        FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v3` AS match
+        FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v4` AS match
         INNER JOIN scene_ids
             ON match.scene_id = scene_ids.scene_id
         WHERE match.score < .01 -- either no match or low confidence match
@@ -1389,15 +1466,9 @@ class DarkAnalyzer(PointAnalyzer):
         # XXX need a better solution for a unique name here.
         # This code chooses the ssvid, or if that is null, the structure_id, or if that is null, the length_m.
         def make_unique_id(row):
-            # if pd.notna(row["ssvid"]):
-            #     return "V" + str(row["ssvid"])
-            # elif pd.notna(row["structure_id"]):
-            #     return "I" + str(row["structure_id"])
-            # else:
             return "D" + str(row["length_m"])
 
-        df["st_name"] = df.apply(make_unique_id, axis=1)
-        df["ext_id"] = df["st_name"]
+        df["ext_id"] = df.apply(make_unique_id, axis=1)
         df["type"] = self.source_type
 
         self.dark_objects_gdf = gpd.GeoDataFrame(df, crs="4326").reset_index(drop=True)
@@ -1408,7 +1479,6 @@ class DarkAnalyzer(PointAnalyzer):
         """
 
         start_time = time.time()
-        self.coincidence_scores = np.zeros(len(self.dark_objects_gdf))
         self.slick_gdf = slick_gdf
 
         if self.data_is_available is None:
@@ -1419,6 +1489,12 @@ class DarkAnalyzer(PointAnalyzer):
             # Catches both False cases for persistent analyzer and newly calculated availability
             return pd.DataFrame()
 
+        if self.dark_objects_gdf is None:
+            self.retrieve_sar_detection_data()
+        if self.dark_objects_gdf.empty:
+            return pd.DataFrame()
+
+        self.coincidence_scores = np.zeros(len(self.dark_objects_gdf))
         self.combined_geometry, _, _ = self.process_slicks()
 
         filtered_dark_objects = self.filter_points(
@@ -1463,7 +1539,7 @@ class DarkAnalyzer(PointAnalyzer):
         target_data_date = self.s1_scene.start_time
         sql = f"""
             SELECT COUNT(*) > 0 as data_available
-            FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match` 
+            FROM `global-fishing-watch.pipe_sar_v1_published.detect_scene_match_pipe_v4`
             WHERE scene_id = '{self.s1_scene.scene_id}'
             AND TIMESTAMP_TRUNC(_PARTITIONTIME, DAY) = TIMESTAMP("{target_data_date.strftime("%Y-%m-%d")}");
         """

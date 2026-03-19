@@ -155,6 +155,10 @@ def upgrade() -> None:
         sa.Column("centroid", Geography("POINT")),
         sa.Column("polsby_popper", sa.Float),
         sa.Column("fill_factor", sa.Float),
+        sa.Column("geometry_count", sa.Integer),
+        sa.Column("largest_area", sa.Float),
+        sa.Column("median_area", sa.Float),
+        sa.Column("geometric_slick_potential", sa.Float),
         sa.Column(
             "geom_3857_simplified",
             Geometry("GEOMETRY", srid=3857, spatial_index=False),
@@ -358,7 +362,6 @@ def upgrade() -> None:
         sa.Column(
             "type", sa.BigInteger, sa.ForeignKey("source_type.id"), nullable=False
         ),
-        sa.Column("st_name", sa.Text, nullable=False),
         sa.Column("ext_id", sa.Text, nullable=False),
         sa.UniqueConstraint("ext_id", "type", name="uq_source_extid_type"),
     )
@@ -384,6 +387,9 @@ def upgrade() -> None:
         sa.Column("sovereign", sa.Text),
         sa.Column("orig_yr", sa.DateTime),
         sa.Column("last_known_status", sa.Text),
+        sa.Column("first_detection", sa.DateTime),
+        sa.Column("last_detection", sa.DateTime),
+        sa.Column("mmsi", sa.Text),
     )
 
     op.create_table(
