@@ -3,6 +3,7 @@ Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
 
 import os
+import urllib.parse as urlparse
 
 import cloud_function_asa
 import cloud_run_images
@@ -14,8 +15,23 @@ import titiler_sentinel
 from database import instance, sql_instance_url_with_asyncpg
 from utils import construct_name
 
-config = pulumi.Config()
+cerulean_config = pulumi.Config("cerulean-cloud")
 stack = pulumi.get_stack()
+sea_ice_mask_gcs_uri = cerulean_config.get("sea_ice_mask_gcs_uri")
+
+if sea_ice_mask_gcs_uri:
+    parsed_sea_ice_mask_uri = urlparse.urlparse(sea_ice_mask_gcs_uri)
+    sea_ice_mask_blob_name = parsed_sea_ice_mask_uri.path.lstrip("/")
+    if (
+        parsed_sea_ice_mask_uri.scheme != "gs"
+        or not parsed_sea_ice_mask_uri.netloc
+        or not sea_ice_mask_blob_name
+    ):
+        raise ValueError(
+            "cerulean-cloud:sea_ice_mask_gcs_uri must be set to a gs://bucket/path.geojson URI"
+        )
+else:
+    parsed_sea_ice_mask_uri = None
 
 repo = git.Repo(search_parent_directories=True)
 git_sha = repo.head.object.hexsha
@@ -80,6 +96,26 @@ secret_accessor_binding = gcp.secretmanager.SecretIamMember(
     opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account]),
 )
 
+sea_ice_mask_bucket_access = None
+if parsed_sea_ice_mask_uri is not None:
+    sea_ice_mask_bucket_access = gcp.storage.BucketIAMMember(
+        construct_name("cr-orchestrator-sea-ice-mask-object-viewer"),
+        bucket=parsed_sea_ice_mask_uri.netloc,
+        role="roles/storage.objectViewer",
+        member=cloud_function_service_account.email.apply(
+            lambda email: f"serviceAccount:{email}"
+        ),
+        opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account]),
+    )
+
+cloud_run_service_dependencies = [
+    titiler_sentinel.lambda_api,
+    cloud_run_infer.default,
+    secret_accessor_binding,
+]
+if sea_ice_mask_bucket_access is not None:
+    cloud_run_service_dependencies.append(sea_ice_mask_bucket_access)
+
 
 service_name = construct_name("cr-orchestrator")
 default = gcp.cloudrun.Service(
@@ -125,6 +161,10 @@ default = gcp.cloudrun.Service(
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="MODEL",
                             value=os.getenv("MODEL"),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="SEA_ICE_MASK_GCS_URI",
+                            value=sea_ice_mask_gcs_uri or "",
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="CLOUD_RUN_NAME",
@@ -197,13 +237,7 @@ default = gcp.cloudrun.Service(
             latest_revision=True,
         )
     ],
-    opts=pulumi.ResourceOptions(
-        depends_on=[
-            titiler_sentinel.lambda_api,
-            cloud_run_infer.default,
-            secret_accessor_binding,
-        ]
-    ),
+    opts=pulumi.ResourceOptions(depends_on=cloud_run_service_dependencies),
 )
 noauth_iam_policy = gcp.cloudrun.IamPolicy(
     construct_name("cr-noauth-iam-policy-orchestrator"),

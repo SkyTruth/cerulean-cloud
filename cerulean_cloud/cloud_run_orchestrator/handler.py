@@ -15,7 +15,7 @@ import signal
 import traceback
 import urllib.parse as urlparse
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import morecantile
@@ -24,6 +24,7 @@ import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
+from google.cloud import storage
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
@@ -53,6 +54,7 @@ app = FastAPI(title="Cloud Run orchestrator", dependencies=[Depends(api_key_auth
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
 landmask_gdf = None
+sea_ice_mask_gdf = None
 
 
 def flush_logs():
@@ -94,6 +96,56 @@ def get_landmask_gdf():
         mask_path = "/app/cerulean_cloud/cloud_run_orchestrator/gadmLandMask_simplified/gadmLandMask_simplified.shp"
         landmask_gdf = gpd.read_file(mask_path).set_crs("4326")
     return landmask_gdf
+
+
+def get_sea_ice_mask_gdf() -> Optional[gpd.GeoDataFrame]:
+    """
+    Retrieves the GeoDataFrame representing the sea ice mask from GCS.
+    """
+    global sea_ice_mask_gdf
+    if sea_ice_mask_gdf is None:
+        sea_ice_mask_gcs_uri = os.getenv("SEA_ICE_MASK_GCS_URI")
+        if not sea_ice_mask_gcs_uri:
+            return None
+
+        parsed_uri = urlparse.urlparse(sea_ice_mask_gcs_uri)
+        blob_name = parsed_uri.path.lstrip("/")
+        if parsed_uri.scheme != "gs" or not parsed_uri.netloc or not blob_name:
+            raise ValueError(
+                "SEA_ICE_MASK_GCS_URI must be set to a gs://bucket/path.geojson URI"
+            )
+
+        blob = storage.Client().bucket(parsed_uri.netloc).blob(blob_name)
+        sea_ice_mask_gdf = gpd.GeoDataFrame.from_features(
+            json.loads(blob.download_as_text()), crs="4326"
+        )
+    return sea_ice_mask_gdf
+
+
+def mask_intersects_geometry(mask_gdf: Optional[gpd.GeoDataFrame], geometry) -> bool:
+    """
+    Returns True when the provided geometry intersects any feature in the mask.
+    """
+    if mask_gdf is None or mask_gdf.empty:
+        return False
+
+    return len(mask_gdf.sindex.query(geometry, predicate="intersects")) > 0
+
+
+def geometry_intersects_background_mask(
+    buffered_geometry,
+    sea_ice_mask_gdf: Optional[gpd.GeoDataFrame] = None,
+    land_mask_gdf: Optional[gpd.GeoDataFrame] = None,
+) -> bool:
+    """
+    Returns True when the buffered slick intersects land or sea ice.
+    """
+    if land_mask_gdf is None:
+        land_mask_gdf = get_landmask_gdf()
+
+    return mask_intersects_geometry(
+        land_mask_gdf, buffered_geometry
+    ) or mask_intersects_geometry(sea_ice_mask_gdf, buffered_geometry)
 
 
 def make_cloud_log_url(
@@ -416,15 +468,17 @@ async def _orchestrate(
             features = final_ensemble.get("features", [])
             n_features = len(features)
 
-            # number of features that are over land (excluded from final feature list)
+            # number of features that intersect a background mask and should be classed as background
             n_background_slicks = 0
             if features:
                 LAND_MASK_BUFFER_M = 1000
+                sea_ice_mask_gdf = get_sea_ice_mask_gdf()
                 logger.info(
                     {
-                        "message": "Removing all slicks near land",
+                        "message": "Classifying slicks against background masks",
                         "n_features": n_features,
                         "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
+                        "uses_sea_ice_mask": sea_ice_mask_gdf is not None,
                     }
                 )
                 for feat in features:
@@ -432,19 +486,18 @@ async def _orchestrate(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
                     crs_meters = slick_gdf.estimate_utm_crs(datum_name="WGS 84")
-                    buffered_gdf = gpd.GeoDataFrame(
-                        geometry=slick_gdf.to_crs(crs_meters)
+                    buffered_geometry = (
+                        slick_gdf.to_crs(crs_meters)
                         .buffer(LAND_MASK_BUFFER_M)
                         .to_crs("4326")
+                        .iloc[0]
                     )
-                    intersecting_land = gpd.sjoin(
-                        get_landmask_gdf(),
-                        buffered_gdf,
-                        how="inner",
-                        predicate="intersects",
+                    intersects_background_mask = geometry_intersects_background_mask(
+                        buffered_geometry,
+                        sea_ice_mask_gdf=sea_ice_mask_gdf,
                     )
-                    # when the feature intersects land, update inf_idx and increase n_background_slicks
-                    if not intersecting_land.empty:
+                    # when the feature intersects land or sea ice, update inf_idx and increase n_background_slicks
+                    if intersects_background_mask:
                         feat["properties"]["inf_idx"] = model.background_class_idx
                         n_background_slicks += 1
 

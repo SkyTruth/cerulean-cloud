@@ -17,6 +17,7 @@ from rasterio.plot import reshape_as_image
 from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
 
 import cerulean_cloud
+import cerulean_cloud.cloud_run_orchestrator.handler as orchestrator_handler
 from cerulean_cloud.cloud_run_infer.schema import (
     InferenceResult,
     InferenceResultStack,
@@ -25,6 +26,7 @@ from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClien
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
     calculate_centerlines,
+    geometry_intersects_background_mask,
     group_bounds_from_list_of_bounds,
     is_tile_over_water,
     make_cloud_log_url,
@@ -332,6 +334,69 @@ def test_make_cloud_log_url():
         "timeRange=2022-07-06T13:39:30.563960Z%2F2022-07-06T13:41:30.563960Z;"
         "cursorTimestamp=2022-07-06T13:39:30.563960Z?"
         "project=cerulean-338116"
+    )
+
+
+def test_get_sea_ice_mask_gdf_returns_none_without_uri(monkeypatch):
+    monkeypatch.delenv("SEA_ICE_MASK_GCS_URI", raising=False)
+    monkeypatch.setattr(orchestrator_handler, "sea_ice_mask_gdf", None)
+
+    assert orchestrator_handler.get_sea_ice_mask_gdf() is None
+
+
+def test_get_sea_ice_mask_gdf_downloads_and_caches(monkeypatch):
+    download_counter = {"count": 0}
+    feature_collection = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {},
+                "geometry": mapping(box(0, 0, 1, 1)),
+            }
+        ],
+    }
+
+    class FakeBlob:
+        def download_as_text(self):
+            download_counter["count"] += 1
+            return json.dumps(feature_collection)
+
+    class FakeBucket:
+        def blob(self, blob_name):
+            assert blob_name == "masks/sea_ice.geojson"
+            return FakeBlob()
+
+    class FakeStorageClient:
+        def bucket(self, bucket_name):
+            assert bucket_name == "test-bucket"
+            return FakeBucket()
+
+    monkeypatch.setenv("SEA_ICE_MASK_GCS_URI", "gs://test-bucket/masks/sea_ice.geojson")
+    monkeypatch.setattr(orchestrator_handler, "sea_ice_mask_gdf", None)
+    monkeypatch.setattr(
+        orchestrator_handler.storage, "Client", lambda: FakeStorageClient()
+    )
+
+    first = orchestrator_handler.get_sea_ice_mask_gdf()
+    second = orchestrator_handler.get_sea_ice_mask_gdf()
+
+    assert len(first) == 1
+    assert first is second
+    assert download_counter["count"] == 1
+
+
+def test_geometry_intersects_background_mask_checks_sea_ice_when_land_clear():
+    buffered_geometry = box(0, 0, 1, 1)
+    land_mask_gdf = gpd.GeoDataFrame(geometry=[box(10, 10, 11, 11)], crs="EPSG:4326")
+    sea_ice_mask_gdf = gpd.GeoDataFrame(
+        geometry=[box(0.5, 0.5, 1.5, 1.5)], crs="EPSG:4326"
+    )
+
+    assert geometry_intersects_background_mask(
+        buffered_geometry,
+        sea_ice_mask_gdf=sea_ice_mask_gdf,
+        land_mask_gdf=land_mask_gdf,
     )
 
 
