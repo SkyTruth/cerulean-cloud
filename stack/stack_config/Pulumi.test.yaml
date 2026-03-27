@@ -27,7 +27,7 @@ config:
   alerts:keyname: cerulean-slack-alerts-webhook
   cerulean-cloud:sea_ice_mask_gcs_uri: gs://cerulean-ice/extent_vectors/daily_ice_extent.geojson
   sea-ice:enabled: true
-  sea-ice:source_url: https://example.com/sea-ice-source.zip
+  sea-ice:source_url: https://noaadata.apps.nsidc.org/NOAA/G02156/GIS/4km
   sea-ice:cadence_days: "1"
-  sea-ice:anchor_date: "2099-01-01"
+  sea-ice:anchor_date: "2026-03-27"
   sea-ice:simplify_tolerance: "0.05"
