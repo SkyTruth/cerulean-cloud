@@ -4,5 +4,6 @@ requests
 google-cloud-storage
 geopandas
 global-land-mask
+numpy<2.0.0
 rasterio
 shapely==2.0.1
