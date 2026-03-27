@@ -468,7 +468,7 @@ async def _orchestrate(
             features = final_ensemble.get("features", [])
             n_features = len(features)
 
-            # number of features that intersect a background mask and should be classed as background
+            # number of features that intersect a background mask and should be classed as background including sea ice
             n_background_slicks = 0
             if features:
                 LAND_MASK_BUFFER_M = 1000
