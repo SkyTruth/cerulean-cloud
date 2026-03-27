@@ -2,6 +2,11 @@ from datetime import date
 
 import pytest
 
+from cerulean_cloud.cloud_run_sea_ice.handler import (
+    candidate_source_days,
+    nhsi_filename_for_day,
+    nhsi_source_url_for_day,
+)
 from cerulean_cloud.cloud_run_sea_ice.logic import (
     build_object_names,
     parse_gcs_uri,
@@ -41,3 +46,35 @@ def test_build_object_names():
 def test_parse_gcs_uri_rejects_invalid_values():
     with pytest.raises(ValueError, match="Invalid GCS URI"):
         parse_gcs_uri("https://example.com/not-gcs.geojson")
+
+
+def test_candidate_source_days_returns_today_then_lookback():
+    assert candidate_source_days(date(2026, 3, 27)) == [
+        date(2026, 3, 27),
+        date(2026, 3, 26),
+        date(2026, 3, 25),
+    ]
+
+
+def test_nhsi_filename_for_day_uses_yyyydoy():
+    assert nhsi_filename_for_day(date(2026, 1, 1)) == "ims2026001_4km_GIS_v1.3.tif.gz"
+
+
+def test_nhsi_source_url_for_day_builds_from_base_url():
+    assert (
+        nhsi_source_url_for_day(
+            "https://noaadata.apps.nsidc.org/NOAA/G02156/GIS/4km",
+            date(2026, 3, 27),
+        )
+        == "https://noaadata.apps.nsidc.org/NOAA/G02156/GIS/4km/2026/ims2026086_4km_GIS_v1.3.tif.gz"
+    )
+
+
+def test_nhsi_source_url_for_day_supports_templates():
+    assert (
+        nhsi_source_url_for_day(
+            "https://example.com/{yyyy}/{file_name}",
+            date(2026, 3, 27),
+        )
+        == "https://example.com/2026/ims2026086_4km_GIS_v1.3.tif.gz"
+    )

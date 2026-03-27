@@ -1,21 +1,17 @@
-"""Cloud Run worker for downloading, simplifying, and uploading sea-ice extent."""
+"""Cloud Run worker for downloading, processing, and uploading sea-ice extent."""
 
 from __future__ import annotations
 
+import gzip
 import logging
 import os
 import shutil
-import subprocess
-import zipfile
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
-import requests
 from fastapi import FastAPI
-from google.cloud import storage
 
 from cerulean_cloud.cloud_run_sea_ice.logic import (
     build_object_names,
@@ -27,7 +23,11 @@ from cerulean_cloud.cloud_run_sea_ice.schema import SyncRequest, SyncResponse
 logger = logging.getLogger("cerulean_cloud.cloud_run_sea_ice")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-VECTOR_EXTENSIONS = (".shp", ".gpkg", ".geojson", ".json", ".fgb")
+DEFAULT_NHSI_BASE_URL = "https://noaadata.apps.nsidc.org/NOAA/G02156/GIS/4km"
+DEFAULT_SIMPLIFY_SRS = "EPSG:4087"
+ICE_CLASS_VALUE = 3
+PRECISION_GRID_SIZE = 0.0001
+MAX_SOURCE_LOOKBACK_DAYS = 2
 
 app = FastAPI(title="Cloud Run sea-ice sync")
 
@@ -41,10 +41,17 @@ class SeaIceSettings:
     cadence_days: int
     anchor_date: date
     simplify_tolerance: float
-    simplify_srs: Optional[str]
-    source_dataset: Optional[str]
-    source_layer: Optional[str]
+    simplify_srs: str
     request_timeout_seconds: int
+
+
+@dataclass(frozen=True)
+class DownloadedSource:
+    """Information about the source raster selected for processing."""
+
+    source_date: date
+    source_url: str
+    gz_path: Path
 
 
 def _required_env(name: str) -> str:
@@ -59,122 +66,275 @@ def load_settings() -> SeaIceSettings:
     cadence_days = int(_required_env("SEA_ICE_CADENCE_DAYS"))
     simplify_tolerance = float(_required_env("SEA_ICE_SIMPLIFY_TOLERANCE"))
     return SeaIceSettings(
-        source_url=_required_env("SEA_ICE_SOURCE_URL"),
+        source_url=os.getenv("SEA_ICE_SOURCE_URL", DEFAULT_NHSI_BASE_URL),
         mask_gcs_uri=_required_env("SEA_ICE_MASK_GCS_URI"),
         cadence_days=cadence_days,
         anchor_date=date.fromisoformat(_required_env("SEA_ICE_ANCHOR_DATE")),
         simplify_tolerance=simplify_tolerance,
-        simplify_srs=os.getenv("SEA_ICE_SIMPLIFY_SRS"),
-        source_dataset=os.getenv("SEA_ICE_SOURCE_DATASET"),
-        source_layer=os.getenv("SEA_ICE_SOURCE_LAYER"),
+        simplify_srs=os.getenv("SEA_ICE_SIMPLIFY_SRS", DEFAULT_SIMPLIFY_SRS),
         request_timeout_seconds=int(
             os.getenv("SEA_ICE_REQUEST_TIMEOUT_SECONDS", "600")
         ),
     )
 
 
-def _download_path(workdir: Path, source_url: str) -> Path:
-    parsed = urlparse(source_url)
-    suffix = Path(parsed.path).suffix or ".dat"
-    return workdir / f"source{suffix}"
+def nhsi_filename_for_day(target_day: date) -> str:
+    """Build the NOAA/NHSI filename for the target day."""
+    yyyydoy = f"{target_day.year}{target_day.timetuple().tm_yday:03d}"
+    return f"ims{yyyydoy}_4km_GIS_v1.3.tif.gz"
 
 
-def download_source(source_url: str, destination: Path, timeout_seconds: int) -> None:
-    """Download the upstream sea-ice dataset to a local path."""
-    logger.info(
-        {
-            "message": "Downloading sea-ice source",
-            "source_url": source_url,
-            "destination": str(destination),
-        }
-    )
-    with requests.get(source_url, stream=True, timeout=timeout_seconds) as response:
-        response.raise_for_status()
-        with destination.open("wb") as dst:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    dst.write(chunk)
+def nhsi_source_url_for_day(source_root: str, target_day: date) -> str:
+    """Build the source URL for the target day.
+
+    ``source_root`` may be:
+    - a base directory like ``https://.../GIS/4km``
+    - a template containing ``{yyyy}``, ``{yyyydoy}``, and/or ``{file_name}``
+    - a fully qualified direct ``.gz`` URL
+    """
+    file_name = nhsi_filename_for_day(target_day)
+    yyyydoy = f"{target_day.year}{target_day.timetuple().tm_yday:03d}"
+
+    if (
+        "{file_name}" in source_root
+        or "{yyyy}" in source_root
+        or "{yyyydoy}" in source_root
+    ):
+        return source_root.format(
+            yyyy=target_day.year,
+            yyyydoy=yyyydoy,
+            file_name=file_name,
+        )
+    if source_root.endswith(".gz"):
+        return source_root
+    return f"{source_root.rstrip('/')}/{target_day.year}/{file_name}"
 
 
-def resolve_input_dataset(
-    downloaded_path: Path,
+def candidate_source_days(
+    today: date, lookback_days: int = MAX_SOURCE_LOOKBACK_DAYS
+) -> list[date]:
+    """Return source dates to try, newest first."""
+    return [today - timedelta(days=offset) for offset in range(lookback_days + 1)]
+
+
+def _download_response_to_file(response, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("wb") as dst:
+        for chunk in response.iter_content(chunk_size=1024 * 1024):
+            if chunk:
+                dst.write(chunk)
+
+
+def download_latest_source(
+    source_root: str,
     workdir: Path,
-    dataset_hint: Optional[str] = None,
-) -> Path:
-    """Resolve the local vector dataset path for ogr2ogr."""
-    if zipfile.is_zipfile(downloaded_path):
-        extract_dir = workdir / "source"
-        extract_dir.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(downloaded_path) as archive:
-            archive.extractall(extract_dir)
-        if dataset_hint:
-            hinted_path = extract_dir / dataset_hint
-            if hinted_path.exists():
-                return hinted_path
-            raise FileNotFoundError(
-                f"Configured source dataset not found: {hinted_path}"
+    today: date,
+    timeout_seconds: int,
+) -> DownloadedSource:
+    """Download the newest available daily NHSI raster within the lookback window."""
+    import requests
+
+    session = requests.Session()
+    for candidate_day in candidate_source_days(today):
+        source_url = nhsi_source_url_for_day(source_root, candidate_day)
+        destination = workdir / nhsi_filename_for_day(candidate_day)
+        logger.info(
+            {
+                "message": "Attempting NHSI download",
+                "source_date": candidate_day.isoformat(),
+                "source_url": source_url,
+            }
+        )
+        try:
+            with session.get(
+                source_url,
+                stream=True,
+                timeout=timeout_seconds,
+            ) as response:
+                if response.status_code == 404:
+                    continue
+                response.raise_for_status()
+                _download_response_to_file(response, destination)
+            return DownloadedSource(
+                source_date=candidate_day,
+                source_url=source_url,
+                gz_path=destination,
             )
-        for extension in VECTOR_EXTENSIONS:
-            matches = sorted(extract_dir.rglob(f"*{extension}"))
-            if matches:
-                return matches[0]
-        raise FileNotFoundError(
-            "No supported vector dataset found inside source archive"
+        except requests.HTTPError as exc:
+            response = exc.response
+            if response is not None and response.status_code == 404:
+                continue
+            raise
+        except requests.RequestException as exc:
+            logger.warning(
+                {
+                    "message": "NHSI download attempt failed",
+                    "source_date": candidate_day.isoformat(),
+                    "source_url": source_url,
+                    "error": str(exc),
+                }
+            )
+
+    raise FileNotFoundError(
+        "No NHSI raster was available for today or the previous two days"
+    )
+
+
+def gunzip_file(source_path: Path, destination: Path) -> None:
+    """Expand a ``.gz`` file to its uncompressed TIFF."""
+    with gzip.open(source_path, "rb") as src, destination.open("wb") as dst:
+        shutil.copyfileobj(src, dst)
+
+
+def warp_raster_to_epsg4326(source_path: Path, destination: Path) -> None:
+    """Reproject the raster to EPSG:4326."""
+    import rasterio
+    from rasterio.warp import calculate_default_transform, reproject
+
+    with rasterio.open(source_path) as src:
+        dst_crs = "EPSG:4326"
+        transform, width, height = calculate_default_transform(
+            src.crs,
+            dst_crs,
+            src.width,
+            src.height,
+            *src.bounds,
         )
 
-    if dataset_hint:
-        hinted_path = workdir / dataset_hint
-        if hinted_path.exists():
-            return hinted_path
-        raise FileNotFoundError(f"Configured source dataset not found: {hinted_path}")
-    return downloaded_path
+        profile = src.profile.copy()
+        profile.update(
+            crs=dst_crs,
+            transform=transform,
+            width=width,
+            height=height,
+            compress="deflate",
+            interleave="band",
+            predictor=2,
+        )
+
+        with rasterio.open(destination, "w", **profile) as dst:
+            for band_idx in range(1, src.count + 1):
+                reproject(
+                    source=rasterio.band(src, band_idx),
+                    destination=rasterio.band(dst, band_idx),
+                    src_transform=src.transform,
+                    src_crs=src.crs,
+                    dst_transform=transform,
+                    dst_crs=dst_crs,
+                )
 
 
-def run_ogr2ogr(
-    input_dataset: Path,
-    output_dataset: Path,
-    simplify_tolerance: float,
-    simplify_srs: Optional[str] = None,
-    source_layer: Optional[str] = None,
-) -> None:
-    """Run ogr2ogr to simplify the source geometry and emit GeoJSON."""
+def raster_to_geojson(source_path: Path, destination: Path) -> None:
+    """Polygonize the raster into GeoJSON features with a ``DN`` property."""
+    import geopandas as gpd
+    import rasterio
+    from rasterio import features
+    from shapely.geometry import shape
 
-    def _run(args: list[str]) -> None:
-        logger.info({"message": "Running ogr2ogr", "command": args})
-        subprocess.run(args, check=True, capture_output=True, text=True)
+    with rasterio.open(source_path) as src:
+        band = src.read(1)
+        geoms = []
+        vals = []
 
-    if simplify_srs:
-        reprojected_path = output_dataset.parent / "reprojected.gpkg"
-        reproject_args = [
-            "ogr2ogr",
-            "-f",
-            "GPKG",
-            "-t_srs",
-            simplify_srs,
-            str(reprojected_path),
-            str(input_dataset),
-        ]
-        if source_layer:
-            reproject_args.append(source_layer)
-        _run(reproject_args)
-        input_dataset = reprojected_path
-        source_layer = None
+        for geom, val in features.shapes(
+            band,
+            mask=None,
+            transform=src.transform,
+            connectivity=8,
+        ):
+            geoms.append(shape(geom))
+            vals.append(int(val))
 
-    simplify_args = [
-        "ogr2ogr",
-        "-f",
-        "GeoJSON",
-        "-makevalid",
-        "-simplify",
-        str(simplify_tolerance),
-        "-t_srs",
-        "EPSG:4326",
-        str(output_dataset),
-        str(input_dataset),
+        gdf = gpd.GeoDataFrame({"DN": vals}, geometry=geoms, crs=src.crs)
+
+    gdf.to_file(destination, driver="GeoJSON")
+
+
+def remove_land_parts(gdf):
+    """Remove polygons whose representative point falls on land."""
+    from global_land_mask import globe
+
+    if gdf.empty:
+        return gdf
+
+    representative_points = gdf.geometry.representative_point()
+    keep_mask = [
+        not globe.is_land(point.y, point.x) if point is not None else False
+        for point in representative_points
     ]
-    if source_layer:
-        simplify_args.append(source_layer)
-    _run(simplify_args)
+    return gdf.loc[keep_mask].copy()
+
+
+def filter_and_simplify_geojson(
+    source_path: Path,
+    destination: Path,
+    source_date: date,
+    simplify_tolerance: float,
+    simplify_srs: str,
+) -> None:
+    """Filter to sea-ice polygons and simplify them for publication."""
+    import geopandas as gpd
+    from shapely import make_valid, set_precision
+
+    gdf = gpd.read_file(source_path)
+    if "DN" not in gdf.columns:
+        raise ValueError("Vectorized raster is missing the DN field")
+
+    gdf = gdf[gdf["DN"] == ICE_CLASS_VALUE].copy()
+    if gdf.empty:
+        gdf["ice_date"] = None
+        gdf.to_file(destination, driver="GeoJSON")
+        return
+
+    gdf["geometry"] = gdf.geometry.map(make_valid)
+    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+    gdf["ice_date"] = source_date.isoformat()
+    gdf = gdf.explode(index_parts=False, ignore_index=True)
+    gdf = remove_land_parts(gdf)
+    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+
+    if gdf.empty:
+        gdf.to_file(destination, driver="GeoJSON")
+        return
+
+    gdf["geometry"] = gdf.geometry.map(
+        lambda geom: set_precision(geom, PRECISION_GRID_SIZE)
+    )
+    simplified = gdf.to_crs(simplify_srs)
+    simplified["geometry"] = simplified.geometry.simplify(
+        simplify_tolerance,
+        preserve_topology=True,
+    )
+    simplified = simplified.to_crs("EPSG:4326")
+    simplified = simplified[
+        simplified.geometry.notna() & ~simplified.geometry.is_empty
+    ].copy()
+    simplified.to_file(destination, driver="GeoJSON")
+
+
+def process_downloaded_source(
+    downloaded_source: DownloadedSource,
+    workdir: Path,
+    simplify_tolerance: float,
+    simplify_srs: str,
+) -> Path:
+    """Run the NHSI raster processing pipeline and return the final GeoJSON path."""
+    uncompressed_tif = workdir / downloaded_source.gz_path.with_suffix("").name
+    warped_tif = workdir / f"{uncompressed_tif.stem}_4326.tif"
+    raw_geojson = workdir / f"{warped_tif.stem}.geojson"
+    output_geojson = workdir / "extent.geojson"
+
+    gunzip_file(downloaded_source.gz_path, uncompressed_tif)
+    warp_raster_to_epsg4326(uncompressed_tif, warped_tif)
+    raster_to_geojson(warped_tif, raw_geojson)
+    filter_and_simplify_geojson(
+        raw_geojson,
+        output_geojson,
+        source_date=downloaded_source.source_date,
+        simplify_tolerance=simplify_tolerance,
+        simplify_srs=simplify_srs,
+    )
+    return output_geojson
 
 
 def upload_outputs(
@@ -185,6 +345,8 @@ def upload_outputs(
     metadata: dict[str, str],
 ) -> None:
     """Upload the archive and latest objects to GCS."""
+    from google.cloud import storage
+
     client = storage.Client()
     bucket = client.bucket(bucket_name)
 
@@ -221,36 +383,31 @@ def _sync(payload: SyncRequest) -> SyncResponse:
         shutil.rmtree(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
 
-    download_path = _download_path(workdir, settings.source_url)
-    download_source(
+    downloaded_source = download_latest_source(
         settings.source_url,
-        download_path,
+        workdir,
+        today=today,
         timeout_seconds=settings.request_timeout_seconds,
     )
-    input_dataset = resolve_input_dataset(
-        download_path,
+    output_path = process_downloaded_source(
+        downloaded_source,
         workdir,
-        dataset_hint=settings.source_dataset,
-    )
-
-    output_path = workdir / "extent.geojson"
-    run_ogr2ogr(
-        input_dataset=input_dataset,
-        output_dataset=output_path,
         simplify_tolerance=settings.simplify_tolerance,
         simplify_srs=settings.simplify_srs,
-        source_layer=settings.source_layer,
     )
 
     bucket_name, archive_object, latest_object = build_object_names(
-        settings.mask_gcs_uri, today
+        settings.mask_gcs_uri,
+        downloaded_source.source_date,
     )
     metadata = {
-        "source_url": settings.source_url,
+        "source_url": downloaded_source.source_url,
         "mask_gcs_uri": settings.mask_gcs_uri,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "cadence_days": str(settings.cadence_days),
         "anchor_date": settings.anchor_date.isoformat(),
+        "source_date": downloaded_source.source_date.isoformat(),
+        "source_filename": downloaded_source.gz_path.name,
     }
     upload_outputs(
         bucket_name=bucket_name,
@@ -265,6 +422,7 @@ def _sync(payload: SyncRequest) -> SyncResponse:
             "message": "Uploaded simplified sea-ice extent",
             "archive_object": archive_object,
             "latest_object": latest_object,
+            "source_date": downloaded_source.source_date.isoformat(),
         }
     )
     return SyncResponse(
