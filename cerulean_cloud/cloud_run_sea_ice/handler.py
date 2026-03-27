@@ -14,7 +14,7 @@ from typing import Optional
 from fastapi import FastAPI
 
 from cerulean_cloud.cloud_run_sea_ice.logic import (
-    build_object_names,
+    build_object_name,
     should_run_today,
     utc_today,
 )
@@ -339,24 +339,21 @@ def process_downloaded_source(
 
 def upload_outputs(
     bucket_name: str,
-    archive_object: str,
-    latest_object: str,
+    object_name: str,
     source_path: Path,
     metadata: dict[str, str],
 ) -> None:
-    """Upload the archive and latest objects to GCS."""
+    """Upload the current object to GCS."""
     from google.cloud import storage
 
     client = storage.Client()
     bucket = client.bucket(bucket_name)
-
-    for object_name in (archive_object, latest_object):
-        blob = bucket.blob(object_name)
-        blob.metadata = metadata
-        blob.upload_from_filename(
-            str(source_path),
-            content_type="application/geo+json",
-        )
+    blob = bucket.blob(object_name)
+    blob.metadata = metadata
+    blob.upload_from_filename(
+        str(source_path),
+        content_type="application/geo+json",
+    )
 
 
 def _sync(payload: SyncRequest) -> SyncResponse:
@@ -396,10 +393,7 @@ def _sync(payload: SyncRequest) -> SyncResponse:
         simplify_srs=settings.simplify_srs,
     )
 
-    bucket_name, archive_object, latest_object = build_object_names(
-        settings.mask_gcs_uri,
-        downloaded_source.source_date,
-    )
+    bucket_name, object_name = build_object_name(settings.mask_gcs_uri)
     metadata = {
         "source_url": downloaded_source.source_url,
         "mask_gcs_uri": settings.mask_gcs_uri,
@@ -411,8 +405,7 @@ def _sync(payload: SyncRequest) -> SyncResponse:
     }
     upload_outputs(
         bucket_name=bucket_name,
-        archive_object=archive_object,
-        latest_object=latest_object,
+        object_name=object_name,
         source_path=output_path,
         metadata=metadata,
     )
@@ -420,8 +413,7 @@ def _sync(payload: SyncRequest) -> SyncResponse:
     logger.info(
         {
             "message": "Uploaded simplified sea-ice extent",
-            "archive_object": archive_object,
-            "latest_object": latest_object,
+            "object_name": object_name,
             "source_date": downloaded_source.source_date.isoformat(),
         }
     )
@@ -430,8 +422,7 @@ def _sync(payload: SyncRequest) -> SyncResponse:
         ran=True,
         cadence_days=settings.cadence_days,
         anchor_date=settings.anchor_date.isoformat(),
-        archive_object=archive_object,
-        latest_object=latest_object,
+        object_name=object_name,
     )
 
 

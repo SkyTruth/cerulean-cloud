@@ -8,7 +8,7 @@ from cerulean_cloud.cloud_run_sea_ice.handler import (
     nhsi_source_url_for_day,
 )
 from cerulean_cloud.cloud_run_sea_ice.logic import (
-    build_object_names,
+    build_object_name,
     parse_gcs_uri,
     should_run_today,
 )
@@ -34,13 +34,12 @@ def test_should_run_today_rejects_invalid_cadence():
         should_run_today(date(2026, 3, 19), date(2026, 3, 19), 0)
 
 
-def test_build_object_names():
-    bucket_name, archive_name, latest_name = build_object_names(
-        "gs://cerulean-ice/extent_vectors/test.geojson", date(2026, 3, 19)
+def test_build_object_name():
+    bucket_name, object_name = build_object_name(
+        "gs://cerulean-ice/extent_vectors/test.geojson"
     )
     assert bucket_name == "cerulean-ice"
-    assert archive_name == "extent_vectors/archive/2026-03-19-test.geojson"
-    assert latest_name == "extent_vectors/test.geojson"
+    assert object_name == "extent_vectors/test.geojson"
 
 
 def test_parse_gcs_uri_rejects_invalid_values():

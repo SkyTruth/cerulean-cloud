@@ -1,7 +1,6 @@
 """Pure helper logic for the sea-ice sync worker."""
 
 from datetime import date, datetime, timezone
-from pathlib import PurePosixPath
 from urllib.parse import urlparse
 
 
@@ -26,10 +25,6 @@ def parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
     return parsed.netloc, parsed.path.lstrip("/")
 
 
-def build_object_names(gcs_uri: str, run_date: date) -> tuple[str, str, str]:
-    """Build bucket, archive object, and latest object names from a GCS URI."""
-    bucket_name, latest_name = parse_gcs_uri(gcs_uri)
-    latest_path = PurePosixPath(latest_name)
-    archive_dir = latest_path.parent / "archive"
-    archive_name = str(archive_dir / f"{run_date.isoformat()}-{latest_path.name}")
-    return bucket_name, archive_name, latest_name
+def build_object_name(gcs_uri: str) -> tuple[str, str]:
+    """Build the bucket and object name from a GCS URI."""
+    return parse_gcs_uri(gcs_uri)

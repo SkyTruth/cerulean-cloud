@@ -19,5 +19,4 @@ class SyncResponse(BaseModel):
     cadence_days: int
     anchor_date: str
     reason: Optional[str] = None
-    archive_object: Optional[str] = None
-    latest_object: Optional[str] = None
+    object_name: Optional[str] = None
