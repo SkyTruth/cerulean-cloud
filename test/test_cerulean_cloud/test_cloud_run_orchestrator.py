@@ -3,7 +3,7 @@ import math
 import os
 import sys
 from base64 import b64decode
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import patch
 
 import geojson
@@ -26,7 +26,7 @@ from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClien
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
     calculate_centerlines,
-    geometry_intersects_background_mask,
+    classify_geometry_background_mask,
     group_bounds_from_list_of_bounds,
     is_tile_over_water,
     make_cloud_log_url,
@@ -337,14 +337,36 @@ def test_make_cloud_log_url():
     )
 
 
-def test_get_sea_ice_mask_gdf_returns_none_without_uri(monkeypatch):
-    monkeypatch.delenv("SEA_ICE_MASK_GCS_URI", raising=False)
-    monkeypatch.setattr(orchestrator_handler, "sea_ice_mask_gdf", None)
+def test_get_sea_ice_mask_returns_none_when_no_matching_file_exists(monkeypatch):
+    requested_blob_names = []
 
-    assert orchestrator_handler.get_sea_ice_mask_gdf() is None
+    class FakeBucket:
+        name = "test-bucket"
+
+        def get_blob(self, blob_name):
+            requested_blob_names.append(blob_name)
+            return None
+
+    class FakeStorageClient:
+        def bucket(self, bucket_name):
+            assert bucket_name == "test-bucket"
+            return FakeBucket()
+
+    monkeypatch.setenv("SEA_ICE_MASK_GCS_URI", "gs://test-bucket/extent_vectors/")
+    monkeypatch.setattr(
+        orchestrator_handler.storage, "Client", lambda: FakeStorageClient()
+    )
+
+    assert orchestrator_handler.get_sea_ice_mask(
+        date(2026, 4, 1), earliest_supported_date=date(2026, 3, 31)
+    ) == (None, None)
+    assert requested_blob_names == [
+        "extent_vectors/2026-04-01_extent.geojson",
+        "extent_vectors/2026-03-31_extent.geojson",
+    ]
 
 
-def test_get_sea_ice_mask_gdf_downloads_and_caches(monkeypatch):
+def test_get_sea_ice_mask_downloads_mask(monkeypatch):
     download_counter = {"count": 0}
     feature_collection = {
         "type": "FeatureCollection",
@@ -358,13 +380,110 @@ def test_get_sea_ice_mask_gdf_downloads_and_caches(monkeypatch):
     }
 
     class FakeBlob:
+        def __init__(self, blob_name):
+            self.blob_name = blob_name
+
         def download_as_text(self):
             download_counter["count"] += 1
             return json.dumps(feature_collection)
 
     class FakeBucket:
+        name = "test-bucket"
+
+        def get_blob(self, blob_name):
+            assert blob_name == "extent_vectors/2026-04-01_extent.geojson"
+            return FakeBlob(blob_name)
+
         def blob(self, blob_name):
-            assert blob_name == "masks/sea_ice.geojson"
+            assert blob_name == "extent_vectors/2026-04-01_extent.geojson"
+            return FakeBlob(blob_name)
+
+    class FakeStorageClient:
+        def bucket(self, bucket_name):
+            assert bucket_name == "test-bucket"
+            return FakeBucket()
+
+    monkeypatch.setenv("SEA_ICE_MASK_GCS_URI", "gs://test-bucket/extent_vectors/")
+    monkeypatch.setattr(
+        orchestrator_handler.storage, "Client", lambda: FakeStorageClient()
+    )
+
+    sea_ice_mask, sea_ice_date = orchestrator_handler.get_sea_ice_mask(date(2026, 4, 1))
+
+    assert len(sea_ice_mask) == 1
+    assert sea_ice_date == date(2026, 4, 1)
+    assert download_counter["count"] == 1
+
+
+def test_get_sea_ice_mask_falls_back_to_previous_available_date(monkeypatch):
+    requested_blob_names = []
+    feature_collection = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {},
+                "geometry": mapping(box(0, 0, 1, 1)),
+            }
+        ],
+    }
+
+    class FakeBlob:
+        def __init__(self, blob_name):
+            self.blob_name = blob_name
+
+        def download_as_text(self):
+            requested_blob_names.append(self.blob_name)
+            return json.dumps(feature_collection)
+
+    class FakeBucket:
+        name = "test-bucket"
+
+        def get_blob(self, blob_name):
+            requested_blob_names.append(blob_name)
+            if blob_name == "extent_vectors/2026-03-31_extent.geojson":
+                return FakeBlob(blob_name)
+            return None
+
+        def blob(self, blob_name):
+            return FakeBlob(blob_name)
+
+    class FakeStorageClient:
+        def bucket(self, bucket_name):
+            assert bucket_name == "test-bucket"
+            return FakeBucket()
+
+    monkeypatch.setenv("SEA_ICE_MASK_GCS_URI", "gs://test-bucket/extent_vectors/")
+    monkeypatch.setattr(
+        orchestrator_handler.storage, "Client", lambda: FakeStorageClient()
+    )
+
+    sea_ice_mask, sea_ice_date = orchestrator_handler.get_sea_ice_mask(
+        date(2026, 4, 1), earliest_supported_date=date(2026, 3, 30)
+    )
+
+    assert len(sea_ice_mask) == 1
+    assert sea_ice_date == date(2026, 3, 31)
+    assert requested_blob_names[:2] == [
+        "extent_vectors/2026-04-01_extent.geojson",
+        "extent_vectors/2026-03-31_extent.geojson",
+    ]
+
+
+def test_get_sea_ice_mask_fails_open_on_download_error(monkeypatch):
+    class FakeBlob:
+        def download_as_text(self):
+            raise RuntimeError("boom")
+
+    class FakeBucket:
+        name = "test-bucket"
+
+        def get_blob(self, blob_name):
+            assert blob_name == "extent_vectors/2026-04-01_extent.geojson"
+            return FakeBlob()
+
+        def blob(self, blob_name):
+            assert blob_name == "extent_vectors/2026-04-01_extent.geojson"
             return FakeBlob()
 
     class FakeStorageClient:
@@ -372,31 +491,43 @@ def test_get_sea_ice_mask_gdf_downloads_and_caches(monkeypatch):
             assert bucket_name == "test-bucket"
             return FakeBucket()
 
-    monkeypatch.setenv("SEA_ICE_MASK_GCS_URI", "gs://test-bucket/masks/sea_ice.geojson")
-    monkeypatch.setattr(orchestrator_handler, "sea_ice_mask_gdf", None)
+    monkeypatch.setenv("SEA_ICE_MASK_GCS_URI", "gs://test-bucket/extent_vectors/")
     monkeypatch.setattr(
         orchestrator_handler.storage, "Client", lambda: FakeStorageClient()
     )
 
-    first = orchestrator_handler.get_sea_ice_mask_gdf()
-    second = orchestrator_handler.get_sea_ice_mask_gdf()
-
-    assert len(first) == 1
-    assert first is second
-    assert download_counter["count"] == 1
+    assert orchestrator_handler.get_sea_ice_mask(date(2026, 4, 1)) == (None, None)
 
 
-def test_geometry_intersects_background_mask_checks_sea_ice_when_land_clear():
+def test_classify_geometry_background_mask_detects_sea_ice_when_land_clear():
     buffered_geometry = box(0, 0, 1, 1)
     land_mask_gdf = gpd.GeoDataFrame(geometry=[box(10, 10, 11, 11)], crs="EPSG:4326")
     sea_ice_mask_gdf = gpd.GeoDataFrame(
         geometry=[box(0.5, 0.5, 1.5, 1.5)], crs="EPSG:4326"
     )
 
-    assert geometry_intersects_background_mask(
-        buffered_geometry,
-        sea_ice_mask_gdf=sea_ice_mask_gdf,
-        land_mask_gdf=land_mask_gdf,
+    assert (
+        classify_geometry_background_mask(
+            buffered_geometry,
+            sea_ice_mask_gdf=sea_ice_mask_gdf,
+            land_mask_gdf=land_mask_gdf,
+        )
+        == "SEA_ICE"
+    )
+
+
+def test_classify_geometry_background_mask_prefers_land_over_sea_ice():
+    buffered_geometry = box(0, 0, 1, 1)
+    land_mask_gdf = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
+    sea_ice_mask_gdf = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
+
+    assert (
+        classify_geometry_background_mask(
+            buffered_geometry,
+            sea_ice_mask_gdf=sea_ice_mask_gdf,
+            land_mask_gdf=land_mask_gdf,
+        )
+        == "LAND"
     )
 
 
