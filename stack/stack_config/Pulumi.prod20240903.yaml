@@ -9,6 +9,7 @@ config:
   cerulean-cloud:infra_keyname: prod20240903-gfw-infra-api-key
   cerulean-cloud:keyname: prod20240903-cerulean-cloud-api-key
   cerulean-cloud:titiler_keyname: prod20240903-titiler-api-key
+  cerulean-cloud:sea_ice_mask_gcs_uri: "gs://cerulean-ice/extent_vectors/"
   db:db-instance: db-custom-32-49152
   db:db-mem: "1048576"
   db:db-work-mem: "2559997"
@@ -25,4 +26,4 @@ config:
     secure: v1:77jKwh6VgMHCJGRK:WQTJnlF47AhaDzGmE5BCC1XA+LIGR+Ht
   scihub:username: rodrigo1234
   alerts:keyname: cerulean-slack-alerts-webhook
-  sea-ice:enabled: false
+  sea-ice:enabled: true

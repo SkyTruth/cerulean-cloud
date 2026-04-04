@@ -49,43 +49,14 @@ if enabled:
             value="8080",
         ),
         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-            name="SEA_ICE_SOURCE_URL",
-            value=config.require("source_url"),
-        ),
-        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
             name="SEA_ICE_MASK_GCS_URI",
             value=sea_ice_mask_gcs_uri,
-        ),
-        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-            name="SEA_ICE_CADENCE_DAYS",
-            value=config.require("cadence_days"),
-        ),
-        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-            name="SEA_ICE_ANCHOR_DATE",
-            value=config.require("anchor_date"),
-        ),
-        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-            name="SEA_ICE_SIMPLIFY_TOLERANCE",
-            value=config.require("simplify_tolerance"),
         ),
         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
             name="SEA_ICE_REQUEST_TIMEOUT_SECONDS",
             value=config.get("request_timeout_seconds") or "600",
         ),
     ]
-
-    optional_envs = {
-        "SEA_ICE_SIMPLIFY_SRS": config.get("simplify_srs"),
-        "SEA_ICE_SOURCE_DATASET": config.get("source_dataset"),
-        "SEA_ICE_SOURCE_LAYER": config.get("source_layer"),
-    }
-    envs.extend(
-        [
-            gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(name=name, value=value)
-            for name, value in optional_envs.items()
-            if value
-        ]
-    )
 
     default = gcp.cloudrun.Service(
         service_name,

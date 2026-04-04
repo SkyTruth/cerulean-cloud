@@ -7,27 +7,31 @@ import logging
 import os
 import shutil
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI
 
 from cerulean_cloud.cloud_run_sea_ice.logic import (
+    DEFAULT_ANCHOR_DATE,
+    DEFAULT_CADENCE_DAYS,
+    DEFAULT_NHSI_BASE_URL,
+    DEFAULT_SIMPLIFY_TOLERANCE,
     build_object_name,
+    candidate_source_days,
+    nhsi_filename_for_day,
+    nhsi_source_url_for_day,
+    normalize_mask_polygons,
     should_run_today,
     utc_today,
 )
-from cerulean_cloud.cloud_run_sea_ice.schema import SyncRequest, SyncResponse
 
 logger = logging.getLogger("cerulean_cloud.cloud_run_sea_ice")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-DEFAULT_NHSI_BASE_URL = "https://noaadata.apps.nsidc.org/NOAA/G02156/GIS/4km"
 DEFAULT_SIMPLIFY_SRS = "EPSG:4087"
 ICE_CLASS_VALUE = 3
 PRECISION_GRID_SIZE = 0.0001
-MAX_SOURCE_LOOKBACK_DAYS = 2
 
 app = FastAPI(title="Cloud Run sea-ice sync")
 
@@ -63,58 +67,17 @@ def _required_env(name: str) -> str:
 
 def load_settings() -> SeaIceSettings:
     """Load worker settings from environment variables."""
-    cadence_days = int(_required_env("SEA_ICE_CADENCE_DAYS"))
-    simplify_tolerance = float(_required_env("SEA_ICE_SIMPLIFY_TOLERANCE"))
     return SeaIceSettings(
-        source_url=os.getenv("SEA_ICE_SOURCE_URL", DEFAULT_NHSI_BASE_URL),
+        source_url=DEFAULT_NHSI_BASE_URL,
         mask_gcs_uri=_required_env("SEA_ICE_MASK_GCS_URI"),
-        cadence_days=cadence_days,
-        anchor_date=date.fromisoformat(_required_env("SEA_ICE_ANCHOR_DATE")),
-        simplify_tolerance=simplify_tolerance,
+        cadence_days=DEFAULT_CADENCE_DAYS,
+        anchor_date=DEFAULT_ANCHOR_DATE,
+        simplify_tolerance=DEFAULT_SIMPLIFY_TOLERANCE,
         simplify_srs=os.getenv("SEA_ICE_SIMPLIFY_SRS", DEFAULT_SIMPLIFY_SRS),
         request_timeout_seconds=int(
             os.getenv("SEA_ICE_REQUEST_TIMEOUT_SECONDS", "600")
         ),
     )
-
-
-def nhsi_filename_for_day(target_day: date) -> str:
-    """Build the NOAA/NHSI filename for the target day."""
-    yyyydoy = f"{target_day.year}{target_day.timetuple().tm_yday:03d}"
-    return f"ims{yyyydoy}_4km_GIS_v1.3.tif.gz"
-
-
-def nhsi_source_url_for_day(source_root: str, target_day: date) -> str:
-    """Build the source URL for the target day.
-
-    ``source_root`` may be:
-    - a base directory like ``https://.../GIS/4km``
-    - a template containing ``{yyyy}``, ``{yyyydoy}``, and/or ``{file_name}``
-    - a fully qualified direct ``.gz`` URL
-    """
-    file_name = nhsi_filename_for_day(target_day)
-    yyyydoy = f"{target_day.year}{target_day.timetuple().tm_yday:03d}"
-
-    if (
-        "{file_name}" in source_root
-        or "{yyyy}" in source_root
-        or "{yyyydoy}" in source_root
-    ):
-        return source_root.format(
-            yyyy=target_day.year,
-            yyyydoy=yyyydoy,
-            file_name=file_name,
-        )
-    if source_root.endswith(".gz"):
-        return source_root
-    return f"{source_root.rstrip('/')}/{target_day.year}/{file_name}"
-
-
-def candidate_source_days(
-    today: date, lookback_days: int = MAX_SOURCE_LOOKBACK_DAYS
-) -> list[date]:
-    """Return source dates to try, newest first."""
-    return [today - timedelta(days=offset) for offset in range(lookback_days + 1)]
 
 
 def _download_response_to_file(response, destination: Path) -> None:
@@ -291,7 +254,7 @@ def filter_and_simplify_geojson(
     gdf["ice_date"] = source_date.isoformat()
     gdf = gdf.explode(index_parts=False, ignore_index=True)
     gdf = remove_land_parts(gdf)
-    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+    gdf = normalize_mask_polygons(gdf)
 
     if gdf.empty:
         gdf.to_file(destination, driver="GeoJSON")
@@ -356,10 +319,10 @@ def upload_outputs(
     )
 
 
-def _sync(payload: SyncRequest) -> SyncResponse:
+def _sync(force: bool = False) -> dict[str, object]:
     settings = load_settings()
     today = utc_today()
-    if not payload.force and not should_run_today(
+    if not force and not should_run_today(
         today, settings.anchor_date, settings.cadence_days
     ):
         reason = (
@@ -367,13 +330,13 @@ def _sync(payload: SyncRequest) -> SyncResponse:
             f"{settings.cadence_days} and anchor_date={settings.anchor_date.isoformat()}"
         )
         logger.info({"message": reason})
-        return SyncResponse(
-            status="skipped",
-            ran=False,
-            cadence_days=settings.cadence_days,
-            anchor_date=settings.anchor_date.isoformat(),
-            reason=reason,
-        )
+        return {
+            "status": "skipped",
+            "ran": False,
+            "cadence_days": settings.cadence_days,
+            "anchor_date": settings.anchor_date.isoformat(),
+            "reason": reason,
+        }
 
     workdir = Path("/tmp/sea-ice-sync")
     if workdir.exists():
@@ -393,7 +356,10 @@ def _sync(payload: SyncRequest) -> SyncResponse:
         simplify_srs=settings.simplify_srs,
     )
 
-    bucket_name, object_name = build_object_name(settings.mask_gcs_uri)
+    bucket_name, object_name = build_object_name(
+        settings.mask_gcs_uri,
+        downloaded_source.source_date,
+    )
     metadata = {
         "source_url": downloaded_source.source_url,
         "mask_gcs_uri": settings.mask_gcs_uri,
@@ -417,13 +383,13 @@ def _sync(payload: SyncRequest) -> SyncResponse:
             "source_date": downloaded_source.source_date.isoformat(),
         }
     )
-    return SyncResponse(
-        status="ok",
-        ran=True,
-        cadence_days=settings.cadence_days,
-        anchor_date=settings.anchor_date.isoformat(),
-        object_name=object_name,
-    )
+    return {
+        "status": "ok",
+        "ran": True,
+        "cadence_days": settings.cadence_days,
+        "anchor_date": settings.anchor_date.isoformat(),
+        "object_name": object_name,
+    }
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
@@ -433,12 +399,6 @@ def ping() -> dict[str, str]:
 
 
 @app.get("/sync", description="Run sea-ice sync", tags=["Sea Ice"])
-def sync_get(force: bool = False) -> SyncResponse:
+def sync_get(force: bool = False) -> dict[str, object]:
     """Run a sea-ice sync from a GET request."""
-    return _sync(SyncRequest(force=force))
-
-
-@app.post("/sync", description="Run sea-ice sync", tags=["Sea Ice"])
-def sync_post(payload: Optional[SyncRequest] = None) -> SyncResponse:
-    """Run a sea-ice sync from a POST request."""
-    return _sync(payload or SyncRequest())
+    return _sync(force=force)

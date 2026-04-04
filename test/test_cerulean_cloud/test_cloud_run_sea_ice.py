@@ -1,14 +1,15 @@
 from datetime import date
 
+import geopandas as gpd
 import pytest
+from shapely.geometry import Polygon
 
-from cerulean_cloud.cloud_run_sea_ice.handler import (
+from cerulean_cloud.cloud_run_sea_ice.logic import (
+    build_object_name,
     candidate_source_days,
     nhsi_filename_for_day,
     nhsi_source_url_for_day,
-)
-from cerulean_cloud.cloud_run_sea_ice.logic import (
-    build_object_name,
+    normalize_mask_polygons,
     parse_gcs_uri,
     should_run_today,
 )
@@ -36,10 +37,59 @@ def test_should_run_today_rejects_invalid_cadence():
 
 def test_build_object_name():
     bucket_name, object_name = build_object_name(
-        "gs://cerulean-ice/extent_vectors/test.geojson"
+        "gs://cerulean-ice/extent_vectors/",
+        date(2026, 3, 27),
     )
     assert bucket_name == "cerulean-ice"
-    assert object_name == "extent_vectors/test.geojson"
+    assert object_name == "extent_vectors/2026-03-27_extent.geojson"
+
+
+def test_build_object_name_rejects_file_style_uri():
+    with pytest.raises(ValueError, match="prefix directory, not a file path"):
+        build_object_name(
+            "gs://cerulean-ice/extent_vectors/daily_ice_extent.geojson",
+            date(2026, 3, 27),
+        )
+
+
+def test_normalize_mask_polygons_strips_holes():
+    gdf = gpd.GeoDataFrame(
+        {"DN": [3], "ice_date": [date(2026, 3, 27).isoformat()]},
+        geometry=[
+            Polygon(
+                shell=[(0, 0), (4, 0), (4, 4), (0, 4), (0, 0)],
+                holes=[[(1, 1), (3, 1), (3, 3), (1, 3), (1, 1)]],
+            )
+        ],
+        crs="EPSG:4326",
+    )
+
+    result = normalize_mask_polygons(gdf)
+
+    assert len(result) == 1
+    assert len(result.geometry.iloc[0].interiors) == 0
+    assert result.geometry.iloc[0].area == 16
+
+
+def test_normalize_mask_polygons_dissolves_overlaps():
+    gdf = gpd.GeoDataFrame(
+        {
+            "DN": [3, 3],
+            "ice_date": [date(2026, 3, 27).isoformat()] * 2,
+        },
+        geometry=[
+            Polygon([(0, 0), (2, 0), (2, 2), (0, 2), (0, 0)]),
+            Polygon([(1, 0), (3, 0), (3, 2), (1, 2), (1, 0)]),
+        ],
+        crs="EPSG:4326",
+    )
+
+    result = normalize_mask_polygons(gdf)
+
+    assert len(result) == 1
+    assert result.iloc[0]["DN"] == 3
+    assert result.iloc[0]["ice_date"] == "2026-03-27"
+    assert result.geometry.iloc[0].area == 6
 
 
 def test_parse_gcs_uri_rejects_invalid_values():
