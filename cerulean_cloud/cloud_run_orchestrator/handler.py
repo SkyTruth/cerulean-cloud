@@ -14,8 +14,9 @@ import os
 import signal
 import traceback
 import urllib.parse as urlparse
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple
+from collections import Counter
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
 import geopandas as gpd
 import morecantile
@@ -24,6 +25,7 @@ import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
+from google.cloud import storage
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
@@ -94,6 +96,76 @@ def get_landmask_gdf():
         mask_path = "/app/cerulean_cloud/cloud_run_orchestrator/gadmLandMask_simplified/gadmLandMask_simplified.shp"
         landmask_gdf = gpd.read_file(mask_path).set_crs("4326")
     return landmask_gdf
+
+
+def get_sea_ice_mask(
+    scene_date: date, earliest_supported_date: date = date(2023, 3, 1)
+) -> Tuple[Optional[gpd.GeoDataFrame], Optional[date]]:
+    """
+    Retrieves the sea ice mask and the mask date used from GCS.
+    """
+    sea_ice_mask_gcs_uri = os.environ["SEA_ICE_MASK_GCS_URI"]
+    bucket_name, prefix = sea_ice_mask_gcs_uri.removeprefix("gs://").split("/", 1)
+    prefix = prefix.rstrip("/")
+
+    try:
+        bucket = storage.Client().bucket(bucket_name)
+        current_date = scene_date
+        matched_blob = None
+        matched_date = None
+        while (current_date >= earliest_supported_date) and (not matched_date):
+            matched_blob = bucket.get_blob(
+                f"{prefix}/{current_date.isoformat()}_extent.geojson"
+            )
+            if matched_blob is not None:
+                matched_date = current_date
+            current_date -= timedelta(days=1)
+
+        if not matched_date:
+            raise ValueError(
+                {
+                    "message": f"No sea ice mask found for scene date {scene_date.isoformat()} between {earliest_supported_date.isoformat()} and {scene_date.isoformat()}",
+                    "scene_date": scene_date.isoformat(),
+                    "earliest_supported_date": earliest_supported_date.isoformat(),
+                }
+            )
+
+        sea_ice_mask_gdf = gpd.GeoDataFrame.from_features(
+            json.loads(matched_blob.download_as_text()), crs="4326"
+        )
+        return sea_ice_mask_gdf, matched_date
+    except Exception as exc:
+        logger.warning(
+            {
+                "message": "Failed to load sea ice mask; continuing without it",
+                "scene_date": scene_date.isoformat(),
+                "sea_ice_mask_prefix": prefix,
+                "exception": str(exc),
+                "traceback": traceback.format_exc(),
+            }
+        )
+        return None, None
+
+
+def classify_geometry_background_mask(
+    buffered_geometry,
+    sea_ice_mask_gdf: Optional[gpd.GeoDataFrame],
+    land_mask_gdf: gpd.GeoDataFrame,
+) -> Optional[str]:
+    """
+    Returns the background class short name for a buffered slick, if any.
+    """
+    if len(land_mask_gdf.sindex.query(buffered_geometry, predicate="intersects")) > 0:
+        return "LAND"
+    if sea_ice_mask_gdf is not None and not sea_ice_mask_gdf.empty:
+        if (
+            len(
+                sea_ice_mask_gdf.sindex.query(buffered_geometry, predicate="intersects")
+            )
+            > 0
+        ):
+            return "SEA_ICE"
+    return None
 
 
 def make_cloud_log_url(
@@ -326,6 +398,7 @@ async def _orchestrate(
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
+            not_oil_cls_ids = await db_client.get_cls_subtree_ids("NOT_OIL")
             trigger = await db_client.get_trigger(trigger=payload.trigger)
             layers = [
                 await db_client.get_layer(layer) for layer in model_dict["layers"]
@@ -368,6 +441,7 @@ async def _orchestrate(
             )
 
         success = True
+        sea_ice_date = None
         try:
             logger.info("Instantiating inference client")
             cloud_run_inference = CloudRunInferenceClient(
@@ -416,15 +490,23 @@ async def _orchestrate(
             features = final_ensemble.get("features", [])
             n_features = len(features)
 
-            # number of features that are over land (excluded from final feature list)
-            n_background_slicks = 0
             if features:
+                reclass_counts = Counter()
+
                 LAND_MASK_BUFFER_M = 1000
+                land_mask_gdf = get_landmask_gdf()
+                sea_ice_mask_gdf, sea_ice_date = get_sea_ice_mask(
+                    sentinel1_grd.start_time.date()
+                )
                 logger.info(
                     {
-                        "message": "Removing all slicks near land",
+                        "message": "Classifying slicks against not-oil masks",
                         "n_features": n_features,
                         "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
+                        "uses_sea_ice_mask": sea_ice_mask_gdf is not None,
+                        "sea_ice_mask_date": (
+                            sea_ice_date.isoformat() if sea_ice_date else None
+                        ),
                     }
                 )
                 for feat in features:
@@ -432,21 +514,23 @@ async def _orchestrate(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
                     crs_meters = slick_gdf.estimate_utm_crs(datum_name="WGS 84")
-                    buffered_gdf = gpd.GeoDataFrame(
-                        geometry=slick_gdf.to_crs(crs_meters)
+                    buffered_geometry = (
+                        slick_gdf.to_crs(crs_meters)
                         .buffer(LAND_MASK_BUFFER_M)
                         .to_crs("4326")
+                        .iloc[0]
                     )
-                    intersecting_land = gpd.sjoin(
-                        get_landmask_gdf(),
-                        buffered_gdf,
-                        how="inner",
-                        predicate="intersects",
+
+                    reclass_name = classify_geometry_background_mask(
+                        buffered_geometry,
+                        sea_ice_mask_gdf=sea_ice_mask_gdf,
+                        land_mask_gdf=land_mask_gdf,
                     )
-                    # when the feature intersects land, update inf_idx and increase n_background_slicks
-                    if not intersecting_land.empty:
-                        feat["properties"]["inf_idx"] = model.background_class_idx
-                        n_background_slicks += 1
+                    if reclass_name:
+                        reclass_counts[reclass_name] += 1
+                        feat["properties"]["cls_id_override"] = not_oil_cls_ids[
+                            reclass_name
+                        ]
 
                     logger.info("Calculating centerlines")
                     centerlines_geojson, aspect_ratio_factor = calculate_centerlines(
@@ -462,12 +546,15 @@ async def _orchestrate(
                     feat["properties"]["centerlines"] = centerlines_geojson
                     feat["properties"]["aspect_ratio_factor"] = aspect_ratio_factor
 
+                n_not_oil_slicks = sum(reclass_counts.values())
                 logger.info(
                     {
                         "message": "Adding slicks to database",
                         "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
-                        "n_background_slicks": n_background_slicks,
-                        "n_slicks": n_features - n_background_slicks,
+                        "n_not_oil_slicks": n_not_oil_slicks,
+                        "n_land_slicks": reclass_counts["LAND"],
+                        "n_sea_ice_slicks": reclass_counts["SEA_ICE"],
+                        "n_slicks": n_features - n_not_oil_slicks,
                     }
                 )
                 del features
@@ -484,6 +571,7 @@ async def _orchestrate(
                             feat.get("properties").get("machine_confidence"),
                             feat.get("properties").get("centerlines"),
                             feat.get("properties").get("aspect_ratio_factor"),
+                            cls_id=feat.get("properties").get("cls_id_override"),
                         )
                         logger.info("Added slick")
 
@@ -506,6 +594,7 @@ async def _orchestrate(
                 }
             )
         async with db_client.session.begin():
+            orchestrator_run.sea_ice_date = sea_ice_date
             end_time = datetime.now()
             orchestrator_run.success = success
             orchestrator_run.inference_end_time = end_time
