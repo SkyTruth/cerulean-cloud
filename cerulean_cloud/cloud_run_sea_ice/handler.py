@@ -299,6 +299,29 @@ def empty_mask_gdf():
     )
 
 
+def finalize_output_geometries(gdf):
+    """Repair and snap final output geometries in EPSG:4326."""
+    from shapely import make_valid, set_precision
+
+    if gdf.empty:
+        return gdf
+
+    gdf = gdf.copy()
+    gdf["geometry"] = gdf.geometry.map(make_valid)
+    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+    if gdf.empty:
+        return gdf
+
+    gdf = normalize_mask_polygons(gdf)
+    if gdf.empty:
+        return gdf
+
+    gdf["geometry"] = gdf.geometry.map(
+        lambda geom: set_precision(geom, PRECISION_GRID_SIZE)
+    )
+    return gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+
+
 def filter_and_simplify_polygons(
     gdf,
     destination: Path,
@@ -307,7 +330,7 @@ def filter_and_simplify_polygons(
     simplify_srs: str,
 ) -> None:
     """Simplify ice polygons for publication and write GeoJSON output."""
-    from shapely import make_valid, set_precision
+    from shapely import make_valid
 
     if gdf.empty:
         empty_mask_gdf().to_file(destination, driver="GeoJSON")
@@ -341,12 +364,7 @@ def filter_and_simplify_polygons(
     )
     if simplified.crs is None or simplified.crs.to_epsg() != 4326:
         simplified = simplified.to_crs("EPSG:4326")
-    simplified["geometry"] = simplified.geometry.map(
-        lambda geom: set_precision(geom, PRECISION_GRID_SIZE)
-    )
-    simplified = simplified[
-        simplified.geometry.notna() & ~simplified.geometry.is_empty
-    ].copy()
+    simplified = finalize_output_geometries(simplified)
     if simplified.empty:
         empty_mask_gdf().to_file(destination, driver="GeoJSON")
         return

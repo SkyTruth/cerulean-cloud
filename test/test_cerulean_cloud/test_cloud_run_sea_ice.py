@@ -265,6 +265,21 @@ def test_remove_land_parts_reprojects_representative_points(monkeypatch):
     assert calls == [pytest.approx((expected_point.y, expected_point.x))]
 
 
+def test_finalize_output_geometries_repairs_invalid_polygon(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
+    bowtie = Polygon([(0, 0), (2, 2), (0, 2), (2, 0), (0, 0)])
+    gdf = gpd.GeoDataFrame(
+        {"DN": [3], "ice_date": [date(2026, 3, 27).isoformat()]},
+        geometry=[bowtie],
+        crs="EPSG:4326",
+    )
+
+    result = sea_ice_handler.finalize_output_geometries(gdf)
+
+    assert not result.empty
+    assert result.geometry.is_valid.all()
+
+
 def test_download_latest_source_404_skips_today_without_looking_back(
     monkeypatch, tmp_path
 ):
