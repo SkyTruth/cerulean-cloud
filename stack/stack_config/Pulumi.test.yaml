@@ -26,4 +26,4 @@ config:
   scihub:username: rodrigo1234
   alerts:keyname: cerulean-slack-alerts-webhook
   cerulean-cloud:sea_ice_mask_gcs_uri: "gs://cerulean-ice/extent_vectors/"
-  sea-ice:enabled: false
+  sea-ice:enabled: true
