@@ -135,6 +135,40 @@ class DatabaseClient:
         """get layer from short_name"""
         return await get(self.session, db.Layer, short_name=short_name)
 
+    async def get_cls(self, short_name: str, error_if_absent: bool = True):
+        """get classification row from short_name"""
+        return await get(
+            self.session,
+            db.Cls,
+            error_if_absent=error_if_absent,
+            short_name=short_name,
+        )
+
+    async def get_cls_subtree_ids(self, root_short_name: str):
+        """Return a mapping of class short names to ids for a root class and descendants."""
+        cls_tree = (
+            select(
+                db.Cls.id.label("id"),
+                db.Cls.short_name.label("short_name"),
+            )
+            .where(db.Cls.short_name == root_short_name)
+            .cte(name="cls_tree", recursive=True)
+        )
+        cls_tree = cls_tree.union_all(
+            select(db.Cls.id, db.Cls.short_name).join(
+                cls_tree, db.Cls.supercls == cls_tree.c.id
+            )
+        )
+        result = await self.session.execute(
+            select(cls_tree.c.short_name, cls_tree.c.id)
+        )
+        cls_ids = {short_name: cls_id for short_name, cls_id in result.all()}
+        if not cls_ids:
+            raise InstanceNotFoundError(
+                f"Cls subtree not found for root_short_name={root_short_name!r}"
+            )
+        return cls_ids
+
     async def get_or_insert_sentinel1_grd(
         self, scene_id: str, scene_info: dict, titiler_url: str
     ):
@@ -209,6 +243,7 @@ class DatabaseClient:
         machine_confidence,
         centerlines,
         aspect_ratio_factor,
+        cls_id=None,
     ):
         """add a slick"""
         # use buffer(0) to attempt to fix any invalid geometries
@@ -227,6 +262,7 @@ class DatabaseClient:
             machine_confidence=machine_confidence,
             centerlines=centerlines,
             aspect_ratio_factor=aspect_ratio_factor,
+            cls=cls_id,
         )
         return slick
 
@@ -301,6 +337,7 @@ class DatabaseClient:
         with_sources=True,
         without_sources=True,
         active=True,
+        exclude_not_oil=False,
     ):
         """
         Asynchronously queries the database to fetch slicks for a given scene ID based on source associations.
@@ -311,6 +348,7 @@ class DatabaseClient:
             with_sources (bool): If True, fetch slicks with associated sources. Default is True.
             without_sources (bool): If True, fetch slicks without associated sources. Default is True.
             active (bool): Flag to filter slicks based on their active status. Default is True.
+            exclude_not_oil (bool): If True, omit slicks classified as not-oil (subclasses such as land and sea ice).
 
         Returns:
             list: A list of Slick objects based on the specified filters.
@@ -336,6 +374,18 @@ class DatabaseClient:
             db.Slick.active == active,
             db.Slick.machine_confidence > min_conf,
         ]
+        if exclude_not_oil:
+            not_oil_clses = (
+                select(db.Cls.id.label("id"))
+                .where(db.Cls.short_name == "NOT_OIL")
+                .cte(name="not_oil_clses", recursive=True)
+            )
+            not_oil_clses = not_oil_clses.union_all(
+                select(db.Cls.id).join(
+                    not_oil_clses, db.Cls.supercls == not_oil_clses.c.id
+                )
+            )
+            conditions.append(~db.Slick.cls.in_(select(not_oil_clses.c.id)))
 
         source_conditions = []
         if not with_sources and not without_sources:
