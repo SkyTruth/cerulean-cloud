@@ -1,10 +1,12 @@
 import importlib
 import sys
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 import geopandas as gpd
+import numpy as np
 import pytest
+import rasterio
 from shapely.geometry import Polygon
 
 
@@ -144,6 +146,125 @@ def test_nhsi_source_url_for_day_supports_templates(monkeypatch):
     )
 
 
+def test_find_latest_available_source_walks_back_until_source_exists(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
+    today = date(2026, 3, 27)
+    available_day = today - timedelta(days=2)
+    responses = {
+        sea_ice_handler.nhsi_source_url_for_day(
+            "https://example.com/root",
+            today,
+        ): FakeResponse(404),
+        sea_ice_handler.nhsi_source_url_for_day(
+            "https://example.com/root",
+            today - timedelta(days=1),
+        ): FakeResponse(404),
+        sea_ice_handler.nhsi_source_url_for_day(
+            "https://example.com/root",
+            available_day,
+        ): FakeResponse(200),
+    }
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, stream=True, timeout=None):
+            self.calls.append((url, stream, timeout))
+            return responses[url]
+
+    session = FakeSession()
+    install_fake_requests(monkeypatch, session)
+
+    result = sea_ice_handler.find_latest_available_source(
+        "https://example.com/root",
+        today=today,
+        timeout_seconds=123,
+        max_lookback_days=5,
+    )
+
+    assert result.source_date == available_day
+    assert result.source_url == sea_ice_handler.nhsi_source_url_for_day(
+        "https://example.com/root",
+        available_day,
+    )
+    assert [call[0] for call in session.calls] == [
+        sea_ice_handler.nhsi_source_url_for_day(
+            "https://example.com/root",
+            today,
+        ),
+        sea_ice_handler.nhsi_source_url_for_day(
+            "https://example.com/root",
+            today - timedelta(days=1),
+        ),
+        sea_ice_handler.nhsi_source_url_for_day(
+            "https://example.com/root",
+            available_day,
+        ),
+    ]
+
+
+def test_polygonize_ice_raster_only_emits_ice_class(monkeypatch, tmp_path):
+    sea_ice_handler = load_handler(monkeypatch)
+    raster_path = tmp_path / "ice.tif"
+
+    with rasterio.open(
+        raster_path,
+        "w",
+        driver="GTiff",
+        height=2,
+        width=2,
+        count=1,
+        dtype=np.uint8,
+        crs="EPSG:3413",
+        transform=rasterio.transform.from_origin(0, 8000, 4000, 4000),
+    ) as dataset:
+        dataset.write(np.array([[3, 3], [1, 0]], dtype=np.uint8), 1)
+
+    gdf = sea_ice_handler.polygonize_ice_raster(raster_path)
+
+    assert len(gdf) == 1
+    assert set(gdf["DN"]) == {sea_ice_handler.ICE_CLASS_VALUE}
+    assert gdf.crs.to_epsg() == 3413
+
+
+def test_remove_land_parts_reprojects_representative_points(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
+    calls = []
+
+    def fake_is_land(lat, lon):
+        calls.append((lat, lon))
+        return False
+
+    monkeypatch.setitem(
+        sys.modules,
+        "global_land_mask",
+        SimpleNamespace(globe=SimpleNamespace(is_land=fake_is_land)),
+    )
+
+    gdf = gpd.GeoDataFrame(
+        {"DN": [3]},
+        geometry=[
+            Polygon(
+                [
+                    (1_000_000, 2_000_000),
+                    (1_001_000, 2_000_000),
+                    (1_001_000, 2_001_000),
+                    (1_000_000, 2_001_000),
+                    (1_000_000, 2_000_000),
+                ]
+            )
+        ],
+        crs="EPSG:3857",
+    )
+
+    result = sea_ice_handler.remove_land_parts(gdf)
+
+    expected_point = gdf.geometry.representative_point().to_crs("EPSG:4326").iloc[0]
+    assert len(result) == 1
+    assert calls == [pytest.approx((expected_point.y, expected_point.x))]
+
+
 def test_download_latest_source_404_skips_today_without_looking_back(
     monkeypatch, tmp_path
 ):
@@ -205,3 +326,101 @@ def test_download_latest_source_raises_on_transient_failure(monkeypatch, tmp_pat
     assert [call[0] for call in session.calls] == [
         sea_ice_handler.nhsi_source_url_for_day("https://example.com/root", today)
     ]
+
+
+def test_sync_returns_up_to_date_when_latest_available_source_is_vectorized(
+    monkeypatch,
+):
+    sea_ice_handler = load_handler(monkeypatch)
+    source_day = date(2026, 3, 26)
+    monkeypatch.setenv("SEA_ICE_MASK_GCS_URI", "gs://example-bucket/extent_vectors/")
+    monkeypatch.setattr(sea_ice_handler, "utc_today", lambda: date(2026, 3, 27))
+    monkeypatch.setattr(
+        sea_ice_handler,
+        "find_latest_available_source",
+        lambda *args, **kwargs: sea_ice_handler.AvailableSource(
+            source_date=source_day,
+            source_url="https://example.com/source.tif.gz",
+        ),
+    )
+
+    exists_calls = []
+
+    def fake_vector_output_exists(bucket_name, object_name):
+        exists_calls.append((bucket_name, object_name))
+        return True
+
+    monkeypatch.setattr(
+        sea_ice_handler,
+        "vector_output_exists",
+        fake_vector_output_exists,
+    )
+    monkeypatch.setattr(
+        sea_ice_handler,
+        "download_latest_source",
+        lambda *args, **kwargs: pytest.fail("should not download an existing vector"),
+    )
+
+    result = sea_ice_handler._sync()
+
+    assert result == {
+        "status": "up_to_date",
+        "object_name": "extent_vectors/2026-03-26_extent.geojson",
+        "source_date": "2026-03-26",
+    }
+    assert exists_calls == [
+        ("example-bucket", "extent_vectors/2026-03-26_extent.geojson")
+    ]
+
+
+def test_sync_returns_up_to_date_when_upload_precondition_fails(
+    monkeypatch,
+    tmp_path,
+):
+    from google.api_core.exceptions import PreconditionFailed
+
+    sea_ice_handler = load_handler(monkeypatch)
+    source_day = date(2026, 3, 26)
+    monkeypatch.setenv("SEA_ICE_MASK_GCS_URI", "gs://example-bucket/extent_vectors/")
+    monkeypatch.setattr(sea_ice_handler, "utc_today", lambda: date(2026, 3, 27))
+    monkeypatch.setattr(
+        sea_ice_handler,
+        "find_latest_available_source",
+        lambda *args, **kwargs: sea_ice_handler.AvailableSource(
+            source_date=source_day,
+            source_url="https://example.com/source.tif.gz",
+        ),
+    )
+    monkeypatch.setattr(
+        sea_ice_handler,
+        "vector_output_exists",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(
+        sea_ice_handler,
+        "download_latest_source",
+        lambda *args, **kwargs: sea_ice_handler.DownloadedSource(
+            source_date=source_day,
+            source_url="https://example.com/source.tif.gz",
+            gz_path=tmp_path / "source.tif.gz",
+        ),
+    )
+    monkeypatch.setattr(
+        sea_ice_handler,
+        "process_downloaded_source",
+        lambda *args, **kwargs: tmp_path / "extent.geojson",
+    )
+
+    def fake_upload_outputs(*args, **kwargs):
+        del args, kwargs
+        raise PreconditionFailed("already exists")
+
+    monkeypatch.setattr(sea_ice_handler, "upload_outputs", fake_upload_outputs)
+
+    result = sea_ice_handler._sync()
+
+    assert result == {
+        "status": "up_to_date",
+        "object_name": "extent_vectors/2026-03-26_extent.geojson",
+        "source_date": "2026-03-26",
+    }
