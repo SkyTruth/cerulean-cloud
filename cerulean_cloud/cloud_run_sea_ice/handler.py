@@ -12,41 +12,17 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from cerulean_cloud.cloud_run_sea_ice.logic import (
-    DEFAULT_ANCHOR_DATE,
-    DEFAULT_CADENCE_DAYS,
-    DEFAULT_NHSI_BASE_URL,
-    DEFAULT_SIMPLIFY_TOLERANCE,
-    build_object_name,
-    candidate_source_days,
-    nhsi_filename_for_day,
-    nhsi_source_url_for_day,
-    normalize_mask_polygons,
-    should_run_today,
-    utc_today,
-)
-
 logger = logging.getLogger("cerulean_cloud.cloud_run_sea_ice")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
+DEFAULT_NHSI_BASE_URL = "https://noaadata.apps.nsidc.org/NOAA/G02156/GIS/4km"
+DEFAULT_SIMPLIFY_TOLERANCE = 10_000.0
 DEFAULT_SIMPLIFY_SRS = "EPSG:4087"
 ICE_CLASS_VALUE = 3
 PRECISION_GRID_SIZE = 0.0001
+REQUEST_TIMEOUT_SECONDS = 600
 
 app = FastAPI(title="Cloud Run sea-ice sync")
-
-
-@dataclass(frozen=True)
-class SeaIceSettings:
-    """Runtime configuration for the sea-ice worker."""
-
-    source_url: str
-    mask_gcs_uri: str
-    cadence_days: int
-    anchor_date: date
-    simplify_tolerance: float
-    simplify_srs: str
-    request_timeout_seconds: int
 
 
 @dataclass(frozen=True)
@@ -58,34 +34,89 @@ class DownloadedSource:
     gz_path: Path
 
 
-def _required_env(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        raise ValueError(f"Missing required environment variable: {name}")
-    return value
+def nhsi_filename_for_day(target_day: date) -> str:
+    """Build the NOAA/NHSI filename for the target day."""
+    yyyydoy = f"{target_day.year}{target_day.timetuple().tm_yday:03d}"
+    return f"ims{yyyydoy}_4km_GIS_v1.3.tif.gz"
 
 
-def load_settings() -> SeaIceSettings:
-    """Load worker settings from environment variables."""
-    return SeaIceSettings(
-        source_url=DEFAULT_NHSI_BASE_URL,
-        mask_gcs_uri=_required_env("SEA_ICE_MASK_GCS_URI"),
-        cadence_days=DEFAULT_CADENCE_DAYS,
-        anchor_date=DEFAULT_ANCHOR_DATE,
-        simplify_tolerance=DEFAULT_SIMPLIFY_TOLERANCE,
-        simplify_srs=os.getenv("SEA_ICE_SIMPLIFY_SRS", DEFAULT_SIMPLIFY_SRS),
-        request_timeout_seconds=int(
-            os.getenv("SEA_ICE_REQUEST_TIMEOUT_SECONDS", "600")
-        ),
+def nhsi_source_url_for_day(source_root: str, target_day: date) -> str:
+    """Build the source URL for the target day."""
+    file_name = nhsi_filename_for_day(target_day)
+    yyyydoy = f"{target_day.year}{target_day.timetuple().tm_yday:03d}"
+
+    if (
+        "{file_name}" in source_root
+        or "{yyyy}" in source_root
+        or "{yyyydoy}" in source_root
+    ):
+        return source_root.format(
+            yyyy=target_day.year,
+            yyyydoy=yyyydoy,
+            file_name=file_name,
+        )
+    if source_root.endswith(".gz"):
+        return source_root
+    return f"{source_root.rstrip('/')}/{target_day.year}/{file_name}"
+
+
+def normalize_mask_polygons(gdf):
+    """Remove holes and dissolve polygon overlaps for the final mask."""
+    import geopandas as gpd
+    from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
+    from shapely.ops import unary_union
+
+    def polygon_parts(geometry) -> list:
+        if geometry is None or geometry.is_empty:
+            return []
+        if isinstance(geometry, Polygon):
+            return [geometry]
+        if isinstance(geometry, MultiPolygon):
+            return [polygon for polygon in geometry.geoms if not polygon.is_empty]
+        if isinstance(geometry, GeometryCollection):
+            parts = []
+            for part in geometry.geoms:
+                parts.extend(polygon_parts(part))
+            return parts
+        return []
+
+    def remove_holes(geometry):
+        polygons = [Polygon(polygon.exterior) for polygon in polygon_parts(geometry)]
+        if not polygons:
+            return GeometryCollection()
+        if len(polygons) == 1:
+            return polygons[0]
+        return MultiPolygon(polygons)
+
+    if gdf.empty:
+        return gdf
+
+    gdf = gdf.copy()
+    gdf["geometry"] = gdf.geometry.map(remove_holes)
+    gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+
+    parts = []
+    for geometry in gdf.geometry:
+        parts.extend(polygon_parts(geometry))
+
+    if not parts:
+        return gdf.iloc[0:0].copy()
+
+    dissolved_geometry = unary_union(parts)
+    dissolved_parts = polygon_parts(dissolved_geometry)
+    if not dissolved_parts:
+        return gdf.iloc[0:0].copy()
+
+    template_row = {
+        column: gdf.iloc[0][column]
+        for column in gdf.columns
+        if column != gdf.geometry.name
+    }
+    return gpd.GeoDataFrame(
+        [template_row.copy() for _ in dissolved_parts],
+        geometry=dissolved_parts,
+        crs=gdf.crs,
     )
-
-
-def _download_response_to_file(response, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with destination.open("wb") as dst:
-        for chunk in response.iter_content(chunk_size=1024 * 1024):
-            if chunk:
-                dst.write(chunk)
 
 
 def download_latest_source(
@@ -94,53 +125,50 @@ def download_latest_source(
     today: date,
     timeout_seconds: int,
 ) -> DownloadedSource:
-    """Download the newest available daily NHSI raster within the lookback window."""
+    """Download today's NHSI raster."""
     import requests
 
     session = requests.Session()
-    for candidate_day in candidate_source_days(today):
-        source_url = nhsi_source_url_for_day(source_root, candidate_day)
-        destination = workdir / nhsi_filename_for_day(candidate_day)
-        logger.info(
+    source_url = nhsi_source_url_for_day(source_root, today)
+    destination = workdir / nhsi_filename_for_day(today)
+    logger.info(
+        {
+            "message": "Attempting NHSI download",
+            "source_date": today.isoformat(),
+            "source_url": source_url,
+        }
+    )
+    try:
+        with session.get(
+            source_url,
+            stream=True,
+            timeout=timeout_seconds,
+        ) as response:
+            if response.status_code == 404:
+                raise FileNotFoundError(
+                    f"No NHSI raster available for {today.isoformat()}"
+                )
+            response.raise_for_status()
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open("wb") as dst:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        dst.write(chunk)
+        return DownloadedSource(
+            source_date=today,
+            source_url=source_url,
+            gz_path=destination,
+        )
+    except requests.RequestException as exc:
+        logger.warning(
             {
-                "message": "Attempting NHSI download",
-                "source_date": candidate_day.isoformat(),
+                "message": "NHSI download attempt failed",
+                "source_date": today.isoformat(),
                 "source_url": source_url,
+                "error": str(exc),
             }
         )
-        try:
-            with session.get(
-                source_url,
-                stream=True,
-                timeout=timeout_seconds,
-            ) as response:
-                if response.status_code == 404:
-                    continue
-                response.raise_for_status()
-                _download_response_to_file(response, destination)
-            return DownloadedSource(
-                source_date=candidate_day,
-                source_url=source_url,
-                gz_path=destination,
-            )
-        except requests.HTTPError as exc:
-            response = exc.response
-            if response is not None and response.status_code == 404:
-                continue
-            raise
-        except requests.RequestException as exc:
-            logger.warning(
-                {
-                    "message": "NHSI download attempt failed",
-                    "source_date": candidate_day.isoformat(),
-                    "source_url": source_url,
-                    "error": str(exc),
-                }
-            )
-
-    raise FileNotFoundError(
-        "No NHSI raster was available for today or the previous two days"
-    )
+        raise
 
 
 def gunzip_file(source_path: Path, destination: Path) -> None:
@@ -221,10 +249,7 @@ def remove_land_parts(gdf):
         return gdf
 
     representative_points = gdf.geometry.representative_point()
-    keep_mask = [
-        not globe.is_land(point.y, point.x) if point is not None else False
-        for point in representative_points
-    ]
+    keep_mask = [not globe.is_land(point.y, point.x) for point in representative_points]
     return gdf.loc[keep_mask].copy()
 
 
@@ -240,9 +265,6 @@ def filter_and_simplify_geojson(
     from shapely import make_valid, set_precision
 
     gdf = gpd.read_file(source_path)
-    if "DN" not in gdf.columns:
-        raise ValueError("Vectorized raster is missing the DN field")
-
     gdf = gdf[gdf["DN"] == ICE_CLASS_VALUE].copy()
     if gdf.empty:
         gdf["ice_date"] = None
@@ -319,53 +341,41 @@ def upload_outputs(
     )
 
 
-def _sync(force: bool = False) -> dict[str, object]:
-    settings = load_settings()
-    today = utc_today()
-    if not force and not should_run_today(
-        today, settings.anchor_date, settings.cadence_days
-    ):
-        reason = (
-            f"Skipped run on {today.isoformat()} because cadence_days="
-            f"{settings.cadence_days} and anchor_date={settings.anchor_date.isoformat()}"
-        )
-        logger.info({"message": reason})
-        return {
-            "status": "skipped",
-            "ran": False,
-            "cadence_days": settings.cadence_days,
-            "anchor_date": settings.anchor_date.isoformat(),
-            "reason": reason,
-        }
-
+def _sync() -> dict[str, str]:
+    mask_gcs_uri = os.environ["SEA_ICE_MASK_GCS_URI"]
+    today = datetime.now(timezone.utc).date()
     workdir = Path("/tmp/sea-ice-sync")
     if workdir.exists():
         shutil.rmtree(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
 
-    downloaded_source = download_latest_source(
-        settings.source_url,
-        workdir,
-        today=today,
-        timeout_seconds=settings.request_timeout_seconds,
-    )
+    try:
+        downloaded_source = download_latest_source(
+            DEFAULT_NHSI_BASE_URL,
+            workdir,
+            today=today,
+            timeout_seconds=REQUEST_TIMEOUT_SECONDS,
+        )
+    except FileNotFoundError as exc:
+        logger.info({"message": str(exc), "source_date": today.isoformat()})
+        return {
+            "status": "skipped",
+            "source_date": today.isoformat(),
+            "reason": str(exc),
+        }
     output_path = process_downloaded_source(
         downloaded_source,
         workdir,
-        simplify_tolerance=settings.simplify_tolerance,
-        simplify_srs=settings.simplify_srs,
+        simplify_tolerance=DEFAULT_SIMPLIFY_TOLERANCE,
+        simplify_srs=DEFAULT_SIMPLIFY_SRS,
     )
 
-    bucket_name, object_name = build_object_name(
-        settings.mask_gcs_uri,
-        downloaded_source.source_date,
-    )
+    bucket_name, object_prefix = mask_gcs_uri.removeprefix("gs://").split("/", 1)
+    object_name = f"{object_prefix.strip('/')}/{downloaded_source.source_date.isoformat()}_extent.geojson"
     metadata = {
         "source_url": downloaded_source.source_url,
-        "mask_gcs_uri": settings.mask_gcs_uri,
+        "mask_gcs_uri": mask_gcs_uri,
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "cadence_days": str(settings.cadence_days),
-        "anchor_date": settings.anchor_date.isoformat(),
         "source_date": downloaded_source.source_date.isoformat(),
         "source_filename": downloaded_source.gz_path.name,
     }
@@ -385,10 +395,8 @@ def _sync(force: bool = False) -> dict[str, object]:
     )
     return {
         "status": "ok",
-        "ran": True,
-        "cadence_days": settings.cadence_days,
-        "anchor_date": settings.anchor_date.isoformat(),
         "object_name": object_name,
+        "source_date": downloaded_source.source_date.isoformat(),
     }
 
 
@@ -399,6 +407,6 @@ def ping() -> dict[str, str]:
 
 
 @app.get("/sync", description="Run sea-ice sync", tags=["Sea Ice"])
-def sync_get(force: bool = False) -> dict[str, object]:
+def sync_get() -> dict[str, str]:
     """Run a sea-ice sync from a GET request."""
-    return _sync(force=force)
+    return _sync()

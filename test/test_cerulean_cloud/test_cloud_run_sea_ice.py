@@ -1,58 +1,79 @@
+import importlib
+import sys
 from datetime import date
+from types import SimpleNamespace
 
 import geopandas as gpd
 import pytest
 from shapely.geometry import Polygon
 
-from cerulean_cloud.cloud_run_sea_ice.logic import (
-    build_object_name,
-    candidate_source_days,
-    nhsi_filename_for_day,
-    nhsi_source_url_for_day,
-    normalize_mask_polygons,
-    parse_gcs_uri,
-    should_run_today,
-)
+
+class FakeResponse:
+    def __init__(self, status_code: int, body: bytes = b""):
+        self.status_code = status_code
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    def iter_content(self, chunk_size: int):
+        del chunk_size
+        if self._body:
+            yield self._body
 
 
-def test_should_run_today_daily():
-    assert should_run_today(date(2026, 3, 19), date(2026, 3, 19), 1) is True
-    assert should_run_today(date(2026, 3, 20), date(2026, 3, 19), 1) is True
+def install_fake_requests(monkeypatch, session):
+    class FakeRequestException(Exception):
+        pass
 
+    class FakeHTTPError(FakeRequestException):
+        def __init__(self, response=None):
+            super().__init__("http error")
+            self.response = response
 
-def test_should_run_today_every_three_days():
-    assert should_run_today(date(2026, 3, 19), date(2026, 3, 19), 3) is True
-    assert should_run_today(date(2026, 3, 22), date(2026, 3, 19), 3) is True
-    assert should_run_today(date(2026, 3, 20), date(2026, 3, 19), 3) is False
-
-
-def test_should_not_run_before_anchor_date():
-    assert should_run_today(date(2026, 3, 18), date(2026, 3, 19), 7) is False
-
-
-def test_should_run_today_rejects_invalid_cadence():
-    with pytest.raises(ValueError, match="cadence_days"):
-        should_run_today(date(2026, 3, 19), date(2026, 3, 19), 0)
-
-
-def test_build_object_name():
-    bucket_name, object_name = build_object_name(
-        "gs://cerulean-ice/extent_vectors/",
-        date(2026, 3, 27),
+    monkeypatch.setitem(
+        sys.modules,
+        "requests",
+        SimpleNamespace(
+            Session=lambda: session,
+            RequestException=FakeRequestException,
+            HTTPError=FakeHTTPError,
+        ),
     )
-    assert bucket_name == "cerulean-ice"
-    assert object_name == "extent_vectors/2026-03-27_extent.geojson"
+    return FakeRequestException
 
 
-def test_build_object_name_rejects_file_style_uri():
-    with pytest.raises(ValueError, match="prefix directory, not a file path"):
-        build_object_name(
-            "gs://cerulean-ice/extent_vectors/daily_ice_extent.geojson",
-            date(2026, 3, 27),
-        )
+def load_handler(monkeypatch):
+    class FakeApp:
+        def __init__(self, *args, **kwargs):
+            del args, kwargs
+
+        def get(self, *args, **kwargs):
+            del args, kwargs
+
+            def decorator(func):
+                return func
+
+            return decorator
+
+    monkeypatch.setitem(sys.modules, "fastapi", SimpleNamespace(FastAPI=FakeApp))
+    sys.modules.pop("cerulean_cloud.cloud_run_sea_ice.handler", None)
+    return importlib.import_module("cerulean_cloud.cloud_run_sea_ice.handler")
 
 
-def test_normalize_mask_polygons_strips_holes():
+def test_default_simplify_tolerance_is_ten_kilometers(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
+    assert sea_ice_handler.DEFAULT_SIMPLIFY_TOLERANCE == 10_000.0
+
+
+def test_normalize_mask_polygons_strips_holes(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
     gdf = gpd.GeoDataFrame(
         {"DN": [3], "ice_date": [date(2026, 3, 27).isoformat()]},
         geometry=[
@@ -64,14 +85,15 @@ def test_normalize_mask_polygons_strips_holes():
         crs="EPSG:4326",
     )
 
-    result = normalize_mask_polygons(gdf)
+    result = sea_ice_handler.normalize_mask_polygons(gdf)
 
     assert len(result) == 1
     assert len(result.geometry.iloc[0].interiors) == 0
     assert result.geometry.iloc[0].area == 16
 
 
-def test_normalize_mask_polygons_dissolves_overlaps():
+def test_normalize_mask_polygons_dissolves_overlaps(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
     gdf = gpd.GeoDataFrame(
         {
             "DN": [3, 3],
@@ -84,7 +106,7 @@ def test_normalize_mask_polygons_dissolves_overlaps():
         crs="EPSG:4326",
     )
 
-    result = normalize_mask_polygons(gdf)
+    result = sea_ice_handler.normalize_mask_polygons(gdf)
 
     assert len(result) == 1
     assert result.iloc[0]["DN"] == 3
@@ -92,26 +114,18 @@ def test_normalize_mask_polygons_dissolves_overlaps():
     assert result.geometry.iloc[0].area == 6
 
 
-def test_parse_gcs_uri_rejects_invalid_values():
-    with pytest.raises(ValueError, match="Invalid GCS URI"):
-        parse_gcs_uri("https://example.com/not-gcs.geojson")
-
-
-def test_candidate_source_days_returns_today_then_lookback():
-    assert candidate_source_days(date(2026, 3, 27)) == [
-        date(2026, 3, 27),
-        date(2026, 3, 26),
-        date(2026, 3, 25),
-    ]
-
-
-def test_nhsi_filename_for_day_uses_yyyydoy():
-    assert nhsi_filename_for_day(date(2026, 1, 1)) == "ims2026001_4km_GIS_v1.3.tif.gz"
-
-
-def test_nhsi_source_url_for_day_builds_from_base_url():
+def test_nhsi_filename_for_day_uses_yyyydoy(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
     assert (
-        nhsi_source_url_for_day(
+        sea_ice_handler.nhsi_filename_for_day(date(2026, 1, 1))
+        == "ims2026001_4km_GIS_v1.3.tif.gz"
+    )
+
+
+def test_nhsi_source_url_for_day_builds_from_base_url(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
+    assert (
+        sea_ice_handler.nhsi_source_url_for_day(
             "https://noaadata.apps.nsidc.org/NOAA/G02156/GIS/4km",
             date(2026, 3, 27),
         )
@@ -119,11 +133,75 @@ def test_nhsi_source_url_for_day_builds_from_base_url():
     )
 
 
-def test_nhsi_source_url_for_day_supports_templates():
+def test_nhsi_source_url_for_day_supports_templates(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
     assert (
-        nhsi_source_url_for_day(
+        sea_ice_handler.nhsi_source_url_for_day(
             "https://example.com/{yyyy}/{file_name}",
             date(2026, 3, 27),
         )
         == "https://example.com/2026/ims2026086_4km_GIS_v1.3.tif.gz"
     )
+
+
+def test_download_latest_source_404_skips_today_without_looking_back(
+    monkeypatch, tmp_path
+):
+    sea_ice_handler = load_handler(monkeypatch)
+    today = date(2026, 3, 27)
+    responses = {
+        sea_ice_handler.nhsi_source_url_for_day(
+            "https://example.com/root", today
+        ): FakeResponse(404)
+    }
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, stream=True, timeout=None):
+            self.calls.append((url, stream, timeout))
+            return responses[url]
+
+    session = FakeSession()
+    install_fake_requests(monkeypatch, session)
+
+    with pytest.raises(FileNotFoundError, match="2026-03-27"):
+        sea_ice_handler.download_latest_source(
+            "https://example.com/root",
+            tmp_path,
+            today=today,
+            timeout_seconds=123,
+        )
+
+    assert [call[0] for call in session.calls] == [
+        sea_ice_handler.nhsi_source_url_for_day("https://example.com/root", today)
+    ]
+
+
+def test_download_latest_source_raises_on_transient_failure(monkeypatch, tmp_path):
+    sea_ice_handler = load_handler(monkeypatch)
+    today = date(2026, 3, 27)
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, stream=True, timeout=None):
+            self.calls.append((url, stream, timeout))
+            raise request_exception("timeout talking to NHSI")
+
+    session = FakeSession()
+    request_exception = install_fake_requests(monkeypatch, session)
+
+    with pytest.raises(request_exception, match="timeout talking to NHSI"):
+        sea_ice_handler.download_latest_source(
+            "https://example.com/root",
+            tmp_path,
+            today=today,
+            timeout_seconds=123,
+        )
+
+    assert [call[0] for call in session.calls] == [
+        sea_ice_handler.nhsi_source_url_for_day("https://example.com/root", today)
+    ]

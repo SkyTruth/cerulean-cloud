@@ -5,7 +5,11 @@ import pulumi_gcp as gcp
 from utils import construct_name
 
 config = pulumi.Config("sea-ice")
-enabled = config.get_bool("enabled") or False
+enabled = bool(config.get_bool("enabled"))
+SERVICE_TIMEOUT_SECONDS = 1800
+SCHEDULER_ATTEMPT_DEADLINE = f"{SERVICE_TIMEOUT_SECONDS}s"
+SCHEDULE = "0 8 * * *"
+TIME_ZONE = "UTC"
 
 default = None
 job = None
@@ -52,10 +56,6 @@ if enabled:
             name="SEA_ICE_MASK_GCS_URI",
             value=sea_ice_mask_gcs_uri,
         ),
-        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-            name="SEA_ICE_REQUEST_TIMEOUT_SECONDS",
-            value=config.get("request_timeout_seconds") or "600",
-        ),
     ]
 
     default = gcp.cloudrun.Service(
@@ -73,7 +73,7 @@ if enabled:
                         resources=dict(limits=dict(memory="2Gi", cpu="1000m")),
                     )
                 ],
-                timeout_seconds=1800,
+                timeout_seconds=SERVICE_TIMEOUT_SECONDS,
                 container_concurrency=1,
             ),
         ),
@@ -109,9 +109,10 @@ if enabled:
 
     job = gcp.cloudscheduler.Job(
         construct_name("sea-ice-scheduler"),
-        description="Run the sea-ice sync worker on a daily schedule with cadence gating.",
-        schedule=config.get("daily_schedule") or "0 8 * * *",
-        time_zone=config.get("time_zone") or "UTC",
+        description="Run the sea-ice sync worker on a fixed daily UTC schedule.",
+        schedule=SCHEDULE,
+        time_zone=TIME_ZONE,
+        attempt_deadline=SCHEDULER_ATTEMPT_DEADLINE,
         http_target=http_target,
         opts=pulumi.ResourceOptions(depends_on=[invoker]),
     )
