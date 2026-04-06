@@ -448,6 +448,47 @@ def test_classify_geometry_background_mask_prefers_land_over_sea_ice():
     )
 
 
+def test_classify_geometry_background_mask_handles_projected_sea_ice_mask():
+    buffered_geometry = box(-160.2, 64.7, -159.8, 65.1)
+    land_mask_gdf = gpd.GeoDataFrame(geometry=[box(10, 10, 11, 11)], crs="EPSG:4326")
+    projected_mask = gpd.GeoDataFrame(
+        geometry=[box(-2_000_000, 0, 0, 2_000_000)], crs="EPSG:3413"
+    )
+
+    naive_mask = projected_mask.to_crs("EPSG:4326")
+    assert (
+        classify_geometry_background_mask(
+            buffered_geometry,
+            sea_ice_mask_gdf=naive_mask,
+            land_mask_gdf=land_mask_gdf,
+        )
+        == "SEA_ICE"
+    )
+
+    assert (
+        classify_geometry_background_mask(
+            buffered_geometry,
+            sea_ice_mask_gdf=projected_mask,
+            land_mask_gdf=land_mask_gdf,
+        )
+        is None
+    )
+
+    true_overlap_geometry = (
+        gpd.GeoSeries([box(-1_800_000, 500_000, -1_700_000, 600_000)], crs="EPSG:3413")
+        .to_crs("EPSG:4326")
+        .iloc[0]
+    )
+    assert (
+        classify_geometry_background_mask(
+            true_overlap_geometry,
+            sea_ice_mask_gdf=projected_mask,
+            land_mask_gdf=land_mask_gdf,
+        )
+        == "SEA_ICE"
+    )
+
+
 class TestableBaseModel(BaseModel):
     # Assuming BaseModel can be instantiated or mocked as needed
     pass

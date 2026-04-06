@@ -127,7 +127,7 @@ def download_sea_ice_gdf(date: date) -> gpd.GeoDataFrame:
                 raise ValueError(f"Expected one shapefile, found {len(shp_names)}")
             gdf = gpd.read_file(f"zip://{archive_path}!{shp_names[0]}")
 
-    return gdf.to_crs("EPSG:4326")
+    return gdf
 
 
 def get_sea_ice_mask(
@@ -162,9 +162,18 @@ def classify_geometry_background_mask(
     if len(land_mask_gdf.sindex.query(buffered_geometry, predicate="intersects")) > 0:
         return "LAND"
     if sea_ice_mask_gdf is not None and not sea_ice_mask_gdf.empty:
+        sea_ice_query_geometry = buffered_geometry
+        if sea_ice_mask_gdf.crs and sea_ice_mask_gdf.crs.to_epsg() != 4326:
+            sea_ice_query_geometry = (
+                gpd.GeoSeries([buffered_geometry], crs="EPSG:4326")
+                .to_crs(sea_ice_mask_gdf.crs)
+                .iloc[0]
+            )
         if (
             len(
-                sea_ice_mask_gdf.sindex.query(buffered_geometry, predicate="intersects")
+                sea_ice_mask_gdf.sindex.query(
+                    sea_ice_query_geometry, predicate="intersects"
+                )
             )
             > 0
         ):
