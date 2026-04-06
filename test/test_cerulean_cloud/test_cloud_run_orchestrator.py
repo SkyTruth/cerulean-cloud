@@ -4,11 +4,7 @@ import os
 import sys
 from base64 import b64decode
 from datetime import date, datetime
-from io import BytesIO
-from pathlib import Path
-import tempfile
 from unittest.mock import patch
-import zipfile
 
 import geojson
 import geopandas as gpd
@@ -285,25 +281,8 @@ def make_http_status_error(status_code, url="https://example.test/masie.zip"):
     )
 
 
-def make_masie_zip_bytes(geometry=box(-45.5, 74.5, -44.5, 75.5), crs="EPSG:3413"):
-    gdf = gpd.GeoDataFrame({"geometry": [geometry]}, crs="EPSG:4326").to_crs(crs)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        shapefile_path = Path(tmpdir) / "masie_ice.shp"
-        gdf.to_file(shapefile_path, index=False)
-
-        zip_buffer = BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w") as archive:
-            for path in Path(tmpdir).glob("masie_ice.*"):
-                archive.write(path, arcname=path.name)
-        return zip_buffer.getvalue()
-
-
-def make_masie_url(mask_date):
-    return (
-        "https://noaadata.apps.nsidc.org/NOAA/G02186/shapefiles/4km/"
-        f"{mask_date.year}/masie_ice_r00_v01_{mask_date.strftime('%Y%j')}_4km.zip"
-    )
+def make_masie_gdf(geometry=box(-45.5, 74.5, -44.5, 75.5)):
+    return gpd.GeoDataFrame({"geometry": [geometry]}, crs="EPSG:4326")
 
 
 @pytest.mark.skip
@@ -373,36 +352,29 @@ def test_make_cloud_log_url():
 
 
 def test_get_sea_ice_mask_returns_none_when_no_matching_file_exists(monkeypatch):
-    requested_urls = []
+    requested_dates = []
 
-    def fake_get(url, timeout=60.0, follow_redirects=True):
-        requested_urls.append(url)
-        raise make_http_status_error(404, url)
+    def fake_download(mask_date):
+        requested_dates.append(mask_date)
+        raise make_http_status_error(404)
 
-    monkeypatch.setattr(orchestrator_handler.httpx, "get", fake_get)
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
     assert orchestrator_handler.get_sea_ice_mask(
         date(2026, 4, 1), earliest_supported_date=date(2026, 3, 31)
     ) == (None, None)
-    assert requested_urls == [
-        make_masie_url(date(2026, 4, 1)),
-        make_masie_url(date(2026, 3, 31)),
-    ]
+    assert requested_dates == [date(2026, 4, 1), date(2026, 3, 31)]
 
 
 def test_get_sea_ice_mask_downloads_mask(monkeypatch):
     request_counter = {"count": 0}
-    zip_bytes = make_masie_zip_bytes()
+    gdf = make_masie_gdf()
 
-    def fake_get(url, timeout=60.0, follow_redirects=True):
-        assert url == make_masie_url(date(2026, 4, 1))
+    def fake_download(mask_date):
+        assert mask_date == date(2026, 4, 1)
         request_counter["count"] += 1
-        return httpx.Response(
-            200,
-            content=zip_bytes,
-            request=httpx.Request("GET", url),
-        )
+        return gdf
 
-    monkeypatch.setattr(orchestrator_handler.httpx, "get", fake_get)
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
     sea_ice_mask, sea_ice_date = orchestrator_handler.get_sea_ice_mask(date(2026, 4, 1))
 
     assert len(sea_ice_mask) == 1
@@ -415,39 +387,33 @@ def test_get_sea_ice_mask_downloads_mask(monkeypatch):
 
 
 def test_get_sea_ice_mask_falls_back_to_previous_available_date(monkeypatch):
-    requested_urls = []
-    zip_bytes = make_masie_zip_bytes()
+    requested_dates = []
+    gdf = make_masie_gdf()
 
-    def fake_get(url, timeout=60.0, follow_redirects=True):
-        requested_urls.append(url)
-        if url == make_masie_url(date(2026, 4, 1)):
-            raise make_http_status_error(404, url)
-        assert url == make_masie_url(date(2026, 3, 31))
-        return httpx.Response(
-            200,
-            content=zip_bytes,
-            request=httpx.Request("GET", url),
-        )
+    def fake_download(mask_date):
+        requested_dates.append(mask_date)
+        if mask_date == date(2026, 4, 1):
+            raise make_http_status_error(404)
+        assert mask_date == date(2026, 3, 31)
+        return gdf
 
-    monkeypatch.setattr(orchestrator_handler.httpx, "get", fake_get)
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
     sea_ice_mask, sea_ice_date = orchestrator_handler.get_sea_ice_mask(
         date(2026, 4, 1), earliest_supported_date=date(2026, 3, 30)
     )
 
     assert len(sea_ice_mask) == 1
     assert sea_ice_date == date(2026, 3, 31)
-    assert requested_urls == [
-        make_masie_url(date(2026, 4, 1)),
-        make_masie_url(date(2026, 3, 31)),
-    ]
+    assert requested_dates == [date(2026, 4, 1), date(2026, 3, 31)]
 
 
-def test_get_sea_ice_mask_fails_open_on_download_error(monkeypatch):
-    def fake_get(url, timeout=60.0, follow_redirects=True):
+def test_get_sea_ice_mask_raises_on_download_error(monkeypatch):
+    def fake_download(mask_date):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(orchestrator_handler.httpx, "get", fake_get)
-    assert orchestrator_handler.get_sea_ice_mask(date(2026, 4, 1)) == (None, None)
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
+    with pytest.raises(RuntimeError, match="boom"):
+        orchestrator_handler.get_sea_ice_mask(date(2026, 4, 1))
 
 
 def test_classify_geometry_background_mask_detects_sea_ice_when_land_clear():
