@@ -23,7 +23,6 @@ geopandas
 pygeos
 networkx
 google-cloud-tasks
-google-cloud-storage
 protobuf
 -f https://download.pytorch.org/whl/cpu/torch_stable.html
 torch==2.0.1+cpu

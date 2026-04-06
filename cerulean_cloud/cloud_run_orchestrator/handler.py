@@ -16,16 +16,19 @@ import traceback
 import urllib.parse as urlparse
 from collections import Counter
 from datetime import date, datetime, timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Dict, List, Optional, Tuple
+from zipfile import ZipFile
 
 import geopandas as gpd
+import httpx
 import morecantile
 import numpy as np
 import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from global_land_mask import globe
-from google.cloud import storage
 from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
@@ -98,53 +101,54 @@ def get_landmask_gdf():
     return landmask_gdf
 
 
+def download_sea_ice_gdf(date: date) -> gpd.GeoDataFrame:
+    """
+    Download and load a MASIE sea ice mask GeoDataFrame from a zipped shapefile archive.
+    """
+    archive_url = (
+        "https://noaadata.apps.nsidc.org/NOAA/G02186/shapefiles/4km/"
+        f"{date.year}/masie_ice_r00_v01_{date:%Y%j}_4km.zip"
+    )
+
+    with TemporaryDirectory() as tmpdir:
+        archive_path = Path(tmpdir) / "masie_4km.zip"
+
+        with httpx.stream(
+            "GET", archive_url, timeout=60, follow_redirects=True
+        ) as response:
+            response.raise_for_status()
+            with archive_path.open("wb") as f:
+                for chunk in response.iter_bytes():
+                    f.write(chunk)
+
+        with ZipFile(archive_path) as archive:
+            shp_names = [n for n in archive.namelist() if n.lower().endswith(".shp")]
+            if len(shp_names) != 1:
+                raise ValueError(f"Expected one shapefile, found {len(shp_names)}")
+            gdf = gpd.read_file(f"zip://{archive_path}!{shp_names[0]}")
+
+    return gdf.to_crs("EPSG:4326")
+
+
 def get_sea_ice_mask(
-    scene_date: date, earliest_supported_date: date = date(2023, 3, 1)
+    scene_date: date,
+    earliest_supported_date: date = date(2010, 1, 1),
 ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[date]]:
     """
-    Retrieves the sea ice mask and the mask date used from GCS.
+    Return the most recent NOAA MASIE sea ice mask on or before scene_date.
     """
-    sea_ice_mask_gcs_uri = os.environ["SEA_ICE_MASK_GCS_URI"]
-    bucket_name, prefix = sea_ice_mask_gcs_uri.removeprefix("gs://").split("/", 1)
-    prefix = prefix.rstrip("/")
+    current_date = scene_date
 
-    try:
-        bucket = storage.Client().bucket(bucket_name)
-        current_date = scene_date
-        matched_blob = None
-        matched_date = None
-        while (current_date >= earliest_supported_date) and (not matched_date):
-            matched_blob = bucket.get_blob(
-                f"{prefix}/{current_date.isoformat()}_extent.geojson"
-            )
-            if matched_blob is not None:
-                matched_date = current_date
+    while current_date >= earliest_supported_date:
+        try:
+            gdf = download_sea_ice_gdf(current_date)
+            return gdf, current_date
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 404:
+                raise
             current_date -= timedelta(days=1)
 
-        if not matched_date:
-            raise ValueError(
-                {
-                    "message": f"No sea ice mask found for scene date {scene_date.isoformat()} between {earliest_supported_date.isoformat()} and {scene_date.isoformat()}",
-                    "scene_date": scene_date.isoformat(),
-                    "earliest_supported_date": earliest_supported_date.isoformat(),
-                }
-            )
-
-        sea_ice_mask_gdf = gpd.GeoDataFrame.from_features(
-            json.loads(matched_blob.download_as_text()), crs="4326"
-        )
-        return sea_ice_mask_gdf, matched_date
-    except Exception as exc:
-        logger.warning(
-            {
-                "message": "Failed to load sea ice mask; continuing without it",
-                "scene_date": scene_date.isoformat(),
-                "sea_ice_mask_prefix": prefix,
-                "exception": str(exc),
-                "traceback": traceback.format_exc(),
-            }
-        )
-        return None, None
+    return None, None
 
 
 def classify_geometry_background_mask(
