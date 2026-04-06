@@ -1,4 +1,8 @@
+import gzip
 import importlib
+import json
+import logging
+import shutil
 import sys
 from datetime import date, timedelta
 from types import SimpleNamespace
@@ -7,7 +11,7 @@ import geopandas as gpd
 import numpy as np
 import pytest
 import rasterio
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, shape
 
 
 class FakeResponse:
@@ -278,6 +282,102 @@ def test_finalize_output_geometries_repairs_invalid_polygon(monkeypatch):
 
     assert not result.empty
     assert result.geometry.is_valid.all()
+
+
+def test_finalize_output_geometries_falls_back_when_set_precision_fails(monkeypatch):
+    import shapely
+    from shapely.errors import GEOSException
+
+    sea_ice_handler = load_handler(monkeypatch)
+    polygon = Polygon([(0, 0), (0, 2), (2, 2), (2, 0), (0, 0)])
+    gdf = gpd.GeoDataFrame(
+        {"DN": [3], "ice_date": [date(2026, 3, 27).isoformat()]},
+        geometry=[polygon],
+        crs="EPSG:4326",
+    )
+
+    monkeypatch.setattr(
+        shapely,
+        "set_precision",
+        lambda *args, **kwargs: (_ for _ in ()).throw(GEOSException("boom")),
+    )
+
+    result = sea_ice_handler.finalize_output_geometries(gdf)
+
+    assert not result.empty
+    assert result.geometry.is_valid.all()
+
+
+def test_process_downloaded_source_writes_output_when_precision_snapping_fails(
+    monkeypatch,
+    tmp_path,
+    caplog,
+):
+    import shapely
+    from shapely.errors import GEOSException
+
+    sea_ice_handler = load_handler(monkeypatch)
+    source_date = date(2026, 3, 27)
+    source_tif = tmp_path / "source.tif"
+    gz_path = tmp_path / "ims2026086_4km_GIS_v1.3.tif.gz"
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+
+    with rasterio.open(
+        source_tif,
+        "w",
+        driver="GTiff",
+        height=2,
+        width=2,
+        count=1,
+        dtype=np.uint8,
+        crs="EPSG:3413",
+        transform=rasterio.transform.from_origin(0, 8000, 4000, 4000),
+    ) as dataset:
+        dataset.write(np.array([[3, 3], [0, 0]], dtype=np.uint8), 1)
+
+    with source_tif.open("rb") as src, gzip.open(gz_path, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "global_land_mask",
+        SimpleNamespace(
+            globe=SimpleNamespace(is_land=lambda lat, lon: False),
+        ),
+    )
+    monkeypatch.setattr(
+        shapely,
+        "set_precision",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            GEOSException("TopologyException: side location conflict")
+        ),
+    )
+
+    with caplog.at_level(logging.WARNING, logger=sea_ice_handler.logger.name):
+        output_path = sea_ice_handler.process_downloaded_source(
+            sea_ice_handler.DownloadedSource(
+                source_date=source_date,
+                source_url="https://example.com/source.tif.gz",
+                gz_path=gz_path,
+            ),
+            workdir=workdir,
+            simplify_tolerance=sea_ice_handler.DEFAULT_SIMPLIFY_TOLERANCE,
+            simplify_srs=sea_ice_handler.DEFAULT_SIMPLIFY_SRS,
+        )
+
+    payload = json.loads(output_path.read_text())
+
+    assert payload["type"] == "FeatureCollection"
+    assert len(payload["features"]) == 1
+    assert payload["features"][0]["properties"]["ice_date"] == source_date.isoformat()
+    assert shape(payload["features"][0]["geometry"]).is_valid
+    assert any(
+        isinstance(record.msg, dict)
+        and record.msg.get("message")
+        == "Precision snapping failed; using repaired geometry"
+        for record in caplog.records
+    )
 
 
 def test_download_latest_source_404_skips_today_without_looking_back(

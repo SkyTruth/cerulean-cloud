@@ -302,9 +302,26 @@ def empty_mask_gdf():
 def finalize_output_geometries(gdf):
     """Repair and snap final output geometries in EPSG:4326."""
     from shapely import make_valid, set_precision
+    from shapely.errors import GEOSException
 
     if gdf.empty:
         return gdf
+
+    def safe_set_precision(geometry):
+        if geometry is None or geometry.is_empty:
+            return geometry
+
+        repaired = make_valid(geometry)
+        try:
+            return set_precision(repaired, PRECISION_GRID_SIZE)
+        except GEOSException as exc:
+            logger.warning(
+                {
+                    "message": "Precision snapping failed; using repaired geometry",
+                    "error": str(exc),
+                }
+            )
+            return repaired
 
     gdf = gdf.copy()
     gdf["geometry"] = gdf.geometry.map(make_valid)
@@ -316,9 +333,7 @@ def finalize_output_geometries(gdf):
     if gdf.empty:
         return gdf
 
-    gdf["geometry"] = gdf.geometry.map(
-        lambda geom: set_precision(geom, PRECISION_GRID_SIZE)
-    )
+    gdf["geometry"] = gdf.geometry.map(safe_set_precision)
     return gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
 
 
