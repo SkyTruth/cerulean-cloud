@@ -1,5 +1,6 @@
 """Infra for a scheduled Cloud Run worker that syncs sea-ice extent to GCS."""
 
+import git
 import pulumi
 import pulumi_gcp as gcp
 from utils import construct_name
@@ -18,6 +19,8 @@ if enabled:
     import cloud_run_images
 
     stack = pulumi.get_stack()
+    repo = git.Repo(search_parent_directories=True)
+    git_sha = repo.head.object.hexsha
     gcp_config = pulumi.Config("gcp")
     app_config = pulumi.Config("cerulean-cloud")
 
@@ -55,6 +58,10 @@ if enabled:
         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
             name="SEA_ICE_MASK_GCS_URI",
             value=sea_ice_mask_gcs_uri,
+        ),
+        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+            name="GIT_HASH",
+            value=git_sha,
         ),
     ]
 
