@@ -26,4 +26,4 @@ config:
     secure: v1:CXP8X/VfAkBuJJm5:/h0hT4nZ7mQYSoVnmHOB8rEIFTfOs2aJ
   scihub:username: rodrigo1234
   alerts:keyname: cerulean-slack-alerts-webhook
-  sea-ice:enabled: true
+  sea-ice:enabled: false
