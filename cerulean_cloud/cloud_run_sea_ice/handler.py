@@ -6,6 +6,7 @@ import gzip
 import logging
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -20,6 +21,7 @@ DEFAULT_SIMPLIFY_TOLERANCE = 10_000.0
 DEFAULT_SIMPLIFY_SRS = "EPSG:4087"
 ICE_CLASS_VALUE = 3
 PRECISION_GRID_SIZE = 0.0001
+REPROJECT_SEGMENTIZE_MAX_DISTANCE = 10_000.0
 REQUEST_TIMEOUT_SECONDS = 600
 MAX_SOURCE_LOOKBACK_DAYS = 14
 
@@ -329,12 +331,45 @@ def finalize_output_geometries(gdf):
     if gdf.empty:
         return gdf
 
-    gdf = normalize_mask_polygons(gdf)
-    if gdf.empty:
-        return gdf
-
+    gdf = gdf.explode(index_parts=False, ignore_index=True)
     gdf["geometry"] = gdf.geometry.map(safe_set_precision)
     return gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty].copy()
+
+
+def reproject_output_geometries(gdf, workdir: Path):
+    """Reproject for GeoJSON output with dateline wrapping and segmentized edges."""
+    import geopandas as gpd
+
+    if gdf.empty:
+        return empty_mask_gdf()
+
+    if gdf.crs is None or gdf.crs.to_epsg() == 4326:
+        return gdf.set_crs("EPSG:4326", allow_override=True) if gdf.crs is None else gdf
+
+    source_dataset = workdir / "simplified.gpkg"
+    output_geojson = workdir / "reprojected.geojson"
+    source_dataset.unlink(missing_ok=True)
+    output_geojson.unlink(missing_ok=True)
+
+    gdf.to_file(source_dataset, driver="GPKG")
+    subprocess.run(
+        [
+            "ogr2ogr",
+            "-f",
+            "GeoJSON",
+            "-t_srs",
+            "EPSG:4326",
+            "-wrapdateline",
+            "-segmentize",
+            str(REPROJECT_SEGMENTIZE_MAX_DISTANCE),
+            str(output_geojson),
+            str(source_dataset),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return gpd.read_file(output_geojson)
 
 
 def filter_and_simplify_polygons(
@@ -377,8 +412,7 @@ def filter_and_simplify_polygons(
         simplify_tolerance,
         preserve_topology=True,
     )
-    if simplified.crs is None or simplified.crs.to_epsg() != 4326:
-        simplified = simplified.to_crs("EPSG:4326")
+    simplified = reproject_output_geometries(simplified, destination.parent)
     simplified = finalize_output_geometries(simplified)
     if simplified.empty:
         empty_mask_gdf().to_file(destination, driver="GeoJSON")

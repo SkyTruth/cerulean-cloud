@@ -3,6 +3,7 @@ import importlib
 import json
 import logging
 import shutil
+import subprocess
 import sys
 from datetime import date, timedelta
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ import geopandas as gpd
 import numpy as np
 import pytest
 import rasterio
-from shapely.geometry import Polygon, shape
+from shapely.geometry import MultiPolygon, Polygon, shape
 
 
 class FakeResponse:
@@ -284,6 +285,27 @@ def test_finalize_output_geometries_repairs_invalid_polygon(monkeypatch):
     assert result.geometry.is_valid.all()
 
 
+def test_finalize_output_geometries_preserves_split_parts(monkeypatch):
+    sea_ice_handler = load_handler(monkeypatch)
+    gdf = gpd.GeoDataFrame(
+        {"DN": [3], "ice_date": [date(2026, 3, 27).isoformat()]},
+        geometry=[
+            MultiPolygon(
+                [
+                    Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)]),
+                    Polygon([(10, 0), (11, 0), (11, 1), (10, 1), (10, 0)]),
+                ]
+            )
+        ],
+        crs="EPSG:4326",
+    )
+
+    result = sea_ice_handler.finalize_output_geometries(gdf)
+
+    assert len(result) == 2
+    assert result.geometry.is_valid.all()
+
+
 def test_finalize_output_geometries_falls_back_when_set_precision_fails(monkeypatch):
     import shapely
     from shapely.errors import GEOSException
@@ -306,6 +328,56 @@ def test_finalize_output_geometries_falls_back_when_set_precision_fails(monkeypa
 
     assert not result.empty
     assert result.geometry.is_valid.all()
+
+
+def test_reproject_output_geometries_uses_wrapdateline_and_segmentize(
+    monkeypatch,
+    tmp_path,
+):
+    sea_ice_handler = load_handler(monkeypatch)
+    gdf = gpd.GeoDataFrame(
+        {"DN": [3], "ice_date": [date(2026, 3, 27).isoformat()]},
+        geometry=[Polygon([(0, 0), (1, 0), (1, 1), (0, 1), (0, 0)])],
+        crs="EPSG:3413",
+    )
+    calls = []
+    expected = gpd.GeoDataFrame(
+        {"DN": [3], "ice_date": [date(2026, 3, 27).isoformat()]},
+        geometry=[Polygon([(-1, 0), (0, 0), (0, 1), (-1, 1), (-1, 0)])],
+        crs="EPSG:4326",
+    )
+
+    def fake_run(cmd, **kwargs):
+        calls.append((cmd, kwargs))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(gpd, "read_file", lambda path: expected)
+
+    result = sea_ice_handler.reproject_output_geometries(gdf, tmp_path)
+
+    assert result.equals(expected)
+    assert calls == [
+        (
+            [
+                "ogr2ogr",
+                "-f",
+                "GeoJSON",
+                "-t_srs",
+                "EPSG:4326",
+                "-wrapdateline",
+                "-segmentize",
+                str(sea_ice_handler.REPROJECT_SEGMENTIZE_MAX_DISTANCE),
+                str(tmp_path / "reprojected.geojson"),
+                str(tmp_path / "simplified.gpkg"),
+            ],
+            {
+                "check": True,
+                "capture_output": True,
+                "text": True,
+            },
+        )
+    ]
 
 
 def test_process_downloaded_source_writes_output_when_precision_snapping_fails(
@@ -352,6 +424,11 @@ def test_process_downloaded_source_writes_output_when_precision_snapping_fails(
         lambda *args, **kwargs: (_ for _ in ()).throw(
             GEOSException("TopologyException: side location conflict")
         ),
+    )
+    monkeypatch.setattr(
+        sea_ice_handler,
+        "reproject_output_geometries",
+        lambda gdf, workdir: gdf.to_crs("EPSG:4326"),
     )
 
     with caplog.at_level(logging.WARNING, logger=sea_ice_handler.logger.name):
