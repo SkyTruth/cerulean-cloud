@@ -11,7 +11,9 @@ needs env vars:
 
 import json
 import os
+import random
 import signal
+import time
 import traceback
 import urllib.parse as urlparse
 from collections import Counter
@@ -130,9 +132,29 @@ def download_sea_ice_gdf(date: date) -> gpd.GeoDataFrame:
     return gdf
 
 
+def is_retryable_sea_ice_mask_error(exc: Exception) -> bool:
+    """
+    Return whether an upstream sea-ice mask fetch failure is worth retrying.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in {429, 500, 502, 503, 504}
+    return isinstance(exc, httpx.TransportError)
+
+
+def get_retry_sleep_seconds(attempt: int, retry_backoff_seconds: float) -> float:
+    """
+    Return exponential backoff with jitter for retryable sea-ice mask failures.
+    """
+    exponential_backoff_seconds = retry_backoff_seconds * (2 ** (attempt - 1))
+    jitter_seconds = random.uniform(0, exponential_backoff_seconds)
+    return exponential_backoff_seconds + jitter_seconds
+
+
 def get_sea_ice_mask(
     scene_date: date,
     earliest_supported_date: date = date(2010, 1, 1),
+    max_attempts_per_date: int = 5,
+    retry_backoff_seconds: float = 0.5,
 ) -> Tuple[Optional[gpd.GeoDataFrame], Optional[date]]:
     """
     Return the most recent NOAA MASIE sea ice mask on or before scene_date.
@@ -140,13 +162,65 @@ def get_sea_ice_mask(
     current_date = scene_date
 
     while current_date >= earliest_supported_date:
-        try:
-            gdf = download_sea_ice_gdf(current_date)
-            return gdf, current_date
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code != 404:
-                raise
-            current_date -= timedelta(days=1)
+        for attempt in range(1, max_attempts_per_date + 1):
+            try:
+                gdf = download_sea_ice_gdf(current_date)
+                return gdf, current_date
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    current_date -= timedelta(days=1)
+                    break
+                if not is_retryable_sea_ice_mask_error(exc):
+                    raise
+
+                if attempt == max_attempts_per_date:
+                    logger.warning(
+                        {
+                            "message": "Skipping sea ice mask after retryable upstream failures",
+                            "mask_date": current_date.isoformat(),
+                            "status_code": exc.response.status_code,
+                            "attempts": attempt,
+                        }
+                    )
+                    return None, None
+
+                sleep_seconds = get_retry_sleep_seconds(attempt, retry_backoff_seconds)
+                logger.warning(
+                    {
+                        "message": "Retrying sea ice mask download after upstream HTTP failure",
+                        "mask_date": current_date.isoformat(),
+                        "status_code": exc.response.status_code,
+                        "attempt": attempt,
+                        "sleep_seconds": sleep_seconds,
+                    }
+                )
+                time.sleep(sleep_seconds)
+            except httpx.TransportError as exc:
+                if not is_retryable_sea_ice_mask_error(exc):
+                    raise
+
+                if attempt == max_attempts_per_date:
+                    logger.warning(
+                        {
+                            "message": "Skipping sea ice mask after retryable transport failures",
+                            "mask_date": current_date.isoformat(),
+                            "error_type": type(exc).__name__,
+                            "attempts": attempt,
+                        }
+                    )
+                    return None, None
+
+                sleep_seconds = get_retry_sleep_seconds(attempt, retry_backoff_seconds)
+                logger.warning(
+                    {
+                        "message": "Retrying sea ice mask download after transport failure",
+                        "mask_date": current_date.isoformat(),
+                        "error_type": type(exc).__name__,
+                        "attempt": attempt,
+                        "sleep_seconds": sleep_seconds,
+                    }
+                )
+                time.sleep(sleep_seconds)
 
     return None, None
 

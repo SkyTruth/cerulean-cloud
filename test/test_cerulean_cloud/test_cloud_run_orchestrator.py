@@ -416,6 +416,69 @@ def test_get_sea_ice_mask_raises_on_download_error(monkeypatch):
         orchestrator_handler.get_sea_ice_mask(date(2026, 4, 1))
 
 
+def test_get_sea_ice_mask_retries_retryable_server_error_then_succeeds(monkeypatch):
+    attempts = []
+    sleep_calls = []
+    jitter_args = []
+    jitter_values = iter([0.05, 0.2])
+    gdf = make_masie_gdf()
+
+    def fake_download(mask_date):
+        attempts.append(mask_date)
+        if len(attempts) < 3:
+            raise make_http_status_error(500)
+        return gdf
+
+    def fake_uniform(low, high):
+        jitter_args.append((low, high))
+        return next(jitter_values)
+
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
+    monkeypatch.setattr(orchestrator_handler.random, "uniform", fake_uniform)
+    monkeypatch.setattr(orchestrator_handler.time, "sleep", sleep_calls.append)
+
+    sea_ice_mask, sea_ice_date = orchestrator_handler.get_sea_ice_mask(
+        date(2026, 4, 1), max_attempts_per_date=3, retry_backoff_seconds=0.25
+    )
+
+    assert len(sea_ice_mask) == 1
+    assert sea_ice_date == date(2026, 4, 1)
+    assert attempts == [date(2026, 4, 1), date(2026, 4, 1), date(2026, 4, 1)]
+    assert jitter_args == [(0, 0.25), (0, 0.5)]
+    assert sleep_calls == [0.3, 0.7]
+
+
+def test_get_sea_ice_mask_returns_none_after_persistent_retryable_server_errors(
+    monkeypatch,
+):
+    attempts = []
+    sleep_calls = []
+    jitter_args = []
+    jitter_values = iter([0.05, 0.2])
+
+    def fake_download(mask_date):
+        attempts.append(mask_date)
+        raise make_http_status_error(500)
+
+    def fake_uniform(low, high):
+        jitter_args.append((low, high))
+        return next(jitter_values)
+
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
+    monkeypatch.setattr(orchestrator_handler.random, "uniform", fake_uniform)
+    monkeypatch.setattr(orchestrator_handler.time, "sleep", sleep_calls.append)
+
+    assert orchestrator_handler.get_sea_ice_mask(
+        date(2026, 4, 1),
+        earliest_supported_date=date(2026, 3, 31),
+        max_attempts_per_date=3,
+        retry_backoff_seconds=0.25,
+    ) == (None, None)
+    assert attempts == [date(2026, 4, 1), date(2026, 4, 1), date(2026, 4, 1)]
+    assert jitter_args == [(0, 0.25), (0, 0.5)]
+    assert sleep_calls == [0.3, 0.7]
+
+
 def test_classify_geometry_background_mask_detects_sea_ice_when_land_clear():
     buffered_geometry = box(0, 0, 1, 1)
     land_mask_gdf = gpd.GeoDataFrame(geometry=[box(10, 10, 11, 11)], crs="EPSG:4326")
