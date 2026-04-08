@@ -11,13 +11,20 @@ needs env vars:
 
 import json
 import os
+import random
 import signal
+import time
 import traceback
 import urllib.parse as urlparse
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple
+from collections import Counter
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Dict, List, Optional, Tuple
+from zipfile import ZipFile
 
 import geopandas as gpd
+import httpx
 import morecantile
 import numpy as np
 import supermercado
@@ -94,6 +101,158 @@ def get_landmask_gdf():
         mask_path = "/app/cerulean_cloud/cloud_run_orchestrator/gadmLandMask_simplified/gadmLandMask_simplified.shp"
         landmask_gdf = gpd.read_file(mask_path).set_crs("4326")
     return landmask_gdf
+
+
+def download_sea_ice_gdf(date: date) -> gpd.GeoDataFrame:
+    """
+    Download and load a MASIE sea ice mask GeoDataFrame from a zipped shapefile archive.
+    """
+    archive_url = (
+        "https://noaadata.apps.nsidc.org/NOAA/G02186/shapefiles/4km/"
+        f"{date.year}/masie_ice_r00_v01_{date:%Y%j}_4km.zip"
+    )
+
+    with TemporaryDirectory() as tmpdir:
+        archive_path = Path(tmpdir) / "masie_4km.zip"
+
+        with httpx.stream(
+            "GET", archive_url, timeout=60, follow_redirects=True
+        ) as response:
+            response.raise_for_status()
+            with archive_path.open("wb") as f:
+                for chunk in response.iter_bytes():
+                    f.write(chunk)
+
+        with ZipFile(archive_path) as archive:
+            shp_names = [n for n in archive.namelist() if n.lower().endswith(".shp")]
+            if len(shp_names) != 1:
+                raise ValueError(f"Expected one shapefile, found {len(shp_names)}")
+            gdf = gpd.read_file(f"zip://{archive_path}!{shp_names[0]}")
+
+    return gdf
+
+
+def is_retryable_sea_ice_mask_error(exc: Exception) -> bool:
+    """
+    Return whether an upstream sea-ice mask fetch failure is worth retrying.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in {429, 500, 502, 503, 504}
+    return isinstance(exc, httpx.TransportError)
+
+
+def get_retry_sleep_seconds(attempt: int, retry_backoff_seconds: float) -> float:
+    """
+    Return exponential backoff with jitter for retryable sea-ice mask failures.
+    """
+    exponential_backoff_seconds = retry_backoff_seconds * (2 ** (attempt - 1))
+    jitter_seconds = random.uniform(0, exponential_backoff_seconds)
+    return exponential_backoff_seconds + jitter_seconds
+
+
+def get_sea_ice_mask(
+    scene_date: date,
+    earliest_supported_date: date = date(2010, 1, 1),
+    max_attempts_per_date: int = 5,
+    retry_backoff_seconds: float = 0.5,
+) -> Tuple[Optional[gpd.GeoDataFrame], Optional[date]]:
+    """
+    Return the most recent NOAA MASIE sea ice mask on or before scene_date.
+    """
+    current_date = scene_date
+
+    while current_date >= earliest_supported_date:
+        for attempt in range(1, max_attempts_per_date + 1):
+            try:
+                gdf = download_sea_ice_gdf(current_date)
+                return gdf, current_date
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    current_date -= timedelta(days=1)
+                    break
+                if not is_retryable_sea_ice_mask_error(exc):
+                    raise
+
+                if attempt == max_attempts_per_date:
+                    logger.warning(
+                        {
+                            "message": "Skipping sea ice mask after retryable upstream failures",
+                            "mask_date": current_date.isoformat(),
+                            "status_code": exc.response.status_code,
+                            "attempts": attempt,
+                        }
+                    )
+                    return None, None
+
+                sleep_seconds = get_retry_sleep_seconds(attempt, retry_backoff_seconds)
+                logger.warning(
+                    {
+                        "message": "Retrying sea ice mask download after upstream HTTP failure",
+                        "mask_date": current_date.isoformat(),
+                        "status_code": exc.response.status_code,
+                        "attempt": attempt,
+                        "sleep_seconds": sleep_seconds,
+                    }
+                )
+                time.sleep(sleep_seconds)
+            except httpx.TransportError as exc:
+                if not is_retryable_sea_ice_mask_error(exc):
+                    raise
+
+                if attempt == max_attempts_per_date:
+                    logger.warning(
+                        {
+                            "message": "Skipping sea ice mask after retryable transport failures",
+                            "mask_date": current_date.isoformat(),
+                            "error_type": type(exc).__name__,
+                            "attempts": attempt,
+                        }
+                    )
+                    return None, None
+
+                sleep_seconds = get_retry_sleep_seconds(attempt, retry_backoff_seconds)
+                logger.warning(
+                    {
+                        "message": "Retrying sea ice mask download after transport failure",
+                        "mask_date": current_date.isoformat(),
+                        "error_type": type(exc).__name__,
+                        "attempt": attempt,
+                        "sleep_seconds": sleep_seconds,
+                    }
+                )
+                time.sleep(sleep_seconds)
+
+    return None, None
+
+
+def classify_geometry_background_mask(
+    buffered_geometry,
+    sea_ice_mask_gdf: Optional[gpd.GeoDataFrame],
+    land_mask_gdf: gpd.GeoDataFrame,
+) -> Optional[str]:
+    """
+    Returns the background class short name for a buffered slick, if any.
+    """
+    if len(land_mask_gdf.sindex.query(buffered_geometry, predicate="intersects")) > 0:
+        return "LAND"
+    if sea_ice_mask_gdf is not None and not sea_ice_mask_gdf.empty:
+        sea_ice_query_geometry = buffered_geometry
+        if sea_ice_mask_gdf.crs and sea_ice_mask_gdf.crs.to_epsg() != 4326:
+            sea_ice_query_geometry = (
+                gpd.GeoSeries([buffered_geometry], crs="EPSG:4326")
+                .to_crs(sea_ice_mask_gdf.crs)
+                .iloc[0]
+            )
+        if (
+            len(
+                sea_ice_mask_gdf.sindex.query(
+                    sea_ice_query_geometry, predicate="intersects"
+                )
+            )
+            > 0
+        ):
+            return "SEA_ICE"
+    return None
 
 
 def make_cloud_log_url(
@@ -326,6 +485,7 @@ async def _orchestrate(
     # write to DB
     async with DatabaseClient(db_engine) as db_client:
         async with db_client.session.begin():
+            not_oil_cls_ids = await db_client.get_cls_subtree_ids("NOT_OIL")
             trigger = await db_client.get_trigger(trigger=payload.trigger)
             layers = [
                 await db_client.get_layer(layer) for layer in model_dict["layers"]
@@ -368,6 +528,7 @@ async def _orchestrate(
             )
 
         success = True
+        sea_ice_date = None
         try:
             logger.info("Instantiating inference client")
             cloud_run_inference = CloudRunInferenceClient(
@@ -416,15 +577,23 @@ async def _orchestrate(
             features = final_ensemble.get("features", [])
             n_features = len(features)
 
-            # number of features that are over land (excluded from final feature list)
-            n_background_slicks = 0
             if features:
+                reclass_counts = Counter()
+
                 LAND_MASK_BUFFER_M = 1000
+                land_mask_gdf = get_landmask_gdf()
+                sea_ice_mask_gdf, sea_ice_date = get_sea_ice_mask(
+                    sentinel1_grd.start_time.date()
+                )
                 logger.info(
                     {
-                        "message": "Removing all slicks near land",
+                        "message": "Classifying slicks against not-oil masks",
                         "n_features": n_features,
                         "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
+                        "uses_sea_ice_mask": sea_ice_mask_gdf is not None,
+                        "sea_ice_mask_date": (
+                            sea_ice_date.isoformat() if sea_ice_date else None
+                        ),
                     }
                 )
                 for feat in features:
@@ -432,21 +601,23 @@ async def _orchestrate(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
                     crs_meters = slick_gdf.estimate_utm_crs(datum_name="WGS 84")
-                    buffered_gdf = gpd.GeoDataFrame(
-                        geometry=slick_gdf.to_crs(crs_meters)
+                    buffered_geometry = (
+                        slick_gdf.to_crs(crs_meters)
                         .buffer(LAND_MASK_BUFFER_M)
                         .to_crs("4326")
+                        .iloc[0]
                     )
-                    intersecting_land = gpd.sjoin(
-                        get_landmask_gdf(),
-                        buffered_gdf,
-                        how="inner",
-                        predicate="intersects",
+
+                    reclass_name = classify_geometry_background_mask(
+                        buffered_geometry,
+                        sea_ice_mask_gdf=sea_ice_mask_gdf,
+                        land_mask_gdf=land_mask_gdf,
                     )
-                    # when the feature intersects land, update inf_idx and increase n_background_slicks
-                    if not intersecting_land.empty:
-                        feat["properties"]["inf_idx"] = model.background_class_idx
-                        n_background_slicks += 1
+                    if reclass_name:
+                        reclass_counts[reclass_name] += 1
+                        feat["properties"]["cls_id_override"] = not_oil_cls_ids[
+                            reclass_name
+                        ]
 
                     logger.info("Calculating centerlines")
                     centerlines_geojson, aspect_ratio_factor = calculate_centerlines(
@@ -462,12 +633,15 @@ async def _orchestrate(
                     feat["properties"]["centerlines"] = centerlines_geojson
                     feat["properties"]["aspect_ratio_factor"] = aspect_ratio_factor
 
+                n_not_oil_slicks = sum(reclass_counts.values())
                 logger.info(
                     {
                         "message": "Adding slicks to database",
                         "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
-                        "n_background_slicks": n_background_slicks,
-                        "n_slicks": n_features - n_background_slicks,
+                        "n_not_oil_slicks": n_not_oil_slicks,
+                        "n_land_slicks": reclass_counts["LAND"],
+                        "n_sea_ice_slicks": reclass_counts["SEA_ICE"],
+                        "n_slicks": n_features - n_not_oil_slicks,
                     }
                 )
                 del features
@@ -484,6 +658,7 @@ async def _orchestrate(
                             feat.get("properties").get("machine_confidence"),
                             feat.get("properties").get("centerlines"),
                             feat.get("properties").get("aspect_ratio_factor"),
+                            cls_id=feat.get("properties").get("cls_id_override"),
                         )
                         logger.info("Added slick")
 
@@ -506,6 +681,7 @@ async def _orchestrate(
                 }
             )
         async with db_client.session.begin():
+            orchestrator_run.sea_ice_date = sea_ice_date
             end_time = datetime.now()
             orchestrator_run.success = success
             orchestrator_run.inference_end_time = end_time

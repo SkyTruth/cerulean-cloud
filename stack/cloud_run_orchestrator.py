@@ -14,7 +14,6 @@ import titiler_sentinel
 from database import instance, sql_instance_url_with_asyncpg
 from utils import construct_name
 
-config = pulumi.Config()
 stack = pulumi.get_stack()
 
 repo = git.Repo(search_parent_directories=True)
@@ -79,6 +78,12 @@ secret_accessor_binding = gcp.secretmanager.SecretIamMember(
     ),
     opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account]),
 )
+
+cloud_run_service_dependencies = [
+    titiler_sentinel.lambda_api,
+    cloud_run_infer.default,
+    secret_accessor_binding,
+]
 
 
 service_name = construct_name("cr-orchestrator")
@@ -197,13 +202,7 @@ default = gcp.cloudrun.Service(
             latest_revision=True,
         )
     ],
-    opts=pulumi.ResourceOptions(
-        depends_on=[
-            titiler_sentinel.lambda_api,
-            cloud_run_infer.default,
-            secret_accessor_binding,
-        ]
-    ),
+    opts=pulumi.ResourceOptions(depends_on=cloud_run_service_dependencies),
 )
 noauth_iam_policy = gcp.cloudrun.IamPolicy(
     construct_name("cr-noauth-iam-policy-orchestrator"),

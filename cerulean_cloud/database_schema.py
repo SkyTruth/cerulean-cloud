@@ -36,10 +36,12 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Computed,
+    Date,
     DateTime,
     Float,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Table,
     Text,
@@ -524,6 +526,7 @@ class OrchestratorRun(Base):  # noqa
     git_tag = Column(String(200))
     zoom = Column(Integer)
     scale = Column(Integer)
+    sea_ice_date = Column(Date)
     success = Column(Boolean)
     inference_run_logs = Column(Text, nullable=False)
     geometry = Column(
@@ -800,6 +803,10 @@ class Slick(Base):  # noqa
         Geometry(srid=3857, from_text="ST_GeomFromEWKT", name="geometry"),
         Computed("st_transform((geometry)::geometry, 3857)", persisted=True),
     )
+    geometry_count = Column(SmallInteger)
+    largest_area = Column(Float(53))
+    median_area = Column(Float(53))
+    geometric_slick_potential = Column(Float(53))
 
     cls1 = relationship("Cls")
     orchestrator_run1 = relationship("OrchestratorRun")

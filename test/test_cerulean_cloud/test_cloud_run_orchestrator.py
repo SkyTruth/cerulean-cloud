@@ -3,7 +3,7 @@ import math
 import os
 import sys
 from base64 import b64decode
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import patch
 
 import geojson
@@ -17,6 +17,7 @@ from rasterio.plot import reshape_as_image
 from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
 
 import cerulean_cloud
+import cerulean_cloud.cloud_run_orchestrator.handler as orchestrator_handler
 from cerulean_cloud.cloud_run_infer.schema import (
     InferenceResult,
     InferenceResultStack,
@@ -25,6 +26,7 @@ from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClien
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
     calculate_centerlines,
+    classify_geometry_background_mask,
     group_bounds_from_list_of_bounds,
     is_tile_over_water,
     make_cloud_log_url,
@@ -269,6 +271,20 @@ def custom_response(url, data, timeout):
     return httpx.Response(status_code=200, json=r.dict())
 
 
+def make_http_status_error(status_code, url="https://example.test/masie.zip"):
+    request = httpx.Request("GET", url)
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError(
+        f"HTTP {status_code} while fetching sea ice mask",
+        request=request,
+        response=response,
+    )
+
+
+def make_masie_gdf(geometry=box(-45.5, 74.5, -44.5, 75.5)):
+    return gpd.GeoDataFrame({"geometry": [geometry]}, crs="EPSG:4326")
+
+
 @pytest.mark.skip
 @pytest.mark.asyncio
 @patch.dict(
@@ -332,6 +348,207 @@ def test_make_cloud_log_url():
         "timeRange=2022-07-06T13:39:30.563960Z%2F2022-07-06T13:41:30.563960Z;"
         "cursorTimestamp=2022-07-06T13:39:30.563960Z?"
         "project=cerulean-338116"
+    )
+
+
+def test_get_sea_ice_mask_returns_none_when_no_matching_file_exists(monkeypatch):
+    requested_dates = []
+
+    def fake_download(mask_date):
+        requested_dates.append(mask_date)
+        raise make_http_status_error(404)
+
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
+    assert orchestrator_handler.get_sea_ice_mask(
+        date(2026, 4, 1), earliest_supported_date=date(2026, 3, 31)
+    ) == (None, None)
+    assert requested_dates == [date(2026, 4, 1), date(2026, 3, 31)]
+
+
+def test_get_sea_ice_mask_downloads_mask(monkeypatch):
+    request_counter = {"count": 0}
+    gdf = make_masie_gdf()
+
+    def fake_download(mask_date):
+        assert mask_date == date(2026, 4, 1)
+        request_counter["count"] += 1
+        return gdf
+
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
+    sea_ice_mask, sea_ice_date = orchestrator_handler.get_sea_ice_mask(date(2026, 4, 1))
+
+    assert len(sea_ice_mask) == 1
+    assert sea_ice_date == date(2026, 4, 1)
+    assert sea_ice_mask.crs.to_epsg() == 4326
+    assert sea_ice_mask.total_bounds == pytest.approx(
+        (-45.5, 74.5, -44.5, 75.5), abs=0.05
+    )
+    assert request_counter["count"] == 1
+
+
+def test_get_sea_ice_mask_falls_back_to_previous_available_date(monkeypatch):
+    requested_dates = []
+    gdf = make_masie_gdf()
+
+    def fake_download(mask_date):
+        requested_dates.append(mask_date)
+        if mask_date == date(2026, 4, 1):
+            raise make_http_status_error(404)
+        assert mask_date == date(2026, 3, 31)
+        return gdf
+
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
+    sea_ice_mask, sea_ice_date = orchestrator_handler.get_sea_ice_mask(
+        date(2026, 4, 1), earliest_supported_date=date(2026, 3, 30)
+    )
+
+    assert len(sea_ice_mask) == 1
+    assert sea_ice_date == date(2026, 3, 31)
+    assert requested_dates == [date(2026, 4, 1), date(2026, 3, 31)]
+
+
+def test_get_sea_ice_mask_raises_on_download_error(monkeypatch):
+    def fake_download(mask_date):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
+    with pytest.raises(RuntimeError, match="boom"):
+        orchestrator_handler.get_sea_ice_mask(date(2026, 4, 1))
+
+
+def test_get_sea_ice_mask_retries_retryable_server_error_then_succeeds(monkeypatch):
+    attempts = []
+    sleep_calls = []
+    jitter_args = []
+    jitter_values = iter([0.05, 0.2])
+    gdf = make_masie_gdf()
+
+    def fake_download(mask_date):
+        attempts.append(mask_date)
+        if len(attempts) < 3:
+            raise make_http_status_error(500)
+        return gdf
+
+    def fake_uniform(low, high):
+        jitter_args.append((low, high))
+        return next(jitter_values)
+
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
+    monkeypatch.setattr(orchestrator_handler.random, "uniform", fake_uniform)
+    monkeypatch.setattr(orchestrator_handler.time, "sleep", sleep_calls.append)
+
+    sea_ice_mask, sea_ice_date = orchestrator_handler.get_sea_ice_mask(
+        date(2026, 4, 1), max_attempts_per_date=3, retry_backoff_seconds=0.25
+    )
+
+    assert len(sea_ice_mask) == 1
+    assert sea_ice_date == date(2026, 4, 1)
+    assert attempts == [date(2026, 4, 1), date(2026, 4, 1), date(2026, 4, 1)]
+    assert jitter_args == [(0, 0.25), (0, 0.5)]
+    assert sleep_calls == [0.3, 0.7]
+
+
+def test_get_sea_ice_mask_returns_none_after_persistent_retryable_server_errors(
+    monkeypatch,
+):
+    attempts = []
+    sleep_calls = []
+    jitter_args = []
+    jitter_values = iter([0.05, 0.2])
+
+    def fake_download(mask_date):
+        attempts.append(mask_date)
+        raise make_http_status_error(500)
+
+    def fake_uniform(low, high):
+        jitter_args.append((low, high))
+        return next(jitter_values)
+
+    monkeypatch.setattr(orchestrator_handler, "download_sea_ice_gdf", fake_download)
+    monkeypatch.setattr(orchestrator_handler.random, "uniform", fake_uniform)
+    monkeypatch.setattr(orchestrator_handler.time, "sleep", sleep_calls.append)
+
+    assert orchestrator_handler.get_sea_ice_mask(
+        date(2026, 4, 1),
+        earliest_supported_date=date(2026, 3, 31),
+        max_attempts_per_date=3,
+        retry_backoff_seconds=0.25,
+    ) == (None, None)
+    assert attempts == [date(2026, 4, 1), date(2026, 4, 1), date(2026, 4, 1)]
+    assert jitter_args == [(0, 0.25), (0, 0.5)]
+    assert sleep_calls == [0.3, 0.7]
+
+
+def test_classify_geometry_background_mask_detects_sea_ice_when_land_clear():
+    buffered_geometry = box(0, 0, 1, 1)
+    land_mask_gdf = gpd.GeoDataFrame(geometry=[box(10, 10, 11, 11)], crs="EPSG:4326")
+    sea_ice_mask_gdf = gpd.GeoDataFrame(
+        geometry=[box(0.5, 0.5, 1.5, 1.5)], crs="EPSG:4326"
+    )
+
+    assert (
+        classify_geometry_background_mask(
+            buffered_geometry,
+            sea_ice_mask_gdf=sea_ice_mask_gdf,
+            land_mask_gdf=land_mask_gdf,
+        )
+        == "SEA_ICE"
+    )
+
+
+def test_classify_geometry_background_mask_prefers_land_over_sea_ice():
+    buffered_geometry = box(0, 0, 1, 1)
+    land_mask_gdf = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
+    sea_ice_mask_gdf = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
+
+    assert (
+        classify_geometry_background_mask(
+            buffered_geometry,
+            sea_ice_mask_gdf=sea_ice_mask_gdf,
+            land_mask_gdf=land_mask_gdf,
+        )
+        == "LAND"
+    )
+
+
+def test_classify_geometry_background_mask_handles_projected_sea_ice_mask():
+    buffered_geometry = box(-160.2, 64.7, -159.8, 65.1)
+    land_mask_gdf = gpd.GeoDataFrame(geometry=[box(10, 10, 11, 11)], crs="EPSG:4326")
+    projected_mask = gpd.GeoDataFrame(
+        geometry=[box(-2_000_000, 0, 0, 2_000_000)], crs="EPSG:3413"
+    )
+
+    naive_mask = projected_mask.to_crs("EPSG:4326")
+    assert (
+        classify_geometry_background_mask(
+            buffered_geometry,
+            sea_ice_mask_gdf=naive_mask,
+            land_mask_gdf=land_mask_gdf,
+        )
+        == "SEA_ICE"
+    )
+
+    assert (
+        classify_geometry_background_mask(
+            buffered_geometry,
+            sea_ice_mask_gdf=projected_mask,
+            land_mask_gdf=land_mask_gdf,
+        )
+        is None
+    )
+
+    true_overlap_geometry = (
+        gpd.GeoSeries([box(-1_800_000, 500_000, -1_700_000, 600_000)], crs="EPSG:3413")
+        .to_crs("EPSG:4326")
+        .iloc[0]
+    )
+    assert (
+        classify_geometry_background_mask(
+            true_overlap_geometry,
+            sea_ice_mask_gdf=projected_mask,
+            land_mask_gdf=land_mask_gdf,
+        )
+        == "SEA_ICE"
     )
 
 

@@ -135,6 +135,40 @@ class DatabaseClient:
         """get layer from short_name"""
         return await get(self.session, db.Layer, short_name=short_name)
 
+    async def get_cls(self, short_name: str, error_if_absent: bool = True):
+        """get classification row from short_name"""
+        return await get(
+            self.session,
+            db.Cls,
+            error_if_absent=error_if_absent,
+            short_name=short_name,
+        )
+
+    async def get_cls_subtree_ids(self, root_short_name: str):
+        """Return a mapping of class short names to ids for a root class and descendants."""
+        cls_tree = (
+            select(
+                db.Cls.id.label("id"),
+                db.Cls.short_name.label("short_name"),
+            )
+            .where(db.Cls.short_name == root_short_name)
+            .cte(name="cls_tree", recursive=True)
+        )
+        cls_tree = cls_tree.union_all(
+            select(db.Cls.id, db.Cls.short_name).join(
+                cls_tree, db.Cls.supercls == cls_tree.c.id
+            )
+        )
+        result = await self.session.execute(
+            select(cls_tree.c.short_name, cls_tree.c.id)
+        )
+        cls_ids = {short_name: cls_id for short_name, cls_id in result.all()}
+        if not cls_ids:
+            raise InstanceNotFoundError(
+                f"Cls subtree not found for root_short_name={root_short_name!r}"
+            )
+        return cls_ids
+
     async def get_or_insert_sentinel1_grd(
         self, scene_id: str, scene_info: dict, titiler_url: str
     ):
@@ -209,6 +243,7 @@ class DatabaseClient:
         machine_confidence,
         centerlines,
         aspect_ratio_factor,
+        cls_id=None,
     ):
         """add a slick"""
         # use buffer(0) to attempt to fix any invalid geometries
@@ -227,6 +262,7 @@ class DatabaseClient:
             machine_confidence=machine_confidence,
             centerlines=centerlines,
             aspect_ratio_factor=aspect_ratio_factor,
+            cls=cls_id,
         )
         return slick
 
@@ -301,6 +337,7 @@ class DatabaseClient:
         with_sources=True,
         without_sources=True,
         active=True,
+        exclude_not_oil=False,
     ):
         """
         Asynchronously queries the database to fetch slicks for a given scene ID based on source associations.
@@ -311,6 +348,7 @@ class DatabaseClient:
             with_sources (bool): If True, fetch slicks with associated sources. Default is True.
             without_sources (bool): If True, fetch slicks without associated sources. Default is True.
             active (bool): Flag to filter slicks based on their active status. Default is True.
+            exclude_not_oil (bool): If True, omit slicks classified as not-oil (subclasses such as land and sea ice).
 
         Returns:
             list: A list of Slick objects based on the specified filters.
@@ -336,6 +374,18 @@ class DatabaseClient:
             db.Slick.active == active,
             db.Slick.machine_confidence > min_conf,
         ]
+        if exclude_not_oil:
+            not_oil_clses = (
+                select(db.Cls.id.label("id"))
+                .where(db.Cls.short_name == "NOT_OIL")
+                .cte(name="not_oil_clses", recursive=True)
+            )
+            not_oil_clses = not_oil_clses.union_all(
+                select(db.Cls.id).join(
+                    not_oil_clses, db.Cls.supercls == not_oil_clses.c.id
+                )
+            )
+            conditions.append(~db.Slick.cls.in_(select(not_oil_clses.c.id)))
 
         source_conditions = []
         if not with_sources and not without_sources:
@@ -388,6 +438,7 @@ class DatabaseClient:
         # Create an update query object
         update_query = (
             update(db.Slick)
+            .execution_options(synchronize_session=False)
             .where(
                 db.Slick.id.in_(
                     select(db.Slick.id)
@@ -414,48 +465,62 @@ class DatabaseClient:
         """deactivate sources for slick"""
         await self.session.execute(
             update(db.SlickToSource)
+            .execution_options(synchronize_session=False)
             .where(db.SlickToSource.slick == slick_id)
             .values(active=False)
         )
 
-    async def get_previous_asa(self, slick_id):
-        """Return a list of ASA analyzer short_names that have been run for a slick.
+    async def lock_slick(self, slick_id):
+        """Serialize source-association writes for a slick."""
+        await self.session.execute(
+            select(db.Slick.id).where(db.Slick.id == slick_id).with_for_update()
+        )
 
-        Note: We return SourceType.short_name (e.g. "VESSEL", "INFRA") rather than
-        Source.type (an integer FK) because the ASA runner compares against
-        analyzer.short_name.
-        """
-        return (
-            (
-                await self.session.execute(
-                    select(db.SourceType.short_name)
-                    .distinct()
-                    .select_from(db.SlickToSource)
-                    .join(db.SlickToSource.source1)
-                    .join(db.Source.source_type)
-                    .where(
-                        and_(
-                            db.SlickToSource.slick == slick_id,
-                            db.SlickToSource.active.is_(True),
-                        )
-                    )
+    async def deactivate_sources_for_slick_by_source_type(
+        self, slick_id, source_type_short_names
+    ):
+        """Deactivate slick_to_source rows for a slick limited to source types."""
+        if not source_type_short_names:
+            return
+
+        await self.session.execute(
+            update(db.SlickToSource)
+            .execution_options(synchronize_session=False)
+            .where(
+                and_(
+                    db.SlickToSource.slick == slick_id,
+                    db.SlickToSource.source.in_(
+                        select(db.Source.id)
+                        .join(db.Source.source_type)
+                        .where(db.SourceType.short_name.in_(source_type_short_names))
+                    ),
                 )
             )
-            .scalars()
-            .all()
+            .values(active=False)
         )
 
     async def get_id_collated_score_pairs(self, slick_id):
         """
-        Return a list of (id, collated_score) pairs for a given slick.
+        Return active slick_to_source ranking rows for a given slick.
 
         :param slick_id: The ID of the slick to query.
-        :return: List of tuples containing (id, collated_score).
+        :return: List of tuples containing
+            (slick_to_source_id, collated_score, source_type_short_name).
         """
-        query = select(db.SlickToSource.id, db.SlickToSource.collated_score).where(
-            and_(
-                db.SlickToSource.slick == slick_id,
-                db.SlickToSource.active.is_(True),
+        query = (
+            select(
+                db.SlickToSource.id,
+                db.SlickToSource.collated_score,
+                db.SourceType.short_name,
+            )
+            .select_from(db.SlickToSource)
+            .join(db.SlickToSource.source1)
+            .join(db.Source.source_type)
+            .where(
+                and_(
+                    db.SlickToSource.slick == slick_id,
+                    db.SlickToSource.active.is_(True),
+                )
             )
         )
         result = await self.session.execute(query)
