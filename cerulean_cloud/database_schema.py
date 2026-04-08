@@ -656,6 +656,19 @@ t_slick_to_aoi = Table(
 )
 
 
+class SlickToMpa(Base):  # noqa
+    __tablename__ = "slick_to_mpa"
+
+    slick = Column(
+        ForeignKey(
+            "slick.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"
+        ),
+        primary_key=True,
+        nullable=False,
+    )
+    wdpaid = Column(Integer, primary_key=True, nullable=False)
+
+
 class SlickToSource(Base):  # noqa
     __tablename__ = "slick_to_source"
 

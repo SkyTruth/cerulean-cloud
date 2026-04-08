@@ -197,3 +197,57 @@ async def test_update_orchestrator(setup_database, engine):
         )
         o_r = o_r.scalars().first()
         assert o_r.success is True
+
+
+@pytest.mark.asyncio
+async def test_create_slick_to_mpa(setup_database, engine):
+    titiler_client = TitilerClient("some_url")
+    async with DatabaseClient(engine) as db_client:
+        async with db_client.session.begin():
+            with open("test/test_cerulean_cloud/fixtures/productInfo.json") as src:
+                info = json.load(src)
+            db_client.session.add(
+                database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")
+            )
+            db_client.session.add(
+                database_schema.Model(file_path="model_path", name="model_path")
+            )
+            sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
+                info["id"],
+                info,
+                titiler_client.get_base_tile_url(info["id"], rescale=(0, 255)),
+            )
+            trigger = await db_client.get_trigger()
+            model = await db_client.get_db_model("model_path")
+            orchestrator_run = await db_client.add_orchestrator(
+                datetime.now(),
+                datetime.now(),
+                1,
+                1,
+                "",
+                "",
+                "",
+                1,
+                1,
+                [1, 2, 3, 4],
+                trigger,
+                model,
+                sentinel1_grd,
+            )
+            slick = await db_client.add_slick(
+                orchestrator_run,
+                sentinel1_grd.start_time,
+                box(1, 2, 3, 4),
+                1,
+                0.99,
+                None,
+                None,
+            )
+            db_client.session.add(
+                database_schema.SlickToMpa(slick=slick.id, wdpaid=123456)
+            )
+
+        res = await db_client.session.execute(sa.select(database_schema.SlickToMpa))
+        rows = res.scalars().all()
+        assert len(rows) == 1
+        assert rows[0].wdpaid == 123456
