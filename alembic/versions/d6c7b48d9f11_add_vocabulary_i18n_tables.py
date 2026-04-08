@@ -1,7 +1,7 @@
 """Add vocabulary i18n tables
 
 Revision ID: d6c7b48d9f11
-Revises: 8f0c0f3f1f6d
+Revises: b3d1f7c2a9e4
 Create Date: 2026-03-12 10:30:00.000000
 
 """
@@ -17,7 +17,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "d6c7b48d9f11"
-down_revision = "8f0c0f3f1f6d"
+down_revision = "b3d1f7c2a9e4"
 branch_labels = None
 depends_on = None
 
