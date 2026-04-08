@@ -36,6 +36,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Computed,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -375,6 +376,7 @@ class OrchestratorRun(Base):  # noqa
     git_tag = Column(String(200))
     zoom = Column(Integer)
     scale = Column(Integer)
+    sea_ice_date = Column(Date)
     success = Column(Boolean)
     inference_run_logs = Column(Text, nullable=False)
     geometry = Column(
