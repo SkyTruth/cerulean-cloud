@@ -427,19 +427,6 @@ def downgrade() -> None:
     op.execute(
         text(
             """
-        DROP TRIGGER IF EXISTS sync_slick_to_mpa_from_aoi_insert ON slick_to_aoi;
-        DROP TRIGGER IF EXISTS sync_slick_to_mpa_from_aoi_delete ON slick_to_aoi;
-        DROP FUNCTION IF EXISTS sync_slick_to_mpa_from_aoi_func();
-        DROP INDEX IF EXISTS idx_slick_to_mpa_wdpaid;
-        DROP INDEX IF EXISTS idx_slick_to_mpa_slick;
-        DROP TABLE IF EXISTS slick_to_mpa;
-        """
-        )
-    )
-
-    op.execute(
-        text(
-            """
         CREATE OR REPLACE VIEW public.slick_plus AS
             WITH base AS (
                 SELECT
@@ -600,6 +587,19 @@ def downgrade() -> None:
               AND  (collation_threshold IS NULL
                     OR sp.max_source_collated_score >= collation_threshold);
         $BODY$;
+        """
+        )
+    )
+
+    op.execute(
+        text(
+            """
+        DROP TRIGGER IF EXISTS sync_slick_to_mpa_from_aoi_insert ON slick_to_aoi;
+        DROP TRIGGER IF EXISTS sync_slick_to_mpa_from_aoi_delete ON slick_to_aoi;
+        DROP FUNCTION IF EXISTS sync_slick_to_mpa_from_aoi_func();
+        DROP INDEX IF EXISTS idx_slick_to_mpa_wdpaid;
+        DROP INDEX IF EXISTS idx_slick_to_mpa_slick;
+        DROP TABLE IF EXISTS slick_to_mpa;
         """
         )
     )
