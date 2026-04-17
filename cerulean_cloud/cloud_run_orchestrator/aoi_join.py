@@ -28,28 +28,6 @@ class AOISourceConfig:
     name_field: Optional[str] = None
 
 
-DEFAULT_AOI_SOURCES: Tuple[AOISourceConfig, ...] = (
-    AOISourceConfig(
-        key="eez",
-        url="gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb",
-        ext_id_field="MRGID",
-        name_field="GEONAME",
-    ),
-    AOISourceConfig(
-        key="iho",
-        url="gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.fgb",
-        ext_id_field="MRGID",
-        name_field="NAME",
-    ),
-    AOISourceConfig(
-        key="mpa",
-        url="gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.fgb",
-        ext_id_field="WDPAID",
-        name_field="NAME",
-    ),
-)
-
-
 class AOIJoiner:
     """
     Load scene-relevant AOI boundaries and compute slick intersections.
@@ -61,11 +39,13 @@ class AOIJoiner:
     def __init__(
         self,
         scene_bounds: BoundsLike,
-        aoi_sources: Iterable[AOISourceConfig] = DEFAULT_AOI_SOURCES,
+        aoi_sources: Iterable[AOISourceConfig],
     ) -> None:
         self.scene_bounds = self._normalize_bounds(scene_bounds)
         self.scene_bbox = tuple(self.scene_bounds.bounds)
         self.aoi_sources = tuple(aoi_sources)
+        if not self.aoi_sources:
+            raise ValueError("AOIJoiner requires at least one AOI source configuration")
         self.cache_dir = Path(tempfile.gettempdir()) / "cerulean_aoi_cache"
         self.gcp_project: Optional[str] = None
         self.aoi_gdfs: Dict[str, gpd.GeoDataFrame] = self._load_aoi_gdfs()

@@ -1,13 +1,13 @@
 """Client code to interact with the database"""
 
 import os
-from typing import Optional
+from typing import Optional, Sequence
 
 import pandas as pd
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
@@ -168,6 +168,40 @@ class DatabaseClient:
                 f"Cls subtree not found for root_short_name={root_short_name!r}"
             )
         return cls_ids
+
+    async def get_aoi_source_configs(
+        self, short_names: Optional[Sequence[str]] = None
+    ) -> list[dict]:
+        """
+        Return AOI source configuration rows needed by AOIJoiner.
+
+        This uses a focused SQL query instead of the ORM model because AOI source
+        config columns may evolve independently of the long-lived schema model.
+        """
+        if short_names:
+            short_names = list(short_names)
+            query = text(
+                """
+                SELECT short_name, access_pattern, access_permissions
+                FROM aoi_type
+                WHERE short_name = ANY(:short_names)
+                ORDER BY id
+                """
+            )
+            result = await self.session.execute(
+                query, {"short_names": short_names}
+            )
+        else:
+            query = text(
+                """
+                SELECT short_name, access_pattern, access_permissions
+                FROM aoi_type
+                ORDER BY id
+                """
+            )
+            result = await self.session.execute(query)
+
+        return [dict(row._mapping) for row in result.fetchall()]
 
     async def get_or_insert_sentinel1_grd(
         self, scene_id: str, scene_info: dict, titiler_url: str
