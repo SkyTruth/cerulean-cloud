@@ -17,8 +17,8 @@ GCS_READONLY_SCOPE = ("https://www.googleapis.com/auth/devstorage.read_only",)
 
 
 @dataclass(frozen=True)
-class AOISourceConfig:
-    """Configuration for a single AOI source."""
+class AOIAccessConfig:
+    """Configuration for accessing a single AOI dataset."""
 
     key: str
     url: str
@@ -28,7 +28,7 @@ class AOISourceConfig:
 
 class AOIJoiner:
     """
-    Load scene-relevant AOI boundaries and compute slick intersections.
+    Load scene-relevant AOI datasets and compute slick intersections.
 
     This class intentionally stops at the geospatial join boundary. It does not
     write AOIs or slick-to-AOI mappings to the database.
@@ -37,13 +37,13 @@ class AOIJoiner:
     def __init__(
         self,
         scene_bounds: BoundsLike,
-        aoi_sources: Iterable[AOISourceConfig],
+        aoi_access_configs: Iterable[AOIAccessConfig],
     ) -> None:
         self.scene_bounds = self._normalize_bounds(scene_bounds)
         self.scene_bbox = tuple(self.scene_bounds.bounds)
-        self.aoi_sources = tuple(aoi_sources)
-        if not self.aoi_sources:
-            raise ValueError("AOIJoiner requires at least one AOI source configuration")
+        self.aoi_configs = tuple(aoi_access_configs)
+        if not self.aoi_configs:
+            raise ValueError("AOIJoiner requires at least one AOI access configuration")
         self.cache_dir = Path(tempfile.gettempdir()) / "cerulean_aoi_cache"
         self.gcp_project: Optional[str] = None
         self.aoi_gdfs: Dict[str, gpd.GeoDataFrame] = self._load_aoi_gdfs()
@@ -63,7 +63,10 @@ class AOIJoiner:
 
     def _load_aoi_gdfs(self) -> Dict[str, gpd.GeoDataFrame]:
         """Load AOI FlatGeobufs clipped to the current scene bounds."""
-        return {source.key: self._read_source(source) for source in self.aoi_sources}
+        return {
+            access_config.key: self._read_aoi_dataset(access_config)
+            for access_config in self.aoi_configs
+        }
 
     def _get_gcs_credentials(self):
         """
@@ -76,15 +79,15 @@ class AOIJoiner:
         self.gcp_project = project
         return credentials
 
-    def _materialize_source_path(self, source: AOISourceConfig) -> str:
-        """Resolve `gs://` sources into local cached files for GeoPandas."""
-        if not source.url.startswith("gs://"):
-            return source.url
+    def _download_aoi_dataset(self, access_config: AOIAccessConfig) -> str:
+        """Resolve `gs://` AOI dataset paths into local cached files for GeoPandas."""
+        if not access_config.url.startswith("gs://"):
+            return access_config.url
 
-        bucket_and_path = source.url[len("gs://") :]
+        bucket_and_path = access_config.url[len("gs://") :]
         bucket_name, _, object_name = bucket_and_path.partition("/")
         if not bucket_name or not object_name:
-            raise ValueError(f"Invalid gs:// AOI source URL: {source.url}")
+            raise ValueError(f"Invalid gs:// AOI dataset URL: {access_config.url}")
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         local_name = f"{bucket_name}__{object_name.replace('/', '__')}"
@@ -96,7 +99,7 @@ class AOIJoiner:
             from google.cloud import storage
         except ImportError as exc:
             raise RuntimeError(
-                "google-cloud-storage is required to read gs:// AOI sources. "
+                "google-cloud-storage is required to read gs:// AOI datasets. "
                 "Install it in the current environment before loading AOI data."
             ) from exc
 
@@ -105,29 +108,31 @@ class AOIJoiner:
         client.bucket(bucket_name).blob(object_name).download_to_filename(local_path)
         return str(local_path)
 
-    def _read_source(self, source: AOISourceConfig) -> gpd.GeoDataFrame:
+    def _read_aoi_dataset(self, access_config: AOIAccessConfig) -> gpd.GeoDataFrame:
         """
-        Read a FlatGeobuf source for the scene bbox.
+        Read an AOI FlatGeobuf for the scene bbox.
 
         GeoPandas can pass `bbox` through to the underlying vector driver, which
         keeps these reads bounded to the scene envelope instead of loading the
         full global layer.
         """
-        gdf = gpd.read_file(self._materialize_source_path(source), bbox=self.scene_bbox)
+        gdf = gpd.read_file(
+            self._download_aoi_dataset(access_config), bbox=self.scene_bbox
+        )
         if gdf.crs is None:
             gdf = gdf.set_crs("EPSG:4326")
         else:
             gdf = gdf.to_crs("EPSG:4326")
 
-        rename_map = {source.ext_id_field: "ext_id"}
-        if source.name_field and source.name_field in gdf.columns:
-            rename_map[source.name_field] = "name"
+        rename_map = {access_config.ext_id_field: "ext_id"}
+        if access_config.name_field and access_config.name_field in gdf.columns:
+            rename_map[access_config.name_field] = "name"
         gdf = gdf.rename(columns=rename_map)
 
         if "ext_id" not in gdf.columns:
             raise ValueError(
-                f"AOI source '{source.key}' is missing expected ext id field "
-                f"'{source.ext_id_field}'"
+                f"AOI dataset '{access_config.key}' is missing expected ext id field "
+                f"'{access_config.ext_id_field}'"
             )
 
         keep_cols = [col for col in ("ext_id", "name", "geometry") if col in gdf.columns]
@@ -155,11 +160,12 @@ class AOIJoiner:
         slicks = slicks.reset_index(drop=True)
 
         results: List[Dict[str, List[str]]] = [
-            {source.key: [] for source in self.aoi_sources} for _ in range(len(slicks))
+            {access_config.key: [] for access_config in self.aoi_configs}
+            for _ in range(len(slicks))
         ]
 
-        for source in self.aoi_sources:
-            aoi_gdf = self.aoi_gdfs[source.key]
+        for access_config in self.aoi_configs:
+            aoi_gdf = self.aoi_gdfs[access_config.key]
             if aoi_gdf.empty:
                 continue
 
@@ -172,7 +178,7 @@ class AOIJoiner:
 
             for slick_idx, group in joined.groupby(level=0):
                 ext_ids = sorted({ext_id for ext_id in group["ext_id"].dropna().tolist()})
-                results[int(slick_idx)][source.key] = ext_ids
+                results[int(slick_idx)][access_config.key] = ext_ids
 
         return results
 
