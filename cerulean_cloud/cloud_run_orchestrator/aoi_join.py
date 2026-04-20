@@ -8,6 +8,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Uni
 
 import geopandas as gpd
 import google.auth
+from google.cloud import storage
 from shapely.geometry import box
 from shapely.geometry.base import BaseGeometry
 
@@ -18,7 +19,7 @@ GCS_READONLY_SCOPE = ("https://www.googleapis.com/auth/devstorage.read_only",)
 
 @dataclass(frozen=True)
 class AOIAccessConfig:
-    """Configuration for accessing a single AOI dataset."""
+    """Configuration for accessing a single AOI dataset in Google Cloud Storage."""
 
     key: str
     url: str
@@ -94,14 +95,6 @@ class AOIJoiner:
         local_path = self.cache_dir / local_name
         if local_path.exists() and local_path.stat().st_size > 0:
             return str(local_path)
-
-        try:
-            from google.cloud import storage
-        except ImportError as exc:
-            raise RuntimeError(
-                "google-cloud-storage is required to read gs:// AOI datasets. "
-                "Install it in the current environment before loading AOI data."
-            ) from exc
 
         credentials = self._get_gcs_credentials()
         client = storage.Client(project=self.gcp_project, credentials=credentials)
