@@ -1,6 +1,5 @@
 """Utilities for orchestrator-side AOI joins."""
 
-import json
 import os
 import tempfile
 from dataclasses import dataclass
@@ -9,7 +8,6 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Uni
 
 import geopandas as gpd
 import google.auth
-from google.oauth2 import service_account
 from shapely.geometry import box
 from shapely.geometry.base import BaseGeometry
 
@@ -71,27 +69,9 @@ class AOIJoiner:
         """
         Resolve credentials for AOI downloads.
 
-        Local development may provide `GOOGLE_APPLICATION_CREDENTIALS` as either
-        inline service-account JSON or a filesystem path. In Cloud Run, this
-        falls back to application default credentials from the service account.
+        Use application default credentials for both local development and
+        Cloud Run.
         """
-        prefer_adc = os.getenv("AOI_JOIN_GCP_CREDENTIAL_MODE", "").lower() == "adc"
-        if prefer_adc:
-            credentials, project = google.auth.default(scopes=GCS_READONLY_SCOPE)
-            self.gcp_project = project
-            return credentials
-
-        value = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        if value:
-            stripped = value.strip()
-            if stripped.startswith("{"):
-                return service_account.Credentials.from_service_account_info(
-                    json.loads(stripped), scopes=GCS_READONLY_SCOPE
-                )
-            return service_account.Credentials.from_service_account_file(
-                stripped, scopes=GCS_READONLY_SCOPE
-            )
-
         credentials, project = google.auth.default(scopes=GCS_READONLY_SCOPE)
         self.gcp_project = project
         return credentials
