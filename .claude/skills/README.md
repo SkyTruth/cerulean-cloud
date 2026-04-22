@@ -8,3 +8,4 @@ This directory is the canonical checked-in skill catalog for Cerulean Cloud.
 - Keep Cerulean-specific skills under `cerulean-*` names and SkyTruth-wide repo policy skills under `skytruth-*` names.
 - Keep shared `SKILL.md` files portable: `name`, `description`, concise Markdown instructions, and optional `references/`, `scripts/`, or `assets/`.
 - Put Codex-specific metadata in `agents/openai.yaml`.
+- Keep skill instructions user-neutral. Do not commit developer-specific absolute paths, usernames, home directories, shell profiles, machine-local environment names, or setup assumptions. Derive paths from the active checkout and prefer repo-relative examples.

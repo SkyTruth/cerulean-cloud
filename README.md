@@ -87,10 +87,10 @@ __WARNING__: Setting up your local virtualenv can vary slightly depending on you
 
 Make sure that you have setup your shell script as defined in the `mkvirtualenv` documentation. This will vary slightly with your python installation but you will need to change you bash profile file, by adding the following variables:
 ```sh
-export VIRTUALENVWRAPPER_PYTHON=/Users/jonathanraphael/mambaforge/bin/python # the path to the python installation where you installed mkvirtualenv
-export WORKON_HOME=$HOME/.virtualenvs
-export PROJECT_HOME=$HOME/Devel
-source /usr/local/bin/virtualenvwrapper.sh # this path can vary depending on your installation
+export VIRTUALENVWRAPPER_PYTHON="$(command -v python3)" # the Python installation where you installed mkvirtualenv
+export WORKON_HOME="${WORKON_HOME:-$HOME/.virtualenvs}"
+export PROJECT_HOME="${PROJECT_HOME:-$HOME/src}"
+source /path/to/virtualenvwrapper.sh # this path can vary depending on your installation
 ```
 
 Then you'll be able to run:
