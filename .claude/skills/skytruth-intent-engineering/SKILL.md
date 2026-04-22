@@ -11,7 +11,7 @@ description: >
 ---
 
 # SkyTruth Intent Engineering
-**Internal-only (SkyTruth). Proprietary.**
+Use this skill for SkyTruth/Cerulean project work where a request needs explicit intent, constraints, safety checks, and validation before execution.
 
 ## Quick start (default behavior)
 1) Build an **Intent Stack** (Objective → Outcomes → Health metrics → Constraints → Decision rights → Stop rules → Validation plan).

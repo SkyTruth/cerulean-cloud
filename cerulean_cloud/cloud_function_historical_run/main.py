@@ -1,5 +1,5 @@
 """cloud function scene relevancy handler
-inspired by https://github.com/jonaraphael/ceruleanserver/tree/master/lambda/Machinable
+inspired by the legacy ceruleanserver Machinable handler
 """
 
 import asyncio

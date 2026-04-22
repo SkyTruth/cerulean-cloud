@@ -1,8 +1,12 @@
 # Cerulean UI Frontend SQL Inventory
 
-Stored snapshot added on 2026-03-11 from a user-provided frontend SQL dump.
+Stored snapshot added on 2026-03-11 and refreshed on 2026-04-22 from the live `cerulean-ui` checkout at commit `537ca0237a84b5c6cea2488a6eb65da0a4b142bc`.
 
 Use this reference when answering `cerulean-ui` or frontend SQL questions from the Cerulean backend workspace.
+
+The SQL below is normalized from `pgSql` tagged template literals and `pgQuery` calls. Dynamic interpolations are shown as `:parameter`, `<identifier>`, or optional comments. Endpoint files under `pages/api/slicks/{index,statistics,clustered,tiles}` all call the shared `utils/db/slick-query-builder.ts` builder.
+
+At refresh time, the live UI checkout had no uncommitted changes under `pages/api`, `utils/db`, or `libs/db`. The old `libs/dom-i18n/server/dictionary-store.ts` inventory section is no longer present because that path was not present in the live UI checkout.
 
 ## Index
 
@@ -12,8 +16,17 @@ Use this reference when answering `cerulean-ui` or frontend SQL questions from t
 - `pages/api/sources/profile/aois/[id].ts`
 - `pages/api/sources/profile/slicks/[id].ts`
 - `pages/api/sources/profile/ranking/[id].ts`
+- `pages/api/sources/profile/type/[id].ts`
+- `pages/api/sources/profile/hitl-verification/[id].ts`
+- `pages/api/sources/profile/ais-off-events/[id].ts`
+- `pages/api/sources/profile/detentions/[id].ts`
+- `pages/api/sources/profile/image/[mmsi].ts`
 - `pages/api/s1-imagery/[slickId].ts`
 - `pages/api/slicks/[slickId].ts`
+- `pages/api/slicks/index.ts`
+- `pages/api/slicks/statistics.ts`
+- `pages/api/slicks/clustered.ts`
+- `pages/api/slicks/tiles/[...tiles].ts`
 - `pages/api/slicks/geometry.ts`
 - `utils/db/slick-query-builder.ts`
 - `pages/api/admin/hitl/verification-requests.ts`
@@ -22,9 +35,9 @@ Use this reference when answering `cerulean-ui` or frontend SQL questions from t
 - `pages/api/admin/slicks/sources/[sourceId].ts`
 - `pages/api/admin/slicks/sources/hitl/[sourceId].ts`
 - `pages/api/admin/slicks/hitl/[slickId].ts`
+- `pages/api/admin/tags/index.ts`
 - `pages/api/config/index.ts`
 - `pages/api/auth/[...all].ts`
-- `libs/dom-i18n/server/dictionary-store.ts`
 
 ## `pages/api/sources/[sourceId].ts`
 
@@ -72,7 +85,8 @@ SELECT
   sovereign,
   orig_yr AS "year",
   last_known_status AS status,
-  ext_name AS name
+  ext_name AS name,
+  mmsi
 FROM source_infra
 WHERE source_id = :sourceId;
 
@@ -84,7 +98,14 @@ FROM source_dark
 WHERE source_id = :sourceId;
 ```
 
+Notes:
+
+- Vessel details are enriched through external GFW calls outside SQL.
+- Non-admin responses hide tags listed in `TAGS_TO_HIDE`.
+
 ## `pages/api/sources/profile/[id].ts`
+
+Vessel profile branch:
 
 ```sql
 SELECT
@@ -95,7 +116,7 @@ SELECT
   s.type::int AS "sourceType",
   'vessel' AS "sourceTypeName",
   s.ext_id::int AS "mmsi",
-  tags_agg.tags
+  COALESCE(tags_agg.tags, '[]'::jsonb)::jsonb AS tags
 FROM source_vessel sv
 JOIN source s ON s.id = sv.source_id
 LEFT JOIN LATERAL (
@@ -114,9 +135,49 @@ LEFT JOIN LATERAL (
 WHERE s.ext_id = :id;
 ```
 
+Infrastructure profile branch:
+
+```sql
+SELECT
+  ST_AsGeoJSON(si.geometry::geometry)::jsonb -> 'coordinates' AS coordinates,
+  s.ext_id AS "structureId",
+  s.type::int AS "sourceType",
+  si.mmsi,
+  'infrastructure' AS "sourceTypeName",
+  COALESCE(tags_agg.tags, '[]'::jsonb)::jsonb AS tags,
+  COALESCE(
+    JSONB_AGG(a.name) FILTER (WHERE a.name IS NOT NULL),
+    '[]'::jsonb
+  ) AS eezs
+FROM source_infra si
+LEFT JOIN source s ON s.id = si.source_id
+LEFT JOIN aoi a ON a.type = 1 AND ST_Intersects(si.geometry, a.geometry)
+LEFT JOIN LATERAL (
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'id', tag.id,
+      'isValidForSourceProfile', tag.source_profile,
+      'longName', tag.long_name,
+      'shortName', tag.short_name
+    )
+  ) AS tags
+  FROM source_to_tag stt
+  LEFT JOIN tag ON stt.tag = tag.id
+  WHERE stt.source_ext_id = s.ext_id
+) tags_agg ON true
+WHERE s.ext_id = :id
+GROUP BY si.geometry, s.ext_id, s.type, tags_agg.tags, si.mmsi;
+```
+
+Notes:
+
+- This endpoint supports source type `1` vessels and `2` infrastructure.
+- Vessel and infrastructure responses may be enriched through external GFW calls outside SQL.
+- Non-admin responses hide `TAGS_TO_HIDE`; vessel responses also keep only source-profile-valid tags.
+
 ## `utils/db/profile-query-builder.ts`
 
-Shared fragment:
+Shared fragment used by source profile AOIs, slicks, and ranking endpoints:
 
 ```sql
 FROM slick_to_source sts
@@ -128,26 +189,42 @@ LEFT JOIN source_to_tag stt ON stt.source_ext_id = s.ext_id AND stt.source_type 
 LEFT JOIN tag t ON t.id = stt.tag
 LEFT JOIN hitl_slick hs ON hs.slick = slk.id
 WHERE TRUE
-  AND slk.machine_confidence >= :defaultMachineConfidence
   AND slk.active
-  AND slk.cls <> 1
-  AND (hs.cls IS NULL OR hs.cls <> 1)
+  AND (stt.tag IS NULL OR stt.tag <> 12)
+  AND slk.cls NOT IN (
+    SELECT id
+    FROM public.get_slick_subclses(1)
+  )
+  AND (
+    hs.cls IS NULL
+    OR hs.cls NOT IN (
+      SELECT id
+      FROM public.get_slick_subclses(1)
+    )
+  )
   AND sts.active
   AND sts.hitl_verification IS NOT FALSE
-  AND type = 1
-  AND (sts.collated_score > :defaultSourceScoreMin OR sts.hitl_verification)
-  AND (stt.tag IS NULL OR t.source_profile)
+  AND (sts.collated_score > 0::double precision OR sts.hitl_verification)
+  AND (
+    s.type = 2 AND sts.rank = 1
+    OR s.type = 1 AND (stt.tag IS NULL OR (stt.tag <> ALL (ARRAY[5, 6, 7])))
+  )
   /* optional */
-  AND s.ext_id = :id::text
-  /* optional */
-  AND s.type = :type;
+  AND s.ext_id = :id::text;
 ```
+
+Notes:
+
+- The `type` argument is accepted by the helper but is not currently emitted into the SQL.
+- The helper excludes slick classes under `public.get_slick_subclses(1)` rather than a single `cls <> 1` test.
+- Tag filters exclude `stt.tag = 12` globally and tags `5, 6, 7` for vessel profile matching.
 
 ## `pages/api/sources/profile/aois/[id].ts`
 
 ```sql
 WITH filtered_slicks AS (
-  SELECT DISTINCT ON (sg.scene_id) slk.id
+  SELECT DISTINCT ON (sg.scene_id)
+    slk.id
   FROM slick_to_source sts
   JOIN source s ON s.id = sts.source
   JOIN slick slk ON slk.id = sts.slick
@@ -157,17 +234,18 @@ WITH filtered_slicks AS (
   LEFT JOIN tag t ON t.id = stt.tag
   LEFT JOIN hitl_slick hs ON hs.slick = slk.id
   WHERE TRUE
-    AND slk.machine_confidence >= :defaultMachineConfidence
     AND slk.active
-    AND slk.cls <> 1
-    AND (hs.cls IS NULL OR hs.cls <> 1)
+    AND (stt.tag IS NULL OR stt.tag <> 12)
+    AND slk.cls NOT IN (SELECT id FROM public.get_slick_subclses(1))
+    AND (hs.cls IS NULL OR hs.cls NOT IN (SELECT id FROM public.get_slick_subclses(1)))
     AND sts.active
     AND sts.hitl_verification IS NOT FALSE
-    AND type = 1
-    AND (sts.collated_score > :defaultSourceScoreMin OR sts.hitl_verification)
-    AND (stt.tag IS NULL OR t.source_profile)
+    AND (sts.collated_score > 0::double precision OR sts.hitl_verification)
+    AND (
+      s.type = 2 AND sts.rank = 1
+      OR s.type = 1 AND (stt.tag IS NULL OR (stt.tag <> ALL (ARRAY[5, 6, 7])))
+    )
     AND s.ext_id = :id::text
-    AND s.type = :type
 )
 SELECT
   at.short_name AS "shortTypeName",
@@ -193,12 +271,19 @@ WHERE aoi.type = 1 OR aoi.type = 3;
 ## `pages/api/sources/profile/slicks/[id].ts`
 
 ```sql
-SELECT
-  DISTINCT ON (sg.scene_id)
+SELECT DISTINCT ON (sg.scene_id)
   slk.id::int AS "slickId",
   slk.slick_timestamp AS timestamp,
   slk.area::int,
-  ST_AsGeoJSON(ST_Envelope(slk.geometry::geometry))::jsonb AS bbox
+  ST_AsGeoJSON(ST_Envelope(slk.geometry::geometry))::jsonb AS bbox,
+  EXISTS(
+    SELECT 1
+    FROM hitl_slick hs
+    WHERE hs.slick = slk.id
+      AND hs.cls <> 1
+    ORDER BY sts.hitl_time DESC
+    LIMIT 1
+  ) AS "isVerified"
 FROM slick_to_source sts
 JOIN source s ON s.id = sts.source
 JOIN slick slk ON slk.id = sts.slick
@@ -208,20 +293,23 @@ LEFT JOIN source_to_tag stt ON stt.source_ext_id = s.ext_id AND stt.source_type 
 LEFT JOIN tag t ON t.id = stt.tag
 LEFT JOIN hitl_slick hs ON hs.slick = slk.id
 WHERE TRUE
-  AND slk.machine_confidence >= :defaultMachineConfidence
   AND slk.active
-  AND slk.cls <> 1
-  AND (hs.cls IS NULL OR hs.cls <> 1)
+  AND (stt.tag IS NULL OR stt.tag <> 12)
+  AND slk.cls NOT IN (SELECT id FROM public.get_slick_subclses(1))
+  AND (hs.cls IS NULL OR hs.cls NOT IN (SELECT id FROM public.get_slick_subclses(1)))
   AND sts.active
   AND sts.hitl_verification IS NOT FALSE
-  AND type = 1
-  AND (sts.collated_score > :defaultSourceScoreMin OR sts.hitl_verification)
-  AND (stt.tag IS NULL OR t.source_profile)
-  AND s.ext_id = :id::text
-  AND s.type = :type;
+  AND (sts.collated_score > 0::double precision OR sts.hitl_verification)
+  AND (
+    s.type = 2 AND sts.rank = 1
+    OR s.type = 1 AND (stt.tag IS NULL OR (stt.tag <> ALL (ARRAY[5, 6, 7])))
+  )
+  AND s.ext_id = :id::text;
 ```
 
 ## `pages/api/sources/profile/ranking/[id].ts`
+
+Ranking CTE:
 
 ```sql
 SELECT
@@ -241,50 +329,30 @@ LEFT JOIN source_to_tag stt ON stt.source_ext_id = s.ext_id AND stt.source_type 
 LEFT JOIN tag t ON t.id = stt.tag
 LEFT JOIN hitl_slick hs ON hs.slick = slk.id
 WHERE TRUE
-  AND slk.machine_confidence >= :defaultMachineConfidence
   AND slk.active
-  AND slk.cls <> 1
-  AND (hs.cls IS NULL OR hs.cls <> 1)
+  AND (stt.tag IS NULL OR stt.tag <> 12)
+  AND slk.cls NOT IN (SELECT id FROM public.get_slick_subclses(1))
+  AND (hs.cls IS NULL OR hs.cls NOT IN (SELECT id FROM public.get_slick_subclses(1)))
   AND sts.active
   AND sts.hitl_verification IS NOT FALSE
-  AND type = 1
-  AND (sts.collated_score > :defaultSourceScoreMin OR sts.hitl_verification)
-  AND (stt.tag IS NULL OR t.source_profile)
+  AND (sts.collated_score > 0::double precision OR sts.hitl_verification)
+  AND (
+    s.type = 2 AND sts.rank = 1
+    OR s.type = 1 AND (stt.tag IS NULL OR (stt.tag <> ALL (ARRAY[5, 6, 7])))
+  )
 GROUP BY s.ext_id, s.type
 ORDER BY occurrence_count DESC, total_area DESC;
+```
 
+Endpoint wrapper:
+
+```sql
 WITH ranking_query AS (
-  SELECT
-    s.ext_id,
-    s.type::int,
-    COUNT(DISTINCT sg.scene_id)::int AS occurrence_count,
-    SUM(slk.area)::int AS total_area,
-    RANK() OVER (
-      ORDER BY COUNT(DISTINCT sg.scene_id) DESC, SUM(slk.area) DESC
-    )::int AS rank
-  FROM slick_to_source sts
-  JOIN source s ON s.id = sts.source
-  JOIN slick slk ON slk.id = sts.slick
-  JOIN orchestrator_run or2 ON or2.id = slk.orchestrator_run
-  JOIN sentinel1_grd sg ON sg.id = or2.sentinel1_grd
-  LEFT JOIN source_to_tag stt ON stt.source_ext_id = s.ext_id AND stt.source_type = s.type
-  LEFT JOIN tag t ON t.id = stt.tag
-  LEFT JOIN hitl_slick hs ON hs.slick = slk.id
-  WHERE TRUE
-    AND slk.machine_confidence >= :defaultMachineConfidence
-    AND slk.active
-    AND slk.cls <> 1
-    AND (hs.cls IS NULL OR hs.cls <> 1)
-    AND sts.active
-    AND sts.hitl_verification IS NOT FALSE
-    AND type = 1
-    AND (sts.collated_score > :defaultSourceScoreMin OR sts.hitl_verification)
-    AND (stt.tag IS NULL OR t.source_profile)
-  GROUP BY s.ext_id, s.type
-  ORDER BY occurrence_count DESC, total_area DESC
+  /* ranking CTE above */
 ),
 total_sources AS (
-  SELECT COUNT(*) AS total_sources FROM ranking_query
+  SELECT COUNT(*) AS total_sources
+  FROM ranking_query
 )
 SELECT
   ts.total_sources::int AS "sourcesCount",
@@ -299,7 +367,43 @@ WHERE rq.ext_id = :id
   AND rq.type = :type;
 ```
 
+## `pages/api/sources/profile/type/[id].ts`
+
+```sql
+SELECT JSONB_AGG(type) AS "sourceTypes"
+FROM source s
+WHERE s.ext_id = :id;
+```
+
+## `pages/api/sources/profile/hitl-verification/[id].ts`
+
+```sql
+SELECT EXISTS(
+  SELECT *
+  FROM source s
+  RIGHT JOIN slick_to_source sts ON s.id = sts.source
+  WHERE s.ext_id = :id
+    AND s.type = :type
+    AND sts.hitl_verification IS TRUE
+    AND sts.active
+) AS "isVerified";
+```
+
+## `pages/api/sources/profile/ais-off-events/[id].ts`
+
+No Cerulean database SQL. The endpoint reads Redis cache keys and calls GFW AIS-off-event helpers.
+
+## `pages/api/sources/profile/detentions/[id].ts`
+
+No Cerulean database SQL. The endpoint reads Redis cache keys, GFW IMO helpers, and bundled detention-count JSON.
+
+## `pages/api/sources/profile/image/[mmsi].ts`
+
+No Cerulean database SQL. The endpoint calls the MarineTraffic vessel-photo API.
+
 ## `pages/api/s1-imagery/[slickId].ts`
+
+Uses `pgQuery` with positional parameters:
 
 ```sql
 SELECT REPLACE(sg.url, 'sceneid', 'scene_id') AS url
@@ -319,7 +423,15 @@ SELECT
     #- '{properties,centerlines}' AS slick
 FROM (
   SELECT
-    sp.*,
+    sp.id,
+    sp.active,
+    sp.slick_timestamp,
+    sp.cls,
+    sp.machine_confidence,
+    sp.area,
+    sp.geometry,
+    sp.length,
+    sp.geometric_slick_potential AS slick_confidence,
     sg.scene_id AS s1_scene_id,
     COALESCE(jsonb_agg(sts.id) FILTER (WHERE sts.id IS NOT NULL), '[]'::jsonb) AS "sourceIds",
     COALESCE(jsonb_agg(sts.id) FILTER (WHERE sts.id IS NOT NULL AND sts.hitl_verification), '[]'::jsonb) AS "verifiedSourceIds",
@@ -356,10 +468,12 @@ FROM (
     WHERE sts.active
       AND sts.slick = :slickId
       /* optional */
-      AND sts.collated_score >= :minSourceScore::float
+      AND (sts.collated_score >= :minSourceScore::float OR sts.hitl_verification)
       /* optional */
-      AND sts.collated_score <= :maxSourceScore::float
-    ORDER BY sts.collated_score DESC
+      AND (sts.collated_score <= :maxSourceScore::float OR sts.hitl_verification)
+      /* optional */
+      AND (sts.rank <= :sourceLimit OR sts.hitl_verification)
+    ORDER BY sts.hitl_verification DESC NULLS LAST, sts.rank ASC
     /* optional */
     LIMIT :sourceLimit
   ) sts ON true
@@ -367,6 +481,24 @@ FROM (
   GROUP BY sp.id, sg.scene_id, sg.url
 ) g;
 ```
+
+The response is post-processed in TypeScript to add `properties.isInNaturalSeepArea` from bundled natural-seep cluster GeoJSON.
+
+## `pages/api/slicks/index.ts`
+
+No direct SQL in this file. It calls `getSlickQuery(req, 'json')` from `utils/db/slick-query-builder.ts`.
+
+## `pages/api/slicks/statistics.ts`
+
+No direct SQL in this file. It calls `getSlickQuery(req, 'stats')` from `utils/db/slick-query-builder.ts`.
+
+## `pages/api/slicks/clustered.ts`
+
+No direct SQL in this file. It calls `getSlickQuery(req, 'clustered')` from `utils/db/slick-query-builder.ts`.
+
+## `pages/api/slicks/tiles/[...tiles].ts`
+
+The executed SQL comes from `getSlickQuery(req, 'tiles')` in `utils/db/slick-query-builder.ts`. This route also contains a legacy `SAMPLE_SQL` string using `public.get_slicks_by_aoi_or_source(...)`, but the string is not executed by the handler.
 
 ## `pages/api/slicks/geometry.ts`
 
@@ -381,8 +513,13 @@ FROM (
 
 ## `utils/db/slick-query-builder.ts`
 
+Common CTE and filter shape:
+
 ```sql
--- geometry column chosen by code: centroid_3857 | geom_3857 | geom_3857_simplified
+-- geometry column chosen by code:
+--   centroid_3857 for clustered or point tiles
+--   geom_3857 for polygon tiles above z5
+--   geom_3857_simplified otherwise
 WITH source_candidates AS (
   SELECT
     sts.slick AS slick_id,
@@ -399,19 +536,19 @@ WITH source_candidates AS (
   WHERE TRUE
     AND sts.active
     /* optional */
-    AND sts.rank <= :sourceLimit
+    AND (sts.rank <= :sourceLimit OR sts.hitl_verification IS TRUE)
     /* optional */
-    AND sts.collated_score >= :minCollatedScore
+    AND (sts.collated_score >= :minCollatedScore OR sts.hitl_verification IS TRUE)
     /* optional */
-    AND sts.collated_score <= :maxCollatedScore
+    AND (sts.collated_score <= :maxCollatedScore OR sts.hitl_verification IS TRUE)
     /* optional */
     AND t.short_name = :tag
     /* optional */
     AND sv.flag = ANY(:vesselFlagIds)
     /* optional */
-    AND (s.ext_id = ANY(:mmsiIds) AND s.type = 1)
+    AND (s.ext_id = ANY(:mmsiIds) AND s.type = 1 AND sts.hitl_verification IS NOT FALSE)
     /* optional */
-    AND (s.ext_id = :structureId AND s.type = 2)
+    AND (s.ext_id = :structureId AND s.type = 2 AND sts.hitl_verification IS NOT FALSE)
     /* optional */
     AND s.id = ANY(:adminSourceIds::int[])
     /* optional */
@@ -425,7 +562,10 @@ WITH source_candidates AS (
 /* optional */ tile_bounds(bounds) AS ((SELECT ST_TileEnvelope(:z, :x, :y))),
 /* optional */ user_geometry(geom) AS ((SELECT ST_Transform(ST_MakeValid(ST_GeomFromGeoJSON(:geometryGeoJson)), 3857))),
 slick_hitl_review AS (
-  SELECT DISTINCT ON (hs.slick) hs.slick, hs.id, hs.cls
+  SELECT DISTINCT ON (hs.slick)
+    hs.slick,
+    hs.id,
+    hs.cls
   FROM hitl_slick hs
   ORDER BY hs.slick, hs.update_time DESC
 ),
@@ -458,6 +598,7 @@ filtered_slicks AS (
     /* optional */ AND spp.slick_timestamp >= :startDate::timestamptz
     /* optional */ AND spp.slick_timestamp <= :endDate::timestamptz
     /* optional */ AND spp.machine_confidence >= :machineConfidence
+    /* optional */ AND (sc.slick_id IS NOT NULL OR spp.geometric_slick_potential IS NULL OR spp.geometric_slick_potential >= :slickConfidence)
     /* optional */ AND spp.area >= :minAreaM2
     /* optional */ AND spp.area <= :maxAreaM2
     /* optional */ AND spp.cls = ANY(:slickClasses)
@@ -471,11 +612,18 @@ filtered_slicks AS (
     )
     /* optional */ AND (shr.cls IS NULL OR shr.cls = ANY(:slickHITLClasses::int[]))
     /* optional */ AND tb.bounds && spp.geom_3857_simplified
+    /* optional */ AND spp.id = ANY(:slickIdsToIncludeInSearch)
     /* optional reviewed-state branch:
        AND shr.id IS NOT NULL
        AND shr.id IS NULL
     */
 )
+```
+
+Tiles result shape:
+
+```sql
+WITH source_candidates AS (...), slick_hitl_review AS (...), filtered_slicks AS (...)
 SELECT ST_AsMVT(t.*) AS tiles
 FROM (
   SELECT
@@ -489,14 +637,22 @@ FROM (
     ) AS geometry
   FROM filtered_slicks fs, tile_bounds tb
 ) t;
+```
 
+Statistics result shape:
+
+```sql
 WITH source_candidates AS (...), slick_hitl_review AS (...), filtered_slicks AS (...)
 SELECT
   COUNT(*)::int AS count,
   SUM(area) / :metersToKmFactor AS "totalArea",
   ST_Transform(ST_SetSRID(ST_Extent(geometry), 3857), 4236)::box2d::text AS bb
 FROM filtered_slicks;
+```
 
+JSON result shape:
+
+```sql
 WITH source_candidates AS (...), slick_hitl_review AS (...), filtered_slicks AS (...)
 SELECT
   jsonb_build_object(
@@ -523,7 +679,11 @@ FROM (
   /* optional */ OFFSET :offset
 ) fs
 LEFT JOIN slick_hitl_review shr ON shr.slick = fs.id;
+```
 
+Cluster result shape:
+
+```sql
 WITH source_candidates AS (...), slick_hitl_review AS (...), filtered_slicks AS (...)
 SELECT
   jsonb_build_object(
@@ -542,6 +702,12 @@ FROM (
   GROUP BY cluster
 ) clustered;
 ```
+
+Notes:
+
+- Query parameters include `machine_confidence`, `area`, `start_date`, `end_date`, `aoi_id`, `cls`, `sources`, `scene_id`, `geom`, `sourceScore`, `sourceLimit`, `hitl_rev`, `source_hitl_rev`, `hitl_cls`, `sort`, `mmsi`, `tag`, `vessel_flag`, `structure_id`, `slick_id`, `hitl_source_classes`, `bbox`, `offset`, `limit`, `pending_hitl_verification`, and `slick_confidence`.
+- Body filters can include `adminIdFilter` categories `slickId`, `sourceId`, `mmsi`, `vesselFlag`, and `sceneId`.
+- Sort fields are normalized to `slick_timestamp`, `area`, `id`, or `max_collated_score`; direction defaults to `DESC`.
 
 ## `pages/api/admin/hitl/verification-requests.ts`
 
@@ -805,103 +971,70 @@ FROM (
 ) slick;
 ```
 
+## `pages/api/admin/tags/index.ts`
+
+```sql
+SELECT *
+FROM tag;
+
+DELETE FROM source_to_tag
+WHERE source_ext_id = ANY(:ids)
+  AND source_type = :sourceType;
+
+INSERT INTO source_to_tag (source_ext_id, source_type, tag)
+VALUES (:sourceExtId, :sourceType, :tag), ...
+ON CONFLICT DO NOTHING;
+```
+
+Notes:
+
+- The `DELETE` runs only when request body `mode` is `replace`.
+- The `INSERT` uses `postgres` bulk insert helper `pgSql(rows, 'source_ext_id', 'source_type', 'tag')`.
+
 ## `pages/api/config/index.ts`
 
 ```sql
-SELECT a.id::int, a.name, a.type::int AS type_id, at.short_name AS type FROM aoi a JOIN aoi_type at ON at.id = a.type;
-SELECT a.id::int, a.long_name, a.short_name, a.source_url, a.citation, a.update_time FROM aoi_type a;
-SELECT s.id::int, s.long_name, s.short_name, s.citation, s.table_name FROM source_type s;
-SELECT c.id::int, c.long_name, c.short_name, c.supercls FROM cls c;
-SELECT MIN(s.slick_timestamp) AS min FROM slick s;
-SELECT * FROM get_slick_subclses(:slickAnthroClass);
-SELECT id::int, short_name, long_name, description, citation, source_profile FROM tag t WHERE t.public OR t.source_profile;
+SELECT a.id::int, a.name, a.type::int AS type_id, at.short_name AS type
+FROM aoi a
+JOIN aoi_type at ON at.id = a.type;
+
+SELECT a.id::int, a.long_name, a.short_name, a.source_url, a.citation, a.update_time
+FROM aoi_type a;
+
+SELECT s.id::int, s.long_name, s.short_name, s.citation, s.table_name
+FROM source_type s;
+
+SELECT c.id::int, c.long_name, c.short_name, c.supercls
+FROM cls c;
+
+SELECT MIN(s.slick_timestamp) AS min
+FROM slick s;
+
+SELECT *
+FROM get_slick_subclses(:slickAnthroClass);
+
+SELECT id::int, short_name, long_name, description, citation, source_profile
+FROM tag t
+WHERE t.public OR t.source_profile;
 ```
 
 ## `pages/api/auth/[...all].ts`
 
-```sql
-DELETE FROM hitl_request WHERE "user" = :userId;
-DELETE FROM hitl_slick WHERE "user" = :userId;
-DELETE FROM slick_to_source WHERE hitl_user = :userId;
-```
-
-## `libs/dom-i18n/server/dictionary-store.ts`
+Explicit Cerulean cleanup SQL in the Better Auth delete-user hook:
 
 ```sql
-CREATE TABLE IF NOT EXISTS dom_i18n_dictionary (
-  partition_key text NOT NULL PRIMARY KEY,
-  key text NOT NULL,
-  app_id text NOT NULL,
-  locale text NOT NULL,
-  scope text NOT NULL,
-  tenant_id text NULL,
-  source_text_canonical text NOT NULL,
-  source_text_hash text NOT NULL,
-  context_hash text NULL,
-  context_mode text NOT NULL,
-  translated_text text NOT NULL,
-  quality text NOT NULL,
-  model text NOT NULL,
-  prompt_version text NOT NULL,
-  glossary_version text NOT NULL,
-  schema_version text NOT NULL,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL,
-  hit_count integer NOT NULL DEFAULT 0,
-  last_hit_at timestamptz NOT NULL,
-  do_not_share boolean NOT NULL DEFAULT false,
-  notes text NULL
-);
+DELETE FROM hitl_request
+WHERE "user" = :userId;
 
-SELECT *
-FROM dom_i18n_dictionary
-WHERE partition_key = $1
-LIMIT 1;
+DELETE FROM hitl_slick
+WHERE "user" = :userId;
 
-INSERT INTO dom_i18n_dictionary (
-  partition_key,
-  key,
-  app_id,
-  locale,
-  scope,
-  tenant_id,
-  source_text_canonical,
-  source_text_hash,
-  context_hash,
-  context_mode,
-  translated_text,
-  quality,
-  model,
-  prompt_version,
-  glossary_version,
-  schema_version,
-  created_at,
-  updated_at,
-  hit_count,
-  last_hit_at,
-  do_not_share,
-  notes
-) VALUES (
-  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-  $16, $17, $18, $19, $20, $21, $22
-)
-ON CONFLICT (partition_key)
-DO UPDATE SET
-  translated_text = excluded.translated_text,
-  context_mode = excluded.context_mode,
-  quality = excluded.quality,
-  model = excluded.model,
-  prompt_version = excluded.prompt_version,
-  glossary_version = excluded.glossary_version,
-  schema_version = excluded.schema_version,
-  updated_at = excluded.updated_at,
-  last_hit_at = excluded.last_hit_at,
-  do_not_share = excluded.do_not_share,
-  notes = excluded.notes;
-
-UPDATE dom_i18n_dictionary
-SET hit_count = hit_count + 1,
-    last_hit_at = $2,
-    updated_at = $2
-WHERE partition_key = $1;
+DELETE FROM slick_to_source
+WHERE hitl_user = :userId;
 ```
+
+Notes:
+
+- `hitl_request` cleanup runs in all environments.
+- `hitl_slick` and `slick_to_source` cleanup currently run only when `NODE_ENV === 'development'`.
+- Better Auth also uses `pgPool` for its own auth tables, but those generated queries are not spelled out in this endpoint file.

@@ -29,6 +29,7 @@ Current repo-local skills:
 - Keep shared `SKILL.md` files in the portable Agent Skills subset: `name`, `description`, concise Markdown instructions, and optional bundled `references/`, `scripts/`, or `assets/`.
 - Put Codex-specific skill metadata in `agents/openai.yaml`.
 - Avoid Claude-only skill extensions in shared skills unless the portability tradeoff is intentional and documented in the skill.
+- Keep shared skills generic for any maintainer of this checkout. Do not hard-code developer-specific absolute paths, usernames, home directories, shell profiles, machine-local environment names, or setup assumptions; derive paths from the active checkout and use repo-relative examples.
 
 ## High-priority triggers
 
