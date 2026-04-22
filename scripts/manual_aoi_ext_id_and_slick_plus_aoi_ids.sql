@@ -16,6 +16,77 @@ SET ext_id = mpa.wdpaid::text
 FROM public.aoi_mpa mpa
 WHERE mpa.aoi_id = a.id;
 
+-- Some WDPAIDs are represented by multiple parcel AOIs in the seeded MPA data.
+-- Collapse those parcels into a single canonical AOI per WDPAID before enforcing
+-- uniqueness on (type, ext_id).
+CREATE TEMP TABLE tmp_mpa_aoi_dedupe (
+    wdpaid integer NOT NULL,
+    keep_aoi_id bigint NOT NULL,
+    drop_aoi_id bigint NOT NULL,
+    PRIMARY KEY (drop_aoi_id)
+) ON COMMIT DROP;
+
+INSERT INTO tmp_mpa_aoi_dedupe (wdpaid, keep_aoi_id, drop_aoi_id)
+WITH ranked_mpas AS (
+    SELECT
+        mpa.wdpaid,
+        a.id AS aoi_id,
+        MIN(a.id) OVER (PARTITION BY mpa.wdpaid) AS keep_aoi_id
+    FROM public.aoi a
+    JOIN public.aoi_mpa mpa ON mpa.aoi_id = a.id
+    WHERE a.type = 3
+      AND mpa.wdpaid IS NOT NULL
+)
+SELECT
+    wdpaid,
+    keep_aoi_id,
+    aoi_id AS drop_aoi_id
+FROM ranked_mpas
+WHERE aoi_id <> keep_aoi_id;
+
+UPDATE public.aoi a
+SET
+    geometry = merged.merged_geometry,
+    ext_id = merged.wdpaid::text
+FROM (
+    SELECT
+        dedupe.keep_aoi_id,
+        dedupe.wdpaid,
+        ST_Multi(
+            ST_UnaryUnion(
+                ST_Collect(all_aoi.geometry::geometry)
+            )
+        )::geography AS merged_geometry
+    FROM (
+        SELECT DISTINCT wdpaid, keep_aoi_id
+        FROM tmp_mpa_aoi_dedupe
+    ) dedupe
+    JOIN public.aoi_mpa all_mpa ON all_mpa.wdpaid = dedupe.wdpaid
+    JOIN public.aoi all_aoi ON all_aoi.id = all_mpa.aoi_id
+    GROUP BY dedupe.keep_aoi_id, dedupe.wdpaid
+) merged
+WHERE a.id = merged.keep_aoi_id;
+
+INSERT INTO public.slick_to_aoi (slick, aoi)
+SELECT DISTINCT
+    sta.slick,
+    dedupe.keep_aoi_id
+FROM public.slick_to_aoi sta
+JOIN tmp_mpa_aoi_dedupe dedupe ON dedupe.drop_aoi_id = sta.aoi
+ON CONFLICT DO NOTHING;
+
+DELETE FROM public.slick_to_aoi sta
+USING tmp_mpa_aoi_dedupe dedupe
+WHERE sta.aoi = dedupe.drop_aoi_id;
+
+DELETE FROM public.aoi_mpa mpa
+USING tmp_mpa_aoi_dedupe dedupe
+WHERE mpa.aoi_id = dedupe.drop_aoi_id;
+
+DELETE FROM public.aoi a
+USING tmp_mpa_aoi_dedupe dedupe
+WHERE a.id = dedupe.drop_aoi_id;
+
 ALTER TABLE public.aoi
     ADD CONSTRAINT uq_aoi_type_ext_id UNIQUE (type, ext_id);
 
