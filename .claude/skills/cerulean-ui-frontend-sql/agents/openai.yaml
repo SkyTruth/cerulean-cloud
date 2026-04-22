@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cerulean UI Frontend SQL"
+  short_description: "Look up Cerulean UI SQL snapshots"
+  default_prompt: "Use $cerulean-ui-frontend-sql to find the current frontend SQL for this Cerulean endpoint or query builder."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cerulean Test Env"
+  short_description: "Use or create .conda/ceru-ci for tests"
+  default_prompt: "Use $cerulean-cloud-test-env to create .conda/ceru-ci if needed, then run tests from that repo-local environment."
