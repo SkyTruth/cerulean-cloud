@@ -22,7 +22,9 @@
             ),
             foreign_keys=lambda: [SourceToTag.source_ext_id, SourceToTag.source_type],
         )
-7. Paste this comment
+7. In AoiUser, keep the child-table "geometry" column mapped as aoi_user_geometry
+    to avoid colliding with inherited Aoi.geometry.
+8. Paste this comment
 """
 
 from geoalchemy2.types import Geography, Geometry
@@ -51,7 +53,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import foreign, relationship
+from sqlalchemy.orm import deferred, foreign, relationship
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
 Base: DeclarativeMeta = declarative_base()
@@ -72,6 +74,17 @@ class AoiType(Base):  # noqa
     source_url = Column(Text)
     citation = Column(Text)
     update_time = Column(DateTime, server_default=text("now()"))
+    geometry_source_uri = deferred(Column(Text, server_default=text("NULL")))
+    pmtiles_uri = deferred(Column(Text, server_default=text("NULL")))
+    dataset_version = deferred(Column(Text, server_default=text("NULL")))
+    filter_toggle = deferred(Column(Boolean, server_default=text("NULL")))
+    owner = deferred(Column(ForeignKey("users.id"), server_default=text("NULL")))
+    read_perm = deferred(
+        Column(ForeignKey("permission.id"), server_default=text("NULL"))
+    )
+
+    users = relationship("Users", viewonly=True)
+    permission = relationship("Permission", viewonly=True)
 
 
 class Cls(Base):  # noqa
@@ -328,6 +341,7 @@ class Accounts(Base):  # noqa
 
 class Aoi(Base):  # noqa
     __tablename__ = "aoi"
+    __table_args__ = (UniqueConstraint("type", "ext_id"),)
 
     id = Column(
         BigInteger,
@@ -336,6 +350,7 @@ class Aoi(Base):  # noqa
     )
     type = Column(ForeignKey("aoi_type.id"), nullable=False)
     name = Column(Text, nullable=False)
+    ext_id = deferred(Column(Text, server_default=text("NULL")))
     geometry = Column(
         Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
         nullable=False,
@@ -378,6 +393,13 @@ class AoiUser(Aoi):  # noqa
     aoi_id = Column(ForeignKey("aoi.id"), primary_key=True)
     user = Column(ForeignKey("users.id"))
     create_time = Column(DateTime, server_default=text("now()"))
+    aoi_user_geometry = deferred(
+        Column(
+            "geometry",
+            Geography(srid=4326, from_text="ST_GeogFromText", name="geography"),
+            server_default=text("NULL"),
+        )
+    )
 
     users = relationship("Users")
 

@@ -37,6 +37,8 @@ CREATE INDEX idx_aoi_user_geometry
     ON public.aoi_user
     USING gist (geometry);
 
+CREATE OR REPLACE RULE bypass_slick_to_aoi_insert AS ON INSERT TO public.slick_to_aoi DO INSTEAD NOTHING;
+
 CREATE OR REPLACE VIEW public.slick_plus_2 AS
 WITH not_oil_clses AS (
     SELECT id
