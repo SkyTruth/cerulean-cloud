@@ -22,9 +22,13 @@ class AOIAccessConfig:
     """Configuration for accessing a single AOI dataset in Google Cloud Storage."""
 
     key: str
-    url: str
+    geometry_source_uri: str
     ext_id_field: str
     name_field: Optional[str] = None
+    pmtiles_uri: Optional[str] = None
+    dataset_version: Optional[str] = None
+    filter_toggle: Optional[bool] = None
+    read_perm: Optional[int] = None
 
 
 class AOIJoiner:
@@ -82,13 +86,15 @@ class AOIJoiner:
 
     def _download_aoi_dataset(self, access_config: AOIAccessConfig) -> str:
         """Resolve `gs://` AOI dataset paths into local cached files for GeoPandas."""
-        if not access_config.url.startswith("gs://"):
-            return access_config.url
+        if not access_config.geometry_source_uri.startswith("gs://"):
+            return access_config.geometry_source_uri
 
-        bucket_and_path = access_config.url[len("gs://") :]
+        bucket_and_path = access_config.geometry_source_uri[len("gs://") :]
         bucket_name, _, object_name = bucket_and_path.partition("/")
         if not bucket_name or not object_name:
-            raise ValueError(f"Invalid gs:// AOI dataset URL: {access_config.url}")
+            raise ValueError(
+                f"Invalid gs:// AOI dataset URL: {access_config.geometry_source_uri}"
+            )
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         local_name = f"{bucket_name}__{object_name.replace('/', '__')}"
@@ -138,9 +144,9 @@ class AOIJoiner:
         Return AOI external IDs per slick, shaped like `aoi_ext_ids`.
 
         The result order matches `slick_gdf.reset_index(drop=True)`, and each item
-        has the form:
+        uses the configured AOI type keys, for example:
 
-        `{"eez": [...], "iho": [...], "mpa": [...]}`
+        `{"EEZ": [...], "IHO": [...], "MPA": [...]}`
         """
         if slick_gdf.empty:
             return []

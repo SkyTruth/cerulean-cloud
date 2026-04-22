@@ -169,20 +169,26 @@ class DatabaseClient:
             )
         return cls_ids
 
-    async def get_aoi_source_configs(
+    async def get_aoi_access_configs(
         self, short_names: Optional[Sequence[str]] = None
     ) -> list[dict]:
         """
-        Return AOI source configuration rows needed by AOIJoiner.
+        Return AOI access configuration rows needed by AOIJoiner.
 
-        This uses a focused SQL query instead of the ORM model because AOI source
+        This uses a focused SQL query instead of the ORM model because AOI access
         config columns may evolve independently of the long-lived schema model.
         """
         if short_names:
             short_names = list(short_names)
             query = text(
                 """
-                SELECT short_name, access_pattern, access_permissions
+                SELECT
+                    short_name,
+                    geometry_source_uri,
+                    pmtiles_uri,
+                    dataset_version,
+                    filter_toggle,
+                    read_perm
                 FROM aoi_type
                 WHERE short_name = ANY(:short_names)
                 ORDER BY id
@@ -194,7 +200,13 @@ class DatabaseClient:
         else:
             query = text(
                 """
-                SELECT short_name, access_pattern, access_permissions
+                SELECT
+                    short_name,
+                    geometry_source_uri,
+                    pmtiles_uri,
+                    dataset_version,
+                    filter_toggle,
+                    read_perm
                 FROM aoi_type
                 ORDER BY id
                 """
