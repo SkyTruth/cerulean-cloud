@@ -1,0 +1,4 @@
+interface:
+  display_name: "SkyTruth Intent Engineering"
+  short_description: "Turn ambiguous requests into validated action plans"
+  default_prompt: "Use $skytruth-intent-engineering to frame this task with an intent stack and execute it safely."

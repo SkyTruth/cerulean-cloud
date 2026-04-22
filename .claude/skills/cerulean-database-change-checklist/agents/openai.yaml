@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cerulean DB Changes"
+  short_description: "Checklist for Cerulean schema changes"
+  default_prompt: "Use $cerulean-database-change-checklist to review a Cerulean database or migration change before I ship it."
