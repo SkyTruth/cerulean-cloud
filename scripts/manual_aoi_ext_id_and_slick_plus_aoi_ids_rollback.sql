@@ -7,13 +7,17 @@ DROP INDEX IF EXISTS public.idx_aoi_user_geometry;
 ALTER TABLE public.aoi_user
     DROP COLUMN IF EXISTS geometry;
 
+ALTER TABLE public.orchestrator_run
+    DROP COLUMN IF EXISTS dataset_versions;
+
 ALTER TABLE public.aoi_type
+    DROP COLUMN IF EXISTS properties,
+    DROP COLUMN IF EXISTS access_type,
     DROP COLUMN IF EXISTS read_perm,
     DROP COLUMN IF EXISTS owner,
-    DROP COLUMN IF EXISTS filter_toggle,
-    DROP COLUMN IF EXISTS dataset_version,
-    DROP COLUMN IF EXISTS pmtiles_uri,
-    DROP COLUMN IF EXISTS geometry_source_uri;
+    DROP COLUMN IF EXISTS filter_toggle;
+
+DROP TABLE IF EXISTS public.aoi_access_type;
 
 ALTER TABLE public.aoi
     DROP CONSTRAINT IF EXISTS uq_aoi_type_ext_id;

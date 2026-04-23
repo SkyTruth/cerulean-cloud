@@ -22,13 +22,60 @@ ALTER TABLE public.aoi
 CREATE INDEX idx_aoi_type_ext_id
     ON public.aoi (type, ext_id);
 
+CREATE TABLE public.aoi_access_type (
+    id integer PRIMARY KEY,
+    short_name text NOT NULL UNIQUE,
+    prop_keys text[] NOT NULL
+);
+
+INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
+VALUES
+    (1, 'GCS', ARRAY['fgb_uri', 'pmt_uri', 'dataset_version']),
+    (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col']),
+    (3, 'DB_REMOTE', ARRAY['db_conn_str', 'table_name', 'geog_col', 'ext_id_col']);
+
 ALTER TABLE public.aoi_type
-    ADD COLUMN geometry_source_uri text,
-    ADD COLUMN pmtiles_uri text,
-    ADD COLUMN dataset_version text,
     ADD COLUMN filter_toggle boolean,
     ADD COLUMN owner bigint REFERENCES public.users(id),
-    ADD COLUMN read_perm bigint REFERENCES public.permission(id);
+    ADD COLUMN read_perm bigint REFERENCES public.permission(id),
+    ADD COLUMN access_type text REFERENCES public.aoi_access_type(short_name),
+    ADD COLUMN properties jsonb;
+
+UPDATE public.aoi_type
+SET
+    filter_toggle = TRUE,
+    owner = 1,
+    read_perm = 3,
+    access_type = 'GCS',
+    properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb","pmt_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.pmt","dataset_version":null}'::jsonb
+WHERE short_name = 'EEZ';
+
+UPDATE public.aoi_type
+SET
+    filter_toggle = FALSE,
+    owner = 1,
+    read_perm = 3,
+    access_type = 'GCS',
+    properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.fgb","pmt_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.pmt","dataset_version":null}'::jsonb
+WHERE short_name = 'IHO';
+
+UPDATE public.aoi_type
+SET
+    filter_toggle = TRUE,
+    owner = 1,
+    read_perm = 3,
+    access_type = 'GCS',
+    properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.fgb","pmt_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.pmt","dataset_version":null}'::jsonb
+WHERE short_name = 'MPA';
+
+UPDATE public.aoi_type
+SET
+    filter_toggle = FALSE,
+    owner = 1,
+    read_perm = 3,
+    access_type = 'DB_LOCAL',
+    properties = '{"table_name":"aoi_user","geog_col":"geometry","ext_id_col":"aoi_id"}'::jsonb
+WHERE short_name = 'USER';
 
 ALTER TABLE public.aoi_user
     ADD COLUMN geometry geography;
@@ -38,6 +85,11 @@ CREATE INDEX idx_aoi_user_geometry
     USING gist (geometry);
 
 CREATE OR REPLACE RULE bypass_slick_to_aoi_insert AS ON INSERT TO public.slick_to_aoi DO INSTEAD NOTHING;
+ALTER TABLE public.orchestrator_run
+    ADD COLUMN dataset_versions jsonb;
+
+UPDATE public.orchestrator_run
+SET dataset_versions = jsonb_build_object('sea_ice_date', sea_ice_date);
 
 CREATE OR REPLACE VIEW public.slick_plus_2 AS
 WITH not_oil_clses AS (
