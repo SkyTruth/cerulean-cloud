@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cerulean DB Performance Triage"
+  short_description: "Diagnose Cerulean DB query latency"
+  default_prompt: "Use $cerulean-db-performance-triage to review this Cerulean query path, rank likely bottlenecks, and propose benchmark SQL."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cerulean Geoasset Debugging"
+  short_description: "Debug broken or stale published geospatial outputs"
+  default_prompt: "Use $cerulean-published-geoasset-debugging to diagnose this Cerulean geoasset issue, separate geometry/publication/deploy failure boundaries, and propose the smallest durable fix."
