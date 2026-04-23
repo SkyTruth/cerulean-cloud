@@ -6,7 +6,7 @@ from typing import Optional, Sequence
 import pandas as pd
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
-from shapely.geometry import base, box, shape
+from shapely.geometry import MultiPolygon, Polygon, base, box, shape
 from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -14,8 +14,22 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 import cerulean_cloud.database_schema as db
 
 
+AOI_JOIN_GCS_FIELDS = {
+    "EEZ": {"ext_id_field": "MRGID", "name_field": "GEONAME"},
+    "IHO": {"ext_id_field": "MRGID", "name_field": "NAME"},
+    "MPA": {"ext_id_field": "WDPAID", "name_field": "NAME"},
+}
+USER_AOI_TYPE_SHORT_NAME = "USER"
+
+
 class InstanceNotFoundError(Exception):
     """Raised when an instance is not found in the database."""
+
+    pass
+
+
+class AmbiguousAOIError(Exception):
+    """Raised when an AOI lookup matches multiple rows."""
 
     pass
 
@@ -173,10 +187,12 @@ class DatabaseClient:
         self, short_names: Optional[Sequence[str]] = None
     ) -> list[dict]:
         """
-        Return AOI access configuration rows needed by AOIJoiner.
+        Return AOIJoiner-compatible AOI access configuration rows.
 
-        This uses a focused SQL query instead of the ORM model because AOI access
-        config columns may evolve independently of the long-lived schema model.
+        The checked-in schema stores AOI access metadata in `aoi_type.access_type`
+        plus `aoi_type.properties`. At the moment AOIJoiner can consume only
+        GCS-backed AOI layers, so DB-backed AOI types are skipped unless
+        explicitly requested, in which case a NotImplementedError is raised.
         """
         if short_names:
             short_names = list(short_names)
@@ -184,9 +200,8 @@ class DatabaseClient:
                 """
                 SELECT
                     short_name,
-                    geometry_source_uri,
-                    pmtiles_uri,
-                    dataset_version,
+                    access_type,
+                    properties,
                     filter_toggle,
                     read_perm
                 FROM aoi_type
@@ -194,17 +209,14 @@ class DatabaseClient:
                 ORDER BY id
                 """
             )
-            result = await self.session.execute(
-                query, {"short_names": short_names}
-            )
+            result = await self.session.execute(query, {"short_names": short_names})
         else:
             query = text(
                 """
                 SELECT
                     short_name,
-                    geometry_source_uri,
-                    pmtiles_uri,
-                    dataset_version,
+                    access_type,
+                    properties,
                     filter_toggle,
                     read_perm
                 FROM aoi_type
@@ -213,7 +225,52 @@ class DatabaseClient:
             )
             result = await self.session.execute(query)
 
-        return [dict(row._mapping) for row in result.fetchall()]
+        rows = []
+        unsupported = []
+        requested_short_names = set(short_names or [])
+
+        for row in result.mappings():
+            short_name = row["short_name"]
+            access_type = row["access_type"]
+            properties = row["properties"] or {}
+
+            if access_type != "GCS":
+                if short_name in requested_short_names:
+                    unsupported.append(f"{short_name} ({access_type})")
+                continue
+
+            field_map = AOI_JOIN_GCS_FIELDS.get(short_name)
+            if field_map is None:
+                raise ValueError(
+                    f"No AOIJoiner field mapping is defined for GCS AOI type {short_name!r}"
+                )
+
+            geometry_source_uri = properties.get("fgb_uri")
+            if not geometry_source_uri:
+                raise ValueError(
+                    f"GCS AOI type {short_name!r} is missing properties['fgb_uri']"
+                )
+
+            rows.append(
+                {
+                    "key": short_name,
+                    "geometry_source_uri": geometry_source_uri,
+                    "ext_id_field": field_map["ext_id_field"],
+                    "name_field": field_map["name_field"],
+                    "pmtiles_uri": properties.get("pmt_uri"),
+                    "dataset_version": properties.get("dataset_version"),
+                    "filter_toggle": row["filter_toggle"],
+                    "read_perm": row["read_perm"],
+                }
+            )
+
+        if unsupported:
+            raise NotImplementedError(
+                "AOIJoiner currently supports only GCS-backed AOI types; "
+                f"unsupported requested AOI type(s): {', '.join(unsupported)}"
+            )
+
+        return rows
 
     async def get_aoi_type_ids(
         self, short_names: Optional[Sequence[str]] = None
@@ -225,31 +282,99 @@ class DatabaseClient:
         result = await self.session.execute(query)
         return {short_name: aoi_type_id for short_name, aoi_type_id in result.all()}
 
-    async def get_aoi(
+    async def get_aoi_rows(
         self,
         aoi_type: int,
         ext_id: str,
-        error_if_absent: bool = False,
-    ):
-        """Get an AOI row by internal type id and external id."""
+    ) -> list[dict]:
+        """Return all AOI rows matching an internal type id and external id."""
         query = text(
             """
             SELECT id, type, name, ext_id
             FROM public.aoi
             WHERE type = :aoi_type
               AND ext_id = :ext_id
-            LIMIT 1
+            ORDER BY id
             """
         )
         result = await self.session.execute(
             query, {"aoi_type": aoi_type, "ext_id": str(ext_id)}
         )
-        row = result.mappings().first()
-        if row is None and error_if_absent:
-            raise InstanceNotFoundError(
-                f"AOI not found with type={aoi_type!r}, ext_id={ext_id!r}"
+        return [dict(row) for row in result.mappings().all()]
+
+    async def get_aoi(
+        self,
+        aoi_type: int,
+        ext_id: str,
+        error_if_absent: bool = False,
+    ):
+        """Get a single AOI row by internal type id and external id."""
+        rows = await self.get_aoi_rows(aoi_type, ext_id)
+        if not rows:
+            if error_if_absent:
+                raise InstanceNotFoundError(
+                    f"AOI not found with type={aoi_type!r}, ext_id={ext_id!r}"
+                )
+            return None
+        if len(rows) > 1:
+            raise AmbiguousAOIError(
+                f"Multiple AOIs found with type={aoi_type!r}, ext_id={ext_id!r}"
             )
-        return dict(row) if row is not None else None
+        return rows[0]
+
+    async def resolve_single_aoi_id(
+        self,
+        aoi_type_short_name: str,
+        ext_id: str,
+        error_if_absent: bool = True,
+    ) -> Optional[int]:
+        """Resolve a single AOI id for a curated AOI type and external id."""
+        aoi_type_ids = await self.get_aoi_type_ids([aoi_type_short_name])
+        aoi_type_id = aoi_type_ids.get(aoi_type_short_name)
+        if aoi_type_id is None:
+            raise InstanceNotFoundError(
+                f"AOI type not found for short_name={aoi_type_short_name!r}"
+            )
+
+        aoi = await self.get_aoi(aoi_type_id, ext_id, error_if_absent=error_if_absent)
+        if aoi is None:
+            return None
+        return int(aoi["id"])
+
+    async def create_user_aoi(
+        self,
+        user_id: int,
+        name: str,
+        geometry,
+        ext_id: Optional[str] = None,
+    ):
+        """
+        Create a USER AOI and its child-table geometry row.
+        """
+        aoi_type_ids = await self.get_aoi_type_ids([USER_AOI_TYPE_SHORT_NAME])
+        aoi_type_id = aoi_type_ids.get(USER_AOI_TYPE_SHORT_NAME)
+        if aoi_type_id is None:
+            raise InstanceNotFoundError(
+                f"AOI type not found for short_name={USER_AOI_TYPE_SHORT_NAME!r}"
+            )
+
+        geom = geometry if isinstance(geometry, base.BaseGeometry) else shape(geometry)
+        geom = geom.buffer(0)
+        if not isinstance(geom, MultiPolygon):
+            geom = MultiPolygon([geom])
+
+        aoi_user = await insert(
+            self.session,
+            db.AoiUser,
+            type=aoi_type_id,
+            name=name,
+            ext_id=str(ext_id) if ext_id is not None else None,
+            geometry=from_shape(geom),
+            user=user_id,
+            aoi_user_geometry=from_shape(geom),
+        )
+        await self.session.flush()
+        return aoi_user
 
     async def get_or_insert_aoi(
         self,
@@ -258,43 +383,16 @@ class DatabaseClient:
         name: str,
     ):
         """
-        Insert a new AOI into public.aoi if it does not already exist.
-
-        Assumes the refactored geometry-less AOI table shape, with uniqueness on
-        (type, ext_id).
+        This generic helper is no longer safe after `(type, ext_id)` ceased to be unique.
         """
-        aoi_type_ids = await self.get_aoi_type_ids([aoi_type_short_name])
-        aoi_type_id = aoi_type_ids.get(aoi_type_short_name)
-        if aoi_type_id is None:
-            raise InstanceNotFoundError(
-                f"AOI type not found for short_name={aoi_type_short_name!r}"
-            )
-
-        existing_aoi = await self.get_aoi(aoi_type_id, ext_id)
-        if existing_aoi:
-            return existing_aoi
-
-        insert_stmt = text(
-            """
-            INSERT INTO public.aoi (type, name, ext_id)
-            VALUES (:aoi_type_id, :name, :ext_id)
-            ON CONFLICT (type, ext_id) DO NOTHING
-            """
-        )
-        await self.session.execute(
-            insert_stmt,
-            {
-                "aoi_type_id": aoi_type_id,
-                "name": name,
-                "ext_id": str(ext_id),
-            },
+        raise NotImplementedError(
+            "Use resolve_single_aoi_id() for curated AOIs or create_user_aoi() "
+            "for USER AOIs."
         )
 
-        await self.session.flush()
-
-        return await self.get_aoi(aoi_type_id, ext_id, error_if_absent=True)
-
-    async def insert_slick_to_aoi_from_dataframe(self, slick_aoi_df: pd.DataFrame) -> int:
+    async def insert_slick_to_aoi_from_dataframe(
+        self, slick_aoi_df: pd.DataFrame
+    ) -> int:
         """
         Insert public.slick_to_aoi rows from a dataframe with:
         - `slick_id`
@@ -340,7 +438,9 @@ class DatabaseClient:
         aoi_type_ids = await self.get_aoi_type_ids(
             sorted({short_name for short_name, _ in aoi_pairs})
         )
-        missing_types = sorted({short_name for short_name, _ in aoi_pairs} - set(aoi_type_ids))
+        missing_types = sorted(
+            {short_name for short_name, _ in aoi_pairs} - set(aoi_type_ids)
+        )
         if missing_types:
             raise InstanceNotFoundError(
                 f"AOI type(s) not found for short_name values: {missing_types}"
@@ -354,6 +454,7 @@ class DatabaseClient:
                 FROM public.aoi
                 WHERE type = ANY(:aoi_type_ids)
                   AND ext_id = ANY(:ext_ids)
+                ORDER BY id
                 """
             ),
             {
@@ -361,10 +462,25 @@ class DatabaseClient:
                 "ext_ids": ext_ids,
             },
         )
-        aoi_lookup = {
-            (aoi_type_id, str(ext_id)): aoi_id
-            for aoi_id, aoi_type_id, ext_id in result.fetchall()
-        }
+        aoi_lookup = {}
+        for aoi_id, aoi_type_id, ext_id in result.fetchall():
+            lookup_key = (aoi_type_id, str(ext_id))
+            aoi_lookup.setdefault(lookup_key, []).append(aoi_id)
+
+        ambiguous_pairs = sorted(
+            [
+                (short_name, ext_id)
+                for short_name, ext_id in aoi_pairs
+                if len(aoi_lookup.get((aoi_type_ids[short_name], ext_id), [])) > 1
+            ]
+        )
+        if ambiguous_pairs:
+            raise AmbiguousAOIError(
+                "AOI ext_id values matched multiple public.aoi rows for: "
+                + ", ".join(
+                    f"{short_name}:{ext_id}" for short_name, ext_id in ambiguous_pairs
+                )
+            )
 
         missing_pairs = sorted(
             [
@@ -376,13 +492,18 @@ class DatabaseClient:
         if missing_pairs:
             raise InstanceNotFoundError(
                 "AOI ext_id values do not yet exist in public.aoi for: "
-                + ", ".join(f"{short_name}:{ext_id}" for short_name, ext_id in missing_pairs)
+                + ", ".join(
+                    f"{short_name}:{ext_id}" for short_name, ext_id in missing_pairs
+                )
             )
 
         insert_rows = []
         seen_pairs = set()
         for slick_id, aoi_type_short_name, ext_id in flattened_rows:
-            pair = (slick_id, aoi_lookup[(aoi_type_ids[aoi_type_short_name], ext_id)])
+            pair = (
+                slick_id,
+                aoi_lookup[(aoi_type_ids[aoi_type_short_name], ext_id)][0],
+            )
             if pair in seen_pairs:
                 continue
             seen_pairs.add(pair)
@@ -392,7 +513,9 @@ class DatabaseClient:
             return 0
 
         insert_stmt = pg_insert(db.t_slick_to_aoi).values(insert_rows)
-        insert_stmt = insert_stmt.on_conflict_do_nothing(index_elements=["slick", "aoi"])
+        insert_stmt = insert_stmt.on_conflict_do_nothing(
+            index_elements=["slick", "aoi"]
+        )
         await self.session.execute(insert_stmt)
         return len(insert_rows)
 
