@@ -351,7 +351,6 @@ class Accounts(Base):  # noqa
 
 class Aoi(Base):  # noqa
     __tablename__ = "aoi"
-    __table_args__ = (UniqueConstraint("type", "ext_id"),)
 
     id = Column(
         BigInteger,
