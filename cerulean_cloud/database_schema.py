@@ -60,6 +60,14 @@ Base: DeclarativeMeta = declarative_base()
 metadata = Base.metadata
 
 
+class AoiAccessType(Base):  # noqa
+    __tablename__ = "aoi_access_type"
+
+    id = Column(Integer, primary_key=True)
+    short_name = Column(Text, nullable=False, unique=True)
+    prop_keys = Column(ARRAY(Text()), nullable=False)
+
+
 class AoiType(Base):  # noqa
     __tablename__ = "aoi_type"
 
@@ -74,15 +82,17 @@ class AoiType(Base):  # noqa
     source_url = Column(Text)
     citation = Column(Text)
     update_time = Column(DateTime, server_default=text("now()"))
-    geometry_source_uri = deferred(Column(Text, server_default=text("NULL")))
-    pmtiles_uri = deferred(Column(Text, server_default=text("NULL")))
-    dataset_version = deferred(Column(Text, server_default=text("NULL")))
     filter_toggle = deferred(Column(Boolean, server_default=text("NULL")))
     owner = deferred(Column(ForeignKey("users.id"), server_default=text("NULL")))
     read_perm = deferred(
         Column(ForeignKey("permission.id"), server_default=text("NULL"))
     )
+    access_type = deferred(
+        Column(ForeignKey("aoi_access_type.short_name"), server_default=text("NULL"))
+    )
+    properties = deferred(Column(JSONB, server_default=text("NULL")))
 
+    aoi_access_type = relationship("AoiAccessType", viewonly=True)
     users = relationship("Users", viewonly=True)
     permission = relationship("Permission", viewonly=True)
 
@@ -341,7 +351,6 @@ class Accounts(Base):  # noqa
 
 class Aoi(Base):  # noqa
     __tablename__ = "aoi"
-    __table_args__ = (UniqueConstraint("type", "ext_id"),)
 
     id = Column(
         BigInteger,
@@ -549,6 +558,7 @@ class OrchestratorRun(Base):  # noqa
     zoom = Column(Integer)
     scale = Column(Integer)
     sea_ice_date = Column(Date)
+    dataset_versions = Column(JSONB)
     success = Column(Boolean)
     inference_run_logs = Column(Text, nullable=False)
     geometry = Column(

@@ -16,19 +16,63 @@ SET ext_id = mpa.wdpaid::text
 FROM public.aoi_mpa mpa
 WHERE mpa.aoi_id = a.id;
 
-ALTER TABLE public.aoi
-    ADD CONSTRAINT uq_aoi_type_ext_id UNIQUE (type, ext_id);
-
 CREATE INDEX idx_aoi_type_ext_id
     ON public.aoi (type, ext_id);
 
+CREATE TABLE public.aoi_access_type (
+    id integer PRIMARY KEY,
+    short_name text NOT NULL UNIQUE,
+    prop_keys text[] NOT NULL
+);
+
+INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
+VALUES
+    (1, 'GCS', ARRAY['fgb_uri', 'pmt_uri', 'dataset_version']),
+    (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col']),
+    (3, 'DB_REMOTE', ARRAY['db_conn_str', 'table_name', 'geog_col', 'ext_id_col']);
+
 ALTER TABLE public.aoi_type
-    ADD COLUMN geometry_source_uri text,
-    ADD COLUMN pmtiles_uri text,
-    ADD COLUMN dataset_version text,
     ADD COLUMN filter_toggle boolean,
     ADD COLUMN owner bigint REFERENCES public.users(id),
-    ADD COLUMN read_perm bigint REFERENCES public.permission(id);
+    ADD COLUMN read_perm bigint REFERENCES public.permission(id),
+    ADD COLUMN access_type text REFERENCES public.aoi_access_type(short_name),
+    ADD COLUMN properties jsonb;
+
+UPDATE public.aoi_type
+SET
+    filter_toggle = TRUE,
+    owner = 1,
+    read_perm = 3,
+    access_type = 'GCS',
+    properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb","pmt_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.pmt","dataset_version":null}'::jsonb
+WHERE short_name = 'EEZ';
+
+UPDATE public.aoi_type
+SET
+    filter_toggle = FALSE,
+    owner = 1,
+    read_perm = 3,
+    access_type = 'GCS',
+    properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.fgb","pmt_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.pmt","dataset_version":null}'::jsonb
+WHERE short_name = 'IHO';
+
+UPDATE public.aoi_type
+SET
+    filter_toggle = TRUE,
+    owner = 1,
+    read_perm = 3,
+    access_type = 'GCS',
+    properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.fgb","pmt_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.pmt","dataset_version":null}'::jsonb
+WHERE short_name = 'MPA';
+
+UPDATE public.aoi_type
+SET
+    filter_toggle = FALSE,
+    owner = 1,
+    read_perm = 3,
+    access_type = 'DB_LOCAL',
+    properties = '{"table_name":"aoi_user","geog_col":"geometry","ext_id_col":"aoi_id"}'::jsonb
+WHERE short_name = 'USER';
 
 ALTER TABLE public.aoi_user
     ADD COLUMN geometry geography;
@@ -37,7 +81,76 @@ CREATE INDEX idx_aoi_user_geometry
     ON public.aoi_user
     USING gist (geometry);
 
-CREATE OR REPLACE RULE bypass_slick_to_aoi_insert AS ON INSERT TO public.slick_to_aoi DO INSTEAD NOTHING;
+CREATE OR REPLACE FUNCTION public.slick_before_trigger_func()
+RETURNS trigger
+AS $$
+DECLARE
+    timer timestamptz := clock_timestamp();
+    _geog geography := NEW.geometry;
+    _geom geometry;
+    oriented_envelope geometry;
+    oe_ring geometry;
+    rec record;
+BEGIN
+    RAISE NOTICE '---------------------------------------------------------';
+    RAISE NOTICE 'In slick_before_trigger_func. %', (clock_timestamp() - timer)::interval;
+    _geom := _geog::geometry;
+    oriented_envelope := st_orientedenvelope(_geom);
+    oe_ring := st_exteriorring(oriented_envelope);
+    NEW.geometry_count := st_numgeometries(_geom);
+    NEW.largest_area := (
+        SELECT MAX(st_area((poly.geom)::geography))
+        FROM st_dump(_geom) AS poly
+    );
+    NEW.median_area := (
+        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY st_area((poly.geom)::geography))
+        FROM st_dump(_geom) AS poly
+    );
+    NEW.area := st_area(_geog);
+    NEW.centroid := st_centroid(_geog);
+    NEW.perimeter = st_perimeter(_geog);
+    NEW.polsby_popper := 4.0 * pi() * NEW.area / (NEW.perimeter ^ 2.0);
+    NEW.fill_factor := NEW.area / st_area(oriented_envelope::geography);
+    NEW.length := GREATEST(
+        st_distance(
+            st_pointn(oe_ring,1)::geography,
+            st_pointn(oe_ring,2)::geography
+        ),
+        st_distance(
+            st_pointn(oe_ring,2)::geography,
+            st_pointn(oe_ring,3)::geography
+        )
+    );
+    RAISE NOTICE 'Calculated all generated fields. %', (clock_timestamp() - timer)::interval;
+    NEW.cls := COALESCE(
+        NEW.cls,
+        (
+            SELECT cls.id
+            FROM cls
+            JOIN orchestrator_run ON NEW.orchestrator_run = orchestrator_run.id
+            JOIN LATERAL json_each_text((SELECT cls_map FROM model WHERE id = orchestrator_run.model))
+                m(key, value)
+                ON key::integer = NEW.inference_idx
+            WHERE cls.short_name = CASE
+                WHEN value = 'BACKGROUND' THEN 'NOT_OIL'
+                ELSE value
+            END
+            LIMIT 1
+        )
+    );
+    RAISE NOTICE 'Calculated NEW.cls. %', (clock_timestamp() - timer)::interval;
+
+    RAISE NOTICE 'Skipped automatic slick_to_aoi insert on this branch. %', (clock_timestamp() - timer)::interval;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE PLPGSQL;
+
+ALTER TABLE public.orchestrator_run
+    ADD COLUMN dataset_versions jsonb;
+
+UPDATE public.orchestrator_run
+SET dataset_versions = jsonb_build_object('sea_ice_date', sea_ice_date);
 
 CREATE OR REPLACE VIEW public.slick_plus_2 AS
 WITH not_oil_clses AS (
