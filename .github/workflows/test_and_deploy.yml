@@ -18,49 +18,43 @@ jobs:
   tests:
     name: Tests
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash -el {0}
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
         with:
           python-version: 3.11
-          auto-update-conda: true
 
-      - name: Build canonical test environment
+      - name: Get pip cache dir
+        id: pip-cache
         run: |
-          REPO_ROOT="$GITHUB_WORKSPACE"
-          CERU_CI="$REPO_ROOT/.conda/ceru-ci"
+          python -m pip install pip --upgrade
+          echo "PIP_CACHE_DIR=$(python -m pip cache dir)" >> $GITHUB_ENV
 
-          conda create -y -p "$CERU_CI" python=3.11 pip
-          conda install -y -p "$CERU_CI" postgresql postgis
-          conda run -p "$CERU_CI" python -m pip install --upgrade pip setuptools wheel
-          conda run -p "$CERU_CI" python -m pip install -r "$REPO_ROOT/requirements-test.txt"
-          conda run -p "$CERU_CI" python -m pip install -r "$REPO_ROOT/requirements.txt"
-          conda run -p "$CERU_CI" python -m pip install -r "$REPO_ROOT/cerulean_cloud/cloud_run_infer/requirements.txt"
-          conda run -p "$CERU_CI" python -m pip install -r "$REPO_ROOT/cerulean_cloud/cloud_run_orchestrator/requirements.txt"
-          conda run -p "$CERU_CI" python -m pip install -r "$REPO_ROOT/cerulean_cloud/cloud_run_tipg/requirements.txt"
-          conda run -p "$CERU_CI" python -m pip install -r "$REPO_ROOT/cerulean_cloud/titiler_sentinel/requirements.txt"
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PIP_CACHE_DIR }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-test.txt
+          python -m pip install -r requirements.txt
+          python -m pip install -r cerulean_cloud/cloud_run_infer/requirements.txt
+          python -m pip install -r cerulean_cloud/cloud_run_orchestrator/requirements.txt
+          python -m pip install -r cerulean_cloud/cloud_run_tipg/requirements.txt
+          python -m pip install -r cerulean_cloud/titiler_sentinel/requirements.txt
 
       - name: Run pytest
-        run: |
-          REPO_ROOT="$GITHUB_WORKSPACE"
-          CERU_CI="$REPO_ROOT/.conda/ceru-ci"
-          RASTERIO_DIR="$(conda run -p "$CERU_CI" python -c 'from pathlib import Path; import rasterio; print(Path(rasterio.__file__).resolve().parent)')"
-
-          PROJ_DATA="$RASTERIO_DIR/proj_data" \
-          PROJ_LIB="$RASTERIO_DIR/proj_data" \
-          GDAL_DATA="$RASTERIO_DIR/gdal_data" \
-          conda run -p "$CERU_CI" python -m pytest --disable-pytest-warnings --deselect test/test_cerulean_cloud/test_database_client.py
+        run: python -m pytest --disable-pytest-warnings --deselect test/test_cerulean_cloud/test_database_client.py
 
       # Run pre-commit
       - name: run pre-commit
-        run: |
-          REPO_ROOT="$GITHUB_WORKSPACE"
-          CERU_CI="$REPO_ROOT/.conda/ceru-ci"
-          conda run -p "$CERU_CI" pre-commit run --all-files
+        run: pre-commit run --all-files
 
   preview-test:
     name: Preview [TEST]
