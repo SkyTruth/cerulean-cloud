@@ -82,6 +82,16 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                         short_name="DB_LOCAL",
                         prop_keys=["table_name", "geog_col", "ext_id_col"],
                     ),
+                    database_schema.AoiAccessType(
+                        id=3,
+                        short_name="DB_REMOTE",
+                        prop_keys=[
+                            "db_conn_str",
+                            "table_name",
+                            "geog_col",
+                            "ext_id_col",
+                        ],
+                    ),
                     database_schema.AoiType(
                         id=1,
                         table_name="aoi_eez",
@@ -108,23 +118,43 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                             "ext_id_col": "aoi_id",
                         },
                     ),
+                    database_schema.AoiType(
+                        id=5,
+                        table_name="remote_aoi",
+                        short_name="REMOTE",
+                        filter_toggle=False,
+                        access_type="DB_REMOTE",
+                        properties={
+                            "db_conn_str": "postgresql://example/remote",
+                            "table_name": "remote_schema.remote_aoi",
+                            "geog_col": "geometry",
+                            "ext_id_col": "remote_id",
+                            "name_col": "remote_name",
+                        },
+                    ),
                 ]
             )
 
         db_client = DatabaseClient(session.bind)
         db_client.session = session
 
-        configs = await db_client.get_aoi_access_configs()
+        all_configs = await db_client.get_aoi_access_configs()
+        assert [config["access_type"] for config in all_configs] == [
+            "GCS",
+            "DB_LOCAL",
+            "DB_REMOTE",
+        ]
+
+        configs = await db_client.get_aoi_access_configs(access_types=["GCS"])
 
         assert len(configs) == 1
         config = configs[0]
         assert config["key"] == "EEZ"
         assert config["short_name"] == "EEZ"
         assert config["access_type"] == "GCS"
-        assert config["geometry_source_uri"] == (
-            "gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb"
-        )
+        assert config["fgb_uri"] == "gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb"
         assert config["ext_id_field"] == "MRGID"
+        assert config["ext_id_col"] == "MRGID"
         assert config["name_field"] == "GEONAME"
         assert config["pmtiles_uri"] == "gs://cerulean-cloud-aoi/eez-mr/eez_v12.pmt"
         assert config["dataset_version"] == "2026-04-23"
@@ -132,8 +162,42 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
         assert config["read_perm"] is None
         assert config["properties"]["ext_id_field"] == "MRGID"
 
-        with pytest.raises(NotImplementedError, match="supports only GCS-backed"):
-            await db_client.get_aoi_access_configs(["USER"])
+        local_configs = await db_client.get_aoi_access_configs(["USER"])
+        assert local_configs == [
+            {
+                "short_name": "USER",
+                "key": "USER",
+                "access_type": "DB_LOCAL",
+                "properties": {
+                    "table_name": "aoi_user",
+                    "geog_col": "geometry",
+                    "ext_id_col": "aoi_id",
+                },
+                "filter_toggle": False,
+                "read_perm": None,
+                "table_name": "aoi_user",
+                "geog_col": "geometry",
+                "geometry_column": "geometry",
+                "ext_id_col": "aoi_id",
+                "ext_id_column": "aoi_id",
+                "name_col": None,
+                "name_column": None,
+                "name_field": None,
+                "dataset_version": None,
+            }
+        ]
+
+        remote_configs = await db_client.get_aoi_access_configs(["REMOTE"])
+        assert remote_configs[0]["access_type"] == "DB_REMOTE"
+        assert remote_configs[0]["db_conn_str"] == "postgresql://example/remote"
+        assert remote_configs[0]["table_name"] == "remote_schema.remote_aoi"
+        assert remote_configs[0]["geog_col"] == "geometry"
+        assert remote_configs[0]["geometry_column"] == "geometry"
+        assert remote_configs[0]["ext_id_col"] == "remote_id"
+        assert remote_configs[0]["ext_id_column"] == "remote_id"
+        assert remote_configs[0]["name_col"] == "remote_name"
+        assert remote_configs[0]["name_column"] == "remote_name"
+        assert remote_configs[0]["name_field"] == "remote_name"
 
 
 @pytest.mark.asyncio

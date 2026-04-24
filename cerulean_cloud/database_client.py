@@ -15,6 +15,14 @@ import cerulean_cloud.database_schema as db
 
 
 USER_AOI_TYPE_SHORT_NAME = "USER"
+AOI_ACCESS_TYPE_GCS = "GCS"
+AOI_ACCESS_TYPE_DB_LOCAL = "DB_LOCAL"
+AOI_ACCESS_TYPE_DB_REMOTE = "DB_REMOTE"
+SUPPORTED_AOI_ACCESS_TYPES = {
+    AOI_ACCESS_TYPE_GCS,
+    AOI_ACCESS_TYPE_DB_LOCAL,
+    AOI_ACCESS_TYPE_DB_REMOTE,
+}
 
 
 def _coerce_aoi_geometry(geometry):
@@ -77,6 +85,105 @@ def _iter_aoi_match_payload(aoi_payload: Mapping[str, Any]):
                 "geometry": geometry,
                 "user_id": user_id,
             }
+
+
+def _get_first_property(properties: Mapping[str, Any], *keys: str):
+    """Return the first present AOI access property from a list of aliases."""
+    for key in keys:
+        value = properties.get(key)
+        if value:
+            return value
+    return None
+
+
+def _format_aoi_access_config(row: Mapping[str, Any]) -> dict:
+    """Validate and normalize an `aoi_type` AOI access config row."""
+    short_name = row["short_name"]
+    access_type = row["access_type"]
+    properties = row["properties"] or {}
+    if not isinstance(properties, Mapping):
+        raise ValueError(f"AOI type {short_name!r} properties must be a JSON object")
+    if access_type not in SUPPORTED_AOI_ACCESS_TYPES:
+        raise NotImplementedError(
+            f"Unsupported AOI access_type={access_type!r} for AOI type {short_name!r}"
+        )
+
+    config = {
+        "short_name": short_name,
+        "key": short_name,
+        "access_type": access_type,
+        "properties": properties,
+        "filter_toggle": row["filter_toggle"],
+        "read_perm": row["read_perm"],
+    }
+
+    if access_type == AOI_ACCESS_TYPE_GCS:
+        fgb_uri = _get_first_property(properties, "fgb_uri")
+        ext_id_field = _get_first_property(properties, "ext_id_field", "ext_id_col")
+        missing = []
+        if not fgb_uri:
+            missing.append("fgb_uri")
+        if not ext_id_field:
+            missing.append("ext_id_field")
+        if missing:
+            raise ValueError(
+                f"GCS AOI type {short_name!r} is missing required properties: "
+                + ", ".join(missing)
+            )
+
+        config.update(
+            {
+                "fgb_uri": fgb_uri,
+                "ext_id_col": ext_id_field,
+                "ext_id_field": ext_id_field,
+                "name_field": _get_first_property(
+                    properties, "name_field", "display_name_field", "name_col"
+                ),
+                "pmtiles_uri": properties.get("pmt_uri"),
+                "dataset_version": properties.get("dataset_version"),
+            }
+        )
+        return config
+
+    table_name = properties.get("table_name")
+    geometry_column = _get_first_property(properties, "geometry_column", "geog_col")
+    ext_id_column = _get_first_property(properties, "ext_id_column", "ext_id_col")
+    missing = [
+        name
+        for name, value in (
+            ("table_name", table_name),
+            ("geog_col", geometry_column),
+            ("ext_id_col", ext_id_column),
+        )
+        if not value
+    ]
+    if access_type == AOI_ACCESS_TYPE_DB_REMOTE and not properties.get("db_conn_str"):
+        missing.append("db_conn_str")
+    if missing:
+        raise ValueError(
+            f"{access_type} AOI type {short_name!r} is missing required properties: "
+            + ", ".join(missing)
+        )
+
+    name_column = _get_first_property(
+        properties, "name_column", "display_name_field", "name_col", "name_field"
+    )
+    config.update(
+        {
+            "table_name": table_name,
+            "geog_col": geometry_column,
+            "geometry_column": geometry_column,
+            "ext_id_col": ext_id_column,
+            "ext_id_column": ext_id_column,
+            "name_col": name_column,
+            "name_column": name_column,
+            "name_field": name_column,
+            "dataset_version": properties.get("dataset_version"),
+        }
+    )
+    if access_type == AOI_ACCESS_TYPE_DB_REMOTE:
+        config["db_conn_str"] = properties.get("db_conn_str")
+    return config
 
 
 class InstanceNotFoundError(Exception):
@@ -241,108 +348,59 @@ class DatabaseClient:
         return cls_ids
 
     async def get_aoi_access_configs(
-        self, short_names: Optional[Sequence[str]] = None
+        self,
+        short_names: Optional[Sequence[str]] = None,
+        access_types: Optional[Sequence[str]] = None,
     ) -> list[dict]:
         """
-        Return AOIJoiner-compatible AOI access configuration rows.
+        Return normalized AOI access configuration rows.
 
         The checked-in schema stores AOI access metadata in `aoi_type.access_type`
-        plus `aoi_type.properties`. At the moment AOIJoiner can consume only
-        GCS-backed AOI layers, so DB-backed AOI types are skipped unless
-        explicitly requested, in which case a NotImplementedError is raised.
+        plus `aoi_type.properties`. Callers should use `access_type` to choose
+        an access-pattern implementation while treating AOI semantic types as
+        data/config rows.
         """
         if short_names:
             short_names = list(short_names)
-            query = text(
-                """
-                SELECT
-                    short_name,
-                    access_type,
-                    properties,
-                    filter_toggle,
-                    read_perm
-                FROM aoi_type
-                WHERE short_name = ANY(:short_names)
-                ORDER BY id
-                """
-            )
-            result = await self.session.execute(query, {"short_names": short_names})
-        else:
-            query = text(
-                """
-                SELECT
-                    short_name,
-                    access_type,
-                    properties,
-                    filter_toggle,
-                    read_perm
-                FROM aoi_type
-                ORDER BY id
-                """
-            )
-            result = await self.session.execute(query)
+        if access_types:
+            access_types = list(access_types)
+            unsupported_types = sorted(set(access_types) - SUPPORTED_AOI_ACCESS_TYPES)
+            if unsupported_types:
+                raise NotImplementedError(
+                    "Unsupported AOI access type filter(s): "
+                    + ", ".join(unsupported_types)
+                )
+
+        params = {}
+        filters = []
+        if short_names:
+            filters.append("short_name = ANY(:short_names)")
+            params["short_names"] = short_names
+        if access_types:
+            filters.append("access_type = ANY(:access_types)")
+            params["access_types"] = access_types
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+        query = text(
+            f"""
+            SELECT
+                short_name,
+                access_type,
+                properties,
+                filter_toggle,
+                read_perm
+            FROM aoi_type
+            {where_clause}
+            ORDER BY id
+            """
+        )
+        result = await self.session.execute(query, params)
 
         rows = []
-        unsupported = []
-        requested_short_names = set(short_names or [])
-
         for row in result.mappings():
-            short_name = row["short_name"]
-            access_type = row["access_type"]
-            properties = row["properties"] or {}
-            if not isinstance(properties, dict):
-                raise ValueError(
-                    f"AOI type {short_name!r} properties must be a JSON object"
-                )
-
-            if access_type != "GCS":
-                if short_name in requested_short_names:
-                    unsupported.append(f"{short_name} ({access_type})")
+            if not row["access_type"]:
                 continue
-
-            geometry_source_uri = properties.get(
-                "geometry_source_uri"
-            ) or properties.get("fgb_uri")
-            if not geometry_source_uri:
-                raise ValueError(
-                    f"GCS AOI type {short_name!r} is missing properties['fgb_uri']"
-                )
-
-            ext_id_field = properties.get("ext_id_field") or properties.get(
-                "ext_id_col"
-            )
-            if not ext_id_field:
-                raise ValueError(
-                    f"GCS AOI type {short_name!r} is missing properties['ext_id_field']"
-                )
-
-            name_field = (
-                properties.get("name_field")
-                or properties.get("display_name_field")
-                or properties.get("name_col")
-            )
-
-            rows.append(
-                {
-                    "short_name": short_name,
-                    "key": short_name,
-                    "access_type": access_type,
-                    "properties": properties,
-                    "geometry_source_uri": geometry_source_uri,
-                    "ext_id_field": ext_id_field,
-                    "name_field": name_field,
-                    "pmtiles_uri": properties.get("pmt_uri"),
-                    "dataset_version": properties.get("dataset_version"),
-                    "filter_toggle": row["filter_toggle"],
-                    "read_perm": row["read_perm"],
-                }
-            )
-
-        if unsupported:
-            raise NotImplementedError(
-                "AOIJoiner currently supports only GCS-backed AOI types; "
-                f"unsupported requested AOI type(s): {', '.join(unsupported)}"
-            )
+            rows.append(_format_aoi_access_config(row))
 
         return rows
 

@@ -212,13 +212,13 @@ def test_build_dataset_versions_includes_sea_ice_and_aoi_versions():
         [
             AOIAccessConfig(
                 key="EEZ",
-                geometry_source_uri="gs://bucket/eez.fgb",
+                fgb_uri="gs://bucket/eez.fgb",
                 ext_id_field="MRGID",
                 dataset_version="eez-v12",
             ),
             AOIAccessConfig(
                 key="MPA",
-                geometry_source_uri="gs://bucket/mpa.fgb",
+                fgb_uri="gs://bucket/mpa.fgb",
                 ext_id_field="WDPAID",
                 dataset_version=None,
             ),

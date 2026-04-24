@@ -43,7 +43,11 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
 )
-from cerulean_cloud.database_client import DatabaseClient, get_engine
+from cerulean_cloud.database_client import (
+    DatabaseClient,
+    USER_AOI_TYPE_SHORT_NAME,
+    get_engine,
+)
 from cerulean_cloud.models import get_model
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.structured_logger import (
@@ -545,6 +549,7 @@ async def _orchestrate(
             aoi_access_configs = [
                 AOIAccessConfig.from_mapping(row)
                 for row in await db_client.get_aoi_access_configs()
+                if row["short_name"] != USER_AOI_TYPE_SHORT_NAME
             ]
 
         success = True
@@ -618,8 +623,11 @@ async def _orchestrate(
                     aoi_joiner = AOIJoiner(
                         scene_bounds=scene_bounds,
                         aoi_access_configs=aoi_access_configs,
+                        local_engine=db_engine,
                     )
-                    aoi_matches_by_feature = aoi_joiner.compute_aoi_matches(slicks_gdf)
+                    aoi_matches_by_feature = await aoi_joiner.compute_aoi_matches(
+                        slicks_gdf
+                    )
                     aoi_ext_ids_by_feature = [
                         {
                             aoi_type: [match["ext_id"] for match in matches]
