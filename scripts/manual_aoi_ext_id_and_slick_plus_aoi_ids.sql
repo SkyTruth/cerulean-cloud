@@ -1,6 +1,9 @@
 ALTER TABLE public.aoi
     ADD COLUMN ext_id text;
 
+ALTER TABLE public.aoi
+    ALTER COLUMN geometry DROP NOT NULL;
+
 UPDATE public.aoi a
 SET ext_id = eez.mrgid::text
 FROM public.aoi_eez eez

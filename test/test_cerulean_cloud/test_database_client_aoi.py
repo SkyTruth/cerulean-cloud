@@ -1,6 +1,7 @@
 """Focused AOI tests for DatabaseClient."""
 
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -203,7 +204,6 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
 @pytest.mark.asyncio
 async def test_resolve_single_aoi_id_raises_on_duplicate_ext_ids(db_session):
     async with db_session() as session:
-        geom = MultiPolygon([box(1, 2, 3, 4)])
         async with session.begin():
             session.add(
                 database_schema.AoiType(
@@ -218,13 +218,11 @@ async def test_resolve_single_aoi_id_raises_on_duplicate_ext_ids(db_session):
                         type=1,
                         name="EEZ 1",
                         ext_id="5679",
-                        geometry=from_shape(geom),
                     ),
                     database_schema.Aoi(
                         type=1,
                         name="EEZ 2",
                         ext_id="5679",
-                        geometry=from_shape(geom),
                     ),
                 ]
             )
@@ -237,7 +235,7 @@ async def test_resolve_single_aoi_id_raises_on_duplicate_ext_ids(db_session):
 
 
 @pytest.mark.asyncio
-async def test_create_user_aoi_inserts_parent_and_child_geometry(db_session):
+async def test_create_user_aoi_inserts_child_geometry_only(db_session):
     async with db_session() as session:
         async with session.begin():
             session.add(
@@ -269,7 +267,7 @@ async def test_create_user_aoi_inserts_parent_and_child_geometry(db_session):
         parent_result = await session.execute(
             sa.text(
                 """
-                SELECT type, name, ext_id, geometry IS NOT NULL AS has_geometry
+                SELECT type, name, ext_id, geometry IS NULL AS parent_geometry_is_null
                 FROM public.aoi
                 WHERE id = :aoi_id
                 """
@@ -293,7 +291,7 @@ async def test_create_user_aoi_inserts_parent_and_child_geometry(db_session):
         assert parent_row["type"] == 4
         assert parent_row["name"] == "Test AOI"
         assert parent_row["ext_id"] == "user-aoi-1"
-        assert parent_row["has_geometry"] is True
+        assert parent_row["parent_geometry_is_null"] is True
         assert child_row["user"] == 1
         assert child_row["has_geometry"] is True
 
@@ -324,19 +322,21 @@ async def test_get_or_insert_aoi_upserts_by_type_and_ext_id(db_session):
                 "MPA",
                 "789",
                 "MPA One",
-                geometry=box(1, 2, 3, 4),
             )
             second = await db_client.get_or_insert_aoi(
                 "MPA",
                 "789",
                 "Different Name",
-                geometry=box(5, 6, 7, 8),
             )
 
         result = await session.execute(
             sa.text(
                 """
-                SELECT id, name, COUNT(*) OVER () AS row_count
+                SELECT
+                    id,
+                    name,
+                    geometry IS NULL AS parent_geometry_is_null,
+                    COUNT(*) OVER () AS row_count
                 FROM public.aoi
                 WHERE type = 3 AND ext_id = '789'
                 """
@@ -347,13 +347,13 @@ async def test_get_or_insert_aoi_upserts_by_type_and_ext_id(db_session):
         assert first["id"] == second["id"]
         assert row["id"] == first["id"]
         assert row["name"] == "Different Name"
+        assert row["parent_geometry_is_null"] is True
         assert row["row_count"] == 1
 
 
 @pytest.mark.asyncio
 async def test_insert_slick_to_aoi_uses_smallest_duplicate_aoi_id(db_session):
     async with db_session() as session:
-        geom = MultiPolygon([box(1, 2, 3, 4)])
         async with session.begin():
             session.add(
                 database_schema.AoiType(
@@ -368,13 +368,11 @@ async def test_insert_slick_to_aoi_uses_smallest_duplicate_aoi_id(db_session):
                         type=1,
                         name="EEZ duplicate high",
                         ext_id="5679",
-                        geometry=from_shape(geom),
                     ),
                     database_schema.Aoi(
                         type=1,
                         name="EEZ duplicate low",
                         ext_id="5679",
-                        geometry=from_shape(geom),
                     ),
                 ]
             )
@@ -466,7 +464,12 @@ async def test_insert_slick_to_aoi_upserts_rich_aoi_matches(db_session):
         result = await session.execute(
             sa.text(
                 """
-                SELECT a.type, a.name, a.ext_id, sta.slick
+                SELECT
+                    a.type,
+                    a.name,
+                    a.ext_id,
+                    a.geometry IS NULL AS parent_geometry_is_null,
+                    sta.slick
                 FROM public.slick_to_aoi sta
                 JOIN public.aoi a ON a.id = sta.aoi
                 """
@@ -478,7 +481,20 @@ async def test_insert_slick_to_aoi_upserts_rich_aoi_matches(db_session):
         assert row["type"] == 3
         assert row["name"] == "MPA One"
         assert row["ext_id"] == "789"
-        assert row["slick"] == 1
+    assert row["parent_geometry_is_null"] is True
+    assert row["slick"] == 1
+
+
+def test_current_branch_trigger_sql_does_not_reference_aoi_chunks():
+    repo_root = Path(__file__).resolve().parents[2]
+    sql_paths = [
+        repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids_rollback.sql",
+        repo_root
+        / "alembic/HOLD_1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py",
+    ]
+
+    for sql_path in sql_paths:
+        assert "aoi_chunks" not in sql_path.read_text()
 
 
 @pytest.mark.asyncio

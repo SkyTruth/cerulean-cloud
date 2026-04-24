@@ -22,8 +22,9 @@
             ),
             foreign_keys=lambda: [SourceToTag.source_ext_id, SourceToTag.source_type],
         )
-7. In AoiUser, keep the child-table "geometry" column mapped as aoi_user_geometry
-    to avoid colliding with inherited Aoi.geometry.
+7. Aoi.geometry is a deprecated nullable compatibility column. Do not use it in
+    live paths. In AoiUser, keep the child-table "geometry" column mapped as
+    aoi_user_geometry to avoid colliding with inherited Aoi.geometry.
 8. Paste this comment
 """
 
@@ -360,9 +361,16 @@ class Aoi(Base):  # noqa
     type = Column(ForeignKey("aoi_type.id"), nullable=False)
     name = Column(Text, nullable=False)
     ext_id = deferred(Column(Text, server_default=text("NULL")))
-    geometry = Column(
-        Geography("MULTIPOLYGON", 4326, from_text="ST_GeogFromText", name="geography"),
-        nullable=False,
+    geometry = deferred(
+        Column(
+            Geography(
+                "MULTIPOLYGON",
+                4326,
+                from_text="ST_GeogFromText",
+                name="geography",
+            ),
+            server_default=text("NULL"),
+        )
     )
 
     aoi_type = relationship("AoiType")

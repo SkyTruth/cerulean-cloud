@@ -192,6 +192,7 @@ def upgrade():
     owner_id, read_perm_id = _get_seed_ids()
 
     op.add_column("aoi", sa.Column("ext_id", sa.Text()))
+    op.execute("ALTER TABLE public.aoi ALTER COLUMN geometry DROP NOT NULL")
 
     op.execute(
         """
@@ -534,4 +535,5 @@ def downgrade():
     )
 
     op.drop_index("idx_aoi_type_ext_id", table_name="aoi")
+    op.execute("ALTER TABLE public.aoi ALTER COLUMN geometry SET NOT NULL")
     op.drop_column("aoi", "ext_id")

@@ -26,7 +26,7 @@ SUPPORTED_AOI_ACCESS_TYPES = {
 
 
 def _coerce_aoi_geometry(geometry):
-    """Return a valid MultiPolygon for storage in public.aoi.geometry."""
+    """Return a valid MultiPolygon for transient AOI and child-table geometry."""
     geom = geometry if isinstance(geometry, base.BaseGeometry) else shape(geometry)
     geom = geom.buffer(0)
     if isinstance(geom, Polygon):
@@ -490,7 +490,7 @@ class DatabaseClient:
                 f"AOI type not found for short_name={USER_AOI_TYPE_SHORT_NAME!r}"
             )
 
-        geom = _coerce_aoi_geometry(geometry)
+        user_geom = _coerce_aoi_geometry(geometry)
 
         aoi_user = await insert(
             self.session,
@@ -498,9 +498,8 @@ class DatabaseClient:
             type=aoi_type_id,
             name=name,
             ext_id=str(ext_id) if ext_id is not None else None,
-            geometry=from_shape(geom),
             user=user_id,
-            aoi_user_geometry=from_shape(geom),
+            aoi_user_geometry=from_shape(user_geom),
         )
         await self.session.flush()
         return aoi_user
@@ -518,9 +517,9 @@ class DatabaseClient:
 
         Duplicate `(type, ext_id)` AOIs are allowed for now. When duplicates
         exist, this treats the smallest internal AOI id as canonical, updates
-        that row, and returns it. New rows require `geometry` because
-        `public.aoi.geometry` is non-null. USER AOIs also require `user_id`
-        for the `public.aoi_user` child row.
+        that row, and returns it. The deprecated parent AOI geometry column is
+        intentionally left unused. USER AOIs also require `user_id` and geometry
+        for the `public.aoi_user` child row when creating a new row.
         """
         aoi_type_ids = await self.get_aoi_type_ids([aoi_type_short_name])
         aoi_type_id = aoi_type_ids.get(aoi_type_short_name)
@@ -532,26 +531,18 @@ class DatabaseClient:
         existing_rows = await self.get_aoi_rows(aoi_type_id, ext_id)
         canonical_aoi = existing_rows[0] if existing_rows else None
 
-        if geometry is None:
-            if canonical_aoi:
-                return canonical_aoi
-            raise ValueError(
-                "geometry is required to insert a new AOI because "
-                "public.aoi.geometry is non-null"
-            )
-
-        if aoi_type_short_name == USER_AOI_TYPE_SHORT_NAME and user_id is None:
-            if canonical_aoi:
-                return canonical_aoi
-            raise ValueError("user_id is required to insert a new USER AOI")
-
-        geom = _coerce_aoi_geometry(geometry)
+        is_user_aoi = aoi_type_short_name == USER_AOI_TYPE_SHORT_NAME
+        if is_user_aoi and not canonical_aoi:
+            if user_id is None:
+                raise ValueError("user_id is required to insert a new USER AOI")
+            if geometry is None:
+                raise ValueError("geometry is required to insert a new USER AOI")
 
         if canonical_aoi:
             update_stmt = (
                 update(db.Aoi)
                 .where(db.Aoi.id == canonical_aoi["id"])
-                .values(name=name, geometry=from_shape(geom))
+                .values(name=name)
                 .returning(db.Aoi.id, db.Aoi.type, db.Aoi.name, db.Aoi.ext_id)
             )
             result = await self.session.execute(update_stmt)
@@ -563,19 +554,19 @@ class DatabaseClient:
                     type=aoi_type_id,
                     name=name,
                     ext_id=str(ext_id),
-                    geometry=from_shape(geom),
                 )
                 .returning(db.Aoi.id, db.Aoi.type, db.Aoi.name, db.Aoi.ext_id)
             )
             result = await self.session.execute(insert_stmt)
             aoi = dict(result.mappings().one())
 
-        if aoi_type_short_name == USER_AOI_TYPE_SHORT_NAME:
+        if is_user_aoi and user_id is not None and geometry is not None:
+            user_geom = _coerce_aoi_geometry(geometry)
             child_insert = pg_insert(db.AoiUser.__table__).values(
                 {
                     db.AoiUser.__table__.c.aoi_id: aoi["id"],
                     db.AoiUser.__table__.c.user: user_id,
-                    db.AoiUser.__table__.c["geometry"]: from_shape(geom),
+                    db.AoiUser.__table__.c["geometry"]: from_shape(user_geom),
                 }
             )
             child_insert = child_insert.on_conflict_do_nothing(
@@ -593,8 +584,10 @@ class DatabaseClient:
         Insert public.slick_to_aoi rows from a dataframe with:
         - `slick_id`
         - `aoi_matches` dict keyed by AOI type short_name, containing rich AOI
-          match dicts with `ext_id`, `name`, and `geometry`; or
+          match dicts with transient `ext_id`, `name`, and `geometry`; or
         - legacy `aoi_ext_ids` dict keyed by AOI type short_name
+
+        Match geometry is not persisted to the deprecated parent AOI column.
 
         Example `aoi_ext_ids` payload:
         `{\"EEZ\": [\"123\"], \"IHO\": [\"456\"], \"MPA\": [\"789\"]}`
@@ -866,18 +859,18 @@ class DatabaseClient:
 
     async def insert_slick_to_source(self, **kwargs):
         """Insert a new slick_to_source, or update it if it already exists."""
-        insert_stmt = pg_insert(db.SlickToSource.__table__).values(**kwargs)
-        upsert_stmt = insert_stmt.on_conflict_do_update(
+        slick_to_source_insert = pg_insert(db.SlickToSource.__table__).values(**kwargs)
+        upsert_stmt = slick_to_source_insert.on_conflict_do_update(
             index_elements=["slick", "source"],
             set_={
-                "active": insert_stmt.excluded.active,
-                "git_hash": insert_stmt.excluded.git_hash,
-                "git_tag": insert_stmt.excluded.git_tag,
-                "coincidence_score": insert_stmt.excluded.coincidence_score,
-                "collated_score": insert_stmt.excluded.collated_score,
-                "rank": insert_stmt.excluded.rank,
-                "geojson_fc": insert_stmt.excluded.geojson_fc,
-                "geometry": insert_stmt.excluded.geometry,
+                "active": slick_to_source_insert.excluded.active,
+                "git_hash": slick_to_source_insert.excluded.git_hash,
+                "git_tag": slick_to_source_insert.excluded.git_tag,
+                "coincidence_score": slick_to_source_insert.excluded.coincidence_score,
+                "collated_score": slick_to_source_insert.excluded.collated_score,
+                "rank": slick_to_source_insert.excluded.rank,
+                "geojson_fc": slick_to_source_insert.excluded.geojson_fc,
+                "geometry": slick_to_source_insert.excluded.geometry,
             },
         )
         return await self.session.execute(upsert_stmt)
