@@ -1,11 +1,13 @@
 import geopandas as gpd
 import pytest
 import sqlalchemy as sa
+from shapely import wkb
 from shapely.geometry import box
 
 from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
     AOIAccessConfig,
     AOIJoiner,
+    DbBaseAoiAccessor,
     DbLocalAoiAccessor,
     DbRemoteAoiAccessor,
     GCSAoiAccessor,
@@ -259,16 +261,49 @@ def test_aoi_gcs_cache_key_includes_dataset_version(monkeypatch, tmp_path):
     assert len(downloaded_paths) == 2
 
 
-async def _create_test_aoi_table(engine, table_name="test_aoi"):
+async def _create_test_aoi_table(engine, table_name="test_aoi", *, postgis=True):
     async with engine.begin() as conn:
         await conn.execute(sa.text(f"DROP TABLE IF EXISTS public.{table_name}"))
+        if postgis:
+            await conn.execute(
+                sa.text(
+                    f"""
+                    CREATE TABLE public.{table_name} (
+                        ext_id text PRIMARY KEY,
+                        display_name text,
+                        geometry geometry(Polygon, 4326)
+                    )
+                    """
+                )
+            )
+            await conn.execute(
+                sa.text(
+                    f"""
+                    INSERT INTO public.{table_name}
+                        (ext_id, display_name, geometry)
+                    VALUES
+                        (
+                            'local-1',
+                            'Local AOI 1',
+                            ST_MakeEnvelope(0, 0, 2, 2, 4326)
+                        ),
+                        (
+                            'local-2',
+                            'Local AOI 2',
+                            ST_MakeEnvelope(10, 10, 11, 11, 4326)
+                        )
+                    """
+                )
+            )
+            return
+
         await conn.execute(
             sa.text(
                 f"""
                 CREATE TABLE public.{table_name} (
                     ext_id text PRIMARY KEY,
                     display_name text,
-                    geometry geometry(Polygon, 4326)
+                    geometry bytea
                 )
                 """
             )
@@ -279,16 +314,64 @@ async def _create_test_aoi_table(engine, table_name="test_aoi"):
                 INSERT INTO public.{table_name}
                     (ext_id, display_name, geometry)
                 VALUES
-                    ('local-1', 'Local AOI 1', ST_MakeEnvelope(0, 0, 2, 2, 4326)),
-                    ('local-2', 'Local AOI 2', ST_MakeEnvelope(10, 10, 11, 11, 4326))
+                    ('local-1', 'Local AOI 1', :geom_1),
+                    ('local-2', 'Local AOI 2', :geom_2)
                 """
-            )
+            ),
+            {
+                "geom_1": wkb.dumps(box(0, 0, 2, 2)),
+                "geom_2": wkb.dumps(box(10, 10, 11, 11)),
+            },
         )
 
 
+async def _load_candidates_without_postgis(accessor, engine, scene_bounds):
+    minx, miny, maxx, maxy = tuple(scene_bounds.bounds)
+    table_name = accessor.config.table_name
+    ext_id_column = accessor.config.ext_id_column
+    name_column = accessor.config.name_field or ext_id_column
+    geometry_column = accessor.config.geometry_column
+    async with engine.connect() as conn:
+        result = await conn.execute(
+            sa.text(
+                f"""
+                SELECT
+                    {ext_id_column}::text AS ext_id,
+                    {name_column}::text AS name,
+                    {geometry_column} AS geometry
+                FROM {table_name}
+                WHERE {ext_id_column} IS NOT NULL
+                """
+            )
+        )
+        rows = result.mappings().all()
+
+    records = []
+    bbox = box(minx, miny, maxx, maxy)
+    for row in rows:
+        geometry = wkb.loads(bytes(row["geometry"]))
+        if geometry.intersects(bbox):
+            records.append(
+                {
+                    "ext_id": row["ext_id"],
+                    "name": row["name"] or row["ext_id"],
+                    "geometry": geometry,
+                }
+            )
+    return gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326")
+
+
 @pytest.mark.asyncio
-async def test_db_local_accessor_queries_scene_bbox(setup_database, engine):
-    await _create_test_aoi_table(engine)
+async def test_db_local_accessor_queries_scene_bbox(
+    setup_database, engine, postgis_available, monkeypatch
+):
+    await _create_test_aoi_table(engine, postgis=postgis_available)
+    if not postgis_available:
+        monkeypatch.setattr(
+            DbBaseAoiAccessor,
+            "_load_candidates_from_engine",
+            _load_candidates_without_postgis,
+        )
     accessor = DbLocalAoiAccessor(
         AOIAccessConfig(
             key="LOCAL",
@@ -311,9 +394,17 @@ async def test_db_local_accessor_queries_scene_bbox(setup_database, engine):
 
 @pytest.mark.asyncio
 async def test_db_remote_accessor_uses_configured_remote_engine(
-    monkeypatch, setup_database, engine
+    monkeypatch, setup_database, engine, postgis_available
 ):
-    await _create_test_aoi_table(engine, table_name="remote_test_aoi")
+    await _create_test_aoi_table(
+        engine, table_name="remote_test_aoi", postgis=postgis_available
+    )
+    if not postgis_available:
+        monkeypatch.setattr(
+            DbBaseAoiAccessor,
+            "_load_candidates_from_engine",
+            _load_candidates_without_postgis,
+        )
     requested_conn_strings = []
 
     def fake_get_remote_aoi_engine(db_conn_str):
