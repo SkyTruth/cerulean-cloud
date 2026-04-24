@@ -487,14 +487,19 @@ async def test_insert_slick_to_aoi_upserts_rich_aoi_matches(db_session):
 
 def test_current_branch_trigger_sql_does_not_reference_aoi_chunks():
     repo_root = Path(__file__).resolve().parents[2]
-    sql_paths = [
-        repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids_rollback.sql",
+    migration_text = (
         repo_root
-        / "alembic/HOLD_1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py",
+        / "alembic/HOLD_1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
+    ).read_text()
+    current_branch_sql = [
+        (
+            repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids.sql"
+        ).read_text(),
+        migration_text.split("def downgrade():", 1)[0],
     ]
 
-    for sql_path in sql_paths:
-        assert "aoi_chunks" not in sql_path.read_text()
+    for sql_text in current_branch_sql:
+        assert "aoi_chunks" not in sql_text
 
 
 @pytest.mark.asyncio
