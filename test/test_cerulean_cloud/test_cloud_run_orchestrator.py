@@ -22,9 +22,11 @@ from cerulean_cloud.cloud_run_infer.schema import (
     InferenceResult,
     InferenceResultStack,
 )
+from cerulean_cloud.cloud_run_orchestrator.aoi_join import AOIAccessConfig
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
+    build_dataset_versions,
     calculate_centerlines,
     classify_geometry_background_mask,
     group_bounds_from_list_of_bounds,
@@ -202,6 +204,34 @@ def test_from_tiles_get_offset_shape():
     base_tiles = list(TMS.tiles(*bounds, [9], truncate=False))
     offset_image_shape = offset_group_shape_from_base_tiles(base_tiles, scale=2)
     assert offset_image_shape == (3584, 6144)
+
+
+def test_build_dataset_versions_includes_sea_ice_and_aoi_versions():
+    dataset_versions = build_dataset_versions(
+        date(2026, 4, 23),
+        [
+            AOIAccessConfig(
+                key="EEZ",
+                geometry_source_uri="gs://bucket/eez.fgb",
+                ext_id_field="MRGID",
+                dataset_version="eez-v12",
+            ),
+            AOIAccessConfig(
+                key="MPA",
+                geometry_source_uri="gs://bucket/mpa.fgb",
+                ext_id_field="WDPAID",
+                dataset_version=None,
+            ),
+        ],
+    )
+
+    assert dataset_versions == {
+        "sea_ice_date": "2026-04-23",
+        "aoi": {
+            "EEZ": "eez-v12",
+            "MPA": None,
+        },
+    }
 
 
 def test_from_bounds_get_offset_bounds():

@@ -38,7 +38,7 @@ Current repo-local skills:
 - Use `.claude/skills/cerulean-published-geoasset-debugging/SKILL.md` when a generated geospatial asset, CRS transform, or published geometry output looks visually wrong or inconsistent with expectations.
 - Use `.claude/skills/cerulean-db-performance-triage/SKILL.md` for Cerulean database or map-query performance analysis.
 - Use `.claude/skills/cerulean-database-change-checklist/SKILL.md` for migrations, schema changes, lookup data, or DB-backed vocabulary changes.
-- Use `.claude/skills/cerulean-vocabulary-translation-seed/SKILL.md` when adding or renaming rows in translatable vocabulary tables or updating `docs/vocabulary_translations_es_fr_pt_id.csv`.
+- Use `.claude/skills/cerulean-vocabulary-translation-seed/SKILL.md` when adding or renaming rows in translatable vocabulary tables or updating `docs/vocabulary_translations.csv`.
 - Use `.claude/skills/cerulean-ui-frontend-sql/SKILL.md` when answering frontend SQL questions without the `cerulean-ui` repo open.
 - Use `.claude/skills/skytruth-intent-engineering/SKILL.md` for ambiguous prompts, multi-step SkyTruth workflows, publishable artifacts, operational risk, measurement/mapping work, or decisions that need explicit outcomes, constraints, stop rules, and validation.
 

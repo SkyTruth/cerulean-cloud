@@ -89,6 +89,12 @@ ALTER TABLE public.aoi_type
 
 DROP TABLE IF EXISTS public.aoi_access_type;
 
+ALTER TABLE public.aoi_type
+    DROP CONSTRAINT IF EXISTS uq_aoi_type_short_name;
+
+ALTER TABLE public.aoi_type
+    ALTER COLUMN short_name DROP NOT NULL;
+
 DROP INDEX IF EXISTS public.idx_aoi_type_ext_id;
 
 ALTER TABLE public.aoi

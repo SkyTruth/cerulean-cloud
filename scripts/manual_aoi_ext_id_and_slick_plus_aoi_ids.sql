@@ -19,6 +19,12 @@ WHERE mpa.aoi_id = a.id;
 CREATE INDEX idx_aoi_type_ext_id
     ON public.aoi (type, ext_id);
 
+ALTER TABLE public.aoi_type
+    ALTER COLUMN short_name SET NOT NULL;
+
+ALTER TABLE public.aoi_type
+    ADD CONSTRAINT uq_aoi_type_short_name UNIQUE (short_name);
+
 CREATE TABLE public.aoi_access_type (
     id integer PRIMARY KEY,
     short_name text NOT NULL UNIQUE,
@@ -27,7 +33,7 @@ CREATE TABLE public.aoi_access_type (
 
 INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
 VALUES
-    (1, 'GCS', ARRAY['fgb_uri', 'pmt_uri', 'dataset_version']),
+    (1, 'GCS', ARRAY['fgb_uri', 'pmt_uri', 'dataset_version', 'ext_id_field', 'display_name_field']),
     (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col']),
     (3, 'DB_REMOTE', ARRAY['db_conn_str', 'table_name', 'geog_col', 'ext_id_col']);
 
@@ -38,41 +44,67 @@ ALTER TABLE public.aoi_type
     ADD COLUMN access_type text REFERENCES public.aoi_access_type(short_name),
     ADD COLUMN properties jsonb;
 
-UPDATE public.aoi_type
-SET
-    filter_toggle = TRUE,
-    owner = 1,
-    read_perm = 3,
-    access_type = 'GCS',
-    properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb","pmt_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.pmt","dataset_version":null}'::jsonb
-WHERE short_name = 'EEZ';
+DO $$
+DECLARE
+    owner_id bigint;
+    read_perm_id bigint;
+BEGIN
+    SELECT id INTO owner_id
+    FROM public.users
+    WHERE email = 'dummy@dummy.dummy'
+    ORDER BY id
+    LIMIT 1;
 
-UPDATE public.aoi_type
-SET
-    filter_toggle = FALSE,
-    owner = 1,
-    read_perm = 3,
-    access_type = 'GCS',
-    properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.fgb","pmt_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.pmt","dataset_version":null}'::jsonb
-WHERE short_name = 'IHO';
+    IF owner_id IS NULL THEN
+        RAISE EXCEPTION 'Expected seeded bootstrap user dummy@dummy.dummy before AOI access migration.';
+    END IF;
 
-UPDATE public.aoi_type
-SET
-    filter_toggle = TRUE,
-    owner = 1,
-    read_perm = 3,
-    access_type = 'GCS',
-    properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.fgb","pmt_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.pmt","dataset_version":null}'::jsonb
-WHERE short_name = 'MPA';
+    SELECT id INTO read_perm_id
+    FROM public.permission
+    WHERE short_name = 'any'
+    ORDER BY id
+    LIMIT 1;
 
-UPDATE public.aoi_type
-SET
-    filter_toggle = FALSE,
-    owner = 1,
-    read_perm = 3,
-    access_type = 'DB_LOCAL',
-    properties = '{"table_name":"aoi_user","geog_col":"geometry","ext_id_col":"aoi_id"}'::jsonb
-WHERE short_name = 'USER';
+    IF read_perm_id IS NULL THEN
+        RAISE EXCEPTION 'Expected seeded permission short_name=any before AOI access migration.';
+    END IF;
+
+    UPDATE public.aoi_type
+    SET
+        filter_toggle = TRUE,
+        owner = owner_id,
+        read_perm = read_perm_id,
+        access_type = 'GCS',
+        properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb","pmt_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.pmt","dataset_version":"eez_v12","ext_id_field":"MRGID","display_name_field":"GEONAME"}'::jsonb
+    WHERE short_name = 'EEZ';
+
+    UPDATE public.aoi_type
+    SET
+        filter_toggle = FALSE,
+        owner = owner_id,
+        read_perm = read_perm_id,
+        access_type = 'GCS',
+        properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.fgb","pmt_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.pmt","dataset_version":"World_Seas_IHO_v3","ext_id_field":"MRGID","display_name_field":"NAME"}'::jsonb
+    WHERE short_name = 'IHO';
+
+    UPDATE public.aoi_type
+    SET
+        filter_toggle = TRUE,
+        owner = owner_id,
+        read_perm = read_perm_id,
+        access_type = 'GCS',
+        properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.fgb","pmt_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.pmt","dataset_version":"marine_wdpa_0.001","ext_id_field":"WDPAID","display_name_field":"NAME"}'::jsonb
+    WHERE short_name = 'MPA';
+
+    UPDATE public.aoi_type
+    SET
+        filter_toggle = FALSE,
+        owner = owner_id,
+        read_perm = read_perm_id,
+        access_type = 'DB_LOCAL',
+        properties = '{"table_name":"aoi_user","geog_col":"geometry","ext_id_col":"aoi_id"}'::jsonb
+    WHERE short_name = 'USER';
+END $$;
 
 ALTER TABLE public.aoi_user
     ADD COLUMN geometry geography;
@@ -208,9 +240,9 @@ LEFT JOIN LATERAL (
 LEFT JOIN public.cls ON cls.id = hs.cls
 LEFT JOIN LATERAL (
     SELECT
-        array_agg(aoi.id) FILTER (WHERE aoi.type = 1) AS aoi_type_1_ids,
-        array_agg(aoi.id) FILTER (WHERE aoi.type = 2) AS aoi_type_2_ids,
-        array_agg(aoi.id) FILTER (WHERE aoi.type = 3) AS aoi_type_3_ids,
+        array_agg(aoi.id) FILTER (WHERE aoi_type_for_ids.short_name = 'EEZ') AS aoi_type_1_ids,
+        array_agg(aoi.id) FILTER (WHERE aoi_type_for_ids.short_name = 'IHO') AS aoi_type_2_ids,
+        array_agg(aoi.id) FILTER (WHERE aoi_type_for_ids.short_name = 'MPA') AS aoi_type_3_ids,
         (
             SELECT COALESCE(json_object_agg(aoi_ids.short_name, aoi_ids.ext_ids), '{}'::json)
             FROM (
@@ -228,16 +260,18 @@ LEFT JOIN LATERAL (
         ) AS aoi_ids
     FROM public.slick_to_aoi sta
     JOIN public.aoi ON aoi.id = sta.aoi
+    JOIN public.aoi_type AS aoi_type_for_ids ON aoi_type_for_ids.id = aoi.type
     WHERE sta.slick = base.id
 ) AS aois ON TRUE
 LEFT JOIN LATERAL (
     SELECT
-        array_agg(src.ext_id) FILTER (WHERE src.type = 1) AS source_type_1_ids,
-        array_agg(src.ext_id) FILTER (WHERE src.type = 2) AS source_type_2_ids,
-        array_agg(src.ext_id) FILTER (WHERE src.type = 3) AS source_type_3_ids,
+        array_agg(src.ext_id) FILTER (WHERE source_type.short_name = 'VESSEL') AS source_type_1_ids,
+        array_agg(src.ext_id) FILTER (WHERE source_type.short_name = 'INFRA') AS source_type_2_ids,
+        array_agg(src.ext_id) FILTER (WHERE source_type.short_name = 'DARK') AS source_type_3_ids,
         MAX(sts.collated_score) AS max_source_collated_score
     FROM public.slick_to_source sts
     JOIN public.source src ON src.id = sts.source
+    JOIN public.source_type ON source_type.id = src.type
     WHERE sts.slick = base.id
       AND sts.active = TRUE
 ) AS srcs ON TRUE

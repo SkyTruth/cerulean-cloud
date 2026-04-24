@@ -78,7 +78,7 @@ class AoiType(Base):  # noqa
     )
     table_name = Column(Text, nullable=False)
     long_name = Column(Text)
-    short_name = Column(Text)
+    short_name = Column(Text, nullable=False, unique=True)
     source_url = Column(Text)
     citation = Column(Text)
     update_time = Column(DateTime, server_default=text("now()"))

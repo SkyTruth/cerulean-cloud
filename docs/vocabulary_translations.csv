@@ -1,4 +1,4 @@
-# Add one "# locale:" JSON metadata line plus one matching translation column to extend this seed file.
+# Add one "# locale:" JSON metadata line plus one matching translation column to extend this locale-agnostic seed file.
 # locale: {"code":"en","english_name":"English","native_name":"English","text_direction":"ltr","fallback_code":null,"is_default":true,"is_active":true,"notes":"Canonical source language stored in base vocabulary tables."}
 # locale: {"code":"es","english_name":"Spanish","native_name":"Español","text_direction":"ltr","fallback_code":"en","is_default":false,"is_active":true,"notes":"Initial Cerulean translation roster."}
 # locale: {"code":"fr","english_name":"French","native_name":"Français","text_direction":"ltr","fallback_code":"en","is_default":false,"is_active":true,"notes":"Initial Cerulean translation roster."}

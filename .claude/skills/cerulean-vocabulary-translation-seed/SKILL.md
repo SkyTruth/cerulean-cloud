@@ -5,7 +5,7 @@ description: Maintain Cerulean's vocabulary translation seed CSV when DB-backed 
 
 # Cerulean Vocabulary Translation Seed
 
-Use this skill when a Cerulean database change adds or changes DB-backed vocabulary that should be translated through `docs/vocabulary_translations_es_fr_pt_id.csv`.
+Use this skill when a Cerulean database change adds or changes DB-backed vocabulary that should be translated through `docs/vocabulary_translations.csv`.
 
 ## Use when
 
@@ -29,13 +29,13 @@ Negative examples:
 ## Authoritative files
 
 - `alembic/versions/d6c7b48d9f11_add_vocabulary_i18n_tables.py`
-- `docs/vocabulary_translations_es_fr_pt_id.csv`
+- `docs/vocabulary_translations.csv`
 
 Read those files before editing the CSV.
 
 ## Core rules
 
-1. Treat `docs/vocabulary_translations_es_fr_pt_id.csv` as the archetype for structure and coverage.
+1. Treat `docs/vocabulary_translations.csv` as the archetype for structure and coverage.
 2. Keep the locale metadata comment lines and CSV header order unchanged unless the locale roster itself changes.
 3. Use `context_key` as the stable lookup key. In practice this is the natural key such as `short_name`, not the numeric database ID.
 4. Update or remove old rows when a key is renamed. Do not leave stale `context_key` rows behind.
