@@ -516,10 +516,11 @@ class DatabaseClient:
         """
         Insert or resolve an AOI by `(type, ext_id)`.
 
-        New rows require `geometry` because `public.aoi.geometry` is non-null.
-        USER AOIs also require `user_id` for the `public.aoi_user` child row.
-        Identity is `(type, ext_id)` and relies on the matching database
-        uniqueness constraint.
+        Duplicate `(type, ext_id)` AOIs are allowed for now. When duplicates
+        exist, this treats the smallest internal AOI id as canonical, updates
+        that row, and returns it. New rows require `geometry` because
+        `public.aoi.geometry` is non-null. USER AOIs also require `user_id`
+        for the `public.aoi_user` child row.
         """
         aoi_type_ids = await self.get_aoi_type_ids([aoi_type_short_name])
         aoi_type_id = aoi_type_ids.get(aoi_type_short_name)
@@ -528,38 +529,46 @@ class DatabaseClient:
                 f"AOI type not found for short_name={aoi_type_short_name!r}"
             )
 
+        existing_rows = await self.get_aoi_rows(aoi_type_id, ext_id)
+        canonical_aoi = existing_rows[0] if existing_rows else None
+
         if geometry is None:
-            existing_aoi = await self.get_aoi(aoi_type_id, ext_id)
-            if existing_aoi:
-                return existing_aoi
+            if canonical_aoi:
+                return canonical_aoi
             raise ValueError(
                 "geometry is required to insert a new AOI because "
                 "public.aoi.geometry is non-null"
             )
 
         if aoi_type_short_name == USER_AOI_TYPE_SHORT_NAME and user_id is None:
-            existing_aoi = await self.get_aoi(aoi_type_id, ext_id)
-            if existing_aoi:
-                return existing_aoi
+            if canonical_aoi:
+                return canonical_aoi
             raise ValueError("user_id is required to insert a new USER AOI")
 
         geom = _coerce_aoi_geometry(geometry)
-        insert_stmt = pg_insert(db.Aoi).values(
-            type=aoi_type_id,
-            name=name,
-            ext_id=str(ext_id),
-            geometry=from_shape(geom),
-        )
-        insert_stmt = insert_stmt.on_conflict_do_update(
-            index_elements=["type", "ext_id"],
-            set_={
-                "name": insert_stmt.excluded.name,
-                "geometry": insert_stmt.excluded.geometry,
-            },
-        ).returning(db.Aoi.id, db.Aoi.type, db.Aoi.name, db.Aoi.ext_id)
 
-        result = await self.session.execute(insert_stmt)
-        aoi = dict(result.mappings().one())
+        if canonical_aoi:
+            update_stmt = (
+                update(db.Aoi)
+                .where(db.Aoi.id == canonical_aoi["id"])
+                .values(name=name, geometry=from_shape(geom))
+                .returning(db.Aoi.id, db.Aoi.type, db.Aoi.name, db.Aoi.ext_id)
+            )
+            result = await self.session.execute(update_stmt)
+            aoi = dict(result.mappings().one())
+        else:
+            insert_stmt = (
+                pg_insert(db.Aoi)
+                .values(
+                    type=aoi_type_id,
+                    name=name,
+                    ext_id=str(ext_id),
+                    geometry=from_shape(geom),
+                )
+                .returning(db.Aoi.id, db.Aoi.type, db.Aoi.name, db.Aoi.ext_id)
+            )
+            result = await self.session.execute(insert_stmt)
+            aoi = dict(result.mappings().one())
 
         if aoi_type_short_name == USER_AOI_TYPE_SHORT_NAME:
             child_insert = pg_insert(db.AoiUser.__table__).values(
