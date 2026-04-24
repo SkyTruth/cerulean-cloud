@@ -56,7 +56,7 @@ BEGIN
     LIMIT 1;
 
     IF owner_id IS NULL THEN
-        RAISE EXCEPTION 'Expected seeded bootstrap user dummy@dummy.dummy before AOI access migration.';
+        RAISE NOTICE 'No bootstrap user dummy@dummy.dummy found; leaving aoi_type.owner NULL.';
     END IF;
 
     SELECT id INTO read_perm_id

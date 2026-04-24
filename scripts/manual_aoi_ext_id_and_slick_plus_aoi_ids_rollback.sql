@@ -1,7 +1,5 @@
 DROP VIEW IF EXISTS public.slick_plus_2;
 
-DROP RULE IF EXISTS bypass_slick_to_aoi_insert ON public.slick_to_aoi;
-
 CREATE OR REPLACE FUNCTION public.slick_before_trigger_func()
 RETURNS trigger
 AS $$

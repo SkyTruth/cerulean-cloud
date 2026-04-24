@@ -131,8 +131,8 @@ def _get_seed_ids():
         {"email": "dummy@dummy.dummy"},
     ).scalar()
     if owner_id is None:
-        raise RuntimeError(
-            "Expected seeded bootstrap user dummy@dummy.dummy before AOI access migration."
+        op.get_context().impl.static_output(
+            "No bootstrap user dummy@dummy.dummy found; leaving aoi_type.owner NULL."
         )
 
     read_perm_id = bind.execute(
