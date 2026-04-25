@@ -15,14 +15,6 @@ import cerulean_cloud.database_schema as db
 
 
 USER_AOI_TYPE_SHORT_NAME = "USER"
-AOI_ACCESS_TYPE_GCS = "GCS"
-AOI_ACCESS_TYPE_DB_LOCAL = "DB_LOCAL"
-AOI_ACCESS_TYPE_DB_REMOTE = "DB_REMOTE"
-SUPPORTED_AOI_ACCESS_TYPES = {
-    AOI_ACCESS_TYPE_GCS,
-    AOI_ACCESS_TYPE_DB_LOCAL,
-    AOI_ACCESS_TYPE_DB_REMOTE,
-}
 
 
 def _coerce_aoi_geometry(geometry):
@@ -63,16 +55,13 @@ def _iter_aoi_match_payload(aoi_payload: Mapping[str, Any]):
             matches = [matches]
 
         for match in matches:
+            is_rich_match = isinstance(match, Mapping)
             if isinstance(match, Mapping):
                 ext_id = match.get("ext_id")
                 name = match.get("name")
-                geometry = match.get("geometry")
-                user_id = match.get("user_id")
             else:
                 ext_id = match
                 name = None
-                geometry = None
-                user_id = None
 
             if _is_empty_aoi_value(ext_id):
                 continue
@@ -82,108 +71,8 @@ def _iter_aoi_match_payload(aoi_payload: Mapping[str, Any]):
                 "aoi_type_short_name": aoi_type_short_name,
                 "ext_id": ext_id,
                 "name": str(name) if not _is_empty_aoi_value(name) else ext_id,
-                "geometry": geometry,
-                "user_id": user_id,
+                "is_rich_match": is_rich_match,
             }
-
-
-def _get_first_property(properties: Mapping[str, Any], *keys: str):
-    """Return the first present AOI access property from a list of aliases."""
-    for key in keys:
-        value = properties.get(key)
-        if value:
-            return value
-    return None
-
-
-def _format_aoi_access_config(row: Mapping[str, Any]) -> dict:
-    """Validate and normalize an `aoi_type` AOI access config row."""
-    short_name = row["short_name"]
-    access_type = row["access_type"]
-    properties = row["properties"] or {}
-    if not isinstance(properties, Mapping):
-        raise ValueError(f"AOI type {short_name!r} properties must be a JSON object")
-    if access_type not in SUPPORTED_AOI_ACCESS_TYPES:
-        raise NotImplementedError(
-            f"Unsupported AOI access_type={access_type!r} for AOI type {short_name!r}"
-        )
-
-    config = {
-        "short_name": short_name,
-        "key": short_name,
-        "access_type": access_type,
-        "properties": properties,
-        "filter_toggle": row["filter_toggle"],
-        "read_perm": row["read_perm"],
-    }
-
-    if access_type == AOI_ACCESS_TYPE_GCS:
-        fgb_uri = _get_first_property(properties, "fgb_uri")
-        ext_id_field = _get_first_property(properties, "ext_id_field", "ext_id_col")
-        missing = []
-        if not fgb_uri:
-            missing.append("fgb_uri")
-        if not ext_id_field:
-            missing.append("ext_id_field")
-        if missing:
-            raise ValueError(
-                f"GCS AOI type {short_name!r} is missing required properties: "
-                + ", ".join(missing)
-            )
-
-        config.update(
-            {
-                "fgb_uri": fgb_uri,
-                "ext_id_col": ext_id_field,
-                "ext_id_field": ext_id_field,
-                "name_field": _get_first_property(
-                    properties, "name_field", "display_name_field", "name_col"
-                ),
-                "pmtiles_uri": properties.get("pmt_uri"),
-                "dataset_version": properties.get("dataset_version"),
-            }
-        )
-        return config
-
-    table_name = properties.get("table_name")
-    geometry_column = _get_first_property(properties, "geometry_column", "geog_col")
-    ext_id_column = _get_first_property(properties, "ext_id_column", "ext_id_col")
-    missing = [
-        name
-        for name, value in (
-            ("table_name", table_name),
-            ("geog_col", geometry_column),
-            ("ext_id_col", ext_id_column),
-        )
-        if not value
-    ]
-    if access_type == AOI_ACCESS_TYPE_DB_REMOTE and not properties.get("db_conn_str"):
-        missing.append("db_conn_str")
-    if missing:
-        raise ValueError(
-            f"{access_type} AOI type {short_name!r} is missing required properties: "
-            + ", ".join(missing)
-        )
-
-    name_column = _get_first_property(
-        properties, "name_column", "display_name_field", "name_col", "name_field"
-    )
-    config.update(
-        {
-            "table_name": table_name,
-            "geog_col": geometry_column,
-            "geometry_column": geometry_column,
-            "ext_id_col": ext_id_column,
-            "ext_id_column": ext_id_column,
-            "name_col": name_column,
-            "name_column": name_column,
-            "name_field": name_column,
-            "dataset_version": properties.get("dataset_version"),
-        }
-    )
-    if access_type == AOI_ACCESS_TYPE_DB_REMOTE:
-        config["db_conn_str"] = properties.get("db_conn_str")
-    return config
 
 
 class InstanceNotFoundError(Exception):
@@ -353,23 +242,15 @@ class DatabaseClient:
         access_types: Optional[Sequence[str]] = None,
     ) -> list[dict]:
         """
-        Return normalized AOI access configuration rows.
+        Return raw AOI access rows for accessor-specific parsing.
 
         The checked-in schema stores AOI access metadata in `aoi_type.access_type`
-        plus `aoi_type.properties`. Callers should use `access_type` to choose
-        an access-pattern implementation while treating AOI semantic types as
-        data/config rows.
+        plus `aoi_type.properties`.
         """
         if short_names:
             short_names = list(short_names)
         if access_types:
             access_types = list(access_types)
-            unsupported_types = sorted(set(access_types) - SUPPORTED_AOI_ACCESS_TYPES)
-            if unsupported_types:
-                raise NotImplementedError(
-                    "Unsupported AOI access type filter(s): "
-                    + ", ".join(unsupported_types)
-                )
 
         params = {}
         filters = []
@@ -396,13 +277,17 @@ class DatabaseClient:
         )
         result = await self.session.execute(query, params)
 
-        rows = []
-        for row in result.mappings():
-            if not row["access_type"]:
-                continue
-            rows.append(_format_aoi_access_config(row))
-
-        return rows
+        return [
+            {
+                "short_name": row["short_name"],
+                "access_type": row["access_type"],
+                "properties": row["properties"] or {},
+                "filter_toggle": row["filter_toggle"],
+                "read_perm": row["read_perm"],
+            }
+            for row in result.mappings()
+            if row["access_type"]
+        ]
 
     async def get_aoi_type_ids(
         self, short_names: Optional[Sequence[str]] = None
@@ -583,17 +468,15 @@ class DatabaseClient:
         """
         Insert public.slick_to_aoi rows from a dataframe with:
         - `slick_id`
-        - `aoi_matches` dict keyed by AOI type short_name, containing rich AOI
-          match dicts with transient `ext_id`, `name`, and `geometry`; or
+        - `aoi_matches` dict keyed by AOI type short_name, containing compact AOI
+          match dicts with transient `ext_id` and `name`; or
         - legacy `aoi_ext_ids` dict keyed by AOI type short_name
 
-        Match geometry is not persisted to the deprecated parent AOI column.
+        Rich non-USER matches upsert `public.aoi` by `(type, ext_id)`.
 
         Example `aoi_ext_ids` payload:
         `{\"EEZ\": [\"123\"], \"IHO\": [\"456\"], \"MPA\": [\"789\"]}`
         """
-        if "slick_id" not in slick_aoi_df.columns:
-            raise ValueError("slick_aoi_df is missing required column: 'slick_id'")
         if not {"aoi_matches", "aoi_ext_ids"} & set(slick_aoi_df.columns):
             raise ValueError(
                 "slick_aoi_df must include either 'aoi_matches' or 'aoi_ext_ids'"
@@ -601,7 +484,7 @@ class DatabaseClient:
 
         aoi_pairs: set[tuple[str, str]] = set()
         flattened_rows: list[tuple[int, str, str]] = []
-        upsert_candidates: dict[tuple[str, str], dict] = {}
+        upsert_candidates: dict[tuple[str, str], str] = {}
 
         for row in slick_aoi_df.itertuples(index=False):
             slick_id = int(row.slick_id)
@@ -610,11 +493,6 @@ class DatabaseClient:
                 aoi_payload = getattr(row, "aoi_ext_ids", None)
             if _is_empty_aoi_value(aoi_payload):
                 aoi_payload = {}
-            if not isinstance(aoi_payload, Mapping):
-                raise ValueError(
-                    "aoi_matches/aoi_ext_ids must be a dict for "
-                    f"slick_id={slick_id}, got {type(aoi_payload)!r}"
-                )
 
             for match in _iter_aoi_match_payload(aoi_payload):
                 aoi_type_short_name = match["aoi_type_short_name"]
@@ -622,29 +500,20 @@ class DatabaseClient:
                 aoi_pairs.add((aoi_type_short_name, ext_id))
                 flattened_rows.append((slick_id, aoi_type_short_name, ext_id))
 
-                if match["geometry"] is not None:
+                if (
+                    match["is_rich_match"]
+                    and aoi_type_short_name != USER_AOI_TYPE_SHORT_NAME
+                ):
                     upsert_candidates.setdefault(
                         (aoi_type_short_name, ext_id),
-                        {
-                            "aoi_type_short_name": aoi_type_short_name,
-                            "ext_id": ext_id,
-                            "name": match["name"],
-                            "geometry": match["geometry"],
-                            "user_id": match["user_id"],
-                        },
+                        match["name"],
                     )
 
         if not flattened_rows:
             return 0
 
-        for candidate in upsert_candidates.values():
-            await self.get_or_insert_aoi(
-                candidate["aoi_type_short_name"],
-                candidate["ext_id"],
-                candidate["name"],
-                geometry=candidate["geometry"],
-                user_id=candidate["user_id"],
-            )
+        for (aoi_type_short_name, ext_id), name in upsert_candidates.items():
+            await self.get_or_insert_aoi(aoi_type_short_name, ext_id, name)
 
         aoi_type_ids = await self.get_aoi_type_ids(
             sorted({short_name for short_name, _ in aoi_pairs})

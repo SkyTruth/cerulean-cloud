@@ -22,7 +22,7 @@ from cerulean_cloud.cloud_run_infer.schema import (
     InferenceResult,
     InferenceResultStack,
 )
-from cerulean_cloud.cloud_run_orchestrator.aoi_join import AOIAccessConfig
+from cerulean_cloud.cloud_run_orchestrator.aoi_join import build_aoi_accessor
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.handler import (
     _orchestrate,
@@ -210,17 +210,26 @@ def test_build_dataset_versions_includes_sea_ice_and_aoi_versions():
     dataset_versions = build_dataset_versions(
         date(2026, 4, 23),
         [
-            AOIAccessConfig(
-                key="EEZ",
-                fgb_uri="gs://bucket/eez.fgb",
-                ext_id_field="MRGID",
-                dataset_version="eez-v12",
+            build_aoi_accessor(
+                {
+                    "short_name": "EEZ",
+                    "access_type": "GCS",
+                    "properties": {
+                        "fgb_uri": "gs://bucket/eez.fgb",
+                        "ext_id_field": "MRGID",
+                        "dataset_version": "eez-v12",
+                    },
+                }
             ),
-            AOIAccessConfig(
-                key="MPA",
-                fgb_uri="gs://bucket/mpa.fgb",
-                ext_id_field="WDPAID",
-                dataset_version=None,
+            build_aoi_accessor(
+                {
+                    "short_name": "MPA",
+                    "access_type": "GCS",
+                    "properties": {
+                        "fgb_uri": "gs://bucket/mpa.fgb",
+                        "ext_id_field": "WDPAID",
+                    },
+                }
             ),
         ],
     )

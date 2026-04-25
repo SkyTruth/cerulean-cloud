@@ -89,7 +89,6 @@ LEFT JOIN LATERAL (
                 JOIN public.aoi aoi_by_type ON aoi_by_type.id = sta_by_type.aoi
                 JOIN public.aoi_type ON aoi_type.id = aoi_by_type.type
                 WHERE sta_by_type.slick = base.id
-                  AND aoi_type.short_name IN ('EEZ', 'IHO', 'MPA')
                   AND aoi_by_type.ext_id IS NOT NULL
                 GROUP BY aoi_type.short_name
             ) AS aoi_ids
@@ -245,8 +244,8 @@ def upgrade():
         INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
         VALUES
             (1, 'GCS', ARRAY['fgb_uri', 'pmt_uri', 'dataset_version', 'ext_id_field', 'display_name_field']),
-            (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col']),
-            (3, 'DB_REMOTE', ARRAY['db_conn_str', 'table_name', 'geog_col', 'ext_id_col'])
+            (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field']),
+            (3, 'DB_REMOTE', ARRAY['db_conn_str', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field'])
         """
     )
 
@@ -255,6 +254,38 @@ def upgrade():
     op.add_column("aoi_type", sa.Column("read_perm", sa.BigInteger()))
     op.add_column("aoi_type", sa.Column("access_type", sa.Text()))
     op.add_column("aoi_type", sa.Column("properties", postgresql.JSONB()))
+    op.create_check_constraint(
+        "ck_aoi_type_access_properties",
+        "aoi_type",
+        """
+        access_type IS NULL
+        OR (
+            properties IS NOT NULL
+            AND jsonb_typeof(properties) = 'object'
+            AND (
+                (
+                    access_type = 'GCS'
+                    AND NULLIF(properties->>'fgb_uri', '') IS NOT NULL
+                    AND properties->>'fgb_uri' LIKE 'gs://%'
+                    AND NULLIF(properties->>'ext_id_field', '') IS NOT NULL
+                )
+                OR (
+                    access_type = 'DB_LOCAL'
+                    AND NULLIF(properties->>'table_name', '') IS NOT NULL
+                    AND NULLIF(properties->>'geog_col', '') IS NOT NULL
+                    AND NULLIF(properties->>'ext_id_col', '') IS NOT NULL
+                )
+                OR (
+                    access_type = 'DB_REMOTE'
+                    AND NULLIF(properties->>'db_conn_str', '') IS NOT NULL
+                    AND NULLIF(properties->>'table_name', '') IS NOT NULL
+                    AND NULLIF(properties->>'geog_col', '') IS NOT NULL
+                    AND NULLIF(properties->>'ext_id_col', '') IS NOT NULL
+                )
+            )
+        )
+        """,
+    )
 
     op.create_foreign_key(
         "fk_aoi_type_owner_users",
@@ -514,6 +545,11 @@ def downgrade():
         type_="foreignkey",
     )
     op.drop_constraint("fk_aoi_type_owner_users", "aoi_type", type_="foreignkey")
+    op.drop_constraint(
+        "ck_aoi_type_access_properties",
+        "aoi_type",
+        type_="check",
+    )
     op.drop_column("aoi_type", "properties")
     op.drop_column("aoi_type", "access_type")
     op.drop_column("aoi_type", "read_perm")

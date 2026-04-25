@@ -37,8 +37,8 @@ CREATE TABLE public.aoi_access_type (
 INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
 VALUES
     (1, 'GCS', ARRAY['fgb_uri', 'pmt_uri', 'dataset_version', 'ext_id_field', 'display_name_field']),
-    (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col']),
-    (3, 'DB_REMOTE', ARRAY['db_conn_str', 'table_name', 'geog_col', 'ext_id_col']);
+    (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field']),
+    (3, 'DB_REMOTE', ARRAY['db_conn_str', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field']);
 
 ALTER TABLE public.aoi_type
     ADD COLUMN filter_toggle boolean,
@@ -46,6 +46,36 @@ ALTER TABLE public.aoi_type
     ADD COLUMN read_perm bigint REFERENCES public.permission(id),
     ADD COLUMN access_type text REFERENCES public.aoi_access_type(short_name),
     ADD COLUMN properties jsonb;
+
+ALTER TABLE public.aoi_type
+    ADD CONSTRAINT ck_aoi_type_access_properties CHECK (
+        access_type IS NULL
+        OR (
+            properties IS NOT NULL
+            AND jsonb_typeof(properties) = 'object'
+            AND (
+                (
+                    access_type = 'GCS'
+                    AND NULLIF(properties->>'fgb_uri', '') IS NOT NULL
+                    AND properties->>'fgb_uri' LIKE 'gs://%'
+                    AND NULLIF(properties->>'ext_id_field', '') IS NOT NULL
+                )
+                OR (
+                    access_type = 'DB_LOCAL'
+                    AND NULLIF(properties->>'table_name', '') IS NOT NULL
+                    AND NULLIF(properties->>'geog_col', '') IS NOT NULL
+                    AND NULLIF(properties->>'ext_id_col', '') IS NOT NULL
+                )
+                OR (
+                    access_type = 'DB_REMOTE'
+                    AND NULLIF(properties->>'db_conn_str', '') IS NOT NULL
+                    AND NULLIF(properties->>'table_name', '') IS NOT NULL
+                    AND NULLIF(properties->>'geog_col', '') IS NOT NULL
+                    AND NULLIF(properties->>'ext_id_col', '') IS NOT NULL
+                )
+            )
+        )
+    );
 
 DO $$
 DECLARE
@@ -256,7 +286,6 @@ LEFT JOIN LATERAL (
                 JOIN public.aoi aoi_by_type ON aoi_by_type.id = sta_by_type.aoi
                 JOIN public.aoi_type ON aoi_type.id = aoi_by_type.type
                 WHERE sta_by_type.slick = base.id
-                  AND aoi_type.short_name IN ('EEZ', 'IHO', 'MPA')
                   AND aoi_by_type.ext_id IS NOT NULL
                 GROUP BY aoi_type.short_name
             ) AS aoi_ids

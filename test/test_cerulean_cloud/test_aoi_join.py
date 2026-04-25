@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import geopandas as gpd
 import pytest
 import sqlalchemy as sa
@@ -5,8 +7,8 @@ from shapely import wkb
 from shapely.geometry import box
 
 from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
-    AOIAccessConfig,
     AOIJoiner,
+    BaseAoiAccessor,
     DbBaseAoiAccessor,
     DbLocalAoiAccessor,
     DbRemoteAoiAccessor,
@@ -15,16 +17,13 @@ from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
 )
 
 
-def test_aoi_access_config_from_properties_is_data_driven():
-    config = AOIAccessConfig.from_mapping(
+def test_gcs_accessor_owns_gcs_config_parsing():
+    accessor = build_aoi_accessor(
         {
             "short_name": "CUSTOM",
             "access_type": "GCS",
-            "filter_toggle": True,
-            "read_perm": 3,
             "properties": {
-                "fgb_uri": "/tmp/custom.fgb",
-                "pmt_uri": "gs://bucket/custom.pmtiles",
+                "fgb_uri": "gs://bucket/custom.fgb",
                 "dataset_version": "custom-v1",
                 "ext_id_field": "CUSTOM_ID",
                 "display_name_field": "DISPLAY_NAME",
@@ -32,18 +31,16 @@ def test_aoi_access_config_from_properties_is_data_driven():
         }
     )
 
-    assert config.key == "CUSTOM"
-    assert config.fgb_uri == "/tmp/custom.fgb"
-    assert config.ext_id_field == "CUSTOM_ID"
-    assert config.name_field == "DISPLAY_NAME"
-    assert config.pmtiles_uri == "gs://bucket/custom.pmtiles"
-    assert config.dataset_version == "custom-v1"
-    assert config.filter_toggle is True
-    assert config.read_perm == 3
+    assert isinstance(accessor, GCSAoiAccessor)
+    assert accessor.short_name == "CUSTOM"
+    assert accessor.fgb_uri == "gs://bucket/custom.fgb"
+    assert accessor.ext_id_field == "CUSTOM_ID"
+    assert accessor.display_name_field == "DISPLAY_NAME"
+    assert accessor.dataset_version == "custom-v1"
 
 
-def test_aoi_access_config_supports_db_local_properties():
-    config = AOIAccessConfig.from_mapping(
+def test_db_accessors_own_db_config_parsing():
+    local_accessor = build_aoi_accessor(
         {
             "short_name": "USER",
             "access_type": "DB_LOCAL",
@@ -52,18 +49,10 @@ def test_aoi_access_config_supports_db_local_properties():
                 "geog_col": "geometry",
                 "ext_id_col": "aoi_id",
             },
-        }
+        },
+        local_engine=object(),
     )
-
-    assert config.key == "USER"
-    assert config.access_type == "DB_LOCAL"
-    assert config.table_name == "aoi_user"
-    assert config.geometry_column == "geometry"
-    assert config.ext_id_column == "aoi_id"
-
-
-def test_aoi_access_config_supports_db_remote_properties():
-    config = AOIAccessConfig.from_mapping(
+    remote_accessor = build_aoi_accessor(
         {
             "short_name": "REMOTE",
             "access_type": "DB_REMOTE",
@@ -72,29 +61,35 @@ def test_aoi_access_config_supports_db_remote_properties():
                 "table_name": "remote_schema.remote_aoi",
                 "geog_col": "geometry",
                 "ext_id_col": "remote_id",
-                "name_col": "remote_name",
+                "display_name_field": "remote_name",
             },
         }
     )
 
-    assert config.key == "REMOTE"
-    assert config.access_type == "DB_REMOTE"
-    assert config.db_conn_str == "postgresql://example/remote"
-    assert config.table_name == "remote_schema.remote_aoi"
-    assert config.geometry_column == "geometry"
-    assert config.ext_id_column == "remote_id"
-    assert config.name_field == "remote_name"
+    assert isinstance(local_accessor, DbLocalAoiAccessor)
+    assert local_accessor.short_name == "USER"
+    assert local_accessor.table_name == "aoi_user"
+    assert local_accessor.geog_col == "geometry"
+    assert local_accessor.ext_id_col == "aoi_id"
+
+    assert isinstance(remote_accessor, DbRemoteAoiAccessor)
+    assert remote_accessor.short_name == "REMOTE"
+    assert remote_accessor.db_conn_str == "postgresql://example/remote"
+    assert remote_accessor.table_name == "remote_schema.remote_aoi"
+    assert remote_accessor.geog_col == "geometry"
+    assert remote_accessor.ext_id_col == "remote_id"
+    assert remote_accessor.display_name_field == "remote_name"
 
 
-def test_aoi_access_config_requires_access_type_specific_fields():
-    with pytest.raises(ValueError, match="GCS AOI type 'CUSTOM'"):
-        AOIAccessConfig.from_mapping({"short_name": "CUSTOM", "access_type": "GCS"})
+def test_accessors_let_missing_config_fields_raise_at_the_source():
+    with pytest.raises(KeyError, match="fgb_uri"):
+        build_aoi_accessor({"short_name": "CUSTOM", "access_type": "GCS"})
 
-    with pytest.raises(ValueError, match="DB_LOCAL AOI type 'LOCAL'"):
-        AOIAccessConfig.from_mapping({"short_name": "LOCAL", "access_type": "DB_LOCAL"})
+    with pytest.raises(KeyError, match="table_name"):
+        build_aoi_accessor({"short_name": "LOCAL", "access_type": "DB_LOCAL"})
 
-    with pytest.raises(ValueError, match="db_conn_str"):
-        AOIAccessConfig.from_mapping(
+    with pytest.raises(KeyError, match="db_conn_str"):
+        build_aoi_accessor(
             {
                 "short_name": "REMOTE",
                 "access_type": "DB_REMOTE",
@@ -106,104 +101,63 @@ def test_aoi_access_config_requires_access_type_specific_fields():
             }
         )
 
-
-def test_aoi_accessor_factory_selects_access_pattern_classes():
-    gcs_config = AOIAccessConfig(
-        key="CUSTOM",
-        access_type="GCS",
-        fgb_uri="/tmp/custom.fgb",
-        ext_id_field="CUSTOM_ID",
-    )
-    local_config = AOIAccessConfig(
-        key="LOCAL",
-        access_type="DB_LOCAL",
-        table_name="public.local_aoi",
-        geometry_column="geometry",
-        ext_id_column="ext_id",
-    )
-    remote_config = AOIAccessConfig(
-        key="REMOTE",
-        access_type="DB_REMOTE",
-        table_name="remote_schema.remote_aoi",
-        geometry_column="geometry",
-        ext_id_column="remote_id",
-        db_conn_str="postgresql://example/remote",
-    )
-
-    assert isinstance(build_aoi_accessor(gcs_config), GCSAoiAccessor)
-    assert isinstance(
-        build_aoi_accessor(local_config, local_engine=object()), DbLocalAoiAccessor
-    )
-    assert isinstance(build_aoi_accessor(remote_config), DbRemoteAoiAccessor)
-
-    unknown_config = AOIAccessConfig(key="UNKNOWN", access_type="S3")
     with pytest.raises(NotImplementedError, match="Unsupported AOI access_type"):
-        build_aoi_accessor(unknown_config)
-
-
-def test_db_remote_accessor_fails_before_query_without_connection_string():
-    config = AOIAccessConfig(
-        key="REMOTE",
-        access_type="DB_REMOTE",
-        table_name="remote_schema.remote_aoi",
-        geometry_column="geometry",
-        ext_id_column="remote_id",
-    )
-
-    with pytest.raises(ValueError, match="requires db_conn_str"):
-        DbRemoteAoiAccessor(config)
+        build_aoi_accessor({"short_name": "UNKNOWN", "access_type": "S3"})
 
 
 @pytest.mark.asyncio
-async def test_aoi_joiner_loads_aoi_candidates_once_per_scene(monkeypatch):
+async def test_aoi_joiner_loads_candidates_once_and_skips_null_ext_ids(monkeypatch):
     read_calls = []
 
     def fake_read_file(path, bbox=None):
         read_calls.append({"path": path, "bbox": bbox})
         return gpd.GeoDataFrame(
             {
-                "CUSTOM_ID": ["aoi-1", "aoi-2"],
-                "DISPLAY_NAME": ["AOI 1", "AOI 2"],
-                "geometry": [box(0, 0, 2, 2), box(10, 10, 11, 11)],
+                "CUSTOM_ID": ["aoi-1", None, "aoi-2"],
+                "DISPLAY_NAME": ["AOI 1", "No ID", "AOI 2"],
+                "geometry": [
+                    box(0, 0, 2, 2),
+                    box(1, 1, 2, 2),
+                    box(10, 10, 11, 11),
+                ],
             },
             crs="EPSG:4326",
         )
 
     monkeypatch.setattr(gpd, "read_file", fake_read_file)
-
-    joiner = AOIJoiner(
-        scene_bounds=box(-1, -1, 12, 12),
-        aoi_access_configs=[
-            {
-                "short_name": "CUSTOM",
-                "access_type": "GCS",
-                "properties": {
-                    "fgb_uri": "/tmp/custom.fgb",
-                    "ext_id_field": "CUSTOM_ID",
-                    "display_name_field": "DISPLAY_NAME",
-                },
-            }
-        ],
+    monkeypatch.setattr(
+        GCSAoiAccessor,
+        "_download_aoi_dataset",
+        lambda self: "/tmp/custom.fgb",
     )
+
+    accessor = build_aoi_accessor(
+        {
+            "short_name": "CUSTOM",
+            "access_type": "GCS",
+            "properties": {
+                "fgb_uri": "gs://bucket/custom.fgb",
+                "ext_id_field": "CUSTOM_ID",
+                "display_name_field": "DISPLAY_NAME",
+            },
+        }
+    )
+    joiner = AOIJoiner(scene_bounds=(-1, -1, 12, 12), accessors=[accessor])
     slicks = gpd.GeoDataFrame(
         geometry=[box(1, 1, 1.5, 1.5), box(10.2, 10.2, 10.4, 10.4)],
         crs="EPSG:4326",
     )
 
-    assert len(read_calls) == 0
-    assert await joiner.compute_aoi_intersect(slicks) == [
-        {"CUSTOM": ["aoi-1"]},
-        {"CUSTOM": ["aoi-2"]},
+    matches = await joiner.compute_aoi_matches(slicks)
+    assert matches == [
+        {"CUSTOM": [{"ext_id": "aoi-1", "name": "AOI 1"}]},
+        {"CUSTOM": [{"ext_id": "aoi-2", "name": "AOI 2"}]},
     ]
     assert len(read_calls) == 1
     assert read_calls[0]["path"] == "/tmp/custom.fgb"
     assert read_calls[0]["bbox"] == (-1.0, -1.0, 12.0, 12.0)
-    matches = await joiner.compute_aoi_matches(slicks)
-    assert matches[0]["CUSTOM"][0]["ext_id"] == "aoi-1"
-    assert matches[0]["CUSTOM"][0]["name"] == "AOI 1"
-    assert matches[0]["CUSTOM"][0]["geometry"].equals(box(0, 0, 2, 2))
-    assert matches[1]["CUSTOM"][0]["ext_id"] == "aoi-2"
-    assert matches[1]["CUSTOM"][0]["name"] == "AOI 2"
+
+    assert await joiner.compute_aoi_matches(slicks) == matches
     assert len(read_calls) == 1
 
 
@@ -215,9 +169,8 @@ def test_aoi_gcs_cache_key_includes_dataset_version(monkeypatch, tmp_path):
             self.object_name = object_name
 
         def download_to_filename(self, local_path):
-            downloaded_paths.append(local_path)
-            with open(local_path, "w") as fp:
-                fp.write(self.object_name)
+            downloaded_paths.append(Path(local_path))
+            Path(local_path).write_text(self.object_name)
 
     class FakeBucket:
         def blob(self, object_name):
@@ -236,22 +189,28 @@ def test_aoi_gcs_cache_key_includes_dataset_version(monkeypatch, tmp_path):
         FakeStorageClient,
     )
 
-    config_v1 = AOIAccessConfig(
-        key="CUSTOM",
-        fgb_uri="gs://bucket/custom.fgb",
-        ext_id_field="CUSTOM_ID",
-        dataset_version="v1",
-    )
-    config_v2 = AOIAccessConfig(
-        key="CUSTOM",
-        fgb_uri="gs://bucket/custom.fgb",
-        ext_id_field="CUSTOM_ID",
-        dataset_version="v2",
-    )
+    row_v1 = {
+        "short_name": "CUSTOM",
+        "access_type": "GCS",
+        "properties": {
+            "fgb_uri": "gs://bucket/custom.fgb",
+            "ext_id_field": "CUSTOM_ID",
+            "dataset_version": "v1",
+        },
+    }
+    row_v2 = {
+        "short_name": "CUSTOM",
+        "access_type": "GCS",
+        "properties": {
+            "fgb_uri": "gs://bucket/custom.fgb",
+            "ext_id_field": "CUSTOM_ID",
+            "dataset_version": "v2",
+        },
+    }
 
-    accessor_v1 = GCSAoiAccessor(config_v1)
+    accessor_v1 = GCSAoiAccessor(row_v1)
     accessor_v1.cache_dir = tmp_path
-    accessor_v2 = GCSAoiAccessor(config_v2)
+    accessor_v2 = GCSAoiAccessor(row_v2)
     accessor_v2.cache_dir = tmp_path
 
     path_v1 = accessor_v1._download_aoi_dataset()
@@ -259,6 +218,48 @@ def test_aoi_gcs_cache_key_includes_dataset_version(monkeypatch, tmp_path):
 
     assert path_v1 != path_v2
     assert len(downloaded_paths) == 2
+    assert all(not path.exists() for path in downloaded_paths)
+
+
+def test_aoi_gcs_cache_download_is_atomic(monkeypatch, tmp_path):
+    class FailingBlob:
+        def download_to_filename(self, local_path):
+            Path(local_path).write_text("partial")
+            raise RuntimeError("download failed")
+
+    class FakeBucket:
+        def blob(self, object_name):
+            return FailingBlob()
+
+    class FakeStorageClient:
+        def __init__(self, project, credentials):
+            pass
+
+        def bucket(self, bucket_name):
+            return FakeBucket()
+
+    monkeypatch.setattr(GCSAoiAccessor, "_get_gcs_credentials", lambda self: object())
+    monkeypatch.setattr(
+        "cerulean_cloud.cloud_run_orchestrator.aoi_join.storage.Client",
+        FakeStorageClient,
+    )
+
+    accessor = GCSAoiAccessor(
+        {
+            "short_name": "CUSTOM",
+            "access_type": "GCS",
+            "properties": {
+                "fgb_uri": "gs://bucket/custom.fgb",
+                "ext_id_field": "CUSTOM_ID",
+            },
+        }
+    )
+    accessor.cache_dir = tmp_path
+
+    with pytest.raises(RuntimeError, match="download failed"):
+        accessor._download_aoi_dataset()
+
+    assert list(tmp_path.iterdir()) == []
 
 
 async def _create_test_aoi_table(engine, table_name="test_aoi", *, postgis=True):
@@ -326,21 +327,18 @@ async def _create_test_aoi_table(engine, table_name="test_aoi", *, postgis=True)
 
 
 async def _load_candidates_without_postgis(accessor, engine, scene_bounds):
-    minx, miny, maxx, maxy = tuple(scene_bounds.bounds)
-    table_name = accessor.config.table_name
-    ext_id_column = accessor.config.ext_id_column
-    name_column = accessor.config.name_field or ext_id_column
-    geometry_column = accessor.config.geometry_column
+    minx, miny, maxx, maxy = scene_bounds
+    display_col = accessor.display_name_field or accessor.ext_id_col
     async with engine.connect() as conn:
         result = await conn.execute(
             sa.text(
                 f"""
                 SELECT
-                    {ext_id_column}::text AS ext_id,
-                    {name_column}::text AS name,
-                    {geometry_column} AS geometry
-                FROM {table_name}
-                WHERE {ext_id_column} IS NOT NULL
+                    {accessor.ext_id_col}::text AS ext_id,
+                    {display_col}::text AS name,
+                    {accessor.geog_col} AS geometry
+                FROM {accessor.table_name}
+                WHERE {accessor.ext_id_col} IS NOT NULL
                 """
             )
         )
@@ -373,18 +371,20 @@ async def test_db_local_accessor_queries_scene_bbox(
             _load_candidates_without_postgis,
         )
     accessor = DbLocalAoiAccessor(
-        AOIAccessConfig(
-            key="LOCAL",
-            access_type="DB_LOCAL",
-            table_name="public.test_aoi",
-            geometry_column="geometry",
-            ext_id_column="ext_id",
-            name_field="display_name",
-        ),
+        {
+            "short_name": "LOCAL",
+            "access_type": "DB_LOCAL",
+            "properties": {
+                "table_name": "public.test_aoi",
+                "geog_col": "geometry",
+                "ext_id_col": "ext_id",
+                "display_name_field": "display_name",
+            },
+        },
         engine,
     )
 
-    candidates = await accessor.load_candidates(box(-1, -1, 3, 3))
+    candidates = await accessor.load_candidates((-1, -1, 3, 3))
 
     assert candidates["ext_id"].tolist() == ["local-1"]
     assert candidates["name"].tolist() == ["Local AOI 1"]
@@ -407,27 +407,26 @@ async def test_db_remote_accessor_uses_configured_remote_engine(
         )
     requested_conn_strings = []
 
-    def fake_get_remote_aoi_engine(db_conn_str):
-        requested_conn_strings.append(db_conn_str)
+    def fake_engine(self):
+        requested_conn_strings.append(self.db_conn_str)
         return engine
 
-    monkeypatch.setattr(
-        "cerulean_cloud.cloud_run_orchestrator.aoi_join.get_remote_aoi_engine",
-        fake_get_remote_aoi_engine,
-    )
+    monkeypatch.setattr(DbRemoteAoiAccessor, "_engine", fake_engine)
     accessor = DbRemoteAoiAccessor(
-        AOIAccessConfig(
-            key="REMOTE",
-            access_type="DB_REMOTE",
-            table_name="public.remote_test_aoi",
-            geometry_column="geometry",
-            ext_id_column="ext_id",
-            name_field="display_name",
-            db_conn_str="postgresql://example/remote",
-        )
+        {
+            "short_name": "REMOTE",
+            "access_type": "DB_REMOTE",
+            "properties": {
+                "table_name": "public.remote_test_aoi",
+                "geog_col": "geometry",
+                "ext_id_col": "ext_id",
+                "display_name_field": "display_name",
+                "db_conn_str": "postgresql://example/remote",
+            },
+        }
     )
 
-    candidates = await accessor.load_candidates(box(-1, -1, 3, 3))
+    candidates = await accessor.load_candidates((-1, -1, 3, 3))
 
     assert requested_conn_strings == ["postgresql://example/remote"]
     assert candidates["ext_id"].tolist() == ["local-1"]
@@ -436,20 +435,16 @@ async def test_db_remote_accessor_uses_configured_remote_engine(
 
 @pytest.mark.asyncio
 async def test_aoi_joiner_merges_mixed_accessor_results():
-    class FakeAccessor:
-        def __init__(self, key, ext_id):
-            self.config = AOIAccessConfig(key=key)
+    class FakeAccessor(BaseAoiAccessor):
+        def __init__(self, short_name, ext_id):
+            super().__init__({"short_name": short_name})
             self.ext_id = ext_id
 
-        async def compute_matches(self, slick_gdf, scene_bounds):
+        async def matches_for_scene(self, scene_bounds, slick_gdf):
             return [
                 {
-                    self.config.key: [
-                        {
-                            "ext_id": self.ext_id,
-                            "name": self.ext_id.upper(),
-                            "geometry": box(0, 0, 1, 1),
-                        }
+                    self.short_name: [
+                        {"ext_id": self.ext_id, "name": self.ext_id.upper()}
                     ]
                 }
                 for _ in range(len(slick_gdf))
@@ -457,7 +452,7 @@ async def test_aoi_joiner_merges_mixed_accessor_results():
 
     slicks = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
     joiner = AOIJoiner(
-        scene_bounds=box(-1, -1, 2, 2),
+        scene_bounds=(-1, -1, 2, 2),
         accessors=[
             FakeAccessor("GCS_LAYER", "gcs-1"),
             FakeAccessor("LOCAL_LAYER", "local-1"),
@@ -465,26 +460,10 @@ async def test_aoi_joiner_merges_mixed_accessor_results():
         ],
     )
 
-    matches = await joiner.compute_aoi_matches(slicks)
-
-    assert matches == [
+    assert await joiner.compute_aoi_matches(slicks) == [
         {
-            "GCS_LAYER": [
-                {"ext_id": "gcs-1", "name": "GCS-1", "geometry": box(0, 0, 1, 1)}
-            ],
-            "LOCAL_LAYER": [
-                {
-                    "ext_id": "local-1",
-                    "name": "LOCAL-1",
-                    "geometry": box(0, 0, 1, 1),
-                }
-            ],
-            "REMOTE_LAYER": [
-                {
-                    "ext_id": "remote-1",
-                    "name": "REMOTE-1",
-                    "geometry": box(0, 0, 1, 1),
-                }
-            ],
+            "GCS_LAYER": [{"ext_id": "gcs-1", "name": "GCS-1"}],
+            "LOCAL_LAYER": [{"ext_id": "local-1", "name": "LOCAL-1"}],
+            "REMOTE_LAYER": [{"ext_id": "remote-1", "name": "REMOTE-1"}],
         }
     ]

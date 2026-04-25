@@ -10,6 +10,7 @@ Before doing substantial work, inspect the frontmatter of each repo-local `SKILL
 
 Current repo-local skills:
 
+- `.claude/skills/cerulean-code-parsimony/SKILL.md`
 - `.claude/skills/cerulean-cloud-test-env/SKILL.md`
 - `.claude/skills/cerulean-database-change-checklist/SKILL.md`
 - `.claude/skills/cerulean-db-performance-triage/SKILL.md`
@@ -33,6 +34,7 @@ Current repo-local skills:
 
 ## High-priority triggers
 
+- Use `.claude/skills/cerulean-code-parsimony/SKILL.md` for Cerulean backend or orchestrator refactors where simplicity, canonical config paths, validation boundaries, speculative edge cases, or helper-layer bloat are central concerns.
 - Use `.claude/skills/cerulean-cloud-test-env/SKILL.md` before running `pytest`, targeted pytest slices, or other test commands in this repo.
 - Use `.claude/skills/cerulean-slick-classification-boundary/SKILL.md` for slick classification logic, orchestrator class overrides, land/sea-ice masking classification, or not-oil taxonomy changes.
 - Use `.claude/skills/cerulean-published-geoasset-debugging/SKILL.md` when a generated geospatial asset, CRS transform, or published geometry output looks visually wrong or inconsistent with expectations.

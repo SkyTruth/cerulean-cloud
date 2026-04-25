@@ -36,7 +36,11 @@ from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.centerlines import calculate_centerlines
-from cerulean_cloud.cloud_run_orchestrator.aoi_join import AOIAccessConfig, AOIJoiner
+from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
+    AOIJoiner,
+    BaseAoiAccessor,
+    build_aoi_accessor,
+)
 from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
@@ -158,14 +162,13 @@ def get_retry_sleep_seconds(attempt: int, retry_backoff_seconds: float) -> float
 
 def build_dataset_versions(
     sea_ice_date: Optional[date],
-    aoi_access_configs: List[AOIAccessConfig],
+    aoi_accessors: List[BaseAoiAccessor],
 ) -> Dict:
     """Return provenance for datasets applied during this orchestrator run."""
     return {
         "sea_ice_date": sea_ice_date.isoformat() if sea_ice_date else None,
         "aoi": {
-            access_config.key: access_config.dataset_version
-            for access_config in aoi_access_configs
+            accessor.short_name: accessor.dataset_version for accessor in aoi_accessors
         },
     }
 
@@ -546,8 +549,8 @@ async def _orchestrate(
                 db_model,
                 sentinel1_grd,
             )
-            aoi_access_configs = [
-                AOIAccessConfig.from_mapping(row)
+            aoi_accessors = [
+                build_aoi_accessor(row, local_engine=db_engine)
                 for row in await db_client.get_aoi_access_configs()
                 if row["short_name"] != USER_AOI_TYPE_SHORT_NAME
             ]
@@ -605,14 +608,13 @@ async def _orchestrate(
             if features:
                 aoi_matches_by_feature = [{} for _ in features]
                 aoi_ext_ids_by_feature = [{} for _ in features]
-                if aoi_access_configs:
+                if aoi_accessors:
                     logger.info(
                         {
                             "message": "Loading scene AOI candidates",
-                            "n_aoi_types": len(aoi_access_configs),
+                            "n_aoi_types": len(aoi_accessors),
                             "aoi_types": [
-                                access_config.key
-                                for access_config in aoi_access_configs
+                                accessor.short_name for accessor in aoi_accessors
                             ],
                         }
                     )
@@ -622,8 +624,7 @@ async def _orchestrate(
                     )
                     aoi_joiner = AOIJoiner(
                         scene_bounds=scene_bounds,
-                        aoi_access_configs=aoi_access_configs,
-                        local_engine=db_engine,
+                        accessors=aoi_accessors,
                     )
                     aoi_matches_by_feature = await aoi_joiner.compute_aoi_matches(
                         slicks_gdf
@@ -774,7 +775,7 @@ async def _orchestrate(
             orchestrator_run.sea_ice_date = sea_ice_date
             orchestrator_run.dataset_versions = build_dataset_versions(
                 sea_ice_date,
-                aoi_access_configs,
+                aoi_accessors,
             )
             end_time = datetime.now()
             orchestrator_run.success = success

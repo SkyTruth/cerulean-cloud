@@ -81,7 +81,12 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                     database_schema.AoiAccessType(
                         id=2,
                         short_name="DB_LOCAL",
-                        prop_keys=["table_name", "geog_col", "ext_id_col"],
+                        prop_keys=[
+                            "table_name",
+                            "geog_col",
+                            "ext_id_col",
+                            "display_name_field",
+                        ],
                     ),
                     database_schema.AoiAccessType(
                         id=3,
@@ -91,6 +96,7 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                             "table_name",
                             "geog_col",
                             "ext_id_col",
+                            "display_name_field",
                         ],
                     ),
                     database_schema.AoiType(
@@ -130,7 +136,7 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                             "table_name": "remote_schema.remote_aoi",
                             "geog_col": "geometry",
                             "ext_id_col": "remote_id",
-                            "name_col": "remote_name",
+                            "display_name_field": "remote_name",
                         },
                     ),
                 ]
@@ -150,24 +156,24 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
 
         assert len(configs) == 1
         config = configs[0]
-        assert config["key"] == "EEZ"
-        assert config["short_name"] == "EEZ"
-        assert config["access_type"] == "GCS"
-        assert config["fgb_uri"] == "gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb"
-        assert config["ext_id_field"] == "MRGID"
-        assert config["ext_id_col"] == "MRGID"
-        assert config["name_field"] == "GEONAME"
-        assert config["pmtiles_uri"] == "gs://cerulean-cloud-aoi/eez-mr/eez_v12.pmt"
-        assert config["dataset_version"] == "2026-04-23"
-        assert config["filter_toggle"] is True
-        assert config["read_perm"] is None
-        assert config["properties"]["ext_id_field"] == "MRGID"
+        assert config == {
+            "short_name": "EEZ",
+            "access_type": "GCS",
+            "properties": {
+                "fgb_uri": "gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb",
+                "pmt_uri": "gs://cerulean-cloud-aoi/eez-mr/eez_v12.pmt",
+                "dataset_version": "2026-04-23",
+                "ext_id_field": "MRGID",
+                "display_name_field": "GEONAME",
+            },
+            "filter_toggle": True,
+            "read_perm": None,
+        }
 
         local_configs = await db_client.get_aoi_access_configs(["USER"])
         assert local_configs == [
             {
                 "short_name": "USER",
-                "key": "USER",
                 "access_type": "DB_LOCAL",
                 "properties": {
                     "table_name": "aoi_user",
@@ -176,29 +182,25 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                 },
                 "filter_toggle": False,
                 "read_perm": None,
-                "table_name": "aoi_user",
-                "geog_col": "geometry",
-                "geometry_column": "geometry",
-                "ext_id_col": "aoi_id",
-                "ext_id_column": "aoi_id",
-                "name_col": None,
-                "name_column": None,
-                "name_field": None,
-                "dataset_version": None,
             }
         ]
 
         remote_configs = await db_client.get_aoi_access_configs(["REMOTE"])
-        assert remote_configs[0]["access_type"] == "DB_REMOTE"
-        assert remote_configs[0]["db_conn_str"] == "postgresql://example/remote"
-        assert remote_configs[0]["table_name"] == "remote_schema.remote_aoi"
-        assert remote_configs[0]["geog_col"] == "geometry"
-        assert remote_configs[0]["geometry_column"] == "geometry"
-        assert remote_configs[0]["ext_id_col"] == "remote_id"
-        assert remote_configs[0]["ext_id_column"] == "remote_id"
-        assert remote_configs[0]["name_col"] == "remote_name"
-        assert remote_configs[0]["name_column"] == "remote_name"
-        assert remote_configs[0]["name_field"] == "remote_name"
+        assert remote_configs == [
+            {
+                "short_name": "REMOTE",
+                "access_type": "DB_REMOTE",
+                "properties": {
+                    "db_conn_str": "postgresql://example/remote",
+                    "table_name": "remote_schema.remote_aoi",
+                    "geog_col": "geometry",
+                    "ext_id_col": "remote_id",
+                    "display_name_field": "remote_name",
+                },
+                "filter_toggle": False,
+                "read_perm": None,
+            }
+        ]
 
 
 @pytest.mark.asyncio
@@ -452,7 +454,6 @@ async def test_insert_slick_to_aoi_upserts_rich_aoi_matches(db_session):
                                     {
                                         "ext_id": "789",
                                         "name": "MPA One",
-                                        "geometry": box(1, 2, 3, 4),
                                     }
                                 ]
                             },
@@ -481,15 +482,85 @@ async def test_insert_slick_to_aoi_upserts_rich_aoi_matches(db_session):
         assert row["type"] == 3
         assert row["name"] == "MPA One"
         assert row["ext_id"] == "789"
-    assert row["parent_geometry_is_null"] is True
-    assert row["slick"] == 1
+        assert row["parent_geometry_is_null"] is True
+        assert row["slick"] == 1
 
 
-def test_current_branch_trigger_sql_does_not_reference_aoi_chunks():
+@pytest.mark.asyncio
+async def test_insert_slick_to_aoi_legacy_ext_ids_require_existing_aoi(db_session):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=3,
+                    table_name="aoi_mpa",
+                    short_name="MPA",
+                )
+            )
+            await _add_slick_fixture(session)
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            with pytest.raises(InstanceNotFoundError, match="AOI ext_id values"):
+                await db_client.insert_slick_to_aoi_from_dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "slick_id": 1,
+                                "aoi_ext_ids": {"MPA": ["missing"]},
+                            }
+                        ]
+                    )
+                )
+
+
+@pytest.mark.asyncio
+async def test_insert_slick_to_aoi_does_not_create_missing_user_aoi(db_session):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+            await _add_slick_fixture(session)
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            with pytest.raises(InstanceNotFoundError, match="AOI ext_id values"):
+                await db_client.insert_slick_to_aoi_from_dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "slick_id": 1,
+                                "aoi_matches": {
+                                    "USER": [
+                                        {
+                                            "ext_id": "missing-user-aoi",
+                                            "name": "Missing user AOI",
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    )
+                )
+
+
+def test_aoi_access_sql_contracts_are_kept_in_sync():
     repo_root = Path(__file__).resolve().parents[2]
     migration_text = (
         repo_root
         / "alembic/HOLD_1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
+    ).read_text()
+    rollback_text = (
+        repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids_rollback.sql"
     ).read_text()
     current_branch_sql = [
         (
@@ -500,6 +571,18 @@ def test_current_branch_trigger_sql_does_not_reference_aoi_chunks():
 
     for sql_text in current_branch_sql:
         assert "aoi_chunks" not in sql_text
+        assert "ck_aoi_type_access_properties" in sql_text
+        assert "NULLIF(properties->>'fgb_uri', '') IS NOT NULL" in sql_text
+        assert "properties->>'fgb_uri' LIKE 'gs://%'" in sql_text
+        assert "NULLIF(properties->>'db_conn_str', '') IS NOT NULL" in sql_text
+
+        aoi_ids_sql = sql_text.split("json_object_agg(aoi_ids.short_name", 1)[1].split(
+            ") AS aoi_ids",
+            1,
+        )[0]
+        assert "short_name IN ('EEZ', 'IHO', 'MPA')" not in aoi_ids_sql
+
+    assert "DROP CONSTRAINT IF EXISTS ck_aoi_type_access_properties" in rollback_text
 
 
 @pytest.mark.asyncio

@@ -79,6 +79,9 @@ ALTER TABLE public.orchestrator_run
     DROP COLUMN IF EXISTS dataset_versions;
 
 ALTER TABLE public.aoi_type
+    DROP CONSTRAINT IF EXISTS ck_aoi_type_access_properties;
+
+ALTER TABLE public.aoi_type
     DROP COLUMN IF EXISTS properties,
     DROP COLUMN IF EXISTS access_type,
     DROP COLUMN IF EXISTS read_perm,
