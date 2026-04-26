@@ -100,9 +100,5 @@ ALTER TABLE public.aoi_type
 
 DROP INDEX IF EXISTS public.idx_aoi_type_ext_id;
 
-
-ALTER TABLE public.aoi
-    ALTER COLUMN geometry SET NOT NULL;
-
 ALTER TABLE public.aoi
     DROP COLUMN IF EXISTS ext_id;

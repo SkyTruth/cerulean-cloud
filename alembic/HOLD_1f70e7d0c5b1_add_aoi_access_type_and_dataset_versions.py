@@ -596,5 +596,4 @@ def downgrade():
     )
 
     op.drop_index("idx_aoi_type_ext_id", table_name="aoi")
-    op.execute("ALTER TABLE public.aoi ALTER COLUMN geometry SET NOT NULL")
     op.drop_column("aoi", "ext_id")
