@@ -77,7 +77,7 @@ class AoiType(Base):  # noqa
         primary_key=True,
         server_default=text("nextval('aoi_type_id_seq'::regclass)"),
     )
-    table_name = Column(Text, nullable=False)
+    table_name = Column(Text)
     long_name = Column(Text)
     short_name = Column(Text, nullable=False, unique=True)
     source_url = Column(Text)

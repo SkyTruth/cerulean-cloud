@@ -113,6 +113,23 @@ LEFT JOIN LATERAL (
 WHERE hs.cls IS NULL OR hs.cls NOT IN (SELECT id FROM not_oil_clses);
 """
 
+AOI_TYPE_PUBLIC_SQL = """
+CREATE OR REPLACE VIEW public.aoi_type_public AS
+SELECT
+    aoi_type.short_name,
+    aoi_type.long_name,
+    aoi_type.source_url,
+    aoi_type.citation,
+    aoi_type.update_time,
+    aoi_type.properties->>'dataset_version' AS dataset_version,
+    aoi_type.properties->>'display_name_field' AS display_name_field
+FROM public.aoi_type AS aoi_type
+JOIN public.permission AS read_permission
+  ON read_permission.id = aoi_type.read_perm
+WHERE aoi_type.short_name <> 'USER'
+  AND read_permission.short_name = 'any';
+"""
+
 
 def _get_seed_ids():
     bind = op.get_bind()
@@ -226,6 +243,12 @@ def upgrade():
         existing_type=sa.Text(),
         nullable=False,
     )
+    op.alter_column(
+        "aoi_type",
+        "table_name",
+        existing_type=sa.Text(),
+        nullable=True,
+    )
     op.create_unique_constraint(
         "uq_aoi_type_short_name",
         "aoi_type",
@@ -245,7 +268,7 @@ def upgrade():
         VALUES
             (1, 'GCS', ARRAY['fgb_uri', 'pmt_uri', 'dataset_version', 'ext_id_field', 'display_name_field']),
             (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field']),
-            (3, 'DB_REMOTE', ARRAY['db_conn_str', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field'])
+            (3, 'DB_REMOTE', ARRAY['db_conn_secret_name', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field'])
         """
     )
 
@@ -266,7 +289,6 @@ def upgrade():
                 (
                     access_type = 'GCS'
                     AND NULLIF(properties->>'fgb_uri', '') IS NOT NULL
-                    AND properties->>'fgb_uri' LIKE 'gs://%'
                     AND NULLIF(properties->>'ext_id_field', '') IS NOT NULL
                 )
                 OR (
@@ -277,7 +299,7 @@ def upgrade():
                 )
                 OR (
                     access_type = 'DB_REMOTE'
-                    AND NULLIF(properties->>'db_conn_str', '') IS NOT NULL
+                    AND NULLIF(properties->>'db_conn_secret_name', '') IS NOT NULL
                     AND NULLIF(properties->>'table_name', '') IS NOT NULL
                     AND NULLIF(properties->>'geog_col', '') IS NOT NULL
                     AND NULLIF(properties->>'ext_id_col', '') IS NOT NULL
@@ -363,6 +385,8 @@ def upgrade():
         owner_id=owner_id,
         read_perm_id=read_perm_id,
     )
+
+    op.execute(AOI_TYPE_PUBLIC_SQL)
 
     op.execute("ALTER TABLE public.aoi_user ADD COLUMN geometry geography")
     op.create_index(
@@ -453,6 +477,7 @@ def upgrade():
 
 
 def downgrade():
+    op.execute("DROP VIEW IF EXISTS public.aoi_type_public")
     op.execute("DROP VIEW IF EXISTS public.slick_plus_2")
     op.execute("DROP RULE IF EXISTS bypass_slick_to_aoi_insert ON public.slick_to_aoi")
     op.execute(

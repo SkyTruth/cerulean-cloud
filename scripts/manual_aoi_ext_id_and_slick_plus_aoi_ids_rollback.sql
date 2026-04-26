@@ -1,3 +1,5 @@
+DROP VIEW IF EXISTS public.aoi_type_public;
+
 DROP VIEW IF EXISTS public.slick_plus_2;
 
 CREATE OR REPLACE FUNCTION public.slick_before_trigger_func()

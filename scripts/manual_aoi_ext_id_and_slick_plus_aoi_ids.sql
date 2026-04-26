@@ -26,6 +26,9 @@ ALTER TABLE public.aoi_type
     ALTER COLUMN short_name SET NOT NULL;
 
 ALTER TABLE public.aoi_type
+    ALTER COLUMN table_name DROP NOT NULL;
+
+ALTER TABLE public.aoi_type
     ADD CONSTRAINT uq_aoi_type_short_name UNIQUE (short_name);
 
 CREATE TABLE public.aoi_access_type (
@@ -38,7 +41,7 @@ INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
 VALUES
     (1, 'GCS', ARRAY['fgb_uri', 'pmt_uri', 'dataset_version', 'ext_id_field', 'display_name_field']),
     (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field']),
-    (3, 'DB_REMOTE', ARRAY['db_conn_str', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field']);
+    (3, 'DB_REMOTE', ARRAY['db_conn_secret_name', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field']);
 
 ALTER TABLE public.aoi_type
     ADD COLUMN filter_toggle boolean,
@@ -57,7 +60,6 @@ ALTER TABLE public.aoi_type
                 (
                     access_type = 'GCS'
                     AND NULLIF(properties->>'fgb_uri', '') IS NOT NULL
-                    AND properties->>'fgb_uri' LIKE 'gs://%'
                     AND NULLIF(properties->>'ext_id_field', '') IS NOT NULL
                 )
                 OR (
@@ -68,7 +70,7 @@ ALTER TABLE public.aoi_type
                 )
                 OR (
                     access_type = 'DB_REMOTE'
-                    AND NULLIF(properties->>'db_conn_str', '') IS NOT NULL
+                    AND NULLIF(properties->>'db_conn_secret_name', '') IS NOT NULL
                     AND NULLIF(properties->>'table_name', '') IS NOT NULL
                     AND NULLIF(properties->>'geog_col', '') IS NOT NULL
                     AND NULLIF(properties->>'ext_id_col', '') IS NOT NULL
@@ -138,6 +140,21 @@ BEGIN
         properties = '{"table_name":"aoi_user","geog_col":"geometry","ext_id_col":"aoi_id"}'::jsonb
     WHERE short_name = 'USER';
 END $$;
+
+CREATE OR REPLACE VIEW public.aoi_type_public AS
+SELECT
+    aoi_type.short_name,
+    aoi_type.long_name,
+    aoi_type.source_url,
+    aoi_type.citation,
+    aoi_type.update_time,
+    aoi_type.properties->>'dataset_version' AS dataset_version,
+    aoi_type.properties->>'display_name_field' AS display_name_field
+FROM public.aoi_type AS aoi_type
+JOIN public.permission AS read_permission
+  ON read_permission.id = aoi_type.read_perm
+WHERE aoi_type.short_name <> 'USER'
+  AND read_permission.short_name = 'any';
 
 ALTER TABLE public.aoi_user
     ADD COLUMN geometry geography;

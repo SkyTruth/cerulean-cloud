@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import geopandas as gpd
@@ -15,6 +16,13 @@ from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
     GCSAoiAccessor,
     build_aoi_accessor,
 )
+
+
+SCENE_TIME = datetime(2026, 1, 1)
+
+
+def _scene_bounds(bounds=(-1, -1, 3, 3)):
+    return tuple(bounds)
 
 
 def test_gcs_accessor_owns_gcs_config_parsing():
@@ -57,7 +65,7 @@ def test_db_accessors_own_db_config_parsing():
             "short_name": "REMOTE",
             "access_type": "DB_REMOTE",
             "properties": {
-                "db_conn_str": "postgresql://example/remote",
+                "db_conn_secret_name": "remote-aoi-db",
                 "table_name": "remote_schema.remote_aoi",
                 "geog_col": "geometry",
                 "ext_id_col": "remote_id",
@@ -74,7 +82,7 @@ def test_db_accessors_own_db_config_parsing():
 
     assert isinstance(remote_accessor, DbRemoteAoiAccessor)
     assert remote_accessor.short_name == "REMOTE"
-    assert remote_accessor.db_conn_str == "postgresql://example/remote"
+    assert remote_accessor.db_conn_secret_name == "remote-aoi-db"
     assert remote_accessor.table_name == "remote_schema.remote_aoi"
     assert remote_accessor.geog_col == "geometry"
     assert remote_accessor.ext_id_col == "remote_id"
@@ -88,12 +96,26 @@ def test_accessors_let_missing_config_fields_raise_at_the_source():
     with pytest.raises(KeyError, match="table_name"):
         build_aoi_accessor({"short_name": "LOCAL", "access_type": "DB_LOCAL"})
 
-    with pytest.raises(KeyError, match="db_conn_str"):
+    with pytest.raises(KeyError, match="db_conn_secret_name"):
         build_aoi_accessor(
             {
                 "short_name": "REMOTE",
                 "access_type": "DB_REMOTE",
                 "properties": {
+                    "table_name": "remote_schema.remote_aoi",
+                    "geog_col": "geometry",
+                    "ext_id_col": "remote_id",
+                },
+            }
+        )
+
+    with pytest.raises(ValueError, match="db_conn_secret_name"):
+        build_aoi_accessor(
+            {
+                "short_name": "REMOTE",
+                "access_type": "DB_REMOTE",
+                "properties": {
+                    "db_conn_str": "postgresql://example/remote",
                     "table_name": "remote_schema.remote_aoi",
                     "geog_col": "geometry",
                     "ext_id_col": "remote_id",
@@ -142,13 +164,17 @@ async def test_aoi_joiner_loads_candidates_once_and_skips_null_ext_ids(monkeypat
             },
         }
     )
-    joiner = AOIJoiner(scene_bounds=(-1, -1, 12, 12), accessors=[accessor])
+    joiner = AOIJoiner(accessors=[accessor])
     slicks = gpd.GeoDataFrame(
         geometry=[box(1, 1, 1.5, 1.5), box(10.2, 10.2, 10.4, 10.4)],
         crs="EPSG:4326",
     )
 
-    matches = await joiner.compute_aoi_matches(slicks)
+    matches = await joiner.compute_aoi_matches(
+        slicks,
+        scene_bounds=_scene_bounds((-1, -1, 12, 12)),
+        scene_time=SCENE_TIME,
+    )
     assert matches == [
         {"CUSTOM": [{"ext_id": "aoi-1", "name": "AOI 1"}]},
         {"CUSTOM": [{"ext_id": "aoi-2", "name": "AOI 2"}]},
@@ -157,8 +183,22 @@ async def test_aoi_joiner_loads_candidates_once_and_skips_null_ext_ids(monkeypat
     assert read_calls[0]["path"] == "/tmp/custom.fgb"
     assert read_calls[0]["bbox"] == (-1.0, -1.0, 12.0, 12.0)
 
-    assert await joiner.compute_aoi_matches(slicks) == matches
+    assert (
+        await joiner.compute_aoi_matches(
+            slicks,
+            scene_bounds=_scene_bounds((-1, -1, 12, 12)),
+            scene_time=SCENE_TIME,
+        )
+        == matches
+    )
     assert len(read_calls) == 1
+
+    assert await joiner.compute_aoi_matches(
+        slicks,
+        scene_bounds=_scene_bounds((-1, -1, 12, 12)),
+        scene_time=datetime(2026, 1, 2),
+    )
+    assert len(read_calls) == 2
 
 
 def test_aoi_gcs_cache_key_includes_dataset_version(monkeypatch, tmp_path):
@@ -260,6 +300,23 @@ def test_aoi_gcs_cache_download_is_atomic(monkeypatch, tmp_path):
         accessor._download_aoi_dataset()
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_aoi_gcs_accessor_accepts_local_file_paths(tmp_path):
+    local_fgb = tmp_path / "custom.fgb"
+    local_fgb.write_text("placeholder")
+    accessor = GCSAoiAccessor(
+        {
+            "short_name": "CUSTOM",
+            "access_type": "GCS",
+            "properties": {
+                "fgb_uri": str(local_fgb),
+                "ext_id_field": "CUSTOM_ID",
+            },
+        }
+    )
+
+    assert accessor._download_aoi_dataset() == str(local_fgb)
 
 
 async def _create_test_aoi_table(engine, table_name="test_aoi", *, postgis=True):
@@ -384,7 +441,7 @@ async def test_db_local_accessor_queries_scene_bbox(
         engine,
     )
 
-    candidates = await accessor.load_candidates((-1, -1, 3, 3))
+    candidates = await accessor.load_candidates(_scene_bounds(), SCENE_TIME)
 
     assert candidates["ext_id"].tolist() == ["local-1"]
     assert candidates["name"].tolist() == ["Local AOI 1"]
@@ -406,9 +463,14 @@ async def test_db_remote_accessor_uses_configured_remote_engine(
             _load_candidates_without_postgis,
         )
     requested_conn_strings = []
+    requested_secret_names = []
+
+    def fake_secret_resolver(secret_name):
+        requested_secret_names.append(secret_name)
+        return "postgresql://example/remote"
 
     def fake_engine(self):
-        requested_conn_strings.append(self.db_conn_str)
+        requested_conn_strings.append(self._resolved_db_conn_str())
         return engine
 
     monkeypatch.setattr(DbRemoteAoiAccessor, "_engine", fake_engine)
@@ -421,13 +483,15 @@ async def test_db_remote_accessor_uses_configured_remote_engine(
                 "geog_col": "geometry",
                 "ext_id_col": "ext_id",
                 "display_name_field": "display_name",
-                "db_conn_str": "postgresql://example/remote",
+                "db_conn_secret_name": "remote-aoi-db",
             },
-        }
+        },
+        secret_resolver=fake_secret_resolver,
     )
 
-    candidates = await accessor.load_candidates((-1, -1, 3, 3))
+    candidates = await accessor.load_candidates(_scene_bounds(), SCENE_TIME)
 
+    assert requested_secret_names == ["remote-aoi-db"]
     assert requested_conn_strings == ["postgresql://example/remote"]
     assert candidates["ext_id"].tolist() == ["local-1"]
     assert candidates["name"].tolist() == ["Local AOI 1"]
@@ -440,7 +504,7 @@ async def test_aoi_joiner_merges_mixed_accessor_results():
             super().__init__({"short_name": short_name})
             self.ext_id = ext_id
 
-        async def matches_for_scene(self, scene_bounds, slick_gdf):
+        async def matches_for_scene(self, scene_bounds, scene_time, slick_gdf):
             return [
                 {
                     self.short_name: [
@@ -451,16 +515,21 @@ async def test_aoi_joiner_merges_mixed_accessor_results():
             ]
 
     slicks = gpd.GeoDataFrame(geometry=[box(0, 0, 1, 1)], crs="EPSG:4326")
+    # TODO: add antimeridian bbox-splitting coverage when the AOI join path carries
+    # exact scene footprint or split wrapped bounds.
     joiner = AOIJoiner(
-        scene_bounds=(-1, -1, 2, 2),
         accessors=[
             FakeAccessor("GCS_LAYER", "gcs-1"),
             FakeAccessor("LOCAL_LAYER", "local-1"),
             FakeAccessor("REMOTE_LAYER", "remote-1"),
-        ],
+        ]
     )
 
-    assert await joiner.compute_aoi_matches(slicks) == [
+    assert await joiner.compute_aoi_matches(
+        slicks,
+        scene_bounds=_scene_bounds((-1, -1, 2, 2)),
+        scene_time=SCENE_TIME,
+    ) == [
         {
             "GCS_LAYER": [{"ext_id": "gcs-1", "name": "GCS-1"}],
             "LOCAL_LAYER": [{"ext_id": "local-1", "name": "LOCAL-1"}],

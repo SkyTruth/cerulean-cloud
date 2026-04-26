@@ -431,6 +431,8 @@ async def _orchestrate(
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
     logger.info("Getting scene bounds")
     scene_bounds = await titiler_client.get_bounds(payload.scene_id)
+    # Antimeridian scenes can produce a world-spanning bbox here. AOI matching
+    # should eventually use exact scene footprint or split wrapped bounds.
 
     logger.info("Getting scene statistics")
     scene_stats = await titiler_client.get_statistics(payload.scene_id, band="vv")
@@ -622,12 +624,15 @@ async def _orchestrate(
                         geometry=[shape(feat["geometry"]) for feat in features],
                         crs="4326",
                     )
-                    aoi_joiner = AOIJoiner(
-                        scene_bounds=scene_bounds,
-                        accessors=aoi_accessors,
-                    )
+                    aoi_joiner = AOIJoiner(accessors=aoi_accessors)
+                    # AOI bounds are a temporary bbox approximation. Temporal
+                    # and antimeridian-aware accessors should use richer scene
+                    # footprint input when the upstream scene geometry path
+                    # supports it.
                     aoi_matches_by_feature = await aoi_joiner.compute_aoi_matches(
-                        slicks_gdf
+                        slicks_gdf,
+                        scene_bounds=tuple(scene_bounds),
+                        scene_time=sentinel1_grd.start_time,
                     )
                     aoi_ext_ids_by_feature = [
                         {

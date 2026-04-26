@@ -92,7 +92,7 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                         id=3,
                         short_name="DB_REMOTE",
                         prop_keys=[
-                            "db_conn_str",
+                            "db_conn_secret_name",
                             "table_name",
                             "geog_col",
                             "ext_id_col",
@@ -132,7 +132,7 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                         filter_toggle=False,
                         access_type="DB_REMOTE",
                         properties={
-                            "db_conn_str": "postgresql://example/remote",
+                            "db_conn_secret_name": "remote-aoi-db",
                             "table_name": "remote_schema.remote_aoi",
                             "geog_col": "geometry",
                             "ext_id_col": "remote_id",
@@ -191,7 +191,7 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                 "short_name": "REMOTE",
                 "access_type": "DB_REMOTE",
                 "properties": {
-                    "db_conn_str": "postgresql://example/remote",
+                    "db_conn_secret_name": "remote-aoi-db",
                     "table_name": "remote_schema.remote_aoi",
                     "geog_col": "geometry",
                     "ext_id_col": "remote_id",
@@ -568,13 +568,42 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         ).read_text(),
         migration_text.split("def downgrade():", 1)[0],
     ]
+    tipg_text = (repo_root / "stack/cloud_run_tipg.py").read_text()
 
     for sql_text in current_branch_sql:
         assert "aoi_chunks" not in sql_text
         assert "ck_aoi_type_access_properties" in sql_text
         assert "NULLIF(properties->>'fgb_uri', '') IS NOT NULL" in sql_text
-        assert "properties->>'fgb_uri' LIKE 'gs://%'" in sql_text
-        assert "NULLIF(properties->>'db_conn_str', '') IS NOT NULL" in sql_text
+        assert "properties->>'fgb_uri' LIKE 'gs://%'" not in sql_text
+        assert "db_conn_str" not in sql_text
+        assert "NULLIF(properties->>'db_conn_secret_name', '') IS NOT NULL" in sql_text
+        assert "CREATE OR REPLACE VIEW public.aoi_type_public" in sql_text
+        assert (
+            "ALTER COLUMN table_name DROP NOT NULL" in sql_text
+            or '"table_name",\n        existing_type=sa.Text(),\n        nullable=True'
+            in sql_text
+        )
+        assert "ALTER COLUMN geometry DROP NOT NULL" in sql_text
+        assert "SET table_name = NULL" not in sql_text
+        assert "DROP COLUMN geometry" not in sql_text
+
+        public_view_sql = sql_text.split(
+            "CREATE OR REPLACE VIEW public.aoi_type_public", 1
+        )[1].split(";", 1)[0]
+        assert "read_permission.short_name = 'any'" in public_view_sql
+        assert "COALESCE(filter_toggle, FALSE) IS TRUE" not in public_view_sql
+        assert "public_properties" not in public_view_sql
+        assert "jsonb_build_object" not in public_view_sql
+        for sensitive_key in [
+            "db_conn_secret_name",
+            "fgb_uri",
+            "pmt_uri",
+            "style",
+            "table_name",
+            "geog_col",
+            "ext_id_col",
+        ]:
+            assert sensitive_key not in public_view_sql
 
         aoi_ids_sql = sql_text.split("json_object_agg(aoi_ids.short_name", 1)[1].split(
             ") AS aoi_ids",
@@ -583,6 +612,22 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         assert "short_name IN ('EEZ', 'IHO', 'MPA')" not in aoi_ids_sql
 
     assert "DROP CONSTRAINT IF EXISTS ck_aoi_type_access_properties" in rollback_text
+    assert "DROP VIEW IF EXISTS public.aoi_type_public" in rollback_text
+    assert "ALTER COLUMN geometry SET NOT NULL" not in rollback_text
+    assert "ALTER COLUMN table_name SET NOT NULL" not in rollback_text
+    assert "SET table_name = COALESCE" not in rollback_text
+    assert "WHEN 'EEZ' THEN 'aoi_eez'" not in rollback_text
+    assert (
+        "ALTER TABLE public.aoi\n    DROP COLUMN IF EXISTS geometry"
+        not in rollback_text
+    )
+
+    datetime_table_config = tipg_text.split("for datetime_table in [", 1)[1].split(
+        "]", 1
+    )[0]
+    assert '"aoi_type_public",' in datetime_table_config
+    assert '"aoi_type",' not in datetime_table_config
+    assert '"public.aoi_type"' in tipg_text
 
 
 @pytest.mark.asyncio

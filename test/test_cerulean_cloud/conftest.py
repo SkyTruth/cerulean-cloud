@@ -195,7 +195,7 @@ async def _install_spatial_compat_schema(conn) -> None:
         """
         CREATE TABLE public.aoi_type (
             id bigserial PRIMARY KEY,
-            table_name text NOT NULL,
+            table_name text,
             long_name text,
             short_name text NOT NULL UNIQUE,
             source_url text,
