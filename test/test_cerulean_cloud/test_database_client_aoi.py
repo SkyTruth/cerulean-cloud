@@ -269,7 +269,7 @@ async def test_create_user_aoi_inserts_child_geometry_only(db_session):
         parent_result = await session.execute(
             sa.text(
                 """
-                SELECT type, name, ext_id, geometry IS NULL AS parent_geometry_is_null
+                SELECT type, name, ext_id
                 FROM public.aoi
                 WHERE id = :aoi_id
                 """
@@ -293,7 +293,6 @@ async def test_create_user_aoi_inserts_child_geometry_only(db_session):
         assert parent_row["type"] == 4
         assert parent_row["name"] == "Test AOI"
         assert parent_row["ext_id"] == "user-aoi-1"
-        assert parent_row["parent_geometry_is_null"] is True
         assert child_row["user"] == 1
         assert child_row["has_geometry"] is True
 
@@ -337,7 +336,6 @@ async def test_get_or_insert_aoi_upserts_by_type_and_ext_id(db_session):
                 SELECT
                     id,
                     name,
-                    geometry IS NULL AS parent_geometry_is_null,
                     COUNT(*) OVER () AS row_count
                 FROM public.aoi
                 WHERE type = 3 AND ext_id = '789'
@@ -349,7 +347,6 @@ async def test_get_or_insert_aoi_upserts_by_type_and_ext_id(db_session):
         assert first["id"] == second["id"]
         assert row["id"] == first["id"]
         assert row["name"] == "Different Name"
-        assert row["parent_geometry_is_null"] is True
         assert row["row_count"] == 1
 
 
@@ -469,7 +466,6 @@ async def test_insert_slick_to_aoi_upserts_rich_aoi_matches(db_session):
                     a.type,
                     a.name,
                     a.ext_id,
-                    a.geometry IS NULL AS parent_geometry_is_null,
                     sta.slick
                 FROM public.slick_to_aoi sta
                 JOIN public.aoi a ON a.id = sta.aoi
@@ -482,7 +478,6 @@ async def test_insert_slick_to_aoi_upserts_rich_aoi_matches(db_session):
         assert row["type"] == 3
         assert row["name"] == "MPA One"
         assert row["ext_id"] == "789"
-        assert row["parent_geometry_is_null"] is True
         assert row["slick"] == 1
 
 
@@ -557,7 +552,7 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
     repo_root = Path(__file__).resolve().parents[2]
     migration_text = (
         repo_root
-        / "alembic/HOLD_1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
+        / "alembic/versions/1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
     ).read_text()
     rollback_text = (
         repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids_rollback.sql"

@@ -22,9 +22,7 @@
             ),
             foreign_keys=lambda: [SourceToTag.source_ext_id, SourceToTag.source_type],
         )
-7. Aoi.geometry is a deprecated nullable compatibility column. Do not use it in
-    live paths. In AoiUser, keep the child-table "geometry" column mapped as
-    aoi_user_geometry to avoid colliding with inherited Aoi.geometry.
+7. AoiUser keeps the child-table "geometry" column mapped as aoi_user_geometry.
 8. Paste this comment
 """
 
@@ -39,7 +37,6 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     Computed,
-    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -361,47 +358,9 @@ class Aoi(Base):  # noqa
     type = Column(ForeignKey("aoi_type.id"), nullable=False)
     name = Column(Text, nullable=False)
     ext_id = deferred(Column(Text, server_default=text("NULL")))
-    geometry = deferred(
-        Column(
-            Geography(
-                "MULTIPOLYGON",
-                4326,
-                from_text="ST_GeogFromText",
-                name="geography",
-            ),
-            server_default=text("NULL"),
-        )
-    )
 
     aoi_type = relationship("AoiType")
     slick = relationship("Slick", secondary="slick_to_aoi")
-
-
-class AoiEez(Aoi):  # noqa
-    __tablename__ = "aoi_eez"
-
-    aoi_id = Column(ForeignKey("aoi.id"), primary_key=True)
-    mrgid = Column(Integer)
-    sovereigns = Column(ARRAY(Text()))
-
-
-class AoiIho(Aoi):  # noqa
-    __tablename__ = "aoi_iho"
-
-    aoi_id = Column(ForeignKey("aoi.id"), primary_key=True)
-    mrgid = Column(Integer)
-
-
-class AoiMpa(Aoi):  # noqa
-    __tablename__ = "aoi_mpa"
-
-    aoi_id = Column(ForeignKey("aoi.id"), primary_key=True)
-    wdpaid = Column(Integer)
-    desig = Column(Text)
-    desig_type = Column(Text)
-    status_yr = Column(Integer)
-    mang_auth = Column(Text)
-    parent_iso = Column(Text)
 
 
 class AoiUser(Aoi):  # noqa
@@ -565,7 +524,6 @@ class OrchestratorRun(Base):  # noqa
     git_tag = Column(String(200))
     zoom = Column(Integer)
     scale = Column(Integer)
-    sea_ice_date = Column(Date)
     dataset_versions = Column(JSONB)
     success = Column(Boolean)
     inference_run_logs = Column(Text, nullable=False)
@@ -779,21 +737,6 @@ class Tag(Base):  # noqa
     permission1 = relationship(
         "Permission", primaryjoin="Tag.write_perm == Permission.id"
     )
-
-
-t_aoi_chunks = Table(
-    "aoi_chunks",
-    metadata,
-    Column(
-        "id",
-        ForeignKey("aoi.id", ondelete="CASCADE", deferrable=True, initially="DEFERRED"),
-    ),
-    Column(
-        "geometry",
-        Geometry("POLYGON", 4326, from_text="ST_GeomFromEWKT", name="geometry"),
-        nullable=False,
-    ),
-)
 
 
 class Slick(Base):  # noqa

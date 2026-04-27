@@ -777,7 +777,6 @@ async def _orchestrate(
                 }
             )
         async with db_client.session.begin():
-            orchestrator_run.sea_ice_date = sea_ice_date
             orchestrator_run.dataset_versions = build_dataset_versions(
                 sea_ice_date,
                 aoi_accessors,
