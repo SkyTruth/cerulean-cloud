@@ -38,7 +38,6 @@ from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
     AOIJoiner,
-    BaseAoiAccessor,
     build_aoi_accessor,
 )
 from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
@@ -158,19 +157,6 @@ def get_retry_sleep_seconds(attempt: int, retry_backoff_seconds: float) -> float
     exponential_backoff_seconds = retry_backoff_seconds * (2 ** (attempt - 1))
     jitter_seconds = random.uniform(0, exponential_backoff_seconds)
     return exponential_backoff_seconds + jitter_seconds
-
-
-def build_dataset_versions(
-    sea_ice_date: Optional[date],
-    aoi_accessors: List[BaseAoiAccessor],
-) -> Dict:
-    """Return provenance for datasets applied during this orchestrator run."""
-    return {
-        "sea_ice_date": sea_ice_date.isoformat() if sea_ice_date else None,
-        "aoi": {
-            accessor.short_name: accessor.dataset_version for accessor in aoi_accessors
-        },
-    }
 
 
 def get_sea_ice_mask(
@@ -609,7 +595,6 @@ async def _orchestrate(
 
             if features:
                 aoi_matches_by_feature = [{} for _ in features]
-                aoi_ext_ids_by_feature = [{} for _ in features]
                 if aoi_accessors:
                     logger.info(
                         {
@@ -634,13 +619,6 @@ async def _orchestrate(
                         scene_bounds=tuple(scene_bounds),
                         scene_time=sentinel1_grd.start_time,
                     )
-                    aoi_ext_ids_by_feature = [
-                        {
-                            aoi_type: [match["ext_id"] for match in matches]
-                            for aoi_type, matches in slick_matches.items()
-                        }
-                        for slick_matches in aoi_matches_by_feature
-                    ]
 
                 reclass_counts = Counter()
 
@@ -660,8 +638,11 @@ async def _orchestrate(
                         ),
                     }
                 )
-                for feat, aoi_ext_ids in zip(features, aoi_ext_ids_by_feature):
-                    feat["properties"]["aoi_ext_ids"] = aoi_ext_ids
+                for feat, aoi_matches in zip(
+                    features,
+                    aoi_matches_by_feature,
+                    strict=True,
+                ):
                     slick_gdf = gpd.GeoDataFrame(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
@@ -716,8 +697,9 @@ async def _orchestrate(
                 async with db_client.session.begin():
                     slick_aoi_rows = []
                     for feat, aoi_matches in zip(
-                        final_ensemble.get("features"),
+                        features,
                         aoi_matches_by_feature,
+                        strict=True,
                     ):
                         slick = await db_client.add_slick(
                             orchestrator_run,
@@ -777,10 +759,13 @@ async def _orchestrate(
                 }
             )
         async with db_client.session.begin():
-            orchestrator_run.dataset_versions = build_dataset_versions(
-                sea_ice_date,
-                aoi_accessors,
-            )
+            orchestrator_run.dataset_versions = {
+                "sea_ice_date": sea_ice_date.isoformat() if sea_ice_date else None,
+                "aoi": {
+                    accessor.short_name: accessor.dataset_version
+                    for accessor in aoi_accessors
+                },
+            }
             end_time = datetime.now()
             orchestrator_run.success = success
             orchestrator_run.inference_end_time = end_time
