@@ -1,6 +1,6 @@
-DROP VIEW IF EXISTS public.slick_plus_2;
+DROP VIEW IF EXISTS public.aoi_type_public;
 
-DROP RULE IF EXISTS bypass_slick_to_aoi_insert ON public.slick_to_aoi;
+DROP VIEW IF EXISTS public.slick_plus_2;
 
 CREATE OR REPLACE FUNCTION public.slick_before_trigger_func()
 RETURNS trigger
@@ -81,6 +81,9 @@ ALTER TABLE public.orchestrator_run
     DROP COLUMN IF EXISTS dataset_versions;
 
 ALTER TABLE public.aoi_type
+    DROP CONSTRAINT IF EXISTS ck_aoi_type_access_properties;
+
+ALTER TABLE public.aoi_type
     DROP COLUMN IF EXISTS properties,
     DROP COLUMN IF EXISTS access_type,
     DROP COLUMN IF EXISTS read_perm,
@@ -88,6 +91,12 @@ ALTER TABLE public.aoi_type
     DROP COLUMN IF EXISTS filter_toggle;
 
 DROP TABLE IF EXISTS public.aoi_access_type;
+
+ALTER TABLE public.aoi_type
+    DROP CONSTRAINT IF EXISTS uq_aoi_type_short_name;
+
+ALTER TABLE public.aoi_type
+    ALTER COLUMN short_name DROP NOT NULL;
 
 DROP INDEX IF EXISTS public.idx_aoi_type_ext_id;
 

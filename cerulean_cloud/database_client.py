@@ -1,21 +1,88 @@
 """Client code to interact with the database"""
 
 import os
-from typing import Optional
+from typing import Any, Mapping, Optional, Sequence
 
 import pandas as pd
 from dateutil.parser import parse
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, Polygon, base, box, shape
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 import cerulean_cloud.database_schema as db
 
 
+USER_AOI_TYPE_SHORT_NAME = "USER"
+
+
+def _coerce_aoi_geometry(geometry):
+    """Return a valid MultiPolygon for transient AOI and child-table geometry."""
+    geom = geometry if isinstance(geometry, base.BaseGeometry) else shape(geometry)
+    geom = geom.buffer(0)
+    if isinstance(geom, Polygon):
+        return MultiPolygon([geom])
+    if isinstance(geom, MultiPolygon):
+        return geom
+    raise ValueError(
+        f"AOI geometry must be a Polygon or MultiPolygon, got {geom.geom_type!r}"
+    )
+
+
+def _is_empty_aoi_value(value: Any) -> bool:
+    """Return True for null scalar AOI payload values."""
+    if value is None:
+        return True
+    if isinstance(value, (list, tuple, set, dict)):
+        return False
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _iter_aoi_match_payload(aoi_payload: Mapping[str, Any]):
+    """
+    Yield normalized AOI matches from either legacy ext-id lists or rich match dicts.
+    """
+    for aoi_type_short_name, matches in aoi_payload.items():
+        if matches is None:
+            continue
+        if isinstance(matches, Mapping) and "ext_id" in matches:
+            matches = [matches]
+        elif not isinstance(matches, (list, tuple, set)):
+            matches = [matches]
+
+        for match in matches:
+            is_rich_match = isinstance(match, Mapping)
+            if isinstance(match, Mapping):
+                ext_id = match.get("ext_id")
+                name = match.get("name")
+            else:
+                ext_id = match
+                name = None
+
+            if _is_empty_aoi_value(ext_id):
+                continue
+
+            ext_id = str(ext_id)
+            yield {
+                "aoi_type_short_name": aoi_type_short_name,
+                "ext_id": ext_id,
+                "name": str(name) if not _is_empty_aoi_value(name) else ext_id,
+                "is_rich_match": is_rich_match,
+            }
+
+
 class InstanceNotFoundError(Exception):
     """Raised when an instance is not found in the database."""
+
+    pass
+
+
+class AmbiguousAOIError(Exception):
+    """Raised when an AOI lookup matches multiple rows."""
 
     pass
 
@@ -169,6 +236,353 @@ class DatabaseClient:
             )
         return cls_ids
 
+    async def get_aoi_access_configs(
+        self,
+        short_names: Optional[Sequence[str]] = None,
+        access_types: Optional[Sequence[str]] = None,
+    ) -> list[dict]:
+        """
+        Return raw AOI access rows for accessor-specific parsing.
+
+        The checked-in schema stores AOI access metadata in `aoi_type.access_type`
+        plus `aoi_type.properties`.
+        """
+        if short_names:
+            short_names = list(short_names)
+        if access_types:
+            access_types = list(access_types)
+
+        params = {}
+        filters = []
+        if short_names:
+            filters.append("short_name = ANY(:short_names)")
+            params["short_names"] = short_names
+        if access_types:
+            filters.append("access_type = ANY(:access_types)")
+            params["access_types"] = access_types
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+        query = text(
+            f"""
+            SELECT
+                short_name,
+                access_type,
+                properties,
+                filter_toggle,
+                read_perm
+            FROM aoi_type
+            {where_clause}
+            ORDER BY id
+            """
+        )
+        result = await self.session.execute(query, params)
+
+        return [
+            {
+                "short_name": row["short_name"],
+                "access_type": row["access_type"],
+                "properties": row["properties"] or {},
+                "filter_toggle": row["filter_toggle"],
+                "read_perm": row["read_perm"],
+            }
+            for row in result.mappings()
+            if row["access_type"]
+        ]
+
+    async def get_aoi_type_ids(
+        self, short_names: Optional[Sequence[str]] = None
+    ) -> dict[str, int]:
+        """Return a mapping of AOI type short names to ids."""
+        query = select(db.AoiType.short_name, db.AoiType.id)
+        if short_names:
+            query = query.where(db.AoiType.short_name.in_(list(short_names)))
+        result = await self.session.execute(query)
+        return {short_name: aoi_type_id for short_name, aoi_type_id in result.all()}
+
+    async def get_aoi_rows(
+        self,
+        aoi_type: int,
+        ext_id: str,
+    ) -> list[dict]:
+        """Return all AOI rows matching an internal type id and external id."""
+        query = text(
+            """
+            SELECT id, type, name, ext_id
+            FROM public.aoi
+            WHERE type = :aoi_type
+              AND ext_id = :ext_id
+            ORDER BY id
+            """
+        )
+        result = await self.session.execute(
+            query, {"aoi_type": aoi_type, "ext_id": str(ext_id)}
+        )
+        return [dict(row) for row in result.mappings().all()]
+
+    async def get_aoi(
+        self,
+        aoi_type: int,
+        ext_id: str,
+        error_if_absent: bool = False,
+    ):
+        """Get a single AOI row by internal type id and external id."""
+        rows = await self.get_aoi_rows(aoi_type, ext_id)
+        if not rows:
+            if error_if_absent:
+                raise InstanceNotFoundError(
+                    f"AOI not found with type={aoi_type!r}, ext_id={ext_id!r}"
+                )
+            return None
+        if len(rows) > 1:
+            raise AmbiguousAOIError(
+                f"Multiple AOIs found with type={aoi_type!r}, ext_id={ext_id!r}"
+            )
+        return rows[0]
+
+    async def resolve_single_aoi_id(
+        self,
+        aoi_type_short_name: str,
+        ext_id: str,
+        error_if_absent: bool = True,
+    ) -> Optional[int]:
+        """Resolve a single AOI id for a curated AOI type and external id."""
+        aoi_type_ids = await self.get_aoi_type_ids([aoi_type_short_name])
+        aoi_type_id = aoi_type_ids.get(aoi_type_short_name)
+        if aoi_type_id is None:
+            raise InstanceNotFoundError(
+                f"AOI type not found for short_name={aoi_type_short_name!r}"
+            )
+
+        aoi = await self.get_aoi(aoi_type_id, ext_id, error_if_absent=error_if_absent)
+        if aoi is None:
+            return None
+        return int(aoi["id"])
+
+    async def create_user_aoi(
+        self,
+        user_id: int,
+        name: str,
+        geometry,
+        ext_id: Optional[str] = None,
+    ):
+        """
+        Create a USER AOI and its child-table geometry row.
+        """
+        aoi_type_ids = await self.get_aoi_type_ids([USER_AOI_TYPE_SHORT_NAME])
+        aoi_type_id = aoi_type_ids.get(USER_AOI_TYPE_SHORT_NAME)
+        if aoi_type_id is None:
+            raise InstanceNotFoundError(
+                f"AOI type not found for short_name={USER_AOI_TYPE_SHORT_NAME!r}"
+            )
+
+        user_geom = _coerce_aoi_geometry(geometry)
+
+        aoi_user = await insert(
+            self.session,
+            db.AoiUser,
+            type=aoi_type_id,
+            name=name,
+            ext_id=str(ext_id) if ext_id is not None else None,
+            user=user_id,
+            aoi_user_geometry=from_shape(user_geom),
+        )
+        await self.session.flush()
+        return aoi_user
+
+    async def get_or_insert_aoi(
+        self,
+        aoi_type_short_name: str,
+        ext_id: str,
+        name: str,
+        geometry=None,
+        user_id: Optional[int] = None,
+    ):
+        """
+        Insert or resolve an AOI by `(type, ext_id)`.
+
+        Duplicate `(type, ext_id)` AOIs are allowed for now. When duplicates
+        exist, this treats the smallest internal AOI id as canonical, updates
+        that row, and returns it. The deprecated parent AOI geometry column is
+        intentionally left unused. USER AOIs also require `user_id` and geometry
+        for the `public.aoi_user` child row when creating a new row.
+        """
+        aoi_type_ids = await self.get_aoi_type_ids([aoi_type_short_name])
+        aoi_type_id = aoi_type_ids.get(aoi_type_short_name)
+        if aoi_type_id is None:
+            raise InstanceNotFoundError(
+                f"AOI type not found for short_name={aoi_type_short_name!r}"
+            )
+
+        existing_rows = await self.get_aoi_rows(aoi_type_id, ext_id)
+        canonical_aoi = existing_rows[0] if existing_rows else None
+
+        is_user_aoi = aoi_type_short_name == USER_AOI_TYPE_SHORT_NAME
+        if is_user_aoi and not canonical_aoi:
+            if user_id is None:
+                raise ValueError("user_id is required to insert a new USER AOI")
+            if geometry is None:
+                raise ValueError("geometry is required to insert a new USER AOI")
+
+        if canonical_aoi:
+            update_stmt = (
+                update(db.Aoi)
+                .where(db.Aoi.id == canonical_aoi["id"])
+                .values(name=name)
+                .returning(db.Aoi.id, db.Aoi.type, db.Aoi.name, db.Aoi.ext_id)
+            )
+            result = await self.session.execute(update_stmt)
+            aoi = dict(result.mappings().one())
+        else:
+            insert_stmt = (
+                pg_insert(db.Aoi)
+                .values(
+                    type=aoi_type_id,
+                    name=name,
+                    ext_id=str(ext_id),
+                )
+                .returning(db.Aoi.id, db.Aoi.type, db.Aoi.name, db.Aoi.ext_id)
+            )
+            result = await self.session.execute(insert_stmt)
+            aoi = dict(result.mappings().one())
+
+        if is_user_aoi and user_id is not None and geometry is not None:
+            user_geom = _coerce_aoi_geometry(geometry)
+            child_insert = pg_insert(db.AoiUser.__table__).values(
+                {
+                    db.AoiUser.__table__.c.aoi_id: aoi["id"],
+                    db.AoiUser.__table__.c.user: user_id,
+                    db.AoiUser.__table__.c["geometry"]: from_shape(user_geom),
+                }
+            )
+            child_insert = child_insert.on_conflict_do_nothing(
+                index_elements=[db.AoiUser.__table__.c.aoi_id]
+            )
+            await self.session.execute(child_insert)
+
+        await self.session.flush()
+        return aoi
+
+    async def insert_slick_to_aoi_from_dataframe(
+        self, slick_aoi_df: pd.DataFrame
+    ) -> int:
+        """
+        Insert public.slick_to_aoi rows from a dataframe with:
+        - `slick_id`
+        - `aoi_matches` dict keyed by AOI type short_name, containing compact AOI
+          match dicts with transient `ext_id` and `name`; or
+        - legacy `aoi_ext_ids` dict keyed by AOI type short_name
+
+        Rich non-USER matches upsert `public.aoi` by `(type, ext_id)`.
+
+        Example `aoi_ext_ids` payload:
+        `{\"EEZ\": [\"123\"], \"IHO\": [\"456\"], \"MPA\": [\"789\"]}`
+        """
+        if not {"aoi_matches", "aoi_ext_ids"} & set(slick_aoi_df.columns):
+            raise ValueError(
+                "slick_aoi_df must include either 'aoi_matches' or 'aoi_ext_ids'"
+            )
+
+        aoi_pairs: set[tuple[str, str]] = set()
+        flattened_rows: list[tuple[int, str, str]] = []
+        upsert_candidates: dict[tuple[str, str], str] = {}
+
+        for row in slick_aoi_df.itertuples(index=False):
+            slick_id = int(row.slick_id)
+            aoi_payload = getattr(row, "aoi_matches", None)
+            if _is_empty_aoi_value(aoi_payload):
+                aoi_payload = getattr(row, "aoi_ext_ids", None)
+            if _is_empty_aoi_value(aoi_payload):
+                aoi_payload = {}
+
+            for match in _iter_aoi_match_payload(aoi_payload):
+                aoi_type_short_name = match["aoi_type_short_name"]
+                ext_id = match["ext_id"]
+                aoi_pairs.add((aoi_type_short_name, ext_id))
+                flattened_rows.append((slick_id, aoi_type_short_name, ext_id))
+
+                if (
+                    match["is_rich_match"]
+                    and aoi_type_short_name != USER_AOI_TYPE_SHORT_NAME
+                ):
+                    upsert_candidates.setdefault(
+                        (aoi_type_short_name, ext_id),
+                        match["name"],
+                    )
+
+        if not flattened_rows:
+            return 0
+
+        for (aoi_type_short_name, ext_id), name in upsert_candidates.items():
+            await self.get_or_insert_aoi(aoi_type_short_name, ext_id, name)
+
+        aoi_type_ids = await self.get_aoi_type_ids(
+            sorted({short_name for short_name, _ in aoi_pairs})
+        )
+        missing_types = sorted(
+            {short_name for short_name, _ in aoi_pairs} - set(aoi_type_ids)
+        )
+        if missing_types:
+            raise InstanceNotFoundError(
+                f"AOI type(s) not found for short_name values: {missing_types}"
+            )
+
+        ext_ids = sorted({ext_id for _, ext_id in aoi_pairs})
+        result = await self.session.execute(
+            text(
+                """
+                SELECT MIN(id) AS id, type, ext_id
+                FROM public.aoi
+                WHERE type = ANY(:aoi_type_ids)
+                  AND ext_id = ANY(:ext_ids)
+                GROUP BY type, ext_id
+                """
+            ),
+            {
+                "aoi_type_ids": list(aoi_type_ids.values()),
+                "ext_ids": ext_ids,
+            },
+        )
+        aoi_lookup = {}
+        for aoi_id, aoi_type_id, ext_id in result.fetchall():
+            aoi_lookup[(aoi_type_id, str(ext_id))] = aoi_id
+
+        missing_pairs = sorted(
+            [
+                (short_name, ext_id)
+                for short_name, ext_id in aoi_pairs
+                if (aoi_type_ids[short_name], ext_id) not in aoi_lookup
+            ]
+        )
+        if missing_pairs:
+            raise InstanceNotFoundError(
+                "AOI ext_id values do not yet exist in public.aoi for: "
+                + ", ".join(
+                    f"{short_name}:{ext_id}" for short_name, ext_id in missing_pairs
+                )
+            )
+
+        insert_rows = []
+        seen_pairs = set()
+        for slick_id, aoi_type_short_name, ext_id in flattened_rows:
+            pair = (
+                slick_id,
+                aoi_lookup[(aoi_type_ids[aoi_type_short_name], ext_id)],
+            )
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            insert_rows.append({"slick": pair[0], "aoi": pair[1]})
+
+        if not insert_rows:
+            return 0
+
+        insert_stmt = pg_insert(db.t_slick_to_aoi).values(insert_rows)
+        insert_stmt = insert_stmt.on_conflict_do_nothing(
+            index_elements=["slick", "aoi"]
+        )
+        await self.session.execute(insert_stmt)
+        return len(insert_rows)
+
     async def get_or_insert_sentinel1_grd(
         self, scene_id: str, scene_info: dict, titiler_url: str
     ):
@@ -314,18 +728,18 @@ class DatabaseClient:
 
     async def insert_slick_to_source(self, **kwargs):
         """Insert a new slick_to_source, or update it if it already exists."""
-        insert_stmt = pg_insert(db.SlickToSource.__table__).values(**kwargs)
-        upsert_stmt = insert_stmt.on_conflict_do_update(
+        slick_to_source_insert = pg_insert(db.SlickToSource.__table__).values(**kwargs)
+        upsert_stmt = slick_to_source_insert.on_conflict_do_update(
             index_elements=["slick", "source"],
             set_={
-                "active": insert_stmt.excluded.active,
-                "git_hash": insert_stmt.excluded.git_hash,
-                "git_tag": insert_stmt.excluded.git_tag,
-                "coincidence_score": insert_stmt.excluded.coincidence_score,
-                "collated_score": insert_stmt.excluded.collated_score,
-                "rank": insert_stmt.excluded.rank,
-                "geojson_fc": insert_stmt.excluded.geojson_fc,
-                "geometry": insert_stmt.excluded.geometry,
+                "active": slick_to_source_insert.excluded.active,
+                "git_hash": slick_to_source_insert.excluded.git_hash,
+                "git_tag": slick_to_source_insert.excluded.git_tag,
+                "coincidence_score": slick_to_source_insert.excluded.coincidence_score,
+                "collated_score": slick_to_source_insert.excluded.collated_score,
+                "rank": slick_to_source_insert.excluded.rank,
+                "geojson_fc": slick_to_source_insert.excluded.geojson_fc,
+                "geometry": slick_to_source_insert.excluded.geometry,
             },
         )
         return await self.session.execute(upsert_stmt)
