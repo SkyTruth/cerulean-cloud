@@ -4,6 +4,7 @@ from pathlib import Path
 import geopandas as gpd
 import pytest
 import sqlalchemy as sa
+from google.api_core.exceptions import NotFound
 from shapely import wkb
 from shapely.geometry import box
 
@@ -150,7 +151,7 @@ async def test_aoi_joiner_loads_candidates_once_and_skips_null_ext_ids(monkeypat
     monkeypatch.setattr(
         GCSAoiAccessor,
         "_download_aoi_dataset",
-        lambda self: "/tmp/custom.fgb",
+        lambda self, fgb_uri=None, dataset_version=None: "/tmp/custom.fgb",
     )
 
     accessor = build_aoi_accessor(
@@ -261,6 +262,59 @@ def test_aoi_gcs_cache_key_includes_dataset_version(monkeypatch, tmp_path):
     assert all(not path.exists() for path in downloaded_paths)
 
 
+def test_aoi_gcs_cache_key_includes_rendered_uri(monkeypatch, tmp_path):
+    downloaded_paths = []
+
+    class FakeBlob:
+        def __init__(self, object_name):
+            self.object_name = object_name
+
+        def download_to_filename(self, local_path):
+            downloaded_paths.append(Path(local_path))
+            Path(local_path).write_text(self.object_name)
+
+    class FakeBucket:
+        def blob(self, object_name):
+            return FakeBlob(object_name)
+
+    class FakeStorageClient:
+        def __init__(self, project, credentials):
+            pass
+
+        def bucket(self, bucket_name):
+            return FakeBucket()
+
+    monkeypatch.setattr(GCSAoiAccessor, "_get_gcs_credentials", lambda self: object())
+    monkeypatch.setattr(
+        "cerulean_cloud.cloud_run_orchestrator.aoi_join.storage.Client",
+        FakeStorageClient,
+    )
+
+    accessor = GCSAoiAccessor(
+        {
+            "short_name": "SEA_ICE",
+            "access_type": "GCS",
+            "properties": {
+                "fgb_uri": "gs://bucket/sea/%Y/mask_%Y%j.fgb",
+                "ext_id_field": "MASK_DATE",
+            },
+        }
+    )
+    accessor.cache_dir = tmp_path
+
+    path_1 = accessor._download_aoi_dataset(
+        "gs://bucket/sea/2026/mask_2026001.fgb",
+        "NOAA_MASIE_G02186_4km_v01_2026-01-01",
+    )
+    path_2 = accessor._download_aoi_dataset(
+        "gs://bucket/sea/2025/mask_2025365.fgb",
+        "NOAA_MASIE_G02186_4km_v01_2025-12-31",
+    )
+
+    assert path_1 != path_2
+    assert len(downloaded_paths) == 2
+
+
 def test_aoi_gcs_cache_download_is_atomic(monkeypatch, tmp_path):
     class FailingBlob:
         def download_to_filename(self, local_path):
@@ -317,6 +371,187 @@ def test_aoi_gcs_accessor_accepts_local_file_paths(tmp_path):
     )
 
     assert accessor._download_aoi_dataset() == str(local_fgb)
+
+
+@pytest.mark.asyncio
+async def test_temporal_gcs_accessor_falls_back_to_previous_available_date(
+    monkeypatch,
+):
+    requested_downloads = []
+    read_calls = []
+
+    def fake_download(self, fgb_uri=None, dataset_version=None):
+        requested_downloads.append((fgb_uri, dataset_version))
+        if fgb_uri == "gs://bucket/sea/2026/mask_2026001.fgb":
+            raise NotFound("missing")
+        return f"/tmp/{dataset_version}.fgb"
+
+    def fake_read_file(path, bbox=None):
+        read_calls.append({"path": path, "bbox": bbox})
+        return gpd.GeoDataFrame(
+            {
+                "MASK_DATE": ["2025-12-31"],
+                "NAME": ["NOAA MASIE sea ice 2025-12-31"],
+                "geometry": [box(0, 0, 1, 1)],
+            },
+            crs="EPSG:4326",
+        )
+
+    monkeypatch.setattr(GCSAoiAccessor, "_download_aoi_dataset", fake_download)
+    monkeypatch.setattr(gpd, "read_file", fake_read_file)
+
+    accessor = GCSAoiAccessor(
+        {
+            "short_name": "SEA_ICE",
+            "access_type": "GCS",
+            "properties": {
+                "fgb_uri": "gs://bucket/sea/%Y/mask_%Y%j.fgb",
+                "dataset_version": "NOAA_MASIE_G02186_4km_v01",
+                "dataset_version_format": "NOAA_MASIE_G02186_4km_v01_%Y-%m-%d",
+                "ext_id_field": "MASK_DATE",
+                "display_name_field": "NAME",
+                "date_fallback_days": 1,
+            },
+        }
+    )
+
+    candidates = await accessor.load_candidates(
+        _scene_bounds(),
+        datetime(2026, 1, 1),
+    )
+
+    assert requested_downloads == [
+        (
+            "gs://bucket/sea/2026/mask_2026001.fgb",
+            "NOAA_MASIE_G02186_4km_v01_2026-01-01",
+        ),
+        (
+            "gs://bucket/sea/2025/mask_2025365.fgb",
+            "NOAA_MASIE_G02186_4km_v01_2025-12-31",
+        ),
+    ]
+    assert read_calls == [
+        {
+            "path": "/tmp/NOAA_MASIE_G02186_4km_v01_2025-12-31.fgb",
+            "bbox": (-1.0, -1.0, 3.0, 3.0),
+        }
+    ]
+    assert candidates["ext_id"].tolist() == ["2025-12-31"]
+    assert candidates["name"].tolist() == ["NOAA MASIE sea ice 2025-12-31"]
+    assert accessor.dataset_version == "NOAA_MASIE_G02186_4km_v01_2025-12-31"
+
+
+@pytest.mark.asyncio
+async def test_temporal_gcs_accessor_returns_empty_after_fallback_exhaustion(
+    monkeypatch,
+):
+    requested_downloads = []
+
+    def fake_download(self, fgb_uri=None, dataset_version=None):
+        requested_downloads.append((fgb_uri, dataset_version))
+        raise NotFound("missing")
+
+    monkeypatch.setattr(GCSAoiAccessor, "_download_aoi_dataset", fake_download)
+
+    accessor = GCSAoiAccessor(
+        {
+            "short_name": "SEA_ICE",
+            "access_type": "GCS",
+            "properties": {
+                "fgb_uri": "gs://bucket/sea/%Y/mask_%Y%j.fgb",
+                "dataset_version": "NOAA_MASIE_G02186_4km_v01",
+                "dataset_version_format": "NOAA_MASIE_G02186_4km_v01_%Y-%m-%d",
+                "ext_id_field": "MASK_DATE",
+                "date_fallback_days": 1,
+            },
+        }
+    )
+
+    candidates = await accessor.load_candidates(
+        _scene_bounds(),
+        datetime(2026, 1, 1),
+    )
+
+    assert candidates.empty
+    assert accessor.dataset_version is None
+    assert requested_downloads == [
+        (
+            "gs://bucket/sea/2026/mask_2026001.fgb",
+            "NOAA_MASIE_G02186_4km_v01_2026-01-01",
+        ),
+        (
+            "gs://bucket/sea/2025/mask_2025365.fgb",
+            "NOAA_MASIE_G02186_4km_v01_2025-12-31",
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_gcs_accessor_match_buffer_m_expands_slick_join_geometry(monkeypatch):
+    def fake_read_file(path, bbox=None):
+        return gpd.GeoDataFrame(
+            {
+                "MASK_DATE": ["2026-01-01"],
+                "NAME": ["NOAA MASIE sea ice 2026-01-01"],
+                "geometry": [box(0.01, 0, 0.02, 0.01)],
+            },
+            crs="EPSG:4326",
+        )
+
+    monkeypatch.setattr(gpd, "read_file", fake_read_file)
+    monkeypatch.setattr(
+        GCSAoiAccessor,
+        "_download_aoi_dataset",
+        lambda self, fgb_uri=None, dataset_version=None: "/tmp/sea_ice.fgb",
+    )
+
+    slicks = gpd.GeoDataFrame(
+        geometry=[box(0, 0, 0.001, 0.001)],
+        crs="EPSG:4326",
+    )
+    unbuffered = GCSAoiAccessor(
+        {
+            "short_name": "SEA_ICE",
+            "access_type": "GCS",
+            "properties": {
+                "fgb_uri": "gs://bucket/sea/2026/mask_2026001.fgb",
+                "ext_id_field": "MASK_DATE",
+                "display_name_field": "NAME",
+            },
+        }
+    )
+    buffered = GCSAoiAccessor(
+        {
+            "short_name": "SEA_ICE",
+            "access_type": "GCS",
+            "properties": {
+                "fgb_uri": "gs://bucket/sea/2026/mask_2026001.fgb",
+                "ext_id_field": "MASK_DATE",
+                "display_name_field": "NAME",
+                "match_buffer_m": 1500,
+            },
+        }
+    )
+
+    assert await AOIJoiner([unbuffered]).compute_aoi_matches(
+        slicks,
+        scene_bounds=_scene_bounds((-1, -1, 1, 1)),
+        scene_time=SCENE_TIME,
+    ) == [{"SEA_ICE": []}]
+    assert await AOIJoiner([buffered]).compute_aoi_matches(
+        slicks,
+        scene_bounds=_scene_bounds((-1, -1, 1, 1)),
+        scene_time=SCENE_TIME,
+    ) == [
+        {
+            "SEA_ICE": [
+                {
+                    "ext_id": "2026-01-01",
+                    "name": "NOAA MASIE sea ice 2026-01-01",
+                }
+            ]
+        }
+    ]
 
 
 async def _create_test_aoi_table(engine, table_name="test_aoi", *, postgis=True):

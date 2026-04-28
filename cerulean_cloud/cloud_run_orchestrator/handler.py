@@ -11,20 +11,14 @@ needs env vars:
 
 import json
 import os
-import random
 import signal
-import time
 import traceback
 import urllib.parse as urlparse
 from collections import Counter
-from datetime import date, datetime, timedelta
-from pathlib import Path
-from tempfile import TemporaryDirectory
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
-from zipfile import ZipFile
 
 import geopandas as gpd
-import httpx
 import morecantile
 import numpy as np
 import pandas as pd
@@ -38,6 +32,7 @@ from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
     AOIJoiner,
+    BaseAoiAccessor,
     build_aoi_accessor,
 )
 from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
@@ -112,155 +107,27 @@ def get_landmask_gdf():
     return landmask_gdf
 
 
-def download_sea_ice_gdf(date: date) -> gpd.GeoDataFrame:
-    """
-    Download and load a MASIE sea ice mask GeoDataFrame from a zipped shapefile archive.
-    """
-    archive_url = (
-        "https://noaadata.apps.nsidc.org/NOAA/G02186/shapefiles/4km/"
-        f"{date.year}/masie_ice_r00_v01_{date:%Y%j}_4km.zip"
-    )
-
-    with TemporaryDirectory() as tmpdir:
-        archive_path = Path(tmpdir) / "masie_4km.zip"
-
-        with httpx.stream(
-            "GET", archive_url, timeout=60, follow_redirects=True
-        ) as response:
-            response.raise_for_status()
-            with archive_path.open("wb") as f:
-                for chunk in response.iter_bytes():
-                    f.write(chunk)
-
-        with ZipFile(archive_path) as archive:
-            shp_names = [n for n in archive.namelist() if n.lower().endswith(".shp")]
-            if len(shp_names) != 1:
-                raise ValueError(f"Expected one shapefile, found {len(shp_names)}")
-            gdf = gpd.read_file(f"zip://{archive_path}!{shp_names[0]}")
-
-    return gdf
-
-
-def is_retryable_sea_ice_mask_error(exc: Exception) -> bool:
-    """
-    Return whether an upstream sea-ice mask fetch failure is worth retrying.
-    """
-    if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code in {429, 500, 502, 503, 504}
-    return isinstance(exc, httpx.TransportError)
-
-
-def get_retry_sleep_seconds(attempt: int, retry_backoff_seconds: float) -> float:
-    """
-    Return exponential backoff with jitter for retryable sea-ice mask failures.
-    """
-    exponential_backoff_seconds = retry_backoff_seconds * (2 ** (attempt - 1))
-    jitter_seconds = random.uniform(0, exponential_backoff_seconds)
-    return exponential_backoff_seconds + jitter_seconds
-
-
-def get_sea_ice_mask(
-    scene_date: date,
-    earliest_supported_date: date = date(2010, 1, 1),
-    max_attempts_per_date: int = 5,
-    retry_backoff_seconds: float = 0.5,
-) -> Tuple[Optional[gpd.GeoDataFrame], Optional[date]]:
-    """
-    Return the most recent NOAA MASIE sea ice mask on or before scene_date.
-    """
-    current_date = scene_date
-
-    while current_date >= earliest_supported_date:
-        for attempt in range(1, max_attempts_per_date + 1):
-            try:
-                gdf = download_sea_ice_gdf(current_date)
-                return gdf, current_date
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 404:
-                    current_date -= timedelta(days=1)
-                    break
-                if not is_retryable_sea_ice_mask_error(exc):
-                    raise
-
-                if attempt == max_attempts_per_date:
-                    logger.warning(
-                        {
-                            "message": "Skipping sea ice mask after retryable upstream failures",
-                            "mask_date": current_date.isoformat(),
-                            "status_code": exc.response.status_code,
-                            "attempts": attempt,
-                        }
-                    )
-                    return None, None
-
-                sleep_seconds = get_retry_sleep_seconds(attempt, retry_backoff_seconds)
-                logger.warning(
-                    {
-                        "message": "Retrying sea ice mask download after upstream HTTP failure",
-                        "mask_date": current_date.isoformat(),
-                        "status_code": exc.response.status_code,
-                        "attempt": attempt,
-                        "sleep_seconds": sleep_seconds,
-                    }
-                )
-                time.sleep(sleep_seconds)
-            except httpx.TransportError as exc:
-                if not is_retryable_sea_ice_mask_error(exc):
-                    raise
-
-                if attempt == max_attempts_per_date:
-                    logger.warning(
-                        {
-                            "message": "Skipping sea ice mask after retryable transport failures",
-                            "mask_date": current_date.isoformat(),
-                            "error_type": type(exc).__name__,
-                            "attempts": attempt,
-                        }
-                    )
-                    return None, None
-
-                sleep_seconds = get_retry_sleep_seconds(attempt, retry_backoff_seconds)
-                logger.warning(
-                    {
-                        "message": "Retrying sea ice mask download after transport failure",
-                        "mask_date": current_date.isoformat(),
-                        "error_type": type(exc).__name__,
-                        "attempt": attempt,
-                        "sleep_seconds": sleep_seconds,
-                    }
-                )
-                time.sleep(sleep_seconds)
-
-    return None, None
+def build_dataset_versions(aoi_accessors: List[BaseAoiAccessor]) -> Dict:
+    """Return AOI dataset provenance for this orchestrator run."""
+    return {
+        "aoi": {
+            accessor.short_name: accessor.dataset_version for accessor in aoi_accessors
+        },
+    }
 
 
 def classify_geometry_background_mask(
     buffered_geometry,
-    sea_ice_mask_gdf: Optional[gpd.GeoDataFrame],
     land_mask_gdf: gpd.GeoDataFrame,
+    aoi_matches: Dict,
 ) -> Optional[str]:
     """
     Returns the background class short name for a buffered slick, if any.
     """
     if len(land_mask_gdf.sindex.query(buffered_geometry, predicate="intersects")) > 0:
         return "LAND"
-    if sea_ice_mask_gdf is not None and not sea_ice_mask_gdf.empty:
-        sea_ice_query_geometry = buffered_geometry
-        if sea_ice_mask_gdf.crs and sea_ice_mask_gdf.crs.to_epsg() != 4326:
-            sea_ice_query_geometry = (
-                gpd.GeoSeries([buffered_geometry], crs="EPSG:4326")
-                .to_crs(sea_ice_mask_gdf.crs)
-                .iloc[0]
-            )
-        if (
-            len(
-                sea_ice_mask_gdf.sindex.query(
-                    sea_ice_query_geometry, predicate="intersects"
-                )
-            )
-            > 0
-        ):
-            return "SEA_ICE"
+    if aoi_matches.get("SEA_ICE"):
+        return "SEA_ICE"
     return None
 
 
@@ -417,8 +284,6 @@ async def _orchestrate(
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
     logger.info("Getting scene bounds")
     scene_bounds = await titiler_client.get_bounds(payload.scene_id)
-    # Antimeridian scenes can produce a world-spanning bbox here. AOI matching
-    # should eventually use exact scene footprint or split wrapped bounds.
 
     logger.info("Getting scene statistics")
     scene_stats = await titiler_client.get_statistics(payload.scene_id, band="vv")
@@ -544,7 +409,6 @@ async def _orchestrate(
             ]
 
         success = True
-        sea_ice_date = None
         try:
             logger.info("Instantiating inference client")
             cloud_run_inference = CloudRunInferenceClient(
@@ -610,10 +474,6 @@ async def _orchestrate(
                         crs="4326",
                     )
                     aoi_joiner = AOIJoiner(accessors=aoi_accessors)
-                    # AOI bounds are a temporary bbox approximation. Temporal
-                    # and antimeridian-aware accessors should use richer scene
-                    # footprint input when the upstream scene geometry path
-                    # supports it.
                     aoi_matches_by_feature = await aoi_joiner.compute_aoi_matches(
                         slicks_gdf,
                         scene_bounds=tuple(scene_bounds),
@@ -624,17 +484,14 @@ async def _orchestrate(
 
                 LAND_MASK_BUFFER_M = 1000
                 land_mask_gdf = get_landmask_gdf()
-                sea_ice_mask_gdf, sea_ice_date = get_sea_ice_mask(
-                    sentinel1_grd.start_time.date()
-                )
                 logger.info(
                     {
                         "message": "Classifying slicks against not-oil masks",
                         "n_features": n_features,
                         "LAND_MASK_BUFFER_M": LAND_MASK_BUFFER_M,
-                        "uses_sea_ice_mask": sea_ice_mask_gdf is not None,
-                        "sea_ice_mask_date": (
-                            sea_ice_date.isoformat() if sea_ice_date else None
+                        "uses_sea_ice_aoi": any(
+                            accessor.short_name == "SEA_ICE"
+                            for accessor in aoi_accessors
                         ),
                     }
                 )
@@ -643,6 +500,11 @@ async def _orchestrate(
                     aoi_matches_by_feature,
                     strict=True,
                 ):
+                    feat["properties"]["aoi_matches"] = aoi_matches
+                    feat["properties"]["aoi_ext_ids"] = {
+                        aoi_type: [match["ext_id"] for match in matches]
+                        for aoi_type, matches in aoi_matches.items()
+                    }
                     slick_gdf = gpd.GeoDataFrame(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
@@ -656,8 +518,8 @@ async def _orchestrate(
 
                     reclass_name = classify_geometry_background_mask(
                         buffered_geometry,
-                        sea_ice_mask_gdf=sea_ice_mask_gdf,
                         land_mask_gdf=land_mask_gdf,
+                        aoi_matches=aoi_matches,
                     )
                     if reclass_name:
                         reclass_counts[reclass_name] += 1
@@ -690,7 +552,6 @@ async def _orchestrate(
                         "n_slicks": n_features - n_not_oil_slicks,
                     }
                 )
-                del features
                 # Removed all preprocessing of features from within the
                 # database session to avoid holidng locks on the
                 # table while performing un-related calculations.
@@ -759,13 +620,7 @@ async def _orchestrate(
                 }
             )
         async with db_client.session.begin():
-            orchestrator_run.dataset_versions = {
-                "sea_ice_date": sea_ice_date.isoformat() if sea_ice_date else None,
-                "aoi": {
-                    accessor.short_name: accessor.dataset_version
-                    for accessor in aoi_accessors
-                },
-            }
+            orchestrator_run.dataset_versions = build_dataset_versions(aoi_accessors)
             end_time = datetime.now()
             orchestrator_run.success = success
             orchestrator_run.inference_end_time = end_time

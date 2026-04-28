@@ -1,5 +1,6 @@
 """Focused AOI tests for DatabaseClient."""
 
+import csv
 from datetime import datetime
 from pathlib import Path
 
@@ -482,6 +483,94 @@ async def test_insert_slick_to_aoi_upserts_rich_aoi_matches(db_session):
 
 
 @pytest.mark.asyncio
+async def test_insert_slick_to_aoi_upserts_rich_sea_ice_aoi_match(db_session):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiAccessType(
+                    id=1,
+                    short_name="GCS",
+                    prop_keys=[
+                        "fgb_uri",
+                        "dataset_version",
+                        "dataset_version_format",
+                        "ext_id_field",
+                        "display_name_field",
+                        "date_fallback_days",
+                        "match_buffer_m",
+                    ],
+                )
+            )
+            session.add(
+                database_schema.AoiType(
+                    id=5,
+                    short_name="SEA_ICE",
+                    filter_toggle=False,
+                    access_type="GCS",
+                    properties={
+                        "fgb_uri": "gs://cerulean-cloud-aoi/sea-ice/masie_4km/%Y/masie_ice_r00_v01_%Y%j_4km.fgb",
+                        "dataset_version": "NOAA_MASIE_G02186_4km_v01",
+                        "dataset_version_format": "NOAA_MASIE_G02186_4km_v01_%Y-%m-%d",
+                        "ext_id_field": "MASK_DATE",
+                        "display_name_field": "NAME",
+                        "date_fallback_days": 31,
+                        "match_buffer_m": 1000,
+                    },
+                )
+            )
+            await session.execute(
+                sa.text(
+                    "CREATE UNIQUE INDEX uq_test_aoi_type_ext_id_sea_ice "
+                    "ON public.aoi(type, ext_id)"
+                )
+            )
+            await _add_slick_fixture(session)
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            inserted_count = await db_client.insert_slick_to_aoi_from_dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "slick_id": 1,
+                            "aoi_matches": {
+                                "SEA_ICE": [
+                                    {
+                                        "ext_id": "2026-04-01",
+                                        "name": "NOAA MASIE sea ice 2026-04-01",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                )
+            )
+
+        result = await session.execute(
+            sa.text(
+                """
+                SELECT
+                    a.type,
+                    a.name,
+                    a.ext_id,
+                    sta.slick
+                FROM public.slick_to_aoi sta
+                JOIN public.aoi a ON a.id = sta.aoi
+                """
+            )
+        )
+        row = result.mappings().one()
+
+        assert inserted_count == 1
+        assert row["type"] == 5
+        assert row["name"] == "NOAA MASIE sea ice 2026-04-01"
+        assert row["ext_id"] == "2026-04-01"
+        assert row["slick"] == 1
+
+
+@pytest.mark.asyncio
 async def test_insert_slick_to_aoi_legacy_ext_ids_require_existing_aoi(db_session):
     async with db_session() as session:
         async with session.begin():
@@ -554,13 +643,17 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         repo_root
         / "alembic/versions/1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
     ).read_text()
+    sea_ice_migration_text = (
+        repo_root / "alembic/versions/5c02f7e8a9b1_add_sea_ice_gcs_aoi.py"
+    ).read_text()
     rollback_text = (
         repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids_rollback.sql"
     ).read_text()
+    manual_sql_text = (
+        repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids.sql"
+    ).read_text()
     current_branch_sql = [
-        (
-            repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids.sql"
-        ).read_text(),
+        manual_sql_text,
         migration_text.split("def downgrade():", 1)[0],
     ]
     tipg_text = (repo_root / "stack/cloud_run_tipg.py").read_text()
@@ -606,8 +699,20 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         )[0]
         assert "short_name IN ('EEZ', 'IHO', 'MPA')" not in aoi_ids_sql
 
+    assert "'SEA_ICE'" not in manual_sql_text
+    assert "'SEA_ICE'" not in rollback_text
+    assert "dataset_version_format" in sea_ice_migration_text
+    assert "date_fallback_days" in sea_ice_migration_text
+    assert "match_buffer_m" in sea_ice_migration_text
+    assert "'SEA_ICE'" in sea_ice_migration_text
+    assert "read_perm = EXCLUDED.read_perm" in sea_ice_migration_text
+    assert "NOAA_MASIE_G02186_4km_v01_%Y-%m-%d" in sea_ice_migration_text
+
     assert "DROP CONSTRAINT IF EXISTS ck_aoi_type_access_properties" in rollback_text
     assert "DROP VIEW IF EXISTS public.aoi_type_public" in rollback_text
+    assert (
+        "short_name = 'SEA_ICE'" in sea_ice_migration_text.split("def downgrade", 1)[1]
+    )
     assert "ALTER COLUMN geometry SET NOT NULL" not in rollback_text
     assert "ALTER COLUMN table_name SET NOT NULL" not in rollback_text
     assert "SET table_name = COALESCE" not in rollback_text
@@ -623,6 +728,36 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
     assert '"aoi_type_public",' in datetime_table_config
     assert '"aoi_type",' not in datetime_table_config
     assert '"public.aoi_type"' in tipg_text
+
+
+def test_sea_ice_aoi_translation_seed_is_complete():
+    repo_root = Path(__file__).resolve().parents[2]
+    csv_text = (repo_root / "docs/vocabulary_translations.csv").read_text()
+    rows = list(
+        csv.DictReader(
+            line for line in csv_text.splitlines() if not line.startswith("#")
+        )
+    )
+
+    sea_ice_rows = [
+        row
+        for row in rows
+        if row["entity_type"] == "aoi_type" and row["context_key"] == "SEA_ICE"
+    ]
+    by_field = {row["field_name"]: row for row in sea_ice_rows}
+
+    assert set(by_field) == {"long_name", "citation"}
+    assert {row["source_checksum"] for row in sea_ice_rows} == {
+        "b103f297b46fbcbc106ed36725138c6e"
+    }
+    assert by_field["long_name"]["source_text"] == "Sea Ice"
+    assert (
+        by_field["citation"]["source_text"]
+        == "NOAA National Ice Center and National Snow and Ice Data Center. Multisensor Analyzed Sea Ice Extent - Northern Hemisphere (MASIE-NH), Version 1. Boulder, Colorado USA. NASA National Snow and Ice Data Center Distributed Active Archive Center. https://doi.org/10.7265/N5GT5K3K."
+    )
+    for row in sea_ice_rows:
+        for locale in ["es", "fr", "pt", "pt-br", "id", "sw"]:
+            assert row[locale]
 
 
 @pytest.mark.asyncio

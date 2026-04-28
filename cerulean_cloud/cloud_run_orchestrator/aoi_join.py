@@ -4,7 +4,7 @@ import hashlib
 import os
 import re
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import (
     Any,
@@ -20,6 +20,7 @@ from typing import (
 import geopandas as gpd
 import google.auth
 import sqlalchemy as sa
+from google.api_core.exceptions import NotFound
 from google.cloud import storage
 from shapely import wkb
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
@@ -87,7 +88,11 @@ class BaseAoiAccessor:
     def __init__(self, row: Mapping[str, Any]) -> None:
         self.short_name = row["short_name"]
         self.properties = row.get("properties") or {}
-        self.dataset_version = self.properties.get("dataset_version")
+        self.dataset_version = (
+            None
+            if self.properties.get("dataset_version_format")
+            else self.properties.get("dataset_version")
+        )
         self._candidate_cache_key: Optional[tuple] = None
         self._candidate_gdf: Optional[gpd.GeoDataFrame] = None
 
@@ -122,8 +127,9 @@ class BaseAoiAccessor:
         if aoi_gdf.empty:
             return results
 
+        slick_join_gdf = self.slick_gdf_for_join(slick_gdf)
         joined = gpd.sjoin(
-            slick_gdf[["geometry"]],
+            slick_join_gdf[["geometry"]],
             aoi_gdf[["ext_id", "name", "geometry"]],
             how="left",
             predicate="intersects",
@@ -146,6 +152,10 @@ class BaseAoiAccessor:
 
         return results
 
+    def slick_gdf_for_join(self, slick_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """Return slick geometries to use for this accessor's spatial join."""
+        return slick_gdf[["geometry"]]
+
 
 class GCSAoiAccessor(BaseAoiAccessor):
     """AOI accessor for FlatGeobuf assets stored locally or in GCS."""
@@ -155,6 +165,9 @@ class GCSAoiAccessor(BaseAoiAccessor):
         self.fgb_uri = self.properties["fgb_uri"]
         self.ext_id_field = self.properties["ext_id_field"]
         self.display_name_field = self.properties.get("display_name_field")
+        self.dataset_version_format = self.properties.get("dataset_version_format")
+        self.date_fallback_days = self.properties.get("date_fallback_days")
+        self.match_buffer_m = float(self.properties.get("match_buffer_m") or 0)
         self.cache_dir = Path(tempfile.gettempdir()) / "cerulean_aoi_cache"
         self.gcp_project: Optional[str] = None
 
@@ -164,17 +177,23 @@ class GCSAoiAccessor(BaseAoiAccessor):
         self.gcp_project = project
         return credentials
 
-    def _download_aoi_dataset(self) -> str:
+    def _download_aoi_dataset(
+        self,
+        fgb_uri: Optional[str] = None,
+        dataset_version: Optional[str] = None,
+    ) -> str:
         """Resolve `gs://` AOI dataset paths into local cached files."""
-        if not self.fgb_uri.startswith("gs://"):
-            return self.fgb_uri
+        fgb_uri = fgb_uri or self.fgb_uri
+        dataset_version = dataset_version or self.dataset_version
+        if not fgb_uri.startswith("gs://"):
+            return fgb_uri
 
-        bucket_and_path = self.fgb_uri[len("gs://") :]
+        bucket_and_path = fgb_uri[len("gs://") :]
         bucket_name, _, object_name = bucket_and_path.partition("/")
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         cache_digest = hashlib.sha256(
-            f"{self.fgb_uri}|{self.dataset_version or ''}".encode("utf-8")
+            f"{fgb_uri}|{dataset_version or ''}".encode("utf-8")
         ).hexdigest()[:12]
         local_name = f"{bucket_name}__{object_name.replace('/', '__')}__{cache_digest}"
         local_path = self.cache_dir / local_name
@@ -194,19 +213,29 @@ class GCSAoiAccessor(BaseAoiAccessor):
         try:
             client.bucket(bucket_name).blob(object_name).download_to_filename(tmp_path)
             if tmp_path.stat().st_size <= 0:
-                raise ValueError(f"Downloaded empty AOI dataset: {self.fgb_uri}")
+                raise ValueError(f"Downloaded empty AOI dataset: {fgb_uri}")
             tmp_path.replace(local_path)
         except Exception:
             tmp_path.unlink(missing_ok=True)
             raise
         return str(local_path)
 
-    async def load_candidates(
-        self, scene_bounds: Sequence[float], scene_time: datetime
-    ) -> gpd.GeoDataFrame:
-        # Antimeridian scenes need this bbox read split into wrapped east/west
-        # ranges, then concatenated and deduped by ext_id.
-        gdf = gpd.read_file(self._download_aoi_dataset(), bbox=tuple(scene_bounds))
+    def _dated_dataset_specs(self, scene_time: datetime):
+        if self.date_fallback_days is None:
+            yield self.fgb_uri, self.properties.get("dataset_version")
+            return
+
+        scene_date = scene_time.date()
+        for day_offset in range(int(self.date_fallback_days) + 1):
+            mask_date = scene_date - timedelta(days=day_offset)
+            dataset_version = (
+                mask_date.strftime(self.dataset_version_format)
+                if self.dataset_version_format
+                else self.properties.get("dataset_version")
+            )
+            yield mask_date.strftime(self.fgb_uri), dataset_version
+
+    def _normalize_candidates(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         if gdf.empty:
             return empty_candidate_gdf()
 
@@ -227,6 +256,51 @@ class GCSAoiAccessor(BaseAoiAccessor):
         gdf["ext_id"] = gdf["ext_id"].astype(str)
         gdf["name"] = gdf["name"].fillna(gdf["ext_id"])
         return gdf
+
+    def slick_gdf_for_join(self, slick_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        if self.match_buffer_m <= 0:
+            return super().slick_gdf_for_join(slick_gdf)
+
+        buffered_geometries = []
+        slick_crs = slick_gdf.crs or "EPSG:4326"
+        for geometry in slick_gdf.geometry:
+            slick_geometry_gdf = gpd.GeoDataFrame(
+                geometry=[geometry],
+                crs=slick_crs,
+            ).to_crs("EPSG:4326")
+            crs_meters = slick_geometry_gdf.estimate_utm_crs(datum_name="WGS 84")
+            buffered_geometries.append(
+                slick_geometry_gdf.to_crs(crs_meters)
+                .buffer(self.match_buffer_m)
+                .to_crs("EPSG:4326")
+                .iloc[0]
+            )
+
+        return gpd.GeoDataFrame(
+            geometry=buffered_geometries,
+            index=slick_gdf.index,
+            crs="EPSG:4326",
+        )
+
+    async def load_candidates(
+        self, scene_bounds: Sequence[float], scene_time: datetime
+    ) -> gpd.GeoDataFrame:
+        # Antimeridian scenes need this bbox read split into wrapped east/west
+        # ranges, then concatenated and deduped by ext_id.
+        for fgb_uri, dataset_version in self._dated_dataset_specs(scene_time):
+            try:
+                path = self._download_aoi_dataset(fgb_uri, dataset_version)
+                gdf = gpd.read_file(path, bbox=tuple(scene_bounds))
+            except NotFound:
+                if self.date_fallback_days is None:
+                    raise
+                continue
+
+            self.dataset_version = dataset_version
+            return self._normalize_candidates(gdf)
+
+        self.dataset_version = None
+        return empty_candidate_gdf()
 
 
 class DbBaseAoiAccessor(BaseAoiAccessor):
