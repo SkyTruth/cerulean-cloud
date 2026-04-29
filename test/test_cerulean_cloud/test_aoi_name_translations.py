@@ -56,6 +56,55 @@ def test_aoi_name_translation_csv_covers_curated_eez_and_iho_names():
             )
 
 
+def test_aoi_name_translation_csv_uses_reviewed_place_name_forms():
+    rows_by_key = {
+        (row["aoi_type_short_name"], row["mrgid"]): row for row in _load_csv_rows()
+    }
+
+    assert rows_by_key[("EEZ", "8444")]["fr"] == (
+        "Zone économique exclusive des Samoa américaines"
+    )
+    assert rows_by_key[("EEZ", "8464")]["fr"] == ("Zone économique exclusive du Brésil")
+    assert rows_by_key[("EEZ", "8493")]["fr"] == ("Zone économique exclusive du Canada")
+    assert rows_by_key[("EEZ", "8465")]["fr"] == ("Zone économique exclusive du Chili")
+    assert rows_by_key[("EEZ", "8331")]["fr"] == (
+        "Zone économique exclusive du Cambodge"
+    )
+    assert rows_by_key[("EEZ", "8475")]["fr"] == (
+        "Zone économique exclusive du Cameroun"
+    )
+    assert rows_by_key[("EEZ", "8353")]["fr"] == ("Zone économique exclusive du Yémen")
+
+    assert rows_by_key[("EEZ", "8466")]["pt"] == (
+        "Zona Económica Exclusiva da Argentina"
+    )
+    assert rows_by_key[("EEZ", "8466")]["pt-br"] == (
+        "Zona Econômica Exclusiva da Argentina"
+    )
+    assert rows_by_key[("EEZ", "8464")]["pt"] == ("Zona Económica Exclusiva do Brasil")
+    assert rows_by_key[("EEZ", "8464")]["pt-br"] == (
+        "Zona Econômica Exclusiva do Brasil"
+    )
+    assert rows_by_key[("EEZ", "8493")]["pt"] == ("Zona Económica Exclusiva do Canadá")
+    assert rows_by_key[("EEZ", "8493")]["pt-br"] == (
+        "Zona Econômica Exclusiva do Canadá"
+    )
+    assert rows_by_key[("EEZ", "8353")]["pt"] == ("Zona Económica Exclusiva do Iémen")
+    assert rows_by_key[("EEZ", "8353")]["pt-br"] == (
+        "Zona Econômica Exclusiva do Iêmen"
+    )
+
+    assert rows_by_key[("EEZ", "48985")]["pt"] == (
+        "Zona Económica Exclusiva do Banco Bajo Nuevo"
+    )
+    assert rows_by_key[("EEZ", "48985")]["pt-br"] == (
+        "Zona Econômica Exclusiva do Banco Bajo Nuevo"
+    )
+    assert rows_by_key[("EEZ", "48985")]["id"] == (
+        "Zona Ekonomi Eksklusif Gosong Bajo Nuevo"
+    )
+
+
 def test_aoi_name_i18n_migration_uses_current_aoi_keys():
     migration_text = MIGRATION_PATH.read_text(encoding="utf-8")
     tipg_text = (REPO_ROOT / "stack/cloud_run_tipg.py").read_text(encoding="utf-8")
