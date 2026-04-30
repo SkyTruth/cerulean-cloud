@@ -690,7 +690,6 @@ async def _orchestrate(
                         "n_slicks": n_features - n_not_oil_slicks,
                     }
                 )
-                del features
                 # Removed all preprocessing of features from within the
                 # database session to avoid holidng locks on the
                 # table while performing un-related calculations.
