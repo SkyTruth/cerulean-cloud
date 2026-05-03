@@ -69,11 +69,9 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                 [
                     database_schema.AoiAccessType(
                         id=1,
-                        short_name="GCS",
+                        short_name="SHARED_DATASET",
                         prop_keys=[
-                            "fgb_uri",
-                            "pmt_uri",
-                            "dataset_version",
+                            "asset_slug",
                             "ext_id_field",
                             "display_name_field",
                         ],
@@ -104,11 +102,9 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                         table_name="aoi_eez",
                         short_name="EEZ",
                         filter_toggle=True,
-                        access_type="GCS",
+                        access_type="SHARED_DATASET",
                         properties={
-                            "fgb_uri": "gs://skytruth-shared-datasets-1/100-geographic-reference/120-marine-boundaries/marine-regions-eez/latest/marine-regions-eez.fgb",
-                            "pmt_uri": None,
-                            "dataset_version": "marine-regions-eez@2026-04-29",
+                            "asset_slug": "marine-regions-eez",
                             "ext_id_field": "MRGID",
                             "display_name_field": "GEONAME",
                         },
@@ -147,22 +143,22 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
 
         all_configs = await db_client.get_aoi_access_configs()
         assert [config["access_type"] for config in all_configs] == [
-            "GCS",
+            "SHARED_DATASET",
             "DB_LOCAL",
             "DB_REMOTE",
         ]
 
-        configs = await db_client.get_aoi_access_configs(access_types=["GCS"])
+        configs = await db_client.get_aoi_access_configs(
+            access_types=["SHARED_DATASET"]
+        )
 
         assert len(configs) == 1
         config = configs[0]
         assert config == {
             "short_name": "EEZ",
-            "access_type": "GCS",
+            "access_type": "SHARED_DATASET",
             "properties": {
-                "fgb_uri": "gs://skytruth-shared-datasets-1/100-geographic-reference/120-marine-boundaries/marine-regions-eez/latest/marine-regions-eez.fgb",
-                "pmt_uri": None,
-                "dataset_version": "marine-regions-eez@2026-04-29",
+                "asset_slug": "marine-regions-eez",
                 "ext_id_field": "MRGID",
                 "display_name_field": "GEONAME",
             },
@@ -572,9 +568,21 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
 
     for sql_text in current_branch_sql:
         assert "aoi_chunks" not in sql_text
+        assert "skytruth-shared-datasets-1" not in sql_text
+        assert "'GCS'" not in sql_text
+        assert "fgb_uri" not in sql_text
+        assert "pmt_uri" not in sql_text
+        assert '"version":' not in sql_text
+        assert '"format":' not in sql_text
+        assert "properties->>'version'" not in sql_text
+        assert "properties->>'format'" not in sql_text
+        assert "'SHARED_DATASET'" in sql_text
+        assert "NULLIF(properties->>'asset_slug', '') IS NOT NULL" in sql_text
+        assert (
+            '"ext_id_field":"SITE_ID"' in sql_text
+            or '"ext_id_field": "SITE_ID"' in sql_text
+        )
         assert "ck_aoi_type_access_properties" in sql_text
-        assert "NULLIF(properties->>'fgb_uri', '') IS NOT NULL" in sql_text
-        assert "properties->>'fgb_uri' LIKE 'gs://%'" not in sql_text
         assert "db_conn_str" not in sql_text
         assert "NULLIF(properties->>'db_conn_secret_name', '') IS NOT NULL" in sql_text
         assert "CREATE OR REPLACE VIEW public.aoi_type_public" in sql_text

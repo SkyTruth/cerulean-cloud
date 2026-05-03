@@ -34,3 +34,4 @@ scikit-image
 pydantic~=2.0
 google-cloud-logging==3.11.3
 centerline==1.0.1
+skytruth-shared-datasets[gcs] @ https://github.com/SkyTruth/shared-datasets-1/archive/f9e1c5e969ac4c1b2c610311fcace41c6a966807.zip#subdirectory=api/python

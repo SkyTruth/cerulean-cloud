@@ -1,5 +1,4 @@
 from datetime import datetime
-from pathlib import Path
 
 import geopandas as gpd
 import pytest
@@ -7,13 +6,14 @@ import sqlalchemy as sa
 from shapely import wkb
 from shapely.geometry import box
 
+import cerulean_cloud.cloud_run_orchestrator.aoi_join as aoi_join_module
 from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
     AOIJoiner,
     BaseAoiAccessor,
     DbBaseAoiAccessor,
     DbLocalAoiAccessor,
     DbRemoteAoiAccessor,
-    GCSAoiAccessor,
+    SharedDatasetAoiAccessor,
     build_aoi_accessor,
 )
 
@@ -25,26 +25,26 @@ def _scene_bounds(bounds=(-1, -1, 3, 3)):
     return tuple(bounds)
 
 
-def test_gcs_accessor_owns_gcs_config_parsing():
+def test_shared_dataset_accessor_owns_shared_config_parsing():
     accessor = build_aoi_accessor(
         {
-            "short_name": "CUSTOM",
-            "access_type": "GCS",
+            "short_name": "MPA",
+            "access_type": "SHARED_DATASET",
             "properties": {
-                "fgb_uri": "gs://bucket/custom.fgb",
-                "dataset_version": "custom-v1",
-                "ext_id_field": "CUSTOM_ID",
-                "display_name_field": "DISPLAY_NAME",
+                "asset_slug": "wdpa-marine",
+                "ext_id_field": "SITE_ID",
+                "display_name_field": "NAME",
             },
         }
     )
 
-    assert isinstance(accessor, GCSAoiAccessor)
-    assert accessor.short_name == "CUSTOM"
-    assert accessor.fgb_uri == "gs://bucket/custom.fgb"
-    assert accessor.ext_id_field == "CUSTOM_ID"
-    assert accessor.display_name_field == "DISPLAY_NAME"
-    assert accessor.dataset_version == "custom-v1"
+    assert isinstance(accessor, SharedDatasetAoiAccessor)
+    assert accessor.short_name == "MPA"
+    assert accessor.asset_slug == "wdpa-marine"
+    assert accessor.version == "latest"
+    assert accessor.ext_id_field == "SITE_ID"
+    assert accessor.display_name_field == "NAME"
+    assert accessor.dataset_version is None
 
 
 def test_db_accessors_own_db_config_parsing():
@@ -90,8 +90,8 @@ def test_db_accessors_own_db_config_parsing():
 
 
 def test_accessors_let_missing_config_fields_raise_at_the_source():
-    with pytest.raises(KeyError, match="fgb_uri"):
-        build_aoi_accessor({"short_name": "CUSTOM", "access_type": "GCS"})
+    with pytest.raises(KeyError, match="asset_slug"):
+        build_aoi_accessor({"short_name": "MPA", "access_type": "SHARED_DATASET"})
 
     with pytest.raises(KeyError, match="table_name"):
         build_aoi_accessor({"short_name": "LOCAL", "access_type": "DB_LOCAL"})
@@ -123,8 +123,9 @@ def test_accessors_let_missing_config_fields_raise_at_the_source():
             }
         )
 
-    with pytest.raises(NotImplementedError, match="Unsupported AOI access_type"):
-        build_aoi_accessor({"short_name": "UNKNOWN", "access_type": "S3"})
+    for access_type in ["GCS", "S3"]:
+        with pytest.raises(NotImplementedError, match="Unsupported AOI access_type"):
+            build_aoi_accessor({"short_name": "UNKNOWN", "access_type": access_type})
 
 
 @pytest.mark.asyncio
@@ -148,7 +149,7 @@ async def test_aoi_joiner_loads_candidates_once_and_skips_null_ext_ids(monkeypat
 
     monkeypatch.setattr(gpd, "read_file", fake_read_file)
     monkeypatch.setattr(
-        GCSAoiAccessor,
+        SharedDatasetAoiAccessor,
         "_download_aoi_dataset",
         lambda self: "/tmp/custom.fgb",
     )
@@ -156,9 +157,9 @@ async def test_aoi_joiner_loads_candidates_once_and_skips_null_ext_ids(monkeypat
     accessor = build_aoi_accessor(
         {
             "short_name": "CUSTOM",
-            "access_type": "GCS",
+            "access_type": "SHARED_DATASET",
             "properties": {
-                "fgb_uri": "gs://bucket/custom.fgb",
+                "asset_slug": "custom",
                 "ext_id_field": "CUSTOM_ID",
                 "display_name_field": "DISPLAY_NAME",
             },
@@ -201,122 +202,68 @@ async def test_aoi_joiner_loads_candidates_once_and_skips_null_ext_ids(monkeypat
     assert len(read_calls) == 2
 
 
-def test_aoi_gcs_cache_key_includes_dataset_version(monkeypatch, tmp_path):
-    downloaded_paths = []
+@pytest.mark.asyncio
+async def test_shared_dataset_accessor_fetches_by_slug_and_uses_site_id(
+    monkeypatch, tmp_path
+):
+    local_fgb = tmp_path / "wdpa-marine.fgb"
+    local_fgb.write_text("placeholder")
+    calls = []
 
-    class FakeBlob:
-        def __init__(self, object_name):
-            self.object_name = object_name
+    class FakeRef:
+        gs_uri = "gs://shared/wdpa-marine/latest/wdpa-marine.fgb"
+        resolved_id = "wdpa-marine@2026-05-02"
+        cache_path = local_fgb
 
-        def download_to_filename(self, local_path):
-            downloaded_paths.append(Path(local_path))
-            Path(local_path).write_text(self.object_name)
+    def fake_fetch(asset_slug, dataset_format, *, version, cache_dir):
+        calls.append(("fetch", asset_slug, dataset_format, version, cache_dir))
+        return FakeRef()
 
-    class FakeBucket:
-        def blob(self, object_name):
-            return FakeBlob(object_name)
+    def fake_read_file(path, bbox=None):
+        calls.append(("read", path, bbox))
+        return gpd.GeoDataFrame(
+            {
+                "SITE_ID": ["site-1", None],
+                "WDPAID": [999, 1000],
+                "NAME": ["Marine Area", "Missing Site ID"],
+                "geometry": [box(0, 0, 2, 2), box(1, 1, 2, 2)],
+            },
+            crs="EPSG:4326",
+        )
 
-    class FakeStorageClient:
-        def __init__(self, project, credentials):
-            pass
+    monkeypatch.setattr(aoi_join_module, "fetch_dataset", fake_fetch)
+    monkeypatch.setattr(gpd, "read_file", fake_read_file)
 
-        def bucket(self, bucket_name):
-            return FakeBucket()
-
-    monkeypatch.setattr(GCSAoiAccessor, "_get_gcs_credentials", lambda self: object())
-    monkeypatch.setattr(
-        "cerulean_cloud.cloud_run_orchestrator.aoi_join.storage.Client",
-        FakeStorageClient,
-    )
-
-    row_v1 = {
-        "short_name": "CUSTOM",
-        "access_type": "GCS",
-        "properties": {
-            "fgb_uri": "gs://bucket/custom.fgb",
-            "ext_id_field": "CUSTOM_ID",
-            "dataset_version": "v1",
-        },
-    }
-    row_v2 = {
-        "short_name": "CUSTOM",
-        "access_type": "GCS",
-        "properties": {
-            "fgb_uri": "gs://bucket/custom.fgb",
-            "ext_id_field": "CUSTOM_ID",
-            "dataset_version": "v2",
-        },
-    }
-
-    accessor_v1 = GCSAoiAccessor(row_v1)
-    accessor_v1.cache_dir = tmp_path
-    accessor_v2 = GCSAoiAccessor(row_v2)
-    accessor_v2.cache_dir = tmp_path
-
-    path_v1 = accessor_v1._download_aoi_dataset()
-    path_v2 = accessor_v2._download_aoi_dataset()
-
-    assert path_v1 != path_v2
-    assert len(downloaded_paths) == 2
-    assert all(not path.exists() for path in downloaded_paths)
-
-
-def test_aoi_gcs_cache_download_is_atomic(monkeypatch, tmp_path):
-    class FailingBlob:
-        def download_to_filename(self, local_path):
-            Path(local_path).write_text("partial")
-            raise RuntimeError("download failed")
-
-    class FakeBucket:
-        def blob(self, object_name):
-            return FailingBlob()
-
-    class FakeStorageClient:
-        def __init__(self, project, credentials):
-            pass
-
-        def bucket(self, bucket_name):
-            return FakeBucket()
-
-    monkeypatch.setattr(GCSAoiAccessor, "_get_gcs_credentials", lambda self: object())
-    monkeypatch.setattr(
-        "cerulean_cloud.cloud_run_orchestrator.aoi_join.storage.Client",
-        FakeStorageClient,
-    )
-
-    accessor = GCSAoiAccessor(
+    accessor = build_aoi_accessor(
         {
-            "short_name": "CUSTOM",
-            "access_type": "GCS",
+            "short_name": "MPA",
+            "access_type": "SHARED_DATASET",
             "properties": {
-                "fgb_uri": "gs://bucket/custom.fgb",
-                "ext_id_field": "CUSTOM_ID",
+                "asset_slug": "wdpa-marine",
+                "ext_id_field": "SITE_ID",
+                "display_name_field": "NAME",
             },
         }
     )
     accessor.cache_dir = tmp_path
-
-    with pytest.raises(RuntimeError, match="download failed"):
-        accessor._download_aoi_dataset()
-
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_aoi_gcs_accessor_accepts_local_file_paths(tmp_path):
-    local_fgb = tmp_path / "custom.fgb"
-    local_fgb.write_text("placeholder")
-    accessor = GCSAoiAccessor(
-        {
-            "short_name": "CUSTOM",
-            "access_type": "GCS",
-            "properties": {
-                "fgb_uri": str(local_fgb),
-                "ext_id_field": "CUSTOM_ID",
-            },
-        }
+    joiner = AOIJoiner(accessors=[accessor])
+    slicks = gpd.GeoDataFrame(
+        geometry=[box(1, 1, 1.5, 1.5)],
+        crs="EPSG:4326",
     )
 
-    assert accessor._download_aoi_dataset() == str(local_fgb)
+    matches = await joiner.compute_aoi_matches(
+        slicks,
+        scene_bounds=_scene_bounds((-1, -1, 3, 3)),
+        scene_time=SCENE_TIME,
+    )
+
+    assert matches == [{"MPA": [{"ext_id": "site-1", "name": "Marine Area"}]}]
+    assert accessor.dataset_version == "wdpa-marine@2026-05-02"
+    assert calls == [
+        ("fetch", "wdpa-marine", "fgb", "latest", tmp_path),
+        ("read", str(local_fgb), (-1.0, -1.0, 3.0, 3.0)),
+    ]
 
 
 async def _create_test_aoi_table(engine, table_name="test_aoi", *, postgis=True):
@@ -519,7 +466,7 @@ async def test_aoi_joiner_merges_mixed_accessor_results():
     # exact scene footprint or split wrapped bounds.
     joiner = AOIJoiner(
         accessors=[
-            FakeAccessor("GCS_LAYER", "gcs-1"),
+            FakeAccessor("SHARED_LAYER", "shared-1"),
             FakeAccessor("LOCAL_LAYER", "local-1"),
             FakeAccessor("REMOTE_LAYER", "remote-1"),
         ]
@@ -531,7 +478,7 @@ async def test_aoi_joiner_merges_mixed_accessor_results():
         scene_time=SCENE_TIME,
     ) == [
         {
-            "GCS_LAYER": [{"ext_id": "gcs-1", "name": "GCS-1"}],
+            "SHARED_LAYER": [{"ext_id": "shared-1", "name": "SHARED-1"}],
             "LOCAL_LAYER": [{"ext_id": "local-1", "name": "LOCAL-1"}],
             "REMOTE_LAYER": [{"ext_id": "remote-1", "name": "REMOTE-1"}],
         }

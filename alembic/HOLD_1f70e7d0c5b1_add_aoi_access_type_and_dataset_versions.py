@@ -266,7 +266,7 @@ def upgrade():
         """
         INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
         VALUES
-            (1, 'GCS', ARRAY['fgb_uri', 'pmt_uri', 'dataset_version', 'ext_id_field', 'display_name_field']),
+            (1, 'SHARED_DATASET', ARRAY['asset_slug', 'ext_id_field', 'display_name_field']),
             (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field']),
             (3, 'DB_REMOTE', ARRAY['db_conn_secret_name', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field'])
         """
@@ -287,8 +287,8 @@ def upgrade():
             AND jsonb_typeof(properties) = 'object'
             AND (
                 (
-                    access_type = 'GCS'
-                    AND NULLIF(properties->>'fgb_uri', '') IS NOT NULL
+                    access_type = 'SHARED_DATASET'
+                    AND NULLIF(properties->>'asset_slug', '') IS NOT NULL
                     AND NULLIF(properties->>'ext_id_field', '') IS NOT NULL
                 )
                 OR (
@@ -334,11 +334,9 @@ def upgrade():
     _update_aoi_type(
         short_name="EEZ",
         filter_toggle=True,
-        access_type="GCS",
+        access_type="SHARED_DATASET",
         properties={
-            "fgb_uri": "gs://skytruth-shared-datasets-1/100-geographic-reference/120-marine-boundaries/marine-regions-eez/latest/marine-regions-eez.fgb",
-            "pmt_uri": None,
-            "dataset_version": "marine-regions-eez@2026-04-29",
+            "asset_slug": "marine-regions-eez",
             "ext_id_field": "MRGID",
             "display_name_field": "GEONAME",
         },
@@ -348,11 +346,9 @@ def upgrade():
     _update_aoi_type(
         short_name="IHO",
         filter_toggle=False,
-        access_type="GCS",
+        access_type="SHARED_DATASET",
         properties={
-            "fgb_uri": "gs://skytruth-shared-datasets-1/100-geographic-reference/120-marine-boundaries/iho-world-seas/latest/iho-world-seas.fgb",
-            "pmt_uri": None,
-            "dataset_version": "iho-world-seas@2026-04-29",
+            "asset_slug": "iho-world-seas",
             "ext_id_field": "MRGID",
             "display_name_field": "NAME",
         },
@@ -362,12 +358,10 @@ def upgrade():
     _update_aoi_type(
         short_name="MPA",
         filter_toggle=True,
-        access_type="GCS",
+        access_type="SHARED_DATASET",
         properties={
-            "fgb_uri": "gs://skytruth-shared-datasets-1/100-geographic-reference/130-protected-areas/wdpa-marine/latest/wdpa-marine.fgb",
-            "pmt_uri": None,
-            "dataset_version": "wdpa-marine@2026-04-29",
-            "ext_id_field": "WDPAID",
+            "asset_slug": "wdpa-marine",
+            "ext_id_field": "SITE_ID",
             "display_name_field": "NAME",
         },
         owner_id=owner_id,

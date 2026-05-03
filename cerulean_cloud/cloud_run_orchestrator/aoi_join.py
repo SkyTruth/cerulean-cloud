@@ -18,15 +18,14 @@ from typing import (
 )
 
 import geopandas as gpd
-import google.auth
 import sqlalchemy as sa
-from google.cloud import storage
 from shapely import wkb
+from skytruth_shared_datasets import fetch_dataset
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 
-GCS_READONLY_SCOPE = ("https://www.googleapis.com/auth/devstorage.read_only",)
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SHARED_DATASET_FORMAT = "fgb"
 
 
 SecretResolver = Callable[[str], str]
@@ -147,59 +146,30 @@ class BaseAoiAccessor:
         return results
 
 
-class GCSAoiAccessor(BaseAoiAccessor):
-    """AOI accessor for FlatGeobuf assets stored locally or in GCS."""
+class SharedDatasetAoiAccessor(BaseAoiAccessor):
+    """AOI accessor for FlatGeobuf assets resolved through shared-datasets."""
 
     def __init__(self, row: Mapping[str, Any]) -> None:
         super().__init__(row)
-        self.fgb_uri = self.properties["fgb_uri"]
+        self.asset_slug = self.properties["asset_slug"]
+        self.version = "latest"
         self.ext_id_field = self.properties["ext_id_field"]
         self.display_name_field = self.properties.get("display_name_field")
+        self.dataset_version = self.properties.get("dataset_version")
         self.cache_dir = Path(tempfile.gettempdir()) / "cerulean_aoi_cache"
-        self.gcp_project: Optional[str] = None
-
-    def _get_gcs_credentials(self):
-        """Resolve application default credentials for AOI downloads."""
-        credentials, project = google.auth.default(scopes=GCS_READONLY_SCOPE)
-        self.gcp_project = project
-        return credentials
 
     def _download_aoi_dataset(self) -> str:
-        """Resolve `gs://` AOI dataset paths into local cached files."""
-        if not self.fgb_uri.startswith("gs://"):
-            return self.fgb_uri
-
-        bucket_and_path = self.fgb_uri[len("gs://") :]
-        bucket_name, _, object_name = bucket_and_path.partition("/")
-
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_digest = hashlib.sha256(
-            f"{self.fgb_uri}|{self.dataset_version or ''}".encode("utf-8")
-        ).hexdigest()[:12]
-        local_name = f"{bucket_name}__{object_name.replace('/', '__')}__{cache_digest}"
-        local_path = self.cache_dir / local_name
-        if local_path.exists() and local_path.stat().st_size > 0:
-            return str(local_path)
-
-        credentials = self._get_gcs_credentials()
-        client = storage.Client(project=self.gcp_project, credentials=credentials)
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            dir=self.cache_dir,
-            prefix=f"{local_name}.",
-            suffix=".tmp",
-        ) as tmp_file:
-            tmp_path = Path(tmp_file.name)
-
-        try:
-            client.bucket(bucket_name).blob(object_name).download_to_filename(tmp_path)
-            if tmp_path.stat().st_size <= 0:
-                raise ValueError(f"Downloaded empty AOI dataset: {self.fgb_uri}")
-            tmp_path.replace(local_path)
-        except Exception:
-            tmp_path.unlink(missing_ok=True)
-            raise
-        return str(local_path)
+        ref = fetch_dataset(
+            self.asset_slug,
+            SHARED_DATASET_FORMAT,
+            version=self.version,
+            cache_dir=self.cache_dir,
+        )
+        self.dataset_version = ref.resolved_id
+        path = ref.cache_path
+        if path.stat().st_size <= 0:
+            raise ValueError(f"Downloaded empty AOI dataset: {ref.gs_uri}")
+        return str(path)
 
     async def load_candidates(
         self, scene_bounds: Sequence[float], scene_time: datetime
@@ -393,8 +363,8 @@ def build_aoi_accessor(
 ) -> BaseAoiAccessor:
     """Build an AOI accessor from an `aoi_type` access row."""
     access_type = row["access_type"]
-    if access_type == "GCS":
-        return GCSAoiAccessor(row)
+    if access_type == "SHARED_DATASET":
+        return SharedDatasetAoiAccessor(row)
     if access_type == "DB_LOCAL":
         return DbLocalAoiAccessor(row, local_engine)
     if access_type == "DB_REMOTE":
