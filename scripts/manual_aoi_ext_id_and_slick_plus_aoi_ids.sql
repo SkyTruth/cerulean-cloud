@@ -110,7 +110,7 @@ BEGIN
         owner = owner_id,
         read_perm = read_perm_id,
         access_type = 'GCS',
-        properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.fgb","pmt_uri":"gs://cerulean-cloud-aoi/eez-mr/eez_v12.pmt","dataset_version":"eez_v12","ext_id_field":"MRGID","display_name_field":"GEONAME"}'::jsonb
+        properties = '{"fgb_uri":"gs://skytruth-shared-datasets-1/100-geographic-reference/120-marine-boundaries/marine-regions-eez/latest/marine-regions-eez.fgb","pmt_uri":null,"dataset_version":"marine-regions-eez@2026-04-29","ext_id_field":"MRGID","display_name_field":"GEONAME"}'::jsonb
     WHERE short_name = 'EEZ';
 
     UPDATE public.aoi_type
@@ -119,7 +119,7 @@ BEGIN
         owner = owner_id,
         read_perm = read_perm_id,
         access_type = 'GCS',
-        properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.fgb","pmt_uri":"gs://cerulean-cloud-aoi/iho-mr/World_Seas_IHO_v3.pmt","dataset_version":"World_Seas_IHO_v3","ext_id_field":"MRGID","display_name_field":"NAME"}'::jsonb
+        properties = '{"fgb_uri":"gs://skytruth-shared-datasets-1/100-geographic-reference/120-marine-boundaries/iho-world-seas/latest/iho-world-seas.fgb","pmt_uri":null,"dataset_version":"iho-world-seas@2026-04-29","ext_id_field":"MRGID","display_name_field":"NAME"}'::jsonb
     WHERE short_name = 'IHO';
 
     UPDATE public.aoi_type
@@ -128,7 +128,7 @@ BEGIN
         owner = owner_id,
         read_perm = read_perm_id,
         access_type = 'GCS',
-        properties = '{"fgb_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.fgb","pmt_uri":"gs://cerulean-cloud-aoi/mpa-wdpa/marine_wdpa_0.001.pmt","dataset_version":"marine_wdpa_0.001","ext_id_field":"WDPAID","display_name_field":"NAME"}'::jsonb
+        properties = '{"fgb_uri":"gs://skytruth-shared-datasets-1/100-geographic-reference/130-protected-areas/wdpa-marine/latest/wdpa-marine.fgb","pmt_uri":null,"dataset_version":"wdpa-marine@2026-04-29","ext_id_field":"WDPAID","display_name_field":"NAME"}'::jsonb
     WHERE short_name = 'MPA';
 
     UPDATE public.aoi_type
