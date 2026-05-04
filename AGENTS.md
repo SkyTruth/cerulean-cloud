@@ -31,6 +31,7 @@ Current repo-local skills:
 - Put Codex-specific skill metadata in `agents/openai.yaml`.
 - Avoid Claude-only skill extensions in shared skills unless the portability tradeoff is intentional and documented in the skill.
 - Keep shared skills generic for any maintainer of this checkout. Do not hard-code developer-specific absolute paths, usernames, home directories, shell profiles, machine-local environment names, or setup assumptions; derive paths from the active checkout and use repo-relative examples.
+- Treat the Git index as user-owned state. Do not stage files, unstage files, run `git reset`, run `git restore --staged`, or use any command that stages/unstages changes unless the user explicitly asks for that exact index operation. Apply edits as unstaged working-tree changes by default. If existing staged changes make the task ambiguous or hard to preserve exactly, stop and ask before continuing.
 
 ## High-priority triggers
 
