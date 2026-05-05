@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 import sqlalchemy as sa
 from geoalchemy2.shape import from_shape
+from shapely import wkt
 from shapely.geometry import MultiPolygon, box
 
 import cerulean_cloud.database_schema as database_schema
@@ -409,7 +410,9 @@ async def test_get_or_insert_aoi_updates_existing_user_aoi_by_parent_ext_id(
 
 
 @pytest.mark.asyncio
-async def test_get_or_insert_aoi_upserts_existing_user_child_row(db_session):
+async def test_get_or_insert_aoi_upserts_existing_user_child_row(
+    db_session, postgis_available
+):
     async with db_session() as session:
         async with session.begin():
             session.add(
@@ -451,13 +454,18 @@ async def test_get_or_insert_aoi_upserts_existing_user_child_row(db_session):
                 user_id=2,
             )
 
+        geometry_expr = (
+            "ST_XMin(au.geometry::geometry)::double precision AS xmin"
+            if postgis_available
+            else "convert_from(au.geometry, 'UTF8') AS geometry_text"
+        )
         result = await session.execute(
             sa.text(
-                """
+                f"""
                 SELECT
                     a.name,
                     au."user",
-                    ST_XMin(au.geometry::geometry)::double precision AS xmin,
+                    {geometry_expr},
                     COUNT(*) OVER () AS child_row_count
                 FROM public.aoi a
                 JOIN public.aoi_user au ON au.aoi_id = a.id
@@ -471,7 +479,11 @@ async def test_get_or_insert_aoi_upserts_existing_user_child_row(db_session):
         assert first["id"] == second["id"] == 10
         assert row["name"] == "Updated child"
         assert row["user"] == 2
-        assert row["xmin"] == pytest.approx(10)
+        if postgis_available:
+            assert row["xmin"] == pytest.approx(10)
+        else:
+            geometry_text = row["geometry_text"].partition(";")[2]
+            assert wkt.loads(geometry_text).bounds[0] == pytest.approx(10)
         assert row["child_row_count"] == 1
 
 
