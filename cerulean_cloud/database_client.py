@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 import cerulean_cloud.database_schema as db
 
 
-USER_AOI_TYPE_SHORT_NAME = "USER"
+_USER_AOI_TYPE_SHORT_NAME = "USER"
 
 
 def _coerce_aoi_geometry(geometry):
@@ -289,6 +289,14 @@ class DatabaseClient:
             if row["access_type"]
         ]
 
+    async def get_scene_aoi_access_configs(self) -> list[dict]:
+        """Return AOI access configs that participate in scene slick joins."""
+        return [
+            row
+            for row in await self.get_aoi_access_configs()
+            if row["short_name"] != _USER_AOI_TYPE_SHORT_NAME
+        ]
+
     async def get_aoi_type_ids(
         self, short_names: Optional[Sequence[str]] = None
     ) -> dict[str, int]:
@@ -368,11 +376,11 @@ class DatabaseClient:
         """
         Create a USER AOI and its child-table geometry row.
         """
-        aoi_type_ids = await self.get_aoi_type_ids([USER_AOI_TYPE_SHORT_NAME])
-        aoi_type_id = aoi_type_ids.get(USER_AOI_TYPE_SHORT_NAME)
+        aoi_type_ids = await self.get_aoi_type_ids([_USER_AOI_TYPE_SHORT_NAME])
+        aoi_type_id = aoi_type_ids.get(_USER_AOI_TYPE_SHORT_NAME)
         if aoi_type_id is None:
             raise InstanceNotFoundError(
-                f"AOI type not found for short_name={USER_AOI_TYPE_SHORT_NAME!r}"
+                f"AOI type not found for short_name={_USER_AOI_TYPE_SHORT_NAME!r}"
             )
 
         user_geom = _coerce_aoi_geometry(geometry)
@@ -416,7 +424,7 @@ class DatabaseClient:
         existing_rows = await self.get_aoi_rows(aoi_type_id, ext_id)
         canonical_aoi = existing_rows[0] if existing_rows else None
 
-        is_user_aoi = aoi_type_short_name == USER_AOI_TYPE_SHORT_NAME
+        is_user_aoi = aoi_type_short_name == _USER_AOI_TYPE_SHORT_NAME
         if is_user_aoi and not canonical_aoi:
             if user_id is None:
                 raise ValueError("user_id is required to insert a new USER AOI")
@@ -502,7 +510,7 @@ class DatabaseClient:
 
                 if (
                     match["is_rich_match"]
-                    and aoi_type_short_name != USER_AOI_TYPE_SHORT_NAME
+                    and aoi_type_short_name != _USER_AOI_TYPE_SHORT_NAME
                 ):
                     upsert_candidates.setdefault(
                         (aoi_type_short_name, ext_id),

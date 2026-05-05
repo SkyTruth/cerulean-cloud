@@ -148,6 +148,9 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
             "DB_REMOTE",
         ]
 
+        scene_configs = await db_client.get_scene_aoi_access_configs()
+        assert [config["short_name"] for config in scene_configs] == ["EEZ", "REMOTE"]
+
         configs = await db_client.get_aoi_access_configs(
             access_types=["SHARED_DATASET"]
         )

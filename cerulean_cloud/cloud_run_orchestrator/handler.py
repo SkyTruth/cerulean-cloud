@@ -46,11 +46,7 @@ from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
     OrchestratorResult,
 )
-from cerulean_cloud.database_client import (
-    USER_AOI_TYPE_SHORT_NAME,
-    DatabaseClient,
-    get_engine,
-)
+from cerulean_cloud.database_client import DatabaseClient, get_engine
 from cerulean_cloud.models import get_model
 from cerulean_cloud.roda_sentinelhub_client import RodaSentinelHubClient
 from cerulean_cloud.structured_logger import (
@@ -539,8 +535,7 @@ async def _orchestrate(
             )
             aoi_accessors = [
                 build_aoi_accessor(row, local_engine=db_engine)
-                for row in await db_client.get_aoi_access_configs()
-                if row["short_name"] != USER_AOI_TYPE_SHORT_NAME
+                for row in await db_client.get_scene_aoi_access_configs()
             ]
 
         success = True
