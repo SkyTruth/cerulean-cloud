@@ -298,6 +298,211 @@ async def test_create_user_aoi_inserts_child_geometry_only(db_session):
 
 
 @pytest.mark.asyncio
+async def test_get_or_insert_aoi_creates_user_aoi_with_child_geometry(db_session):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+            session.add(database_schema.Users(id=1, email="tester@example.com"))
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            aoi = await db_client.get_or_insert_aoi(
+                "USER",
+                "user-aoi-2",
+                "Test USER AOI",
+                geometry=box(1, 2, 3, 4),
+                user_id=1,
+            )
+
+        parent_result = await session.execute(
+            sa.text(
+                """
+                SELECT type, name, ext_id, geometry IS NULL AS parent_geometry_is_null
+                FROM public.aoi
+                WHERE id = :aoi_id
+                """
+            ),
+            {"aoi_id": aoi["id"]},
+        )
+        parent_row = parent_result.mappings().one()
+        child_result = await session.execute(
+            sa.text(
+                """
+                SELECT "user", geometry IS NOT NULL AS has_geometry
+                FROM public.aoi_user
+                WHERE aoi_id = :aoi_id
+                """
+            ),
+            {"aoi_id": aoi["id"]},
+        )
+        child_row = child_result.mappings().one()
+
+        assert set(aoi) == {"id", "type", "name", "ext_id"}
+        assert aoi["type"] == 4
+        assert aoi["name"] == "Test USER AOI"
+        assert aoi["ext_id"] == "user-aoi-2"
+        assert parent_row["type"] == 4
+        assert parent_row["name"] == "Test USER AOI"
+        assert parent_row["ext_id"] == "user-aoi-2"
+        assert parent_row["parent_geometry_is_null"] is True
+        assert child_row["user"] == 1
+        assert child_row["has_geometry"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_or_insert_aoi_updates_existing_user_aoi_by_parent_ext_id(
+    db_session,
+):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+            session.add(database_schema.Users(id=1, email="tester@example.com"))
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            created = await db_client.create_user_aoi(
+                user_id=1,
+                name="Original USER AOI",
+                geometry=box(1, 2, 3, 4),
+                ext_id="user-aoi-3",
+            )
+            aoi_id = getattr(created, "id", None) or created.aoi_id
+
+        async with session.begin():
+            aoi = await db_client.get_or_insert_aoi(
+                "USER",
+                "user-aoi-3",
+                "Renamed USER AOI",
+            )
+
+        result = await session.execute(
+            sa.text(
+                """
+                SELECT id, name, COUNT(*) OVER () AS row_count
+                FROM public.aoi
+                WHERE type = 4 AND ext_id = 'user-aoi-3'
+                """
+            )
+        )
+        row = result.mappings().one()
+
+        assert aoi["id"] == aoi_id
+        assert row["id"] == aoi_id
+        assert row["name"] == "Renamed USER AOI"
+        assert row["row_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_or_insert_aoi_upserts_existing_user_child_row(db_session):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+            session.add_all(
+                [
+                    database_schema.Users(id=1, email="tester@example.com"),
+                    database_schema.Users(id=2, email="other@example.com"),
+                    database_schema.Aoi(
+                        id=10,
+                        type=4,
+                        name="Parent only",
+                        ext_id="user-aoi-4",
+                    ),
+                ]
+            )
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            first = await db_client.get_or_insert_aoi(
+                "USER",
+                "user-aoi-4",
+                "With child",
+                geometry=box(1, 2, 3, 4),
+                user_id=1,
+            )
+            second = await db_client.get_or_insert_aoi(
+                "USER",
+                "user-aoi-4",
+                "Updated child",
+                geometry=box(10, 20, 30, 40),
+                user_id=2,
+            )
+
+        result = await session.execute(
+            sa.text(
+                """
+                SELECT
+                    a.name,
+                    au."user",
+                    ST_XMin(au.geometry::geometry)::double precision AS xmin,
+                    COUNT(*) OVER () AS child_row_count
+                FROM public.aoi a
+                JOIN public.aoi_user au ON au.aoi_id = a.id
+                WHERE a.id = :aoi_id
+                """
+            ),
+            {"aoi_id": first["id"]},
+        )
+        row = result.mappings().one()
+
+        assert first["id"] == second["id"] == 10
+        assert row["name"] == "Updated child"
+        assert row["user"] == 2
+        assert row["xmin"] == pytest.approx(10)
+        assert row["child_row_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_or_insert_aoi_requires_user_fields_for_new_user_aoi(db_session):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        with pytest.raises(ValueError, match="user_id is required"):
+            await db_client.get_or_insert_aoi("USER", "missing", "Missing USER AOI")
+
+        with pytest.raises(ValueError, match="geometry is required"):
+            await db_client.get_or_insert_aoi(
+                "USER",
+                "missing",
+                "Missing USER AOI",
+                user_id=1,
+            )
+
+
+@pytest.mark.asyncio
 async def test_get_or_insert_aoi_upserts_by_type_and_ext_id(db_session):
     async with db_session() as session:
         async with session.begin():
@@ -399,15 +604,19 @@ async def test_insert_slick_to_aoi_uses_smallest_duplicate_aoi_id(db_session):
         db_client.session = session
 
         async with session.begin():
+            slick_aoi_df = pd.DataFrame(
+                [
+                    {
+                        "slick_id": 1,
+                        "aoi_ext_ids": {"EEZ": ["5679"]},
+                    }
+                ]
+            )
             inserted_count = await db_client.insert_slick_to_aoi_from_dataframe(
-                pd.DataFrame(
-                    [
-                        {
-                            "slick_id": 1,
-                            "aoi_ext_ids": {"EEZ": ["5679"]},
-                        }
-                    ]
-                )
+                slick_aoi_df
+            )
+            duplicate_inserted_count = (
+                await db_client.insert_slick_to_aoi_from_dataframe(slick_aoi_df)
             )
 
         result = await session.execute(
@@ -416,6 +625,7 @@ async def test_insert_slick_to_aoi_uses_smallest_duplicate_aoi_id(db_session):
         row = result.mappings().one()
 
         assert inserted_count == 1
+        assert duplicate_inserted_count == 0
         assert row["slick"] == 1
         assert row["aoi"] == min(aoi_ids)
 
@@ -516,6 +726,119 @@ async def test_insert_slick_to_aoi_legacy_ext_ids_require_existing_aoi(db_sessio
 
 
 @pytest.mark.asyncio
+async def test_insert_slick_to_aoi_associates_user_by_child_aoi_id(db_session):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+            session.add(database_schema.Users(id=1, email="tester@example.com"))
+            await _add_slick_fixture(session)
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            aoi_user = await db_client.create_user_aoi(
+                user_id=1,
+                name="User AOI",
+                geometry=box(1, 2, 3, 4),
+                ext_id="profile-aoi",
+            )
+            aoi_id = getattr(aoi_user, "id", None) or aoi_user.aoi_id
+            slick_aoi_df = pd.DataFrame(
+                [
+                    {
+                        "slick_id": 1,
+                        "aoi_matches": {
+                            "USER": [
+                                {
+                                    "ext_id": str(aoi_id),
+                                    "name": "User AOI",
+                                }
+                            ]
+                        },
+                    }
+                ]
+            )
+            inserted_count = await db_client.insert_slick_to_aoi_from_dataframe(
+                slick_aoi_df
+            )
+            duplicate_inserted_count = (
+                await db_client.insert_slick_to_aoi_from_dataframe(slick_aoi_df)
+            )
+
+        result = await session.execute(
+            sa.text("SELECT slick, aoi FROM public.slick_to_aoi")
+        )
+        row = result.mappings().one()
+
+        assert inserted_count == 1
+        assert duplicate_inserted_count == 0
+        assert row["slick"] == 1
+        assert row["aoi"] == aoi_id
+
+
+@pytest.mark.asyncio
+async def test_insert_slick_to_aoi_associates_user_by_parent_ext_id_fallback(
+    db_session,
+):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+            session.add(database_schema.Users(id=1, email="tester@example.com"))
+            await _add_slick_fixture(session)
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            aoi_user = await db_client.create_user_aoi(
+                user_id=1,
+                name="User AOI",
+                geometry=box(1, 2, 3, 4),
+                ext_id="user-parent-ext-id",
+            )
+            aoi_id = getattr(aoi_user, "id", None) or aoi_user.aoi_id
+            inserted_count = await db_client.insert_slick_to_aoi_from_dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "slick_id": 1,
+                            "aoi_matches": {
+                                "USER": [
+                                    {
+                                        "ext_id": "user-parent-ext-id",
+                                        "name": "User AOI",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                )
+            )
+
+        result = await session.execute(
+            sa.text("SELECT slick, aoi FROM public.slick_to_aoi")
+        )
+        row = result.mappings().one()
+
+        assert inserted_count == 1
+        assert row["slick"] == 1
+        assert row["aoi"] == aoi_id
+
+
+@pytest.mark.asyncio
 async def test_insert_slick_to_aoi_does_not_create_missing_user_aoi(db_session):
     async with db_session() as session:
         async with session.begin():
@@ -550,6 +873,11 @@ async def test_insert_slick_to_aoi_does_not_create_missing_user_aoi(db_session):
                         ]
                     )
                 )
+
+        result = await session.execute(
+            sa.text("SELECT COUNT(*) FROM public.aoi WHERE type = 4")
+        )
+        assert result.scalar_one() == 0
 
 
 def test_aoi_access_sql_contracts_are_kept_in_sync():
@@ -652,7 +980,6 @@ async def test_aoi_methods_raise_for_unknown_aoi_type(db_session):
                 "UNKNOWN",
                 "1",
                 "Unknown AOI",
-                geometry=box(1, 2, 3, 4),
             )
 
         with pytest.raises(InstanceNotFoundError, match="AOI type\\(s\\) not found"):

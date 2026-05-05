@@ -411,8 +411,9 @@ class DatabaseClient:
         Duplicate `(type, ext_id)` AOIs are allowed for now. When duplicates
         exist, this treats the smallest internal AOI id as canonical, updates
         that row, and returns it. The deprecated parent AOI geometry column is
-        intentionally left unused. USER AOIs also require `user_id` and geometry
-        for the `public.aoi_user` child row when creating a new row.
+        intentionally left unused. USER AOI creation is delegated to
+        `create_user_aoi`; existing USER rows may still be resolved and updated
+        here by parent ext_id.
         """
         aoi_type_ids = await self.get_aoi_type_ids([aoi_type_short_name])
         aoi_type_id = aoi_type_ids.get(aoi_type_short_name)
@@ -423,13 +424,7 @@ class DatabaseClient:
 
         existing_rows = await self.get_aoi_rows(aoi_type_id, ext_id)
         canonical_aoi = existing_rows[0] if existing_rows else None
-
         is_user_aoi = aoi_type_short_name == _USER_AOI_TYPE_SHORT_NAME
-        if is_user_aoi and not canonical_aoi:
-            if user_id is None:
-                raise ValueError("user_id is required to insert a new USER AOI")
-            if geometry is None:
-                raise ValueError("geometry is required to insert a new USER AOI")
 
         if canonical_aoi:
             update_stmt = (
@@ -441,6 +436,25 @@ class DatabaseClient:
             result = await self.session.execute(update_stmt)
             aoi = dict(result.mappings().one())
         else:
+            if is_user_aoi:
+                if user_id is None:
+                    raise ValueError("user_id is required to insert a new USER AOI")
+                if geometry is None:
+                    raise ValueError("geometry is required to insert a new USER AOI")
+                aoi_user = await self.create_user_aoi(
+                    user_id=user_id,
+                    name=name,
+                    geometry=geometry,
+                    ext_id=ext_id,
+                )
+                aoi_id = getattr(aoi_user, "id", None) or aoi_user.aoi_id
+                return {
+                    "id": aoi_id,
+                    "type": aoi_type_id,
+                    "name": aoi_user.name,
+                    "ext_id": aoi_user.ext_id,
+                }
+
             insert_stmt = (
                 pg_insert(db.Aoi)
                 .values(
@@ -462,8 +476,12 @@ class DatabaseClient:
                     db.AoiUser.__table__.c["geometry"]: from_shape(user_geom),
                 }
             )
-            child_insert = child_insert.on_conflict_do_nothing(
-                index_elements=[db.AoiUser.__table__.c.aoi_id]
+            child_insert = child_insert.on_conflict_do_update(
+                index_elements=[db.AoiUser.__table__.c.aoi_id],
+                set_={
+                    "user": user_id,
+                    "geometry": from_shape(user_geom),
+                },
             )
             await self.session.execute(child_insert)
 
@@ -554,6 +572,33 @@ class DatabaseClient:
         for aoi_id, aoi_type_id, ext_id in result.fetchall():
             aoi_lookup[(aoi_type_id, str(ext_id))] = aoi_id
 
+        user_aoi_type_id = aoi_type_ids.get(_USER_AOI_TYPE_SHORT_NAME)
+        user_ext_ids = sorted(
+            {
+                ext_id
+                for short_name, ext_id in aoi_pairs
+                if short_name == _USER_AOI_TYPE_SHORT_NAME
+            }
+        )
+        if user_aoi_type_id is not None and user_ext_ids:
+            result = await self.session.execute(
+                text(
+                    """
+                    SELECT au.aoi_id AS id, au.aoi_id::text AS ext_id
+                    FROM public.aoi_user au
+                    JOIN public.aoi a ON a.id = au.aoi_id
+                    WHERE a.type = :user_aoi_type_id
+                      AND au.aoi_id::text = ANY(:user_ext_ids)
+                    """
+                ),
+                {
+                    "user_aoi_type_id": user_aoi_type_id,
+                    "user_ext_ids": user_ext_ids,
+                },
+            )
+            for aoi_id, ext_id in result.fetchall():
+                aoi_lookup[(user_aoi_type_id, str(ext_id))] = aoi_id
+
         missing_pairs = sorted(
             [
                 (short_name, ext_id)
@@ -588,8 +633,8 @@ class DatabaseClient:
         insert_stmt = insert_stmt.on_conflict_do_nothing(
             index_elements=["slick", "aoi"]
         )
-        await self.session.execute(insert_stmt)
-        return len(insert_rows)
+        result = await self.session.execute(insert_stmt)
+        return result.rowcount
 
     async def get_or_insert_sentinel1_grd(
         self, scene_id: str, scene_info: dict, titiler_url: str

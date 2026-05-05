@@ -633,11 +633,7 @@ async def _orchestrate(
                         ),
                     }
                 )
-                for feat, aoi_matches in zip(
-                    features,
-                    aoi_matches_by_feature,
-                    strict=True,
-                ):
+                for feat in features:
                     slick_gdf = gpd.GeoDataFrame(
                         geometry=[shape(feat["geometry"])], crs="4326"
                     )
