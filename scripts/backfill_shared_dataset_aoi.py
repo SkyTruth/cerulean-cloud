@@ -370,9 +370,12 @@ def run_psql_file(db_url: str, config: AoiConfig, batch_size: int) -> None:
 
 
 def call_procedure(db_url: str, sql: str, params: tuple[object, ...]) -> None:
-    with open_connection(db_url) as conn:
+    conn = open_connection(db_url)
+    try:
         with conn.cursor() as cur:
             cur.execute(sql, params)
+    finally:
+        conn.close()
 
 
 def query_rows(db_url: str, sql: str, params: tuple[object, ...]) -> list[tuple]:
