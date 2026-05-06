@@ -5,6 +5,7 @@ Operator wrapper for shared-dataset AOI slick_to_aoi backfills.
 The common path only needs the shared-datasets asset slug:
 
     scripts/backfill_shared_dataset_aoi.py prepare <asset-slug>
+    scripts/backfill_shared_dataset_aoi.py inspect <asset-slug>
     scripts/backfill_shared_dataset_aoi.py run <asset-slug>
     scripts/backfill_shared_dataset_aoi.py status <asset-slug>
     scripts/backfill_shared_dataset_aoi.py validate <asset-slug>
@@ -38,6 +39,7 @@ EXT_ID_FIELD_CANDIDATES = (
     "ext_id",
     "external_id",
     "mrgid",
+    "primkey",
     "site_id",
     "wdpaid",
     "objectid",
@@ -65,6 +67,40 @@ class AoiConfig:
     dataset_version: str
     source_url: str
     citation: str
+
+
+def load_catalog(catalog_source: str | None):
+    from skytruth_shared_datasets import Catalog, DEFAULT_CATALOG_GS_URI
+
+    source = catalog_source or DEFAULT_CATALOG_GS_URI
+    if source.startswith("gs://"):
+        return Catalog.load_gcs(source)
+    return Catalog.load(source)
+
+
+def resolve_asset_slug(asset_selector: str, catalog_source: str | None = None) -> str:
+    if not asset_selector.startswith("gs://"):
+        return asset_selector
+
+    matches = [
+        asset.slug
+        for asset in load_catalog(catalog_source)
+        if asset.canonical_path == asset_selector
+        or any(
+            asset.path_for_format(fmt) == asset_selector
+            for fmt in asset.available_formats
+        )
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError(
+            "Could not resolve shared-datasets GCS URI to an asset slug: "
+            f"{asset_selector}"
+        )
+    raise ValueError(
+        "Shared-datasets GCS URI matched multiple asset slugs: " + ", ".join(matches)
+    )
 
 
 def normalize_db_url(db_url: str) -> str:
@@ -164,16 +200,34 @@ def open_connection(db_url: str):
     return conn
 
 
-def fetch_dataset_ref(asset_slug: str, *, version: str, cache_dir: Path, force: bool):
+def fetch_dataset_ref(
+    asset_slug: str,
+    *,
+    version: str,
+    cache_dir: Path,
+    force: bool,
+    catalog_source: str | None,
+):
     from skytruth_shared_datasets import fetch_dataset
 
-    ref = fetch_dataset(
-        asset_slug,
-        "fgb",
-        version=version,
-        cache_dir=cache_dir,
-        force=force,
-    )
+    if catalog_source:
+        catalog = load_catalog(catalog_source)
+        ref = catalog.fetch(
+            asset_slug,
+            "fgb",
+            version=version,
+            cache_dir=cache_dir,
+            force=force,
+            access="public",
+        )
+    else:
+        ref = fetch_dataset(
+            asset_slug,
+            "fgb",
+            version=version,
+            cache_dir=cache_dir,
+            force=force,
+        )
     if ref.cache_path is None:
         raise RuntimeError(f"Shared dataset {asset_slug!r} did not return a cache path")
     return ref
@@ -184,6 +238,26 @@ def inspect_fields(path: Path) -> list[str]:
 
     sample = gpd.read_file(path, rows=1)
     return [column for column in sample.columns if column != sample.geometry.name]
+
+
+def inspect_stage_readiness(path: Path, ext_id_field: str) -> dict[str, object]:
+    import geopandas as gpd
+
+    gdf = gpd.read_file(path, columns=[ext_id_field])
+    ext_ids = gdf[ext_id_field].astype("string").fillna("")
+    duplicated = ext_ids[ext_ids.duplicated(keep=False)]
+    return {
+        "feature_count": len(gdf),
+        "crs": str(gdf.crs),
+        "geometry_types": dict(gdf.geometry.geom_type.value_counts()),
+        "null_or_empty_geometry_rows": int(
+            (gdf.geometry.isna() | gdf.geometry.is_empty).sum()
+        ),
+        "invalid_geometry_rows": int((~gdf.geometry.is_valid).sum()),
+        "empty_ext_id_rows": int((ext_ids.str.len() == 0).sum()),
+        "duplicate_ext_id_values": int(duplicated.nunique()),
+        "duplicate_ext_id_rows": int(len(duplicated)),
+    }
 
 
 def promote_polygons(geometry):
@@ -240,16 +314,18 @@ def load_stage_table(config: AoiConfig, path: Path, db_url: str) -> int:
 
 
 def build_config(args: argparse.Namespace, ref, columns: Sequence[str]) -> AoiConfig:
-    short_name = args.short_name or slug_to_short_name(args.asset_slug)
+    short_name = args.short_name or slug_to_short_name(args.resolved_asset_slug)
     ext_id_field = args.ext_id_field or infer_ext_id_field(columns)
     display_name_field = args.display_name_field
     if display_name_field is None:
         display_name_field = infer_display_name_field(columns, ext_id_field)
 
     return AoiConfig(
-        asset_slug=args.asset_slug,
+        asset_slug=args.resolved_asset_slug,
         short_name=short_name,
-        long_name=args.long_name or getattr(ref, "title", None) or args.asset_slug,
+        long_name=(
+            args.long_name or getattr(ref, "title", None) or args.resolved_asset_slug
+        ),
         ext_id_field=ext_id_field,
         display_name_field=display_name_field,
         stage_table=args.stage_table or slug_to_stage_table(short_name),
@@ -311,11 +387,13 @@ def prepare(args: argparse.Namespace) -> None:
     if not db_url:
         raise RuntimeError("DB_URL is required, either as env var or --db-url")
 
+    args.resolved_asset_slug = resolve_asset_slug(args.asset_slug, args.catalog_source)
     ref = fetch_dataset_ref(
-        args.asset_slug,
+        args.resolved_asset_slug,
         version=args.version,
         cache_dir=Path(args.cache_dir),
         force=args.force_download,
+        catalog_source=args.catalog_source,
     )
     dataset_path = Path(ref.cache_path)
     columns = inspect_fields(dataset_path)
@@ -335,11 +413,41 @@ def prepare(args: argparse.Namespace) -> None:
     run_psql_file(db_url, config, args.batch_size)
 
 
+def inspect_asset(args: argparse.Namespace) -> None:
+    args.resolved_asset_slug = resolve_asset_slug(args.asset_slug, args.catalog_source)
+    ref = fetch_dataset_ref(
+        args.resolved_asset_slug,
+        version=args.version,
+        cache_dir=Path(args.cache_dir),
+        force=args.force_download,
+        catalog_source=args.catalog_source,
+    )
+    dataset_path = Path(ref.cache_path)
+    columns = inspect_fields(dataset_path)
+    config = build_config(args, ref, columns)
+
+    print(f"input\t{args.asset_slug}")
+    print(f"asset_slug\t{config.asset_slug}")
+    print(f"short_name\t{config.short_name}")
+    print(f"long_name\t{config.long_name}")
+    print(f"ext_id_field\t{config.ext_id_field}")
+    print(f"display_name_field\t{config.display_name_field or '<ext_id>'}")
+    print(f"stage_table\t{config.stage_table}")
+    print(f"dataset_version\t{config.dataset_version}")
+    print(f"source_url\t{config.source_url}")
+    print(f"cache_path\t{dataset_path}")
+    print("fields\t" + ",".join(columns))
+    readiness = inspect_stage_readiness(dataset_path, config.ext_id_field)
+    for key, value in readiness.items():
+        print(f"{key}\t{value}")
+
+
 def run(args: argparse.Namespace) -> None:
     db_url = args.db_url or os.getenv("DB_URL")
     if not db_url:
         raise RuntimeError("DB_URL is required, either as env var or --db-url")
-    short_name = args.short_name or slug_to_short_name(args.asset_slug)
+    asset_slug = resolve_asset_slug(args.asset_slug, args.catalog_source)
+    short_name = args.short_name or slug_to_short_name(asset_slug)
     call_procedure(
         db_url,
         """
@@ -365,7 +473,8 @@ def validate(args: argparse.Namespace) -> None:
     db_url = args.db_url or os.getenv("DB_URL")
     if not db_url:
         raise RuntimeError("DB_URL is required, either as env var or --db-url")
-    short_name = args.short_name or slug_to_short_name(args.asset_slug)
+    asset_slug = resolve_asset_slug(args.asset_slug, args.catalog_source)
+    short_name = args.short_name or slug_to_short_name(asset_slug)
     rows = query_rows(
         db_url,
         "SELECT * FROM maintenance.validate_shared_dataset_aoi_backfill(%s)",
@@ -379,7 +488,8 @@ def status(args: argparse.Namespace) -> None:
     db_url = args.db_url or os.getenv("DB_URL")
     if not db_url:
         raise RuntimeError("DB_URL is required, either as env var or --db-url")
-    short_name = args.short_name or slug_to_short_name(args.asset_slug)
+    asset_slug = resolve_asset_slug(args.asset_slug, args.catalog_source)
+    short_name = args.short_name or slug_to_short_name(asset_slug)
     rows = query_rows(
         db_url,
         """
@@ -421,7 +531,8 @@ def finish(args: argparse.Namespace) -> None:
     db_url = args.db_url or os.getenv("DB_URL")
     if not db_url:
         raise RuntimeError("DB_URL is required, either as env var or --db-url")
-    short_name = args.short_name or slug_to_short_name(args.asset_slug)
+    asset_slug = resolve_asset_slug(args.asset_slug, args.catalog_source)
+    short_name = args.short_name or slug_to_short_name(asset_slug)
     call_procedure(
         db_url,
         "CALL maintenance.finish_shared_dataset_aoi_backfill(%s)",
@@ -442,20 +553,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    inspect_parser = subparsers.add_parser("inspect")
+    add_common_asset_args(inspect_parser)
+    add_dataset_args(inspect_parser)
+    add_config_args(inspect_parser)
+    inspect_parser.set_defaults(func=inspect_asset)
+
     prepare_parser = subparsers.add_parser("prepare")
     add_common_asset_args(prepare_parser)
-    prepare_parser.add_argument("--version", default="latest")
-    prepare_parser.add_argument(
-        "--cache-dir",
-        default=str(Path(gettempdir()) / "cerulean_aoi_backfill_cache"),
-    )
-    prepare_parser.add_argument("--force-download", action="store_true")
-    prepare_parser.add_argument("--long-name")
-    prepare_parser.add_argument("--ext-id-field")
-    prepare_parser.add_argument("--display-name-field")
-    prepare_parser.add_argument("--stage-table")
-    prepare_parser.add_argument("--source-url")
-    prepare_parser.add_argument("--citation")
+    add_dataset_args(prepare_parser)
+    add_config_args(prepare_parser)
     prepare_parser.add_argument("--batch-size", type=int, default=5000)
     prepare_parser.set_defaults(func=prepare)
 
@@ -483,11 +590,41 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def add_common_asset_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("asset_slug")
+    parser.add_argument(
+        "asset_slug",
+        metavar="asset_slug_or_gs_uri",
+        help="Shared-datasets asset slug, or exact gs:// URI from the catalog.",
+    )
     parser.add_argument(
         "--short-name",
         help="Override derived AOI type short_name. Defaults to upper snake-case slug.",
     )
+    parser.add_argument(
+        "--catalog-source",
+        default=os.getenv("SHARED_DATASETS_CATALOG_SOURCE"),
+        help=(
+            "Optional catalog CSV path/URL/gs:// URI. "
+            "Defaults to shared-datasets GCS catalog."
+        ),
+    )
+
+
+def add_dataset_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--version", default="latest")
+    parser.add_argument(
+        "--cache-dir",
+        default=str(Path(gettempdir()) / "cerulean_aoi_backfill_cache"),
+    )
+    parser.add_argument("--force-download", action="store_true")
+
+
+def add_config_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--long-name")
+    parser.add_argument("--ext-id-field")
+    parser.add_argument("--display-name-field")
+    parser.add_argument("--stage-table")
+    parser.add_argument("--source-url")
+    parser.add_argument("--citation")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

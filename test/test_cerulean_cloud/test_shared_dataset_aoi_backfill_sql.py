@@ -1,6 +1,7 @@
 import importlib.util
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pytest
 
@@ -87,10 +88,36 @@ def test_backfill_wrapper_derives_safe_names_from_asset_slug():
     assert len(wrapper.slug_to_stage_table("X" * 100).split(".")[1]) <= 63
 
 
+def test_backfill_wrapper_resolves_gcs_uri_to_asset_slug_from_catalog():
+    wrapper = load_wrapper_module()
+    csv_text = "\n".join(
+        [
+            "asset_slug,title,category,subcategory,status,access_tier,owner,"
+            "update_cadence,canonical_path,canonical_format,available_formats,"
+            "metadata_paths,has_pmtiles,has_geojson,has_csv,source,license,notes",
+            "petrodata,PETRODATA Petroleum Fields,300,310,active,public,"
+            "SkyTruth,manual,gs://bucket/path/petrodata/latest/petrodata.fgb,"
+            "fgb,fgb;pmtiles,README.md,true,false,false,source,license,notes",
+        ]
+    )
+    with TemporaryDirectory() as tmp_dir:
+        catalog_path = Path(tmp_dir) / "catalog.csv"
+        catalog_path.write_text(csv_text)
+
+        assert (
+            wrapper.resolve_asset_slug(
+                "gs://bucket/path/petrodata/latest/petrodata.fgb",
+                str(catalog_path),
+            )
+            == "petrodata"
+        )
+
+
 def test_backfill_wrapper_infers_fields_when_unambiguous():
     wrapper = load_wrapper_module()
 
     assert wrapper.infer_ext_id_field(["Name", "MRGID", "geometry"]) == "MRGID"
+    assert wrapper.infer_ext_id_field(["source_layer", "PRIMKEY", "NAME"]) == "PRIMKEY"
     assert wrapper.infer_display_name_field(["Name", "MRGID"], "MRGID") == "Name"
     assert wrapper.infer_display_name_field(["MRGID"], "MRGID") is None
 
