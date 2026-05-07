@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pydantic~=2.0
+geopandas
+GeoAlchemy2
+psycopg2-binary
+sqlalchemy==1.4.32
+pandas==2.1.4
+shapely==2.0.1
+google-cloud-storage
+google-cloud-secret-manager
+google-cloud-logging==3.11.3
+skytruth-shared-datasets[gcs] @ https://github.com/SkyTruth/shared-datasets-1/archive/f9e1c5e969ac4c1b2c610311fcace41c6a966807.zip#subdirectory=api/python
+

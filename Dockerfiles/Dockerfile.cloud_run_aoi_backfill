@@ -1,0 +1,44 @@
+FROM python:3.11-slim AS build-env
+
+WORKDIR /app
+COPY cerulean_cloud/ /app/cerulean_cloud/
+COPY scripts/ /app/scripts/
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+COPY cerulean_cloud/cloud_run_aoi_backfill/requirements.txt ./requirements.txt
+
+RUN pip install \
+      --no-input \
+      --disable-pip-version-check \
+      --compile \
+      --no-warn-script-location \
+      --isolated \
+      --target ./site-packages \
+      -r ./requirements.txt \
+      && pip install \
+       --isolated \
+       --no-cache-dir \
+       --disable-pip-version-check \
+       'cyclonedx-bom<4.0.0' \
+      && pip freeze --path ./site-packages | cyclonedx-py -r -i - --purl-bom-ref --format xml -o sbom.xml --force \
+      && rm requirements.txt
+
+COPY cerulean_cloud/ /app/cerulean_cloud/
+COPY scripts/ /app/scripts/
+
+FROM python:3.11-slim AS final
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY --from=build-env /app /app
+
+ENV PYTHONPATH=/app/site-packages
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT [ "python", "-m", "uvicorn", "cerulean_cloud.cloud_run_aoi_backfill.handler:app", "--host", "0.0.0.0", "--proxy-headers" ]
+

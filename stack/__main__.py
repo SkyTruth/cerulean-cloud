@@ -5,6 +5,7 @@ import cloud_function_asa
 import cloud_function_historical_run
 import cloud_function_scene_relevancy
 import cloud_run_infer
+import cloud_run_aoi_backfill
 import cloud_run_orchestrator
 import cloud_run_tipg
 import database
@@ -19,6 +20,9 @@ pulumi.export(
     "cloud_run_orchestrator_url", cloud_run_orchestrator.default.statuses[0].url
 )
 pulumi.export("cloud_run_tipg_url", cloud_run_tipg.default.statuses[0].url)
+pulumi.export(
+    "cloud_run_aoi_backfill_url", cloud_run_aoi_backfill.default.statuses[0].url
+)
 pulumi.export("database_url", database.sql_instance_url)
 pulumi.export("database_instance_name", database.instance.connection_name)
 pulumi.export("database_url_alembic", database.sql_instance_url_alembic)
