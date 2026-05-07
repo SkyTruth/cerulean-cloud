@@ -63,6 +63,13 @@ def load_catalog(catalog_source: str | None):
     return Catalog.load(source)
 
 
+def get_catalog_asset(asset_slug: str, catalog_source: str | None = None):
+    for asset in load_catalog(catalog_source):
+        if asset.slug == asset_slug:
+            return asset
+    raise ValueError(f"Could not find asset slug in catalog: {asset_slug!r}")
+
+
 def resolve_asset_slug(asset_selector: str, catalog_source: str | None = None) -> str:
     if not asset_selector.startswith("gs://"):
         return asset_selector
@@ -218,6 +225,26 @@ def fetch_dataset_ref(
     return ref
 
 
+def derive_catalog_citation(asset) -> str:
+    source = getattr(asset, "source", None)
+    return source or ""
+
+
+def derive_catalog_source_url(asset, ref) -> str:
+    return (
+        getattr(ref, "url", None)
+        or getattr(asset, "canonical_path", None)
+        or ""
+    )
+
+
+def normalize_dataset_version(asset_slug: str, resolved_id: object, version: str) -> str:
+    raw_version = str(resolved_id or version or "")
+    if raw_version == f"{asset_slug}@":
+        return ""
+    return raw_version
+
+
 def inspect_fields(path: Path) -> list[str]:
     import geopandas as gpd
 
@@ -304,6 +331,7 @@ def load_stage_table(config: AoiConfig, path: Path, db_url: str) -> int:
 def build_config(
     *,
     resolved_asset_slug: str,
+    asset,
     ref,
     columns: Sequence[str],
     short_name: str | None = None,
@@ -327,9 +355,11 @@ def build_config(
         ext_id_field=ext_id_field,
         display_name_field=display_name_field,
         stage_table=stage_table or slug_to_stage_table(short_name),
-        dataset_version=str(getattr(ref, "resolved_id", None) or version),
-        source_url=source_url or getattr(ref, "url", None) or "",
-        citation=citation or "",
+        dataset_version=normalize_dataset_version(
+            resolved_asset_slug, getattr(ref, "resolved_id", None), version
+        ),
+        source_url=source_url or derive_catalog_source_url(asset, ref),
+        citation=citation or derive_catalog_citation(asset),
     )
 
 
@@ -409,6 +439,7 @@ def inspect_asset(
     citation: str | None = None,
 ) -> dict[str, object]:
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
+    asset = get_catalog_asset(resolved_asset_slug, catalog_source)
     ref = fetch_dataset_ref(
         resolved_asset_slug,
         version=version,
@@ -420,6 +451,7 @@ def inspect_asset(
     columns = inspect_fields(dataset_path)
     config = build_config(
         resolved_asset_slug=resolved_asset_slug,
+        asset=asset,
         ref=ref,
         columns=columns,
         short_name=short_name,
@@ -467,6 +499,7 @@ def prepare_backfill(
 ) -> AoiConfig:
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
+    asset = get_catalog_asset(resolved_asset_slug, catalog_source)
     ref = fetch_dataset_ref(
         resolved_asset_slug,
         version=version,
@@ -478,6 +511,7 @@ def prepare_backfill(
     columns = inspect_fields(dataset_path)
     config = build_config(
         resolved_asset_slug=resolved_asset_slug,
+        asset=asset,
         ref=ref,
         columns=columns,
         short_name=short_name,
@@ -602,4 +636,3 @@ def finish_backfill(
         "CALL maintenance.finish_shared_dataset_aoi_backfill(%s)",
         (resolved_short_name,),
     )
-

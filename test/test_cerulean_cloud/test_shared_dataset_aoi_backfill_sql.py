@@ -67,13 +67,12 @@ def test_shared_dataset_aoi_backfill_keeps_aoi_hidden_until_manual_toggle():
     )[1]
 
     assert "filter_toggle,\n        read_perm,\n        access_type" in preparation_sql
-    assert "FALSE,\n        v_read_perm_id,\n        NULL" in preparation_sql
+    assert "FALSE,\n        v_read_perm_id,\n        'SHARED_DATASET'" in preparation_sql
     assert "filter_toggle = FALSE" in preparation_sql
-    assert "access_type = NULL" in preparation_sql
+    assert "access_type = 'SHARED_DATASET'" in preparation_sql
 
-    assert "access_type = 'SHARED_DATASET'" in finish_sql
     assert "filter_toggle = FALSE" in finish_sql
-    assert "filter_toggle still FALSE" in finish_sql
+    assert "manual UI enablement" in finish_sql
 
 
 def test_backfill_wrapper_derives_safe_names_from_asset_slug():
@@ -113,6 +112,28 @@ def test_backfill_wrapper_resolves_gcs_uri_to_asset_slug_from_catalog():
             )
             == "petrodata"
         )
+
+
+def test_backfill_wrapper_derives_catalog_metadata():
+    wrapper = load_wrapper_module()
+    csv_text = "\n".join(
+        [
+            "asset_slug,title,category,subcategory,status,access_tier,owner,"
+            "update_cadence,canonical_path,canonical_format,available_formats,"
+            "metadata_paths,has_pmtiles,has_geojson,has_csv,source,license,notes",
+            "petrodata,PETRODATA Petroleum Fields,300,310,active,public,"
+            "SkyTruth,manual,gs://bucket/path/petrodata/latest/petrodata.fgb,"
+            "fgb,fgb;pmtiles,README.md,true,false,false,PRIO PETRODATA v1.2,"
+            "follow source terms,notes",
+        ]
+    )
+    with TemporaryDirectory() as tmp_dir:
+        catalog_path = Path(tmp_dir) / "catalog.csv"
+        catalog_path.write_text(csv_text)
+        asset = wrapper.get_catalog_asset("petrodata", str(catalog_path))
+
+        assert wrapper.derive_catalog_citation(asset) == "PRIO PETRODATA v1.2"
+        assert wrapper.normalize_dataset_version("petrodata", "petrodata@", "latest") == ""
 
 
 def test_backfill_wrapper_infers_fields_when_unambiguous():

@@ -330,7 +330,7 @@ BEGIN
         now(),
         FALSE,
         v_read_perm_id,
-        NULL,
+        'SHARED_DATASET',
         v_properties
     )
     ON CONFLICT (short_name) DO UPDATE
@@ -342,7 +342,7 @@ BEGIN
         update_time = now(),
         filter_toggle = FALSE,
         read_perm = COALESCE(public.aoi_type.read_perm, EXCLUDED.read_perm),
-        access_type = NULL,
+        access_type = 'SHARED_DATASET',
         properties = EXCLUDED.properties
     RETURNING id INTO v_aoi_type_id;
 
@@ -728,12 +728,11 @@ BEGIN
 
     UPDATE public.aoi_type
     SET
-        access_type = 'SHARED_DATASET',
         filter_toggle = FALSE,
         update_time = now()
     WHERE id = v_aoi_type_id;
 
-    RAISE NOTICE 'AOI type % is now available to future orchestrator joins with filter_toggle still FALSE',
+    RAISE NOTICE 'AOI type % passed finish checks and remains filter_toggle FALSE for manual UI enablement',
         p_aoi_type_short_name;
 END;
 $$;
