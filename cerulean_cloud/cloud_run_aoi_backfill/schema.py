@@ -67,4 +67,3 @@ class RunResponse(BaseModel):
 class FinishResponse(BaseModel):
     short_name: str
     status: str = "finished"
-

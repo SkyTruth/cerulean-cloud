@@ -231,14 +231,12 @@ def derive_catalog_citation(asset) -> str:
 
 
 def derive_catalog_source_url(asset, ref) -> str:
-    return (
-        getattr(ref, "url", None)
-        or getattr(asset, "canonical_path", None)
-        or ""
-    )
+    return getattr(ref, "url", None) or getattr(asset, "canonical_path", None) or ""
 
 
-def normalize_dataset_version(asset_slug: str, resolved_id: object, version: str) -> str:
+def normalize_dataset_version(
+    asset_slug: str, resolved_id: object, version: str
+) -> str:
     raw_version = str(resolved_id or version or "")
     if raw_version == f"{asset_slug}@":
         return ""

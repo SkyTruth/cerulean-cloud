@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Dict
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -101,7 +101,9 @@ def prepare(payload: PrepareRequest) -> PrepareResponse:
 @app.post("/status", response_model=StatusResponse, tags=["AOI Backfill"])
 def status(payload: RunRequest) -> StatusResponse:
     return StatusResponse(
-        rows=_status_rows(payload.asset_slug, payload.short_name, payload.catalog_source)
+        rows=_status_rows(
+            payload.asset_slug, payload.short_name, payload.catalog_source
+        )
     )
 
 
@@ -145,4 +147,3 @@ def finish(payload: RunRequest) -> FinishResponse:
         service.resolve_asset_slug(payload.asset_slug, payload.catalog_source)
     )
     return FinishResponse(short_name=resolved_short_name)
-

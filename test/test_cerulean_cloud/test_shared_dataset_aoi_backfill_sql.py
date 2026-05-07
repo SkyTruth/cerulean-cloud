@@ -8,9 +8,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKFILL_SQL = REPO_ROOT / "scripts/backfill_shared_dataset_aoi.sql"
-BACKFILL_SERVICE = (
-    REPO_ROOT / "cerulean_cloud/cloud_run_aoi_backfill/service.py"
-)
+BACKFILL_SERVICE = REPO_ROOT / "cerulean_cloud/cloud_run_aoi_backfill/service.py"
 
 
 def load_wrapper_module():
@@ -67,7 +65,9 @@ def test_shared_dataset_aoi_backfill_keeps_aoi_hidden_until_manual_toggle():
     )[1]
 
     assert "filter_toggle,\n        read_perm,\n        access_type" in preparation_sql
-    assert "FALSE,\n        v_read_perm_id,\n        'SHARED_DATASET'" in preparation_sql
+    assert (
+        "FALSE,\n        v_read_perm_id,\n        'SHARED_DATASET'" in preparation_sql
+    )
     assert "filter_toggle = FALSE" in preparation_sql
     assert "access_type = 'SHARED_DATASET'" in preparation_sql
 
@@ -133,7 +133,9 @@ def test_backfill_wrapper_derives_catalog_metadata():
         asset = wrapper.get_catalog_asset("petrodata", str(catalog_path))
 
         assert wrapper.derive_catalog_citation(asset) == "PRIO PETRODATA v1.2"
-        assert wrapper.normalize_dataset_version("petrodata", "petrodata@", "latest") == ""
+        assert (
+            wrapper.normalize_dataset_version("petrodata", "petrodata@", "latest") == ""
+        )
 
 
 def test_backfill_wrapper_infers_fields_when_unambiguous():
