@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import gettempdir
@@ -270,6 +271,20 @@ def inspect_stage_readiness(path: Path, ext_id_field: str) -> dict[str, object]:
     }
 
 
+def to_plain_python(value):
+    if isinstance(value, Mapping):
+        return {key: to_plain_python(inner_value) for key, inner_value in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_plain_python(inner_value) for inner_value in value]
+    item_method = getattr(value, "item", None)
+    if callable(item_method):
+        try:
+            return item_method()
+        except (TypeError, ValueError):
+            pass
+    return value
+
+
 def promote_polygons(geometry):
     from shapely.geometry import MultiPolygon, Polygon
 
@@ -475,7 +490,7 @@ def inspect_asset(
         "fields": columns,
     }
     result.update(inspect_stage_readiness(dataset_path, config.ext_id_field))
-    return result
+    return to_plain_python(result)
 
 
 def prepare_backfill(

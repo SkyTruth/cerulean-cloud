@@ -32,20 +32,36 @@ def _status_rows(asset_slug: str, short_name: str | None, catalog_source: str | 
         short_name=short_name,
         catalog_source=catalog_source,
     )
-    return [
-        {
-            "short_name": row[0],
-            "status": row[1],
-            "next_slick_id": row[2],
-            "max_slick_id_at_start": row[3],
-            "slicks_scanned": row[4],
-            "matches": row[5],
-            "aois_inserted": row[6],
-            "links_inserted": row[7],
-            "updated_at": row[8],
-        }
-        for row in rows
-    ]
+    return service.to_plain_python(
+        [
+            {
+                "short_name": row[0],
+                "status": row[1],
+                "next_slick_id": row[2],
+                "max_slick_id_at_start": row[3],
+                "slicks_scanned": row[4],
+                "matches": row[5],
+                "aois_inserted": row[6],
+                "links_inserted": row[7],
+                "updated_at": row[8],
+            }
+            for row in rows
+        ]
+    )
+
+
+def _validation_rows(asset_slug: str, short_name: str | None, catalog_source: str | None):
+    rows = service.validate_backfill(
+        asset_slug,
+        short_name=short_name,
+        catalog_source=catalog_source,
+    )
+    return service.to_plain_python(
+        [
+            {"check_name": row[0], "value": row[1]}
+            for row in rows
+        ]
+    )
 
 
 @app.get("/", description="Health Check", tags=["Health Check"])
@@ -126,13 +142,10 @@ def run(payload: RunRequest) -> RunResponse:
 
 @app.post("/validate", response_model=ValidateResponse, tags=["AOI Backfill"])
 def validate(payload: RunRequest) -> ValidateResponse:
-    rows = service.validate_backfill(
-        payload.asset_slug,
-        short_name=payload.short_name,
-        catalog_source=payload.catalog_source,
-    )
     return ValidateResponse(
-        rows=[{"check_name": row[0], "value": row[1]} for row in rows]
+        rows=_validation_rows(
+            payload.asset_slug, payload.short_name, payload.catalog_source
+        )
     )
 
 
