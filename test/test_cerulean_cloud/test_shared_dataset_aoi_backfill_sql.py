@@ -8,13 +8,15 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKFILL_SQL = REPO_ROOT / "scripts/backfill_shared_dataset_aoi.sql"
-BACKFILL_WRAPPER = REPO_ROOT / "scripts/backfill_shared_dataset_aoi.py"
+BACKFILL_SERVICE = (
+    REPO_ROOT / "cerulean_cloud/cloud_run_aoi_backfill/service.py"
+)
 
 
 def load_wrapper_module():
     spec = importlib.util.spec_from_file_location(
         "backfill_shared_dataset_aoi",
-        BACKFILL_WRAPPER,
+        BACKFILL_SERVICE,
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
