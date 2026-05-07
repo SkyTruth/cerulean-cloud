@@ -50,17 +50,16 @@ def _status_rows(asset_slug: str, short_name: str | None, catalog_source: str | 
     )
 
 
-def _validation_rows(asset_slug: str, short_name: str | None, catalog_source: str | None):
+def _validation_rows(
+    asset_slug: str, short_name: str | None, catalog_source: str | None
+):
     rows = service.validate_backfill(
         asset_slug,
         short_name=short_name,
         catalog_source=catalog_source,
     )
     return service.to_plain_python(
-        [
-            {"check_name": row[0], "value": row[1]}
-            for row in rows
-        ]
+        [{"check_name": row[0], "value": row[1]} for row in rows]
     )
 
 
