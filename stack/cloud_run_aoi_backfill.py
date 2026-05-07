@@ -4,6 +4,7 @@ import cloud_run_images
 import git
 import pulumi
 import pulumi_gcp as gcp
+from cloud_run_infer import noauth_iam_policy_data
 from database import instance, sql_instance_url
 from utils import construct_name
 
@@ -112,4 +113,12 @@ default = gcp.cloudrun.Service(
             latest_revision=True,
         )
     ],
+)
+
+noauth_iam_policy = gcp.cloudrun.IamPolicy(
+    construct_name("cr-noauth-iam-policy-aoi-backfill"),
+    location=default.location,
+    project=default.project,
+    service=default.name,
+    policy_data=noauth_iam_policy_data.policy_data,
 )
