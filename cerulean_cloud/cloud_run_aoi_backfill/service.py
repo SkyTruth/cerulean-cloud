@@ -228,10 +228,7 @@ def fetch_dataset_ref(
 
 def derive_catalog_citation(asset) -> str:
     citation = getattr(asset, "citation", None)
-    if citation:
-        return citation
-    source = getattr(asset, "source", None)
-    return source or ""
+    return citation or ""
 
 
 def derive_catalog_source_url(asset, ref) -> str:

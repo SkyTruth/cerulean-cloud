@@ -138,7 +138,7 @@ def test_backfill_wrapper_derives_catalog_metadata():
         )
 
 
-def test_backfill_wrapper_citation_falls_back_to_source_when_missing():
+def test_backfill_wrapper_citation_is_empty_when_missing():
     wrapper = load_wrapper_module()
     csv_text = "\n".join(
         [
@@ -156,7 +156,7 @@ def test_backfill_wrapper_citation_falls_back_to_source_when_missing():
         catalog_path.write_text(csv_text)
         asset = wrapper.get_catalog_asset("petrodata", str(catalog_path))
 
-        assert wrapper.derive_catalog_citation(asset) == "PRIO PETRODATA v1.2"
+        assert wrapper.derive_catalog_citation(asset) == ""
 
 
 def test_backfill_wrapper_infers_fields_when_unambiguous():
