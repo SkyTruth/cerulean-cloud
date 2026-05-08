@@ -4,7 +4,7 @@ pydantic~=2.0
 geopandas
 GeoAlchemy2
 psycopg2-binary
-sqlalchemy==1.4.32
+sqlalchemy==1.4.36
 pandas==2.1.4
 shapely==2.0.1
 google-cloud-storage
