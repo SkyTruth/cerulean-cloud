@@ -120,11 +120,11 @@ def test_backfill_wrapper_derives_catalog_metadata():
         [
             "asset_slug,title,category,subcategory,status,access_tier,owner,"
             "update_cadence,canonical_path,canonical_format,available_formats,"
-            "metadata_paths,has_pmtiles,has_geojson,has_csv,source,license,notes",
+            "metadata_paths,has_pmtiles,has_geojson,has_csv,source,license,citation,notes",
             "petrodata,PETRODATA Petroleum Fields,300,310,active,public,"
             "SkyTruth,manual,gs://bucket/path/petrodata/latest/petrodata.fgb,"
-            "fgb,fgb;pmtiles,README.md,true,false,false,PRIO PETRODATA v1.2,"
-            "follow source terms,notes",
+            "fgb,fgb;pmtiles,README.md,true,false,false,source summary,"
+            "follow source terms,PRIO PETRODATA v1.2,notes",
         ]
     )
     with TemporaryDirectory() as tmp_dir:
@@ -136,6 +136,27 @@ def test_backfill_wrapper_derives_catalog_metadata():
         assert (
             wrapper.normalize_dataset_version("petrodata", "petrodata@", "latest") == ""
         )
+
+
+def test_backfill_wrapper_citation_falls_back_to_source_when_missing():
+    wrapper = load_wrapper_module()
+    csv_text = "\n".join(
+        [
+            "asset_slug,title,category,subcategory,status,access_tier,owner,"
+            "update_cadence,canonical_path,canonical_format,available_formats,"
+            "metadata_paths,has_pmtiles,has_geojson,has_csv,source,license,citation,notes",
+            "petrodata,PETRODATA Petroleum Fields,300,310,active,public,"
+            "SkyTruth,manual,gs://bucket/path/petrodata/latest/petrodata.fgb,"
+            "fgb,fgb;pmtiles,README.md,true,false,false,PRIO PETRODATA v1.2,"
+            "follow source terms,,notes",
+        ]
+    )
+    with TemporaryDirectory() as tmp_dir:
+        catalog_path = Path(tmp_dir) / "catalog.csv"
+        catalog_path.write_text(csv_text)
+        asset = wrapper.get_catalog_asset("petrodata", str(catalog_path))
+
+        assert wrapper.derive_catalog_citation(asset) == "PRIO PETRODATA v1.2"
 
 
 def test_backfill_wrapper_infers_fields_when_unambiguous():
