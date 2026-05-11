@@ -54,6 +54,9 @@ def inspect_asset(args: argparse.Namespace) -> None:
     print(f"source_url\t{result['source_url']}")
     print(f"cache_path\t{result['cache_path']}")
     print("fields\t" + ",".join(result["fields"]))
+    print(f"chunk_bounds\t{result['chunk_plan']['bounds']}")
+    print(f"chunk_grid_side\t{result['chunk_plan']['grid_side']}")
+    print(f"target_chunk_count\t{result['chunk_plan']['target_chunk_count']}")
     for key in (
         "feature_count",
         "crs",
@@ -126,9 +129,13 @@ def status(args: argparse.Namespace) -> None:
     headers = (
         "short_name",
         "status",
-        "next_slick_id",
-        "max_slick_id_at_start",
-        "slicks_scanned",
+        "total_chunks",
+        "completed_chunks",
+        "pending_chunks",
+        "running_chunks",
+        "failed_chunks",
+        "staged_rows_loaded",
+        "candidate_slick_rows",
         "matches",
         "aois_inserted",
         "links_inserted",

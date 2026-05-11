@@ -1,48 +1,8 @@
--- Online slick_to_aoi backfill for a new shared-dataset AOI type.
+-- Chunked slick_to_aoi backfill for a shared-dataset AOI type.
 --
--- This script is intentionally operator-run, not an Alembic migration:
--- it creates private maintenance state, validates a preloaded staging table,
--- and exposes procedures that process active slicks in short transactions.
---
--- Required psql variables:
---   aoi_short_name      Stable aoi_type.short_name, e.g. 'NEW_AOI'
---   aoi_long_name       Human-facing aoi_type.long_name
---   asset_slug          Shared-datasets asset slug
---   ext_id_field        Source dataset property used as the external id
---   stage_table         Preloaded staging table, e.g. maintenance.aoi_stage_new_aoi
---
--- Optional psql variables:
---   display_name_field  Source dataset property used as AOI name
---   citation            aoi_type.citation
---   source_url          aoi_type.source_url
---   dataset_version     Exact shared-dataset resolved version used for staging
---   batch_size          Slick id window size, default 5000
---
--- Recommended usage:
---   1) Deploy the UI config guard that excludes hidden asset-backed AOIs from
---      aoiNames/aoiExternalIds, then rotate/purge the config cache.
---   2) Load the exact FGB version into the private staging table. The table must
---      have columns: ext_id text, name text, geom geometry(MultiPolygon,4326).
---      Keep it outside public. Example:
---        CREATE SCHEMA IF NOT EXISTS maintenance;
---        CREATE TABLE maintenance.aoi_stage_new_aoi (
---          ext_id text NOT NULL,
---          name text NOT NULL,
---          geom geometry(MultiPolygon, 4326) NOT NULL
---        );
---        -- Load with ogr2ogr or another controlled import path.
---   3) Run this file with the variables above. Do not wrap it in BEGIN.
---   4) Run batches:
---        CALL maintenance.run_shared_dataset_aoi_backfill('NEW_AOI');
---      Repeat or use p_max_batches for controlled windows:
---        CALL maintenance.run_shared_dataset_aoi_backfill('NEW_AOI', 25);
---   5) Run a final catch-up by rerunning this file, then running batches again.
---   6) Validate:
---        SELECT * FROM maintenance.validate_shared_dataset_aoi_backfill('NEW_AOI');
---   7) After validation passes, enable future orchestrator joins while keeping
---      the type hidden from filters:
---        CALL maintenance.finish_shared_dataset_aoi_backfill('NEW_AOI');
---      Only a human maintainer should later set filter_toggle = TRUE.
+-- This script prepares only durable run metadata plus one reusable stage table.
+-- Python orchestration owns chunk planning, chunk staging, retries, and splitting.
+-- Postgres owns AOI upserts plus one bounded staged-chunk join at a time.
 
 \set ON_ERROR_STOP on
 
@@ -126,8 +86,6 @@ BEGIN
     END IF;
 END $$;
 
--- Hot-table indexes. These statements must run outside an explicit transaction.
--- They are idempotent by the canonical names used in this repository.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_slick_to_aoi_slick
     ON public.slick_to_aoi (slick);
 
@@ -150,31 +108,38 @@ CREATE TABLE IF NOT EXISTS maintenance.shared_dataset_aoi_backfill_run (
     asset_slug text NOT NULL,
     dataset_version text,
     batch_size bigint NOT NULL CHECK (batch_size > 0),
-    next_slick_id bigint NOT NULL,
-    max_slick_id_at_start bigint NOT NULL,
-    status text NOT NULL CHECK (status IN ('pending', 'running', 'completed')),
-    total_slick_rows bigint NOT NULL DEFAULT 0,
-    total_match_rows bigint NOT NULL DEFAULT 0,
-    total_aoi_rows_inserted bigint NOT NULL DEFAULT 0,
-    total_slick_to_aoi_rows_inserted bigint NOT NULL DEFAULT 0,
+    status text NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed')),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     completed_at timestamptz
 );
 
-CREATE TABLE IF NOT EXISTS maintenance.shared_dataset_aoi_backfill_batch (
+CREATE TABLE IF NOT EXISTS maintenance.shared_dataset_aoi_backfill_chunk (
     id bigserial PRIMARY KEY,
     aoi_type_short_name text NOT NULL
-        REFERENCES maintenance.shared_dataset_aoi_backfill_run(aoi_type_short_name),
-    lo bigint NOT NULL,
-    hi bigint NOT NULL,
-    slick_rows bigint NOT NULL DEFAULT 0,
+        REFERENCES maintenance.shared_dataset_aoi_backfill_run(aoi_type_short_name)
+        ON DELETE CASCADE,
+    chunk_index bigint NOT NULL,
+    parent_chunk_id bigint REFERENCES maintenance.shared_dataset_aoi_backfill_chunk(id),
+    split_depth integer NOT NULL DEFAULT 0 CHECK (split_depth >= 0),
+    minx double precision NOT NULL,
+    miny double precision NOT NULL,
+    maxx double precision NOT NULL,
+    maxy double precision NOT NULL,
+    status text NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'running', 'completed', 'split', 'failed')),
+    retry_count integer NOT NULL DEFAULT 0 CHECK (retry_count >= 0),
+    stage_rows_loaded bigint NOT NULL DEFAULT 0,
+    candidate_slick_rows bigint NOT NULL DEFAULT 0,
     match_rows bigint NOT NULL DEFAULT 0,
-    aoi_rows_inserted bigint NOT NULL DEFAULT 0,
-    slick_to_aoi_rows_inserted bigint NOT NULL DEFAULT 0,
-    started_at timestamptz NOT NULL DEFAULT now(),
+    aois_inserted bigint NOT NULL DEFAULT 0,
+    links_inserted bigint NOT NULL DEFAULT 0,
+    sub_batches integer NOT NULL DEFAULT 0,
+    last_error text,
+    started_at timestamptz,
     finished_at timestamptz,
-    UNIQUE (aoi_type_short_name, lo, hi)
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (aoi_type_short_name, chunk_index)
 );
 
 SELECT set_config('maintenance.aoi_short_name', :'aoi_short_name', false);
@@ -207,90 +172,22 @@ DECLARE
     v_idx_prefix text;
     v_read_perm_id bigint;
     v_aoi_type_id bigint;
-    v_min_slick_id bigint;
-    v_max_slick_id bigint;
-    v_count bigint;
     v_properties jsonb;
 BEGIN
     SELECT to_regclass(v_stage_table_text) INTO v_stage_table;
-    IF v_stage_table IS NULL THEN
-        RAISE EXCEPTION 'Staging table % does not exist', v_stage_table_text;
+    IF v_stage_table IS NOT NULL THEN
+        SELECT n.nspname, c.relname, format('%I.%I', n.nspname, c.relname)
+        INTO v_stage_schema, v_stage_relname, v_stage_ident
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.oid = v_stage_table;
+
+        IF v_stage_schema = 'public' THEN
+            RAISE EXCEPTION 'Staging table must not live in public: %', v_stage_ident;
+        END IF;
+    ELSE
+        v_stage_ident := v_stage_table_text;
     END IF;
-
-    SELECT n.nspname, c.relname, format('%I.%I', n.nspname, c.relname)
-    INTO v_stage_schema, v_stage_relname, v_stage_ident
-    FROM pg_class c
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE c.oid = v_stage_table;
-
-    IF v_stage_schema = 'public' THEN
-        RAISE EXCEPTION 'Staging table must not live in public: %', v_stage_ident;
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.columns
-        WHERE table_schema = v_stage_schema
-          AND table_name = v_stage_relname
-          AND column_name IN ('ext_id', 'name', 'geom')
-        GROUP BY table_schema, table_name
-        HAVING count(*) = 3
-    ) THEN
-        RAISE EXCEPTION 'Staging table % must have ext_id, name, and geom columns', v_stage_ident;
-    END IF;
-
-    EXECUTE format('SELECT count(*) FROM %s', v_stage_ident) INTO v_count;
-    IF v_count = 0 THEN
-        RAISE EXCEPTION 'Staging table % is empty', v_stage_ident;
-    END IF;
-
-    EXECUTE format(
-        'SELECT count(*) FROM %s WHERE NULLIF(ext_id, '''') IS NULL',
-        v_stage_ident
-    )
-    INTO v_count;
-    IF v_count > 0 THEN
-        RAISE EXCEPTION 'Staging table % has % rows with empty ext_id', v_stage_ident, v_count;
-    END IF;
-
-    EXECUTE format(
-        'SELECT count(*) FROM (SELECT ext_id FROM %s GROUP BY ext_id HAVING count(*) > 1) dup',
-        v_stage_ident
-    )
-    INTO v_count;
-    IF v_count > 0 THEN
-        RAISE NOTICE 'Staging table % has % duplicate ext_id values; matches will be grouped by ext_id', v_stage_ident, v_count;
-    END IF;
-
-    EXECUTE format(
-        $sql$
-        SELECT count(*)
-        FROM %s
-        WHERE geom IS NULL
-           OR ST_IsEmpty(geom)
-           OR ST_SRID(geom) <> 4326
-           OR NOT ST_IsValid(geom)
-           OR GeometryType(geom) NOT IN ('POLYGON', 'MULTIPOLYGON')
-        $sql$,
-        v_stage_ident
-    )
-    INTO v_count;
-    IF v_count > 0 THEN
-        RAISE EXCEPTION 'Staging table % has % invalid, empty, non-4326, or non-polygon geometries', v_stage_ident, v_count;
-    END IF;
-
-    v_idx_prefix := 'idx_' || substr(md5(v_stage_ident), 1, 16);
-    EXECUTE format(
-        'CREATE INDEX IF NOT EXISTS %I ON %s USING gist (geom)',
-        v_idx_prefix || '_geom',
-        v_stage_ident
-    );
-    EXECUTE format(
-        'CREATE INDEX IF NOT EXISTS %I ON %s (ext_id)',
-        v_idx_prefix || '_ext_id',
-        v_stage_ident
-    );
-    EXECUTE format('ANALYZE %s', v_stage_ident);
 
     SELECT id INTO v_read_perm_id
     FROM public.permission
@@ -346,12 +243,28 @@ BEGIN
         properties = EXCLUDED.properties
     RETURNING id INTO v_aoi_type_id;
 
-    SELECT
-        COALESCE(min(id), 0),
-        COALESCE(max(id), -1)
-    INTO v_min_slick_id, v_max_slick_id
-    FROM public.slick
-    WHERE active;
+    EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I', split_part(v_stage_table_text, '.', 1));
+    EXECUTE format(
+        'CREATE TABLE IF NOT EXISTS %s (
+            ext_id text NOT NULL,
+            name text NOT NULL,
+            geom geometry(MultiPolygon, 4326) NOT NULL
+        )',
+        v_stage_table_text
+    );
+    EXECUTE format('TRUNCATE TABLE %s', v_stage_table_text);
+
+    v_idx_prefix := 'idx_' || substr(md5(v_stage_table_text), 1, 16);
+    EXECUTE format(
+        'CREATE INDEX IF NOT EXISTS %I ON %s USING gist (geom)',
+        v_idx_prefix || '_geom',
+        v_stage_table_text
+    );
+    EXECUTE format(
+        'CREATE INDEX IF NOT EXISTS %I ON %s (ext_id)',
+        v_idx_prefix || '_ext_id',
+        v_stage_table_text
+    );
 
     INSERT INTO maintenance.shared_dataset_aoi_backfill_run (
         aoi_type_short_name,
@@ -360,20 +273,16 @@ BEGIN
         asset_slug,
         dataset_version,
         batch_size,
-        next_slick_id,
-        max_slick_id_at_start,
         status
     )
     VALUES (
         v_aoi_short_name,
         v_aoi_type_id,
-        v_stage_table,
+        to_regclass(v_stage_table_text),
         v_asset_slug,
         NULLIF(v_dataset_version, ''),
         v_batch_size,
-        v_min_slick_id,
-        v_max_slick_id,
-        CASE WHEN v_min_slick_id > v_max_slick_id THEN 'completed' ELSE 'pending' END
+        'pending'
     )
     ON CONFLICT (aoi_type_short_name) DO UPDATE
     SET
@@ -382,238 +291,216 @@ BEGIN
         asset_slug = EXCLUDED.asset_slug,
         dataset_version = EXCLUDED.dataset_version,
         batch_size = EXCLUDED.batch_size,
-        max_slick_id_at_start = GREATEST(
-            maintenance.shared_dataset_aoi_backfill_run.max_slick_id_at_start,
-            EXCLUDED.max_slick_id_at_start
-        ),
-        status = CASE
-            WHEN maintenance.shared_dataset_aoi_backfill_run.next_slick_id
-                 <= GREATEST(
-                     maintenance.shared_dataset_aoi_backfill_run.max_slick_id_at_start,
-                     EXCLUDED.max_slick_id_at_start
-                 )
-                THEN 'pending'
-            ELSE 'completed'
-        END,
-        completed_at = CASE
-            WHEN maintenance.shared_dataset_aoi_backfill_run.next_slick_id
-                 <= GREATEST(
-                     maintenance.shared_dataset_aoi_backfill_run.max_slick_id_at_start,
-                     EXCLUDED.max_slick_id_at_start
-                 )
-                THEN NULL
-            ELSE maintenance.shared_dataset_aoi_backfill_run.completed_at
-        END,
+        status = 'pending',
+        completed_at = NULL,
         updated_at = now();
 
-    RAISE NOTICE 'Prepared shared-dataset AOI backfill for %, type id %, stage %, active slick id range [%..%]',
-        v_aoi_short_name,
-        v_aoi_type_id,
-        v_stage_ident,
-        v_min_slick_id,
-        v_max_slick_id;
+    DELETE FROM maintenance.shared_dataset_aoi_backfill_chunk
+    WHERE aoi_type_short_name = v_aoi_short_name;
 END $$;
 
-CREATE OR REPLACE PROCEDURE maintenance.run_shared_dataset_aoi_backfill(
+CREATE OR REPLACE FUNCTION maintenance.process_shared_dataset_aoi_backfill_chunk(
     p_aoi_type_short_name text,
-    p_max_batches integer DEFAULT NULL,
-    p_sleep_seconds double precision DEFAULT 0.05,
+    p_chunk_id bigint,
+    p_minx double precision,
+    p_miny double precision,
+    p_maxx double precision,
+    p_maxy double precision,
     p_lock_timeout text DEFAULT '1s',
     p_statement_timeout text DEFAULT '10min'
+)
+RETURNS TABLE(
+    chunk_status text,
+    stage_rows bigint,
+    candidate_slick_rows bigint,
+    match_rows bigint,
+    aoi_rows_inserted bigint,
+    slick_to_aoi_rows_inserted bigint,
+    sub_batches integer
 )
 LANGUAGE plpgsql
 AS $$
 DECLARE
     v_aoi_type_id bigint;
-    v_stage_table regclass;
     v_stage_ident text;
     v_batch_size bigint;
-    v_lo bigint;
-    v_hi bigint;
-    v_max_slick_id bigint;
-    v_slick_rows bigint;
-    v_match_rows bigint;
-    v_aoi_rows_inserted bigint;
-    v_slick_to_aoi_rows_inserted bigint;
-    v_batches_run integer := 0;
-    v_lock_key bigint := hashtext('shared_dataset_aoi_backfill:' || p_aoi_type_short_name);
-    v_sql text;
+    v_stage_rows bigint;
+    v_candidate_rows bigint;
+    v_inserted_aoi_rows bigint;
+    v_batch_match_rows bigint;
+    v_batch_insert_rows bigint;
+    v_total_match_rows bigint := 0;
+    v_total_insert_rows bigint := 0;
+    v_seq_start bigint := 1;
+    v_split_candidate_limit bigint := 50000;
+    v_sub_batches integer := 0;
 BEGIN
-    IF NOT pg_try_advisory_lock(v_lock_key) THEN
-        RAISE EXCEPTION 'Backfill is already running for AOI type %', p_aoi_type_short_name;
+    SELECT
+        r.aoi_type_id,
+        format('%I.%I', n.nspname, c.relname),
+        r.batch_size
+    INTO
+        v_aoi_type_id,
+        v_stage_ident,
+        v_batch_size
+    FROM maintenance.shared_dataset_aoi_backfill_run r
+    JOIN pg_class c ON c.oid = r.stage_table
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE r.aoi_type_short_name = p_aoi_type_short_name;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No prepared backfill run for AOI type %', p_aoi_type_short_name;
     END IF;
 
-    LOOP
-        IF p_max_batches IS NOT NULL AND v_batches_run >= p_max_batches THEN
-            PERFORM pg_advisory_unlock(v_lock_key);
-            RETURN;
-        END IF;
+    EXECUTE format('SET LOCAL lock_timeout = %L', p_lock_timeout);
+    EXECUTE format('SET LOCAL statement_timeout = %L', p_statement_timeout);
 
-        SELECT
-            r.aoi_type_id,
-            r.stage_table,
-            format('%I.%I', n.nspname, c.relname),
-            r.batch_size,
-            r.next_slick_id,
-            r.max_slick_id_at_start
-        INTO
-            v_aoi_type_id,
-            v_stage_table,
-            v_stage_ident,
-            v_batch_size,
-            v_lo,
-            v_max_slick_id
-        FROM maintenance.shared_dataset_aoi_backfill_run r
-        JOIN pg_class c ON c.oid = r.stage_table
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE r.aoi_type_short_name = p_aoi_type_short_name
-        FOR UPDATE OF r;
+    EXECUTE format('SELECT count(*) FROM %s', v_stage_ident) INTO v_stage_rows;
+    IF v_stage_rows = 0 THEN
+        RETURN QUERY SELECT
+            'completed'::text,
+            0::bigint,
+            0::bigint,
+            0::bigint,
+            0::bigint,
+            0::bigint,
+            0::integer;
+        RETURN;
+    END IF;
 
-        IF NOT FOUND THEN
-            PERFORM pg_advisory_unlock(v_lock_key);
-            RAISE EXCEPTION 'No prepared backfill run for AOI type %', p_aoi_type_short_name;
-        END IF;
+    EXECUTE format(
+        'CREATE TEMP TABLE tmp_stage_aoi ON COMMIT DROP AS
+         SELECT ext_id, MIN(name) AS name
+         FROM %s
+         GROUP BY ext_id',
+        v_stage_ident
+    );
 
-        IF v_lo > v_max_slick_id THEN
-            UPDATE maintenance.shared_dataset_aoi_backfill_run
-            SET
-                status = 'completed',
-                completed_at = COALESCE(completed_at, now()),
-                updated_at = now()
-            WHERE aoi_type_short_name = p_aoi_type_short_name;
-
-            COMMIT;
-            PERFORM pg_advisory_unlock(v_lock_key);
-            RETURN;
-        END IF;
-
-        v_hi := LEAST(v_lo + v_batch_size, v_max_slick_id + 1);
-
-        EXECUTE format('SET LOCAL lock_timeout = %L', p_lock_timeout);
-        EXECUTE format('SET LOCAL statement_timeout = %L', p_statement_timeout);
-
-        UPDATE maintenance.shared_dataset_aoi_backfill_run
-        SET status = 'running', updated_at = now()
-        WHERE aoi_type_short_name = p_aoi_type_short_name;
-
-        INSERT INTO maintenance.shared_dataset_aoi_backfill_batch (
-            aoi_type_short_name,
-            lo,
-            hi
-        )
-        VALUES (p_aoi_type_short_name, v_lo, v_hi)
-        ON CONFLICT (aoi_type_short_name, lo, hi) DO NOTHING;
-
-        v_sql := format(
-            $sql$
-            WITH batch_slicks AS MATERIALIZED (
-                SELECT id, geometry::geometry AS geom
-                FROM public.slick
-                WHERE active
-                  AND id >= $1
-                  AND id < $2
-            ),
-            matches AS MATERIALIZED (
-                SELECT DISTINCT
-                    s.id AS slick_id,
-                    st.ext_id,
-                    st.name
-                FROM batch_slicks s
-                JOIN %s st
-                  ON s.geom && st.geom
-                 AND ST_Intersects(s.geom, st.geom)
-            ),
-            matched_aoi AS MATERIALIZED (
-                SELECT ext_id, MIN(name) AS name
-                FROM matches
-                GROUP BY ext_id
-            ),
-            existing_aoi AS MATERIALIZED (
-                SELECT MIN(id) AS aoi_id, ext_id
-                FROM public.aoi
-                WHERE type = $3
-                  AND ext_id IN (SELECT ext_id FROM matched_aoi)
-                GROUP BY ext_id
-            ),
-            inserted_aoi AS (
-                INSERT INTO public.aoi (type, ext_id, name)
-                SELECT $3, m.ext_id, COALESCE(m.name, m.ext_id)
-                FROM matched_aoi m
-                LEFT JOIN existing_aoi e USING (ext_id)
-                WHERE e.aoi_id IS NULL
-                RETURNING id AS aoi_id, ext_id
-            ),
-            aoi_lookup AS MATERIALIZED (
-                SELECT aoi_id, ext_id FROM existing_aoi
-                UNION ALL
-                SELECT aoi_id, ext_id FROM inserted_aoi
-            ),
-            inserted_slick_to_aoi AS (
-                INSERT INTO public.slick_to_aoi (slick, aoi)
-                SELECT DISTINCT m.slick_id, l.aoi_id
-                FROM matches m
-                JOIN aoi_lookup l USING (ext_id)
-                ON CONFLICT DO NOTHING
-                RETURNING 1
-            )
+    EXECUTE format(
+        $sql$
+        CREATE TEMP TABLE tmp_stage_chunks ON COMMIT DROP AS
+        WITH normalized AS (
             SELECT
-                (SELECT count(*) FROM batch_slicks)::bigint,
-                (SELECT count(*) FROM matches)::bigint,
-                (SELECT count(*) FROM inserted_aoi)::bigint,
-                (SELECT count(*) FROM inserted_slick_to_aoi)::bigint
-            $sql$,
-            v_stage_ident
-        );
+                ext_id,
+                CASE
+                    WHEN ST_NPoints(geom) > 255
+                        THEN ST_Subdivide(ST_MakeValid(ST_Buffer(geom, 0)), 255)
+                    ELSE ST_MakeValid(ST_Buffer(geom, 0))
+                END AS geom
+            FROM %s
+        )
+        SELECT ext_id, (ST_Dump(geom)).geom::geometry(Polygon, 4326) AS geom
+        FROM normalized
+        WHERE geom IS NOT NULL
+        $sql$,
+        v_stage_ident
+    );
 
-        EXECUTE v_sql
+    CREATE INDEX tmp_stage_chunks_geom_idx ON tmp_stage_chunks USING gist (geom);
+
+    CREATE TEMP TABLE tmp_existing_aoi ON COMMIT DROP AS
+    SELECT MIN(id) AS aoi_id, ext_id
+    FROM public.aoi
+    WHERE type = v_aoi_type_id
+      AND ext_id IN (SELECT ext_id FROM tmp_stage_aoi)
+    GROUP BY ext_id;
+
+    WITH inserted_aoi AS (
+        INSERT INTO public.aoi (type, ext_id, name)
+        SELECT v_aoi_type_id, s.ext_id, COALESCE(s.name, s.ext_id)
+        FROM tmp_stage_aoi s
+        LEFT JOIN tmp_existing_aoi e USING (ext_id)
+        WHERE e.aoi_id IS NULL
+        RETURNING 1
+    )
+    SELECT count(*) INTO v_inserted_aoi_rows FROM inserted_aoi;
+
+    CREATE TEMP TABLE tmp_aoi_lookup ON COMMIT DROP AS
+    SELECT MIN(id) AS aoi_id, ext_id
+    FROM public.aoi
+    WHERE type = v_aoi_type_id
+      AND ext_id IN (SELECT ext_id FROM tmp_stage_aoi)
+    GROUP BY ext_id;
+
+    CREATE TEMP TABLE tmp_candidate_slicks ON COMMIT DROP AS
+    SELECT
+        row_number() OVER (ORDER BY s.id) AS seq,
+        s.id AS slick_id,
+        s.geometry::geometry AS geom
+    FROM public.slick s
+    WHERE s.active
+      AND s.geometry::geometry && ST_MakeEnvelope(p_minx, p_miny, p_maxx, p_maxy, 4326);
+
+    SELECT count(*) INTO v_candidate_rows FROM tmp_candidate_slicks;
+
+    IF v_candidate_rows > v_split_candidate_limit THEN
+        RETURN QUERY SELECT
+            'split_required'::text,
+            v_stage_rows,
+            v_candidate_rows,
+            0::bigint,
+            COALESCE(v_inserted_aoi_rows, 0)::bigint,
+            0::bigint,
+            0::integer;
+        RETURN;
+    END IF;
+
+    WHILE v_seq_start <= v_candidate_rows LOOP
+        WITH batch_slicks AS MATERIALIZED (
+            SELECT slick_id, geom
+            FROM tmp_candidate_slicks
+            WHERE seq >= v_seq_start
+              AND seq < v_seq_start + v_batch_size
+        ),
+        unresolved_pairs AS MATERIALIZED (
+            SELECT DISTINCT
+                s.slick_id,
+                l.aoi_id,
+                s.geom AS slick_geom,
+                st.geom AS aoi_geom
+            FROM batch_slicks s
+            JOIN tmp_stage_chunks st
+              ON s.geom && st.geom
+            JOIN tmp_aoi_lookup l
+              ON l.ext_id = st.ext_id
+            LEFT JOIN public.slick_to_aoi sta
+              ON sta.slick = s.slick_id
+             AND sta.aoi = l.aoi_id
+            WHERE sta.slick IS NULL
+        ),
+        matches AS MATERIALIZED (
+            SELECT DISTINCT slick_id, aoi_id
+            FROM unresolved_pairs
+            WHERE ST_Intersects(slick_geom, aoi_geom)
+        ),
+        inserted_slick_to_aoi AS (
+            INSERT INTO public.slick_to_aoi (slick, aoi)
+            SELECT slick_id, aoi_id
+            FROM matches
+            ON CONFLICT DO NOTHING
+            RETURNING 1
+        )
+        SELECT
+            (SELECT count(*) FROM matches)::bigint,
+            (SELECT count(*) FROM inserted_slick_to_aoi)::bigint
         INTO
-            v_slick_rows,
-            v_match_rows,
-            v_aoi_rows_inserted,
-            v_slick_to_aoi_rows_inserted
-        USING v_lo, v_hi, v_aoi_type_id;
+            v_batch_match_rows,
+            v_batch_insert_rows;
 
-        UPDATE maintenance.shared_dataset_aoi_backfill_batch
-        SET
-            slick_rows = v_slick_rows,
-            match_rows = v_match_rows,
-            aoi_rows_inserted = v_aoi_rows_inserted,
-            slick_to_aoi_rows_inserted = v_slick_to_aoi_rows_inserted,
-            finished_at = now()
-        WHERE aoi_type_short_name = p_aoi_type_short_name
-          AND lo = v_lo
-          AND hi = v_hi;
-
-        UPDATE maintenance.shared_dataset_aoi_backfill_run
-        SET
-            next_slick_id = v_hi,
-            status = CASE WHEN v_hi > v_max_slick_id THEN 'completed' ELSE 'pending' END,
-            total_slick_rows = total_slick_rows + v_slick_rows,
-            total_match_rows = total_match_rows + v_match_rows,
-            total_aoi_rows_inserted = total_aoi_rows_inserted + v_aoi_rows_inserted,
-            total_slick_to_aoi_rows_inserted =
-                total_slick_to_aoi_rows_inserted + v_slick_to_aoi_rows_inserted,
-            completed_at = CASE WHEN v_hi > v_max_slick_id THEN now() ELSE completed_at END,
-            updated_at = now()
-        WHERE aoi_type_short_name = p_aoi_type_short_name;
-
-        RAISE NOTICE 'AOI % batch [%..%) slicks %, matches %, AOIs inserted %, links inserted %',
-            p_aoi_type_short_name,
-            v_lo,
-            v_hi,
-            v_slick_rows,
-            v_match_rows,
-            v_aoi_rows_inserted,
-            v_slick_to_aoi_rows_inserted;
-
-        COMMIT;
-
-        v_batches_run := v_batches_run + 1;
-
-        IF p_sleep_seconds > 0 THEN
-            PERFORM pg_sleep(p_sleep_seconds);
-        END IF;
+        v_total_match_rows := v_total_match_rows + COALESCE(v_batch_match_rows, 0);
+        v_total_insert_rows := v_total_insert_rows + COALESCE(v_batch_insert_rows, 0);
+        v_seq_start := v_seq_start + v_batch_size;
+        v_sub_batches := v_sub_batches + 1;
     END LOOP;
+
+    RETURN QUERY SELECT
+        'completed'::text,
+        v_stage_rows,
+        v_candidate_rows,
+        v_total_match_rows,
+        COALESCE(v_inserted_aoi_rows, 0)::bigint,
+        v_total_insert_rows,
+        v_sub_batches;
 END;
 $$;
 
@@ -626,7 +513,7 @@ AS $$
 DECLARE
     v_aoi_type_id bigint;
     v_stage_ident text;
-    v_sql text;
+    v_stage_rows bigint;
 BEGIN
     SELECT
         r.aoi_type_id,
@@ -653,39 +540,62 @@ BEGIN
         HAVING count(*) > 1
     ) dup;
 
-    v_sql := format(
-        $sql$
-        WITH expected AS MATERIALIZED (
-            SELECT DISTINCT
-                s.id AS slick_id,
-                st.ext_id
-            FROM public.slick s
-            JOIN %s st
-              ON s.geometry::geometry && st.geom
-             AND ST_Intersects(s.geometry::geometry, st.geom)
-            WHERE s.active
-        ),
-        expected_aoi AS MATERIALIZED (
-            SELECT e.slick_id, MIN(a.id) AS aoi_id
-            FROM expected e
-            JOIN public.aoi a
-              ON a.type = $1
-             AND a.ext_id = e.ext_id
-            GROUP BY e.slick_id, e.ext_id
-        )
-        SELECT
-            'missing_slick_to_aoi_rows'::text,
-            count(*)::bigint
-        FROM expected_aoi e
-        LEFT JOIN public.slick_to_aoi sta
-          ON sta.slick = e.slick_id
-         AND sta.aoi = e.aoi_id
-        WHERE sta.slick IS NULL
-        $sql$,
-        v_stage_ident
-    );
+    RETURN QUERY
+    SELECT
+        'pending_chunks'::text,
+        count(*)::bigint
+    FROM maintenance.shared_dataset_aoi_backfill_chunk
+    WHERE aoi_type_short_name = p_aoi_type_short_name
+      AND status = 'pending';
 
-    RETURN QUERY EXECUTE v_sql USING v_aoi_type_id;
+    RETURN QUERY
+    SELECT
+        'failed_chunks'::text,
+        count(*)::bigint
+    FROM maintenance.shared_dataset_aoi_backfill_chunk
+    WHERE aoi_type_short_name = p_aoi_type_short_name
+      AND status = 'failed';
+
+    EXECUTE format('SELECT count(*) FROM %s', v_stage_ident) INTO v_stage_rows;
+    RETURN QUERY
+    SELECT 'staged_rows_remaining'::text, COALESCE(v_stage_rows, 0);
+
+    RETURN QUERY
+    SELECT
+        'links_inserted'::text,
+        COALESCE(sum(links_inserted), 0)::bigint
+    FROM maintenance.shared_dataset_aoi_backfill_chunk
+    WHERE aoi_type_short_name = p_aoi_type_short_name;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION maintenance.cleanup_shared_dataset_aoi_backfills(
+    p_retention interval DEFAULT interval '7 days'
+)
+RETURNS integer
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_row record;
+    v_removed integer := 0;
+BEGIN
+    FOR v_row IN
+        SELECT
+            r.aoi_type_short_name,
+            format('%I.%I', n.nspname, c.relname) AS stage_ident
+        FROM maintenance.shared_dataset_aoi_backfill_run r
+        JOIN pg_class c ON c.oid = r.stage_table
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE r.status IN ('completed', 'failed')
+          AND r.updated_at < now() - p_retention
+    LOOP
+        EXECUTE format('DROP TABLE IF EXISTS %s', v_row.stage_ident);
+        DELETE FROM maintenance.shared_dataset_aoi_backfill_run
+        WHERE aoi_type_short_name = v_row.aoi_type_short_name;
+        v_removed := v_removed + 1;
+    END LOOP;
+
+    RETURN v_removed;
 END;
 $$;
 
@@ -699,14 +609,15 @@ DECLARE
     v_aoi_type_id bigint;
     v_duplicate_count bigint;
     v_stage_ident text;
+    v_failed_chunks bigint;
+    v_pending_chunks bigint;
 BEGIN
     SELECT
         r.status,
         r.aoi_type_id,
         format('%I.%I', n.nspname, c.relname)
     INTO v_run_status, v_aoi_type_id, v_stage_ident
-    FROM maintenance.shared_dataset_aoi_backfill_run
-    r
+    FROM maintenance.shared_dataset_aoi_backfill_run r
     JOIN pg_class c ON c.oid = r.stage_table
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE r.aoi_type_short_name = p_aoi_type_short_name;
@@ -715,8 +626,18 @@ BEGIN
         RAISE EXCEPTION 'No prepared backfill run for AOI type %', p_aoi_type_short_name;
     END IF;
 
-    IF v_run_status <> 'completed' THEN
-        RAISE EXCEPTION 'Backfill for AOI type % is %, not completed', p_aoi_type_short_name, v_run_status;
+    SELECT
+        count(*) FILTER (WHERE status = 'failed'),
+        count(*) FILTER (WHERE status IN ('pending', 'running'))
+    INTO v_failed_chunks, v_pending_chunks
+    FROM maintenance.shared_dataset_aoi_backfill_chunk
+    WHERE aoi_type_short_name = p_aoi_type_short_name;
+
+    IF v_failed_chunks > 0 OR v_pending_chunks > 0 THEN
+        RAISE EXCEPTION 'Backfill for AOI type % is not complete: % failed chunks, % pending/running chunks',
+            p_aoi_type_short_name,
+            v_failed_chunks,
+            v_pending_chunks;
     END IF;
 
     SELECT count(*)
@@ -738,6 +659,13 @@ BEGIN
         filter_toggle = FALSE,
         update_time = now()
     WHERE id = v_aoi_type_id;
+
+    UPDATE maintenance.shared_dataset_aoi_backfill_run
+    SET
+        status = 'completed',
+        completed_at = now(),
+        updated_at = now()
+    WHERE aoi_type_short_name = p_aoi_type_short_name;
 
     EXECUTE format('DROP TABLE IF EXISTS %s', v_stage_ident);
 

@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import csv
 import logging
+import math
 import os
 import re
 import shutil
 import subprocess
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import gettempdir
-from typing import Sequence
 
 
 LOGGER = logging.getLogger("backfill_shared_dataset_aoi")
@@ -41,7 +42,13 @@ NAME_FIELD_CANDIDATES = (
 )
 DEFAULT_CACHE_DIR = str(Path(gettempdir()) / "cerulean_aoi_backfill_cache")
 LARGE_DATASET_WARN_BYTES = 250 * 1024 * 1024
-LARGE_DATASET_FAIL_BYTES = 500 * 1024 * 1024
+TARGET_CHUNK_BYTES = 64 * 1024 * 1024
+TARGET_CHUNK_FEATURES = 10000
+DEFAULT_MAX_CHUNK_STAGE_ROWS = 20000
+DEFAULT_SPLIT_CANDIDATE_SLICKS = 50000
+DEFAULT_MAX_SPLIT_DEPTH = 6
+DEFAULT_STALE_RETENTION = "7 days"
+MAX_CHUNK_RETRIES = 3
 
 
 @dataclass(frozen=True)
@@ -57,8 +64,68 @@ class AoiConfig:
     citation: str
 
 
+@dataclass(frozen=True)
+class ChunkSpec:
+    chunk_index: int
+    minx: float
+    miny: float
+    maxx: float
+    maxy: float
+    split_depth: int = 0
+    parent_chunk_id: int | None = None
+
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        return (self.minx, self.miny, self.maxx, self.maxy)
+
+
+@dataclass(frozen=True)
+class RunContext:
+    asset_slug: str
+    short_name: str
+    dataset_version: str
+    stage_table: str
+    ext_id_field: str
+    display_name_field: str | None
+    batch_size: int
+
+
+@dataclass(frozen=True)
+class LocalCatalogAsset:
+    slug: str
+    title: str
+    canonical_path: str
+    available_formats: tuple[str, ...]
+    citation: str = ""
+
+    def path_for_format(self, fmt: str) -> str:
+        if fmt == "fgb":
+            return self.canonical_path
+        return ""
+
+
 def load_catalog(catalog_source: str | None):
-    from skytruth_shared_datasets import Catalog, DEFAULT_CATALOG_GS_URI
+    try:
+        from skytruth_shared_datasets import Catalog, DEFAULT_CATALOG_GS_URI
+    except ModuleNotFoundError:
+        if not catalog_source or catalog_source.startswith("gs://"):
+            raise
+        with open(catalog_source, newline="") as src:
+            reader = csv.DictReader(src)
+            return [
+                LocalCatalogAsset(
+                    slug=row["asset_slug"],
+                    title=row.get("title") or row["asset_slug"],
+                    canonical_path=row.get("canonical_path") or "",
+                    available_formats=tuple(
+                        item
+                        for item in (row.get("available_formats") or "").split(";")
+                        if item
+                    ),
+                    citation=row.get("citation") or "",
+                )
+                for row in reader
+            ]
 
     source = catalog_source or DEFAULT_CATALOG_GS_URI
     if source.startswith("gs://"):
@@ -252,28 +319,12 @@ def inspect_dataset_size(path: Path) -> dict[str, object]:
         "dataset_size_bytes": size_bytes,
         "dataset_size_mb": round(size_bytes / (1024 * 1024), 1),
     }
-    if size_bytes > LARGE_DATASET_FAIL_BYTES:
+    if size_bytes > LARGE_DATASET_WARN_BYTES:
         result["dataset_size_warning"] = (
-            "Dataset exceeds the supported AOI backfill staging size "
-            f"({result['dataset_size_mb']} MB > {LARGE_DATASET_FAIL_BYTES // (1024 * 1024)} MB)"
-        )
-    elif size_bytes > LARGE_DATASET_WARN_BYTES:
-        result["dataset_size_warning"] = (
-            "Dataset is large for AOI backfill staging "
+            "Dataset is large enough that chunked AOI staging will be used "
             f"({result['dataset_size_mb']} MB)"
         )
     return result
-
-
-def enforce_dataset_size_limit(path: Path) -> None:
-    size_bytes = path.stat().st_size
-    if size_bytes > LARGE_DATASET_FAIL_BYTES:
-        size_mb = round(size_bytes / (1024 * 1024), 1)
-        raise ValueError(
-            "Dataset is too large for the current AOI backfill staging path. "
-            f"File size {size_mb} MB exceeds the supported limit of "
-            f"{LARGE_DATASET_FAIL_BYTES // (1024 * 1024)} MB."
-        )
 
 
 def inspect_fields(path: Path) -> list[str]:
@@ -281,6 +332,20 @@ def inspect_fields(path: Path) -> list[str]:
 
     sample = gpd.read_file(path, rows=1)
     return [column for column in sample.columns if column != sample.geometry.name]
+
+
+def _dataset_metadata(path: Path) -> dict[str, object]:
+    import fiona
+
+    with fiona.open(path) as src:
+        bounds = tuple(float(value) for value in src.bounds)
+        feature_count = len(src)
+        crs = src.crs_wkt or src.crs
+    return {
+        "feature_count": int(feature_count),
+        "bounds": bounds,
+        "crs": str(crs),
+    }
 
 
 def inspect_stage_readiness(path: Path, ext_id_field: str) -> dict[str, object]:
@@ -329,26 +394,12 @@ def promote_polygons(geometry):
     return None
 
 
-def load_stage_table(config: AoiConfig, path: Path, db_url: str) -> int:
+def normalize_stage_gdf(gdf, config: AoiConfig):
     import geopandas as gpd
-    import sqlalchemy as sa
-    from geoalchemy2 import Geometry
 
-    schema, table = parse_table_name(config.stage_table)
-    conn = open_connection(db_url)
-    try:
-        with conn.cursor() as cur:
-            cur.execute(f"CREATE SCHEMA IF NOT EXISTS {quote_identifier(schema)}")
-    finally:
-        conn.close()
-
-    LOGGER.info("Reading %s", path)
-    read_columns = [config.ext_id_field]
-    if config.display_name_field and config.display_name_field != config.ext_id_field:
-        read_columns.append(config.display_name_field)
-    gdf = gpd.read_file(path, columns=read_columns)
     if gdf.empty:
-        raise ValueError(f"Dataset {path} is empty")
+        return gpd.GeoDataFrame(columns=["ext_id", "name", "geom"], geometry="geom")
+
     gdf = gdf.set_crs("EPSG:4326") if gdf.crs is None else gdf.to_crs("EPSG:4326")
     gdf = gdf.rename(columns={config.ext_id_field: "ext_id"})
     gdf["ext_id"] = gdf["ext_id"].astype("string")
@@ -362,27 +413,140 @@ def load_stage_table(config: AoiConfig, path: Path, db_url: str) -> int:
         gdf["name"] = gdf["ext_id"]
     gdf["name"] = gdf["name"].fillna(gdf["ext_id"])
     gdf["geom"] = gdf.geometry.map(promote_polygons)
-    non_polygon_rows = int(
-        gdf["geom"].isna().sum() - (gdf.geometry.isna() | gdf.geometry.is_empty).sum()
-    )
-    if non_polygon_rows:
-        LOGGER.warning(
-            "Dropping %s non-polygon AOI rows from %s",
-            non_polygon_rows,
-            path,
-        )
     stage_gdf = gdf[["ext_id", "name", "geom"]].dropna(subset=["ext_id", "geom"])
-    stage_gdf = gpd.GeoDataFrame(stage_gdf, geometry="geom", crs="EPSG:4326")
-    if stage_gdf.empty:
-        raise ValueError(f"Dataset {path} does not contain any polygon AOI geometries")
+    return gpd.GeoDataFrame(stage_gdf, geometry="geom", crs="EPSG:4326")
 
+
+def _uniform_chunk_grid(
+    bounds: tuple[float, float, float, float], grid_side: int
+) -> list[ChunkSpec]:
+    minx, miny, maxx, maxy = bounds
+    if minx == maxx or miny == maxy:
+        return [ChunkSpec(chunk_index=1, minx=minx, miny=miny, maxx=maxx, maxy=maxy)]
+
+    width = (maxx - minx) / grid_side
+    height = (maxy - miny) / grid_side
+    chunks = []
+    chunk_index = 1
+    for row in range(grid_side):
+        for col in range(grid_side):
+            cell_minx = minx + col * width
+            cell_maxx = maxx if col == grid_side - 1 else minx + (col + 1) * width
+            cell_miny = miny + row * height
+            cell_maxy = maxy if row == grid_side - 1 else miny + (row + 1) * height
+            chunks.append(
+                ChunkSpec(
+                    chunk_index=chunk_index,
+                    minx=cell_minx,
+                    miny=cell_miny,
+                    maxx=cell_maxx,
+                    maxy=cell_maxy,
+                )
+            )
+            chunk_index += 1
+    return chunks
+
+
+def build_chunk_plan(path: Path) -> dict[str, object]:
+    metadata = _dataset_metadata(path)
+    feature_count = int(metadata["feature_count"])
+    bounds = metadata["bounds"]
+    size_bytes = path.stat().st_size
+    target_chunks = max(
+        1,
+        math.ceil(
+            max(
+                size_bytes / TARGET_CHUNK_BYTES,
+                feature_count / TARGET_CHUNK_FEATURES if feature_count else 1,
+            )
+        ),
+    )
+    grid_side = max(1, math.ceil(math.sqrt(target_chunks)))
+    chunks = _uniform_chunk_grid(bounds, grid_side)
+    return {
+        "bounds": bounds,
+        "feature_count": feature_count,
+        "grid_side": grid_side,
+        "target_chunk_count": len(chunks),
+        "target_chunk_bytes": TARGET_CHUNK_BYTES,
+        "target_chunk_features": TARGET_CHUNK_FEATURES,
+        "max_chunk_stage_rows": DEFAULT_MAX_CHUNK_STAGE_ROWS,
+        "split_candidate_slick_limit": DEFAULT_SPLIT_CANDIDATE_SLICKS,
+        "max_split_depth": DEFAULT_MAX_SPLIT_DEPTH,
+        "chunks": chunks,
+    }
+
+
+def split_chunk_bbox(chunk: ChunkSpec) -> list[ChunkSpec]:
+    midx = (chunk.minx + chunk.maxx) / 2
+    midy = (chunk.miny + chunk.maxy) / 2
+    if (
+        midx == chunk.minx
+        or midx == chunk.maxx
+        or midy == chunk.miny
+        or midy == chunk.maxy
+    ):
+        return []
+
+    next_depth = chunk.split_depth + 1
+    return [
+        ChunkSpec(
+            0, chunk.minx, chunk.miny, midx, midy, next_depth, chunk.parent_chunk_id
+        ),
+        ChunkSpec(
+            0, midx, chunk.miny, chunk.maxx, midy, next_depth, chunk.parent_chunk_id
+        ),
+        ChunkSpec(
+            0, chunk.minx, midy, midx, chunk.maxy, next_depth, chunk.parent_chunk_id
+        ),
+        ChunkSpec(
+            0, midx, midy, chunk.maxx, chunk.maxy, next_depth, chunk.parent_chunk_id
+        ),
+    ]
+
+
+def load_chunk_gdf(
+    config: AoiConfig, path: Path, bbox: tuple[float, float, float, float]
+):
+    import geopandas as gpd
+
+    read_columns = [config.ext_id_field]
+    if config.display_name_field and config.display_name_field != config.ext_id_field:
+        read_columns.append(config.display_name_field)
+    gdf = gpd.read_file(path, bbox=bbox, columns=read_columns)
+    if gdf.empty:
+        return normalize_stage_gdf(gdf, config)
+    return normalize_stage_gdf(gdf, config)
+
+
+def clear_stage_table(db_url: str, stage_table: str) -> None:
+    schema, table = parse_table_name(stage_table)
+    conn = open_connection(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"TRUNCATE TABLE {quote_identifier(schema)}.{quote_identifier(table)}"
+            )
+    finally:
+        conn.close()
+
+
+def load_stage_table(config: AoiConfig, stage_gdf, db_url: str) -> int:
+    import sqlalchemy as sa
+    from geoalchemy2 import Geometry
+
+    clear_stage_table(db_url, config.stage_table)
+    if stage_gdf.empty:
+        return 0
+
+    schema, table = parse_table_name(config.stage_table)
     engine = sa.create_engine(normalize_db_url(db_url))
     try:
         stage_gdf.to_postgis(
             table,
             engine,
             schema=schema,
-            if_exists="replace",
+            if_exists="append",
             index=False,
             dtype={"geom": Geometry("MULTIPOLYGON", srid=4326)},
         )
@@ -480,6 +644,22 @@ def query_rows(db_url: str, sql: str, params: tuple[object, ...]) -> list[tuple]
         conn.close()
 
 
+def query_one_row(db_url: str, sql: str, params: tuple[object, ...]):
+    rows = query_rows(db_url, sql, params)
+    return rows[0] if rows else None
+
+
+def execute_values(db_url: str, sql: str, rows: Sequence[tuple[object, ...]]) -> None:
+    if not rows:
+        return
+    conn = open_connection(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.executemany(sql, rows)
+    finally:
+        conn.close()
+
+
 def get_db_url(db_url: str | None = None) -> str:
     resolved_db_url = db_url or os.getenv("DB_URL")
     if not resolved_db_url:
@@ -527,6 +707,7 @@ def inspect_asset(
         citation=citation,
         version=version,
     )
+    chunk_plan = build_chunk_plan(dataset_path)
     result = {
         "input": asset_slug,
         "asset_slug": config.asset_slug,
@@ -539,10 +720,357 @@ def inspect_asset(
         "source_url": config.source_url,
         "cache_path": str(dataset_path),
         "fields": columns,
+        "chunk_plan": {
+            "bounds": chunk_plan["bounds"],
+            "grid_side": chunk_plan["grid_side"],
+            "target_chunk_count": chunk_plan["target_chunk_count"],
+            "target_chunk_bytes": chunk_plan["target_chunk_bytes"],
+            "target_chunk_features": chunk_plan["target_chunk_features"],
+            "max_chunk_stage_rows": chunk_plan["max_chunk_stage_rows"],
+            "split_candidate_slick_limit": chunk_plan["split_candidate_slick_limit"],
+            "max_split_depth": chunk_plan["max_split_depth"],
+        },
     }
     result.update(inspect_dataset_size(dataset_path))
     result.update(inspect_stage_readiness(dataset_path, config.ext_id_field))
     return to_plain_python(result)
+
+
+def cleanup_stale_backfills(
+    db_url: str, retention: str = DEFAULT_STALE_RETENTION
+) -> None:
+    call_procedure(
+        db_url,
+        "SELECT maintenance.cleanup_shared_dataset_aoi_backfills(%s)",
+        (retention,),
+    )
+
+
+def insert_chunk_manifest(
+    db_url: str, short_name: str, chunks: Sequence[ChunkSpec]
+) -> None:
+    rows = [
+        (
+            short_name,
+            chunk.chunk_index,
+            chunk.parent_chunk_id,
+            chunk.split_depth,
+            chunk.minx,
+            chunk.miny,
+            chunk.maxx,
+            chunk.maxy,
+        )
+        for chunk in chunks
+    ]
+    execute_values(
+        db_url,
+        """
+        INSERT INTO maintenance.shared_dataset_aoi_backfill_chunk (
+            aoi_type_short_name,
+            chunk_index,
+            parent_chunk_id,
+            split_depth,
+            minx,
+            miny,
+            maxx,
+            maxy
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (aoi_type_short_name, chunk_index) DO NOTHING
+        """,
+        rows,
+    )
+
+
+def get_run_context(db_url: str, short_name: str) -> RunContext:
+    row = query_one_row(
+        db_url,
+        """
+        SELECT
+            r.asset_slug,
+            r.aoi_type_short_name,
+            COALESCE(r.dataset_version, ''),
+            r.stage_table::text,
+            COALESCE(at.properties->>'ext_id_field', ''),
+            NULLIF(at.properties->>'display_name_field', ''),
+            r.batch_size
+        FROM maintenance.shared_dataset_aoi_backfill_run r
+        JOIN public.aoi_type at ON at.id = r.aoi_type_id
+        WHERE r.aoi_type_short_name = %s
+        """,
+        (short_name,),
+    )
+    if row is None:
+        raise ValueError(f"No prepared backfill run for AOI type {short_name!r}")
+    ext_id_field = row[4]
+    if not ext_id_field:
+        raise ValueError(f"AOI type {short_name!r} is missing ext_id_field metadata")
+    return RunContext(
+        asset_slug=row[0],
+        short_name=row[1],
+        dataset_version=row[2] or "latest",
+        stage_table=row[3],
+        ext_id_field=ext_id_field,
+        display_name_field=row[5],
+        batch_size=int(row[6]),
+    )
+
+
+def refresh_run_status(db_url: str, short_name: str) -> None:
+    call_procedure(
+        db_url,
+        """
+        UPDATE maintenance.shared_dataset_aoi_backfill_run r
+        SET
+            status = CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM maintenance.shared_dataset_aoi_backfill_chunk c
+                    WHERE c.aoi_type_short_name = r.aoi_type_short_name
+                      AND c.status = 'failed'
+                ) THEN 'failed'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM maintenance.shared_dataset_aoi_backfill_chunk c
+                    WHERE c.aoi_type_short_name = r.aoi_type_short_name
+                      AND c.status IN ('pending', 'running')
+                ) THEN 'running'
+                ELSE 'completed'
+            END,
+            completed_at = CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM maintenance.shared_dataset_aoi_backfill_chunk c
+                    WHERE c.aoi_type_short_name = r.aoi_type_short_name
+                      AND c.status IN ('pending', 'running', 'failed')
+                ) THEN NULL
+                ELSE now()
+            END,
+            updated_at = now()
+        WHERE r.aoi_type_short_name = %s
+        """,
+        (short_name,),
+    )
+
+
+def claim_next_chunk(db_url: str, short_name: str):
+    row = query_one_row(
+        db_url,
+        """
+        WITH next_chunk AS (
+            SELECT id
+            FROM maintenance.shared_dataset_aoi_backfill_chunk
+            WHERE aoi_type_short_name = %s
+              AND status = 'pending'
+            ORDER BY split_depth, chunk_index, id
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        UPDATE maintenance.shared_dataset_aoi_backfill_chunk c
+        SET
+            status = 'running',
+            started_at = COALESCE(c.started_at, now()),
+            updated_at = now()
+        FROM next_chunk
+        WHERE c.id = next_chunk.id
+        RETURNING
+            c.id,
+            c.chunk_index,
+            c.parent_chunk_id,
+            c.split_depth,
+            c.minx,
+            c.miny,
+            c.maxx,
+            c.maxy,
+            c.retry_count
+        """,
+        (short_name,),
+    )
+    if row is None:
+        return None
+    refresh_run_status(db_url, short_name)
+    return {
+        "id": int(row[0]),
+        "chunk_index": int(row[1]),
+        "parent_chunk_id": row[2],
+        "split_depth": int(row[3]),
+        "bbox": (float(row[4]), float(row[5]), float(row[6]), float(row[7])),
+        "retry_count": int(row[8]),
+    }
+
+
+def mark_chunk_completed(
+    db_url: str,
+    short_name: str,
+    chunk_id: int,
+    *,
+    stage_rows_loaded: int,
+    candidate_slick_rows: int,
+    match_rows: int,
+    aois_inserted: int,
+    links_inserted: int,
+    sub_batches: int,
+) -> None:
+    call_procedure(
+        db_url,
+        """
+        UPDATE maintenance.shared_dataset_aoi_backfill_chunk
+        SET
+            status = 'completed',
+            stage_rows_loaded = %s,
+            candidate_slick_rows = %s,
+            match_rows = %s,
+            aois_inserted = %s,
+            links_inserted = %s,
+            sub_batches = %s,
+            finished_at = now(),
+            updated_at = now(),
+            last_error = NULL
+        WHERE aoi_type_short_name = %s
+          AND id = %s
+        """,
+        (
+            stage_rows_loaded,
+            candidate_slick_rows,
+            match_rows,
+            aois_inserted,
+            links_inserted,
+            sub_batches,
+            short_name,
+            chunk_id,
+        ),
+    )
+    refresh_run_status(db_url, short_name)
+
+
+def mark_chunk_split(
+    db_url: str,
+    short_name: str,
+    chunk_id: int,
+    chunk_index: int,
+    split_depth: int,
+    bbox: tuple[float, float, float, float],
+) -> None:
+    child_specs = split_chunk_bbox(
+        ChunkSpec(
+            chunk_index=chunk_index,
+            minx=bbox[0],
+            miny=bbox[1],
+            maxx=bbox[2],
+            maxy=bbox[3],
+            split_depth=split_depth,
+            parent_chunk_id=chunk_id,
+        )
+    )
+    if not child_specs:
+        raise ValueError(f"Cannot split degenerate chunk {chunk_id}")
+
+    child_rows = []
+    for idx, child in enumerate(child_specs, start=1):
+        child_rows.append(
+            (
+                short_name,
+                chunk_index * 10 + idx,
+                chunk_id,
+                child.split_depth,
+                child.minx,
+                child.miny,
+                child.maxx,
+                child.maxy,
+            )
+        )
+
+    execute_values(
+        db_url,
+        """
+        INSERT INTO maintenance.shared_dataset_aoi_backfill_chunk (
+            aoi_type_short_name,
+            chunk_index,
+            parent_chunk_id,
+            split_depth,
+            minx,
+            miny,
+            maxx,
+            maxy
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        child_rows,
+    )
+    call_procedure(
+        db_url,
+        """
+        UPDATE maintenance.shared_dataset_aoi_backfill_chunk
+        SET
+            status = 'split',
+            finished_at = now(),
+            updated_at = now()
+        WHERE aoi_type_short_name = %s
+          AND id = %s
+        """,
+        (short_name, chunk_id),
+    )
+    refresh_run_status(db_url, short_name)
+
+
+def mark_chunk_retry(db_url: str, short_name: str, chunk_id: int, error: str) -> None:
+    row = query_one_row(
+        db_url,
+        """
+        SELECT retry_count
+        FROM maintenance.shared_dataset_aoi_backfill_chunk
+        WHERE aoi_type_short_name = %s
+          AND id = %s
+        """,
+        (short_name, chunk_id),
+    )
+    retry_count = int(row[0]) if row else MAX_CHUNK_RETRIES
+    status = "pending" if retry_count + 1 < MAX_CHUNK_RETRIES else "failed"
+    call_procedure(
+        db_url,
+        """
+        UPDATE maintenance.shared_dataset_aoi_backfill_chunk
+        SET
+            status = %s,
+            retry_count = retry_count + 1,
+            last_error = %s,
+            updated_at = now(),
+            finished_at = CASE WHEN %s = 'failed' THEN now() ELSE finished_at END
+        WHERE aoi_type_short_name = %s
+          AND id = %s
+        """,
+        (status, error[:2000], status, short_name, chunk_id),
+    )
+    refresh_run_status(db_url, short_name)
+
+
+def acquire_run_lock(db_url: str, short_name: str):
+    conn = open_connection(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_try_advisory_lock(hashtext(%s))",
+                (f"shared_dataset_aoi_backfill:{short_name}",),
+            )
+            locked = bool(cur.fetchone()[0])
+        if not locked:
+            conn.close()
+            raise RuntimeError(f"Backfill is already running for AOI type {short_name}")
+        return conn
+    except Exception:
+        conn.close()
+        raise
+
+
+def release_run_lock(lock_conn, short_name: str) -> None:
+    try:
+        with lock_conn.cursor() as cur:
+            cur.execute(
+                "SELECT pg_advisory_unlock(hashtext(%s))",
+                (f"shared_dataset_aoi_backfill:{short_name}",),
+            )
+    finally:
+        lock_conn.close()
 
 
 def prepare_backfill(
@@ -563,6 +1091,7 @@ def prepare_backfill(
     batch_size: int = 5000,
 ) -> AoiConfig:
     resolved_db_url = get_db_url(db_url)
+    cleanup_stale_backfills(resolved_db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
     asset = get_catalog_asset(resolved_asset_slug, catalog_source)
     ref = fetch_dataset_ref(
@@ -589,7 +1118,7 @@ def prepare_backfill(
         version=version,
     )
     parse_table_name(config.stage_table)
-    enforce_dataset_size_limit(dataset_path)
+    chunk_plan = build_chunk_plan(dataset_path)
 
     LOGGER.info("asset_slug=%s", config.asset_slug)
     LOGGER.info("short_name=%s", config.short_name)
@@ -598,10 +1127,11 @@ def prepare_backfill(
     LOGGER.info("display_name_field=%s", config.display_name_field or "<ext_id>")
     LOGGER.info("stage_table=%s", config.stage_table)
     LOGGER.info("dataset_version=%s", config.dataset_version)
+    LOGGER.info("planned_chunk_count=%s", chunk_plan["target_chunk_count"])
 
-    row_count = load_stage_table(config, dataset_path, resolved_db_url)
-    LOGGER.info("Loaded %s staged AOI rows", row_count)
     run_psql_file(resolved_db_url, config, batch_size)
+    insert_chunk_manifest(resolved_db_url, config.short_name, chunk_plan["chunks"])
+    refresh_run_status(resolved_db_url, config.short_name)
     return config
 
 
@@ -616,28 +1146,141 @@ def run_backfill(
     lock_timeout: str = "1s",
     statement_timeout: str = "10min",
 ) -> None:
+    import time
+
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
     resolved_short_name = short_name or slug_to_short_name(resolved_asset_slug)
-    call_procedure(
-        resolved_db_url,
-        """
-        CALL maintenance.run_shared_dataset_aoi_backfill(
-            %s,
-            %s,
-            %s,
-            %s,
-            %s
-        )
-        """,
-        (
-            resolved_short_name,
-            max_batches,
-            sleep_seconds,
-            lock_timeout,
-            statement_timeout,
-        ),
+    run_context = get_run_context(resolved_db_url, resolved_short_name)
+    asset = get_catalog_asset(run_context.asset_slug, catalog_source)
+    ref = fetch_dataset_ref(
+        run_context.asset_slug,
+        version=run_context.dataset_version or "latest",
+        cache_dir=Path(DEFAULT_CACHE_DIR),
+        force=False,
+        catalog_source=catalog_source,
     )
+    config = AoiConfig(
+        asset_slug=run_context.asset_slug,
+        short_name=run_context.short_name,
+        long_name=getattr(asset, "title", None) or run_context.asset_slug,
+        ext_id_field=run_context.ext_id_field,
+        display_name_field=run_context.display_name_field,
+        stage_table=run_context.stage_table,
+        dataset_version=run_context.dataset_version,
+        source_url=getattr(asset, "canonical_path", None) or "",
+        citation=derive_catalog_citation(asset),
+    )
+    dataset_path = Path(ref.cache_path)
+
+    lock_conn = acquire_run_lock(resolved_db_url, resolved_short_name)
+    try:
+        chunks_run = 0
+        while max_batches is None or chunks_run < max_batches:
+            chunk = claim_next_chunk(resolved_db_url, resolved_short_name)
+            if chunk is None:
+                refresh_run_status(resolved_db_url, resolved_short_name)
+                return
+
+            try:
+                stage_gdf = load_chunk_gdf(config, dataset_path, chunk["bbox"])
+                stage_rows = len(stage_gdf)
+                if stage_rows == 0:
+                    clear_stage_table(resolved_db_url, config.stage_table)
+                    mark_chunk_completed(
+                        resolved_db_url,
+                        resolved_short_name,
+                        chunk["id"],
+                        stage_rows_loaded=0,
+                        candidate_slick_rows=0,
+                        match_rows=0,
+                        aois_inserted=0,
+                        links_inserted=0,
+                        sub_batches=0,
+                    )
+                elif (
+                    stage_rows > DEFAULT_MAX_CHUNK_STAGE_ROWS
+                    and chunk["split_depth"] < DEFAULT_MAX_SPLIT_DEPTH
+                ):
+                    clear_stage_table(resolved_db_url, config.stage_table)
+                    mark_chunk_split(
+                        resolved_db_url,
+                        resolved_short_name,
+                        chunk["id"],
+                        chunk["chunk_index"],
+                        chunk["split_depth"],
+                        chunk["bbox"],
+                    )
+                else:
+                    load_stage_table(config, stage_gdf, resolved_db_url)
+                    result = query_one_row(
+                        resolved_db_url,
+                        """
+                        SELECT *
+                        FROM maintenance.process_shared_dataset_aoi_backfill_chunk(
+                            %s,
+                            %s,
+                            %s,
+                            %s,
+                            %s,
+                            %s,
+                            %s,
+                            %s
+                        )
+                        """,
+                        (
+                            resolved_short_name,
+                            chunk["id"],
+                            chunk["bbox"][0],
+                            chunk["bbox"][1],
+                            chunk["bbox"][2],
+                            chunk["bbox"][3],
+                            lock_timeout,
+                            statement_timeout,
+                        ),
+                    )
+                    clear_stage_table(resolved_db_url, config.stage_table)
+                    if result is None:
+                        raise RuntimeError("Chunk processing returned no result row")
+                    if result[0] == "split_required":
+                        if chunk["split_depth"] >= DEFAULT_MAX_SPLIT_DEPTH:
+                            raise RuntimeError(
+                                f"Chunk {chunk['id']} exceeded split depth limit"
+                            )
+                        mark_chunk_split(
+                            resolved_db_url,
+                            resolved_short_name,
+                            chunk["id"],
+                            chunk["chunk_index"],
+                            chunk["split_depth"],
+                            chunk["bbox"],
+                        )
+                    else:
+                        mark_chunk_completed(
+                            resolved_db_url,
+                            resolved_short_name,
+                            chunk["id"],
+                            stage_rows_loaded=stage_rows,
+                            candidate_slick_rows=int(result[2]),
+                            match_rows=int(result[3]),
+                            aois_inserted=int(result[4]),
+                            links_inserted=int(result[5]),
+                            sub_batches=int(result[6]),
+                        )
+                chunks_run += 1
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
+            except Exception as exc:
+                clear_stage_table(resolved_db_url, config.stage_table)
+                mark_chunk_retry(
+                    resolved_db_url,
+                    resolved_short_name,
+                    chunk["id"],
+                    str(exc),
+                )
+                raise
+    finally:
+        release_run_lock(lock_conn, resolved_short_name)
 
 
 def validate_backfill(
@@ -671,17 +1314,24 @@ def get_backfill_status(
         resolved_db_url,
         """
         SELECT
-            aoi_type_short_name,
-            status,
-            next_slick_id,
-            max_slick_id_at_start,
-            total_slick_rows,
-            total_match_rows,
-            total_aoi_rows_inserted,
-            total_slick_to_aoi_rows_inserted,
-            updated_at
-        FROM maintenance.shared_dataset_aoi_backfill_run
-        WHERE aoi_type_short_name = %s
+            r.aoi_type_short_name,
+            r.status,
+            count(*)::bigint AS total_chunks,
+            count(*) FILTER (WHERE c.status = 'completed')::bigint AS completed_chunks,
+            count(*) FILTER (WHERE c.status = 'pending')::bigint AS pending_chunks,
+            count(*) FILTER (WHERE c.status = 'running')::bigint AS running_chunks,
+            count(*) FILTER (WHERE c.status = 'failed')::bigint AS failed_chunks,
+            COALESCE(sum(c.stage_rows_loaded), 0)::bigint AS staged_rows_loaded,
+            COALESCE(sum(c.candidate_slick_rows), 0)::bigint AS candidate_slick_rows,
+            COALESCE(sum(c.match_rows), 0)::bigint AS match_rows,
+            COALESCE(sum(c.aois_inserted), 0)::bigint AS aois_inserted,
+            COALESCE(sum(c.links_inserted), 0)::bigint AS links_inserted,
+            r.updated_at
+        FROM maintenance.shared_dataset_aoi_backfill_run r
+        JOIN maintenance.shared_dataset_aoi_backfill_chunk c
+          ON c.aoi_type_short_name = r.aoi_type_short_name
+        WHERE r.aoi_type_short_name = %s
+        GROUP BY r.aoi_type_short_name, r.status, r.updated_at
         """,
         (resolved_short_name,),
     )

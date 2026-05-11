@@ -48,6 +48,7 @@ class PrepareResponse(BaseModel):
     stage_table: str
     dataset_version: str
     batch_size: int
+    initial_chunk_count: int
     status: str = "prepared"
 
 

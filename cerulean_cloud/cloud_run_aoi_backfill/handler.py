@@ -37,13 +37,17 @@ def _status_rows(asset_slug: str, short_name: str | None, catalog_source: str | 
             {
                 "short_name": row[0],
                 "status": row[1],
-                "next_slick_id": row[2],
-                "max_slick_id_at_start": row[3],
-                "slicks_scanned": row[4],
-                "matches": row[5],
-                "aois_inserted": row[6],
-                "links_inserted": row[7],
-                "updated_at": row[8],
+                "total_chunks": row[2],
+                "completed_chunks": row[3],
+                "pending_chunks": row[4],
+                "running_chunks": row[5],
+                "failed_chunks": row[6],
+                "staged_rows_loaded": row[7],
+                "candidate_slick_rows": row[8],
+                "matches": row[9],
+                "aois_inserted": row[10],
+                "links_inserted": row[11],
+                "updated_at": row[12],
             }
             for row in rows
         ]
@@ -104,12 +108,18 @@ def prepare(payload: PrepareRequest) -> PrepareResponse:
         citation=payload.citation,
         batch_size=payload.batch_size,
     )
+    status_rows = service.get_backfill_status(
+        payload.asset_slug,
+        short_name=config.short_name,
+        catalog_source=payload.catalog_source,
+    )
     return PrepareResponse(
         short_name=config.short_name,
         asset_slug=config.asset_slug,
         stage_table=config.stage_table,
         dataset_version=config.dataset_version,
         batch_size=payload.batch_size,
+        initial_chunk_count=int(status_rows[0][2]) if status_rows else 0,
     )
 
 

@@ -30,18 +30,15 @@ def test_shared_dataset_aoi_backfill_sql_keeps_online_safety_contract():
     assert "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_aoi_type_ext_id" in sql_text
     assert "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_slick_geom" in sql_text
     assert "CREATE SCHEMA IF NOT EXISTS maintenance" in sql_text
-    assert "v_stage_schema = 'public'" in sql_text
-    assert "RAISE EXCEPTION 'Staging table must not live in public" in sql_text
+    assert "Staging table must not live in public" in sql_text
     assert "SET LOCAL lock_timeout" in sql_text
     assert "SET LOCAL statement_timeout" in sql_text
-    assert "COMMIT;" in sql_text
-    assert "pg_try_advisory_lock" in sql_text
-    assert "pg_sleep" in sql_text
+    assert "ST_Subdivide" in sql_text
     assert "ON CONFLICT DO NOTHING" in sql_text
     assert "ST_Intersects" in sql_text
-    assert "ST_IsValid" in sql_text
-    assert "GeometryType(geom) NOT IN ('POLYGON', 'MULTIPOLYGON')" in sql_text
-    assert "RAISE NOTICE 'Staging table % has % duplicate ext_id values" in sql_text
+    assert "cleanup_shared_dataset_aoi_backfills" in sql_text
+    assert "split_required" in sql_text
+    assert "DROP TABLE IF EXISTS" in sql_text
 
     forbidden_fragments = [
         "TRUNCATE public.",
@@ -58,7 +55,8 @@ def test_shared_dataset_aoi_backfill_keeps_aoi_hidden_until_manual_toggle():
     sql_text = BACKFILL_SQL.read_text()
 
     preparation_sql = sql_text.split(
-        "CREATE OR REPLACE PROCEDURE maintenance.run_shared_dataset_aoi_backfill", 1
+        "CREATE OR REPLACE FUNCTION maintenance.process_shared_dataset_aoi_backfill_chunk",
+        1,
     )[0]
     finish_sql = sql_text.split(
         "CREATE OR REPLACE PROCEDURE maintenance.finish_shared_dataset_aoi_backfill", 1
@@ -170,11 +168,48 @@ def test_backfill_wrapper_inspects_and_enforces_dataset_size(tmp_path):
 
     assert result["dataset_size_bytes"] == path.stat().st_size
     assert "dataset_size_warning" in result
+    assert "chunked AOI staging" in result["dataset_size_warning"]
 
-    path.open("r+b").truncate(wrapper.LARGE_DATASET_FAIL_BYTES + 1)
 
-    with pytest.raises(ValueError, match="Dataset is too large"):
-        wrapper.enforce_dataset_size_limit(path)
+def test_backfill_wrapper_builds_chunk_plan(monkeypatch, tmp_path):
+    wrapper = load_wrapper_module()
+    path = tmp_path / "dataset.fgb"
+    path.touch()
+    path.open("r+b").truncate(wrapper.TARGET_CHUNK_BYTES * 5)
+
+    monkeypatch.setattr(
+        wrapper,
+        "_dataset_metadata",
+        lambda _: {
+            "feature_count": wrapper.TARGET_CHUNK_FEATURES * 2,
+            "bounds": (0.0, 0.0, 10.0, 10.0),
+            "crs": "EPSG:4326",
+        },
+    )
+
+    result = wrapper.build_chunk_plan(path)
+
+    assert result["grid_side"] >= 2
+    assert result["target_chunk_count"] == len(result["chunks"])
+    assert result["target_chunk_count"] >= 4
+
+
+def test_backfill_wrapper_splits_chunk_bbox():
+    wrapper = load_wrapper_module()
+
+    children = wrapper.split_chunk_bbox(
+        wrapper.ChunkSpec(
+            chunk_index=1,
+            minx=0.0,
+            miny=0.0,
+            maxx=8.0,
+            maxy=4.0,
+            split_depth=0,
+        )
+    )
+
+    assert len(children) == 4
+    assert {child.split_depth for child in children} == {1}
 
 
 def test_backfill_wrapper_infers_fields_when_unambiguous():
