@@ -294,7 +294,7 @@ def promote_polygons(geometry):
         return geometry
     if isinstance(geometry, Polygon):
         return MultiPolygon([geometry])
-    raise ValueError(f"Expected Polygon or MultiPolygon, got {geometry.geom_type!r}")
+    return None
 
 
 def load_stage_table(config: AoiConfig, path: Path, db_url: str) -> int:
@@ -322,8 +322,20 @@ def load_stage_table(config: AoiConfig, path: Path, db_url: str) -> int:
         gdf["name"] = gdf["ext_id"]
     gdf["name"] = gdf["name"].fillna(gdf["ext_id"])
     gdf["geom"] = gdf.geometry.map(promote_polygons)
+    non_polygon_rows = int(
+        gdf["geom"].isna().sum()
+        - (gdf.geometry.isna() | gdf.geometry.is_empty).sum()
+    )
+    if non_polygon_rows:
+        LOGGER.warning(
+            "Dropping %s non-polygon AOI rows from %s",
+            non_polygon_rows,
+            path,
+        )
     stage_gdf = gdf[["ext_id", "name", "geom"]].dropna(subset=["ext_id", "geom"])
     stage_gdf = gpd.GeoDataFrame(stage_gdf, geometry="geom", crs="EPSG:4326")
+    if stage_gdf.empty:
+        raise ValueError(f"Dataset {path} does not contain any polygon AOI geometries")
 
     engine = sa.create_engine(normalize_db_url(db_url))
     try:
