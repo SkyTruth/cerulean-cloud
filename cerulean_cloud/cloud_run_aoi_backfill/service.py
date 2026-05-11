@@ -40,6 +40,8 @@ NAME_FIELD_CANDIDATES = (
     "site_name",
 )
 DEFAULT_CACHE_DIR = str(Path(gettempdir()) / "cerulean_aoi_backfill_cache")
+LARGE_DATASET_WARN_BYTES = 250 * 1024 * 1024
+LARGE_DATASET_FAIL_BYTES = 500 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -242,6 +244,36 @@ def normalize_dataset_version(
     if raw_version == f"{asset_slug}@":
         return ""
     return raw_version
+
+
+def inspect_dataset_size(path: Path) -> dict[str, object]:
+    size_bytes = path.stat().st_size
+    result = {
+        "dataset_size_bytes": size_bytes,
+        "dataset_size_mb": round(size_bytes / (1024 * 1024), 1),
+    }
+    if size_bytes > LARGE_DATASET_FAIL_BYTES:
+        result["dataset_size_warning"] = (
+            "Dataset exceeds the supported AOI backfill staging size "
+            f"({result['dataset_size_mb']} MB > {LARGE_DATASET_FAIL_BYTES // (1024 * 1024)} MB)"
+        )
+    elif size_bytes > LARGE_DATASET_WARN_BYTES:
+        result["dataset_size_warning"] = (
+            "Dataset is large for AOI backfill staging "
+            f"({result['dataset_size_mb']} MB)"
+        )
+    return result
+
+
+def enforce_dataset_size_limit(path: Path) -> None:
+    size_bytes = path.stat().st_size
+    if size_bytes > LARGE_DATASET_FAIL_BYTES:
+        size_mb = round(size_bytes / (1024 * 1024), 1)
+        raise ValueError(
+            "Dataset is too large for the current AOI backfill staging path. "
+            f"File size {size_mb} MB exceeds the supported limit of "
+            f"{LARGE_DATASET_FAIL_BYTES // (1024 * 1024)} MB."
+        )
 
 
 def inspect_fields(path: Path) -> list[str]:
@@ -508,6 +540,7 @@ def inspect_asset(
         "cache_path": str(dataset_path),
         "fields": columns,
     }
+    result.update(inspect_dataset_size(dataset_path))
     result.update(inspect_stage_readiness(dataset_path, config.ext_id_field))
     return to_plain_python(result)
 
@@ -556,6 +589,7 @@ def prepare_backfill(
         version=version,
     )
     parse_table_name(config.stage_table)
+    enforce_dataset_size_limit(dataset_path)
 
     LOGGER.info("asset_slug=%s", config.asset_slug)
     LOGGER.info("short_name=%s", config.short_name)

@@ -73,6 +73,7 @@ def test_shared_dataset_aoi_backfill_keeps_aoi_hidden_until_manual_toggle():
 
     assert "filter_toggle = FALSE" in finish_sql
     assert "manual UI enablement" in finish_sql
+    assert "DROP TABLE IF EXISTS" in finish_sql
 
 
 def test_backfill_wrapper_derives_safe_names_from_asset_slug():
@@ -157,6 +158,23 @@ def test_backfill_wrapper_citation_is_empty_when_missing():
         asset = wrapper.get_catalog_asset("petrodata", str(catalog_path))
 
         assert wrapper.derive_catalog_citation(asset) == ""
+
+
+def test_backfill_wrapper_inspects_and_enforces_dataset_size(tmp_path):
+    wrapper = load_wrapper_module()
+    path = tmp_path / "dataset.fgb"
+    path.touch()
+    path.open("r+b").truncate(wrapper.LARGE_DATASET_WARN_BYTES + 1)
+
+    result = wrapper.inspect_dataset_size(path)
+
+    assert result["dataset_size_bytes"] == path.stat().st_size
+    assert "dataset_size_warning" in result
+
+    path.open("r+b").truncate(wrapper.LARGE_DATASET_FAIL_BYTES + 1)
+
+    with pytest.raises(ValueError, match="Dataset is too large"):
+        wrapper.enforce_dataset_size_limit(path)
 
 
 def test_backfill_wrapper_infers_fields_when_unambiguous():

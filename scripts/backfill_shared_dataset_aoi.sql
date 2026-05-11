@@ -698,11 +698,18 @@ DECLARE
     v_run_status text;
     v_aoi_type_id bigint;
     v_duplicate_count bigint;
+    v_stage_ident text;
 BEGIN
-    SELECT status, aoi_type_id
-    INTO v_run_status, v_aoi_type_id
+    SELECT
+        r.status,
+        r.aoi_type_id,
+        format('%I.%I', n.nspname, c.relname)
+    INTO v_run_status, v_aoi_type_id, v_stage_ident
     FROM maintenance.shared_dataset_aoi_backfill_run
-    WHERE aoi_type_short_name = p_aoi_type_short_name;
+    r
+    JOIN pg_class c ON c.oid = r.stage_table
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE r.aoi_type_short_name = p_aoi_type_short_name;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'No prepared backfill run for AOI type %', p_aoi_type_short_name;
@@ -732,8 +739,11 @@ BEGIN
         update_time = now()
     WHERE id = v_aoi_type_id;
 
-    RAISE NOTICE 'AOI type % passed finish checks and remains filter_toggle FALSE for manual UI enablement',
-        p_aoi_type_short_name;
+    EXECUTE format('DROP TABLE IF EXISTS %s', v_stage_ident);
+
+    RAISE NOTICE 'AOI type % passed finish checks, stage table % was dropped, and filter_toggle remains FALSE for manual UI enablement',
+        p_aoi_type_short_name,
+        v_stage_ident;
 END;
 $$;
 
