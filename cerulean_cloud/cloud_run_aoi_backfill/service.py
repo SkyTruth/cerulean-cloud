@@ -323,8 +323,7 @@ def load_stage_table(config: AoiConfig, path: Path, db_url: str) -> int:
     gdf["name"] = gdf["name"].fillna(gdf["ext_id"])
     gdf["geom"] = gdf.geometry.map(promote_polygons)
     non_polygon_rows = int(
-        gdf["geom"].isna().sum()
-        - (gdf.geometry.isna() | gdf.geometry.is_empty).sum()
+        gdf["geom"].isna().sum() - (gdf.geometry.isna() | gdf.geometry.is_empty).sum()
     )
     if non_polygon_rows:
         LOGGER.warning(
