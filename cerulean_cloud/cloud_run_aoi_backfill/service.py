@@ -311,13 +311,21 @@ def load_stage_table(config: AoiConfig, path: Path, db_url: str) -> int:
         conn.close()
 
     LOGGER.info("Reading %s", path)
-    gdf = gpd.read_file(path)
+    read_columns = [config.ext_id_field]
+    if config.display_name_field and config.display_name_field != config.ext_id_field:
+        read_columns.append(config.display_name_field)
+    gdf = gpd.read_file(path, columns=read_columns)
     if gdf.empty:
         raise ValueError(f"Dataset {path} is empty")
     gdf = gdf.set_crs("EPSG:4326") if gdf.crs is None else gdf.to_crs("EPSG:4326")
-    gdf["ext_id"] = gdf[config.ext_id_field].astype("string")
+    gdf = gdf.rename(columns={config.ext_id_field: "ext_id"})
+    gdf["ext_id"] = gdf["ext_id"].astype("string")
     if config.display_name_field:
-        gdf["name"] = gdf[config.display_name_field].astype("string")
+        if config.display_name_field == config.ext_id_field:
+            gdf["name"] = gdf["ext_id"]
+        else:
+            gdf = gdf.rename(columns={config.display_name_field: "name"})
+            gdf["name"] = gdf["name"].astype("string")
     else:
         gdf["name"] = gdf["ext_id"]
     gdf["name"] = gdf["name"].fillna(gdf["ext_id"])
