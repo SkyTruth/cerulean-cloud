@@ -84,6 +84,9 @@ class AoiType(Base):  # noqa
     citation = Column(Text)
     update_time = Column(DateTime, server_default=text("now()"))
     filter_toggle = deferred(Column(Boolean, server_default=text("NULL")))
+    slick_to_aoi_enabled = deferred(
+        Column(Boolean, nullable=False, server_default=text("true"))
+    )
     owner = deferred(Column(ForeignKey("users.id"), server_default=text("NULL")))
     read_perm = deferred(
         Column(ForeignKey("permission.id"), server_default=text("NULL"))
