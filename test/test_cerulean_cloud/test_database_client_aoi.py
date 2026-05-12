@@ -73,6 +73,7 @@ async def test_get_aoi_accessor_configs_reads_properties_json(db_session):
                         short_name="SHARED_DATASET",
                         prop_keys=[
                             "asset_slug",
+                            "pmtiles_access_tier",
                             "ext_id_field",
                             "display_name_field",
                         ],
@@ -976,6 +977,7 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         assert "properties->>'format'" not in sql_text
         assert "'SHARED_DATASET'" in sql_text
         assert "NULLIF(properties->>'asset_slug', '') IS NOT NULL" in sql_text
+        assert "'pmtiles_access_tier'" in sql_text
         assert "'slick_to_aoi_buffer_m'" in sql_text
         assert (
             "jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'number'" in sql_text
@@ -988,6 +990,10 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         assert (
             '"ext_id_field":"SITE_ID"' in sql_text
             or '"ext_id_field": "SITE_ID"' in sql_text
+        )
+        assert (
+            '"asset_slug":"global-coral-reefs"' in sql_text
+            or '"asset_slug": "global-coral-reefs"' in sql_text
         )
         assert "ck_aoi_type_access_properties" in sql_text
         assert "slick_to_aoi_enabled" in sql_text
@@ -1009,6 +1015,7 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         )[1].split(";", 1)[0]
         assert "read_permission.short_name = 'any'" in public_view_sql
         assert "AS slick_to_aoi_buffer_m" in public_view_sql
+        assert "AS pmtiles_access_tier" in public_view_sql
         assert (
             "COALESCE((aoi_type.properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)"
             in public_view_sql
@@ -1035,6 +1042,7 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         assert "short_name IN ('EEZ', 'IHO', 'MPA')" not in aoi_ids_sql
 
     assert "DROP CONSTRAINT IF EXISTS ck_aoi_type_access_properties" in rollback_text
+    assert "short_name = 'CORAL'" in rollback_text
     assert "DROP COLUMN IF EXISTS slick_to_aoi_enabled" in rollback_text
     assert "DROP VIEW IF EXISTS public.aoi_type_public" in rollback_text
     assert "ALTER COLUMN geometry SET NOT NULL" not in rollback_text

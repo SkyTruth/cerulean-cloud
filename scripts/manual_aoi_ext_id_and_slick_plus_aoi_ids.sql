@@ -39,7 +39,7 @@ CREATE TABLE public.aoi_access_type (
 
 INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
 VALUES
-    (1, 'SHARED_DATASET', ARRAY['asset_slug', 'ext_id_field', 'display_name_field', 'slick_to_aoi_buffer_m']),
+    (1, 'SHARED_DATASET', ARRAY['asset_slug', 'pmtiles_access_tier', 'ext_id_field', 'display_name_field', 'slick_to_aoi_buffer_m']),
     (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field', 'slick_to_aoi_buffer_m']),
     (3, 'DB_REMOTE', ARRAY['db_conn_secret_name', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field', 'slick_to_aoi_buffer_m']);
 
@@ -90,6 +90,7 @@ DO $$
 DECLARE
     owner_id bigint;
     read_perm_id bigint;
+    coral_aoi_type_id bigint;
 BEGIN
     SELECT id INTO owner_id
     FROM public.users
@@ -146,6 +147,62 @@ BEGIN
         access_type = 'DB_LOCAL',
         properties = '{"table_name":"aoi_user","geog_col":"geometry","ext_id_col":"aoi_id"}'::jsonb
     WHERE short_name = 'USER';
+
+    INSERT INTO public.aoi_type (
+        short_name,
+        long_name,
+        filter_toggle,
+        slick_to_aoi_enabled,
+        owner,
+        read_perm,
+        access_type,
+        properties
+    )
+    VALUES (
+        'CORAL',
+        'Global Coral Reefs',
+        TRUE,
+        TRUE,
+        owner_id,
+        read_perm_id,
+        'SHARED_DATASET',
+        '{"asset_slug":"global-coral-reefs","pmtiles_access_tier":"private","ext_id_field":"METADATA_I","display_name_field":"NAME","slick_to_aoi_buffer_m":10000}'::jsonb
+    )
+    ON CONFLICT (short_name) DO UPDATE
+    SET
+        long_name = EXCLUDED.long_name,
+        filter_toggle = EXCLUDED.filter_toggle,
+        slick_to_aoi_enabled = EXCLUDED.slick_to_aoi_enabled,
+        owner = EXCLUDED.owner,
+        read_perm = EXCLUDED.read_perm,
+        access_type = EXCLUDED.access_type,
+        properties = EXCLUDED.properties
+    RETURNING id INTO coral_aoi_type_id;
+
+    INSERT INTO public.aoi_type_i18n (
+        aoi_type_id,
+        locale,
+        long_name,
+        citation,
+        status,
+        quality,
+        source_checksum
+    )
+    VALUES
+        (coral_aoi_type_id, 'es', 'Arrecifes de coral globales', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'fr', 'Récifs coralliens mondiaux', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'pt', 'Recifes de coral globais', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'pt-br', 'Recifes de coral globais', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'id', 'Terumbu karang global', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'sw', 'Miamba ya matumbawe duniani', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0')
+    ON CONFLICT (aoi_type_id, locale) DO UPDATE
+    SET
+        long_name = EXCLUDED.long_name,
+        citation = EXCLUDED.citation,
+        status = EXCLUDED.status,
+        quality = EXCLUDED.quality,
+        source_checksum = EXCLUDED.source_checksum,
+        updated_at = now();
 END $$;
 
 CREATE OR REPLACE VIEW public.aoi_type_public AS
@@ -157,6 +214,7 @@ SELECT
     aoi_type.update_time,
     aoi_type.properties->>'dataset_version' AS dataset_version,
     aoi_type.properties->>'display_name_field' AS display_name_field,
+    aoi_type.properties->>'pmtiles_access_tier' AS pmtiles_access_tier,
     COALESCE((aoi_type.properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)
         AS slick_to_aoi_buffer_m
 FROM public.aoi_type AS aoi_type
