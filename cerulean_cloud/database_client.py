@@ -236,13 +236,13 @@ class DatabaseClient:
             )
         return cls_ids
 
-    async def get_aoi_access_configs(
+    async def get_aoi_accessor_configs(
         self,
         short_names: Optional[Sequence[str]] = None,
         access_types: Optional[Sequence[str]] = None,
     ) -> list[dict]:
         """
-        Return raw AOI access rows for accessor-specific parsing.
+        Return raw AOI accessor rows for accessor-specific parsing.
 
         The checked-in schema stores AOI access metadata in `aoi_type.access_type`
         plus `aoi_type.properties`.
@@ -269,6 +269,7 @@ class DatabaseClient:
                 access_type,
                 properties,
                 filter_toggle,
+                slick_to_aoi_enabled,
                 read_perm
             FROM aoi_type
             {where_clause}
@@ -283,18 +284,19 @@ class DatabaseClient:
                 "access_type": row["access_type"],
                 "properties": row["properties"] or {},
                 "filter_toggle": row["filter_toggle"],
+                "slick_to_aoi_enabled": row["slick_to_aoi_enabled"],
                 "read_perm": row["read_perm"],
             }
             for row in result.mappings()
             if row["access_type"]
         ]
 
-    async def get_scene_aoi_access_configs(self) -> list[dict]:
-        """Return AOI access configs that participate in scene slick joins."""
+    async def get_slick_to_aoi_accessor_configs(self) -> list[dict]:
+        """Return AOI accessor configs that participate in slick_to_aoi joins."""
         return [
             row
-            for row in await self.get_aoi_access_configs()
-            if row["short_name"] != _USER_AOI_TYPE_SHORT_NAME
+            for row in await self.get_aoi_accessor_configs()
+            if row["slick_to_aoi_enabled"]
         ]
 
     async def get_aoi_type_ids(

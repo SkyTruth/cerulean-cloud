@@ -88,6 +88,7 @@ ALTER TABLE public.aoi_type
     DROP COLUMN IF EXISTS access_type,
     DROP COLUMN IF EXISTS read_perm,
     DROP COLUMN IF EXISTS owner,
+    DROP COLUMN IF EXISTS slick_to_aoi_enabled,
     DROP COLUMN IF EXISTS filter_toggle;
 
 DROP TABLE IF EXISTS public.aoi_access_type;

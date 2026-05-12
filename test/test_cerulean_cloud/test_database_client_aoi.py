@@ -63,7 +63,7 @@ async def _add_slick_fixture(session, slick_id: int = 1):
 
 
 @pytest.mark.asyncio
-async def test_get_aoi_access_configs_reads_properties_json(db_session):
+async def test_get_aoi_accessor_configs_reads_properties_json(db_session):
     async with db_session() as session:
         async with session.begin():
             session.add_all(
@@ -111,6 +111,30 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                         },
                     ),
                     database_schema.AoiType(
+                        id=2,
+                        table_name="aoi_iho",
+                        short_name="IHO",
+                        filter_toggle=False,
+                        access_type="SHARED_DATASET",
+                        properties={
+                            "asset_slug": "iho-world-seas",
+                            "ext_id_field": "MRGID",
+                            "display_name_field": "NAME",
+                        },
+                    ),
+                    database_schema.AoiType(
+                        id=3,
+                        table_name="aoi_mpa",
+                        short_name="MPA",
+                        filter_toggle=True,
+                        access_type="SHARED_DATASET",
+                        properties={
+                            "asset_slug": "wdpa-marine",
+                            "ext_id_field": "SITE_ID",
+                            "display_name_field": "NAME",
+                        },
+                    ),
+                    database_schema.AoiType(
                         id=4,
                         table_name="aoi_user",
                         short_name="USER",
@@ -136,27 +160,54 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                             "display_name_field": "remote_name",
                         },
                     ),
+                    database_schema.AoiType(
+                        id=6,
+                        table_name="display_aoi",
+                        short_name="DISPLAY",
+                        filter_toggle=False,
+                        slick_to_aoi_enabled=False,
+                        access_type="SHARED_DATASET",
+                        properties={
+                            "asset_slug": "display-only",
+                            "ext_id_field": "display_id",
+                            "display_name_field": "display_name",
+                        },
+                    ),
                 ]
             )
 
         db_client = DatabaseClient(session.bind)
         db_client.session = session
 
-        all_configs = await db_client.get_aoi_access_configs()
+        all_configs = await db_client.get_aoi_accessor_configs()
         assert [config["access_type"] for config in all_configs] == [
+            "SHARED_DATASET",
+            "SHARED_DATASET",
             "SHARED_DATASET",
             "DB_LOCAL",
             "DB_REMOTE",
+            "SHARED_DATASET",
         ]
 
-        scene_configs = await db_client.get_scene_aoi_access_configs()
-        assert [config["short_name"] for config in scene_configs] == ["EEZ", "REMOTE"]
+        scene_configs = await db_client.get_slick_to_aoi_accessor_configs()
+        assert [config["short_name"] for config in scene_configs] == [
+            "EEZ",
+            "IHO",
+            "MPA",
+            "USER",
+            "REMOTE",
+        ]
 
-        configs = await db_client.get_aoi_access_configs(
+        configs = await db_client.get_aoi_accessor_configs(
             access_types=["SHARED_DATASET"]
         )
 
-        assert len(configs) == 1
+        assert [config["short_name"] for config in configs] == [
+            "EEZ",
+            "IHO",
+            "MPA",
+            "DISPLAY",
+        ]
         config = configs[0]
         assert config == {
             "short_name": "EEZ",
@@ -167,10 +218,12 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                 "display_name_field": "GEONAME",
             },
             "filter_toggle": True,
+            "slick_to_aoi_enabled": True,
             "read_perm": None,
         }
+        assert configs[-1]["slick_to_aoi_enabled"] is False
 
-        local_configs = await db_client.get_aoi_access_configs(["USER"])
+        local_configs = await db_client.get_aoi_accessor_configs(["USER"])
         assert local_configs == [
             {
                 "short_name": "USER",
@@ -181,11 +234,12 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                     "ext_id_col": "aoi_id",
                 },
                 "filter_toggle": False,
+                "slick_to_aoi_enabled": True,
                 "read_perm": None,
             }
         ]
 
-        remote_configs = await db_client.get_aoi_access_configs(["REMOTE"])
+        remote_configs = await db_client.get_aoi_accessor_configs(["REMOTE"])
         assert remote_configs == [
             {
                 "short_name": "REMOTE",
@@ -198,6 +252,7 @@ async def test_get_aoi_access_configs_reads_properties_json(db_session):
                     "display_name_field": "remote_name",
                 },
                 "filter_toggle": False,
+                "slick_to_aoi_enabled": True,
                 "read_perm": None,
             }
         ]
@@ -921,11 +976,22 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         assert "properties->>'format'" not in sql_text
         assert "'SHARED_DATASET'" in sql_text
         assert "NULLIF(properties->>'asset_slug', '') IS NOT NULL" in sql_text
+        assert "'slick_to_aoi_buffer_m'" in sql_text
+        assert (
+            "jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'number'" in sql_text
+        )
+        assert "jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'null'" in sql_text
+        assert (
+            "(properties->>'slick_to_aoi_buffer_m')::double precision >= 0"
+            not in sql_text
+        )
         assert (
             '"ext_id_field":"SITE_ID"' in sql_text
             or '"ext_id_field": "SITE_ID"' in sql_text
         )
         assert "ck_aoi_type_access_properties" in sql_text
+        assert "slick_to_aoi_enabled" in sql_text
+        assert "DEFAULT TRUE" in sql_text or "server_default=sa.true()" in sql_text
         assert "db_conn_str" not in sql_text
         assert "NULLIF(properties->>'db_conn_secret_name', '') IS NOT NULL" in sql_text
         assert "CREATE OR REPLACE VIEW public.aoi_type_public" in sql_text
@@ -942,7 +1008,13 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
             "CREATE OR REPLACE VIEW public.aoi_type_public", 1
         )[1].split(";", 1)[0]
         assert "read_permission.short_name = 'any'" in public_view_sql
+        assert "AS slick_to_aoi_buffer_m" in public_view_sql
+        assert (
+            "COALESCE((aoi_type.properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)"
+            in public_view_sql
+        )
         assert "COALESCE(filter_toggle, FALSE) IS TRUE" not in public_view_sql
+        assert "slick_to_aoi_enabled" not in public_view_sql
         assert "public_properties" not in public_view_sql
         assert "jsonb_build_object" not in public_view_sql
         for sensitive_key in [
@@ -963,6 +1035,7 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         assert "short_name IN ('EEZ', 'IHO', 'MPA')" not in aoi_ids_sql
 
     assert "DROP CONSTRAINT IF EXISTS ck_aoi_type_access_properties" in rollback_text
+    assert "DROP COLUMN IF EXISTS slick_to_aoi_enabled" in rollback_text
     assert "DROP VIEW IF EXISTS public.aoi_type_public" in rollback_text
     assert "ALTER COLUMN geometry SET NOT NULL" not in rollback_text
     assert "ALTER COLUMN table_name SET NOT NULL" not in rollback_text

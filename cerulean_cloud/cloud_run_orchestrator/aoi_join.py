@@ -20,12 +20,14 @@ from typing import (
 import geopandas as gpd
 import sqlalchemy as sa
 from shapely import wkb
+from shapely.geometry import box
 from skytruth_shared_datasets import fetch_dataset
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SHARED_DATASET_FORMAT = "fgb"
+SLICK_TO_AOI_BUFFER_M_KEY = "slick_to_aoi_buffer_m"
 
 
 SecretResolver = Callable[[str], str]
@@ -50,6 +52,22 @@ def quote_identifier(identifier: str) -> str:
 def quote_table_name(table_name: str) -> str:
     """Quote a possibly schema-qualified table name."""
     return ".".join(quote_identifier(part) for part in table_name.split("."))
+
+
+def buffer_scene_bounds(
+    scene_bounds: Sequence[float],
+    buffer_m: float,
+) -> tuple[float, float, float, float]:
+    bounds = tuple(float(value) for value in scene_bounds)
+    if buffer_m <= 0:
+        return bounds
+
+    scene_gdf = gpd.GeoDataFrame(geometry=[box(*bounds)], crs="EPSG:4326")
+    crs_meters = scene_gdf.estimate_utm_crs(datum_name="WGS 84")
+    buffered_bounds = (
+        scene_gdf.to_crs(crs_meters).buffer(buffer_m).to_crs("EPSG:4326").total_bounds
+    )
+    return tuple(float(value) for value in buffered_bounds)
 
 
 def resolve_secret_manager_value(secret_name: str) -> str:
@@ -87,6 +105,9 @@ class BaseAoiAccessor:
         self.short_name = row["short_name"]
         self.properties = row.get("properties") or {}
         self.dataset_version = self.properties.get("dataset_version")
+        self.slick_to_aoi_buffer_m = (
+            self.properties.get(SLICK_TO_AOI_BUFFER_M_KEY) or 0.0
+        )
         self._candidate_cache_key: Optional[tuple] = None
         self._candidate_gdf: Optional[gpd.GeoDataFrame] = None
 
@@ -98,12 +119,39 @@ class BaseAoiAccessor:
     async def candidates_for_scene(
         self, scene_bounds: Sequence[float], scene_time: datetime
     ) -> gpd.GeoDataFrame:
-        cache_key = (tuple(scene_bounds), scene_time)
+        candidate_bounds = buffer_scene_bounds(
+            scene_bounds,
+            self.slick_to_aoi_buffer_m,
+        )
+        cache_key = (candidate_bounds, scene_time)
         if self._candidate_cache_key == cache_key and self._candidate_gdf is not None:
             return self._candidate_gdf
-        self._candidate_gdf = await self.load_candidates(scene_bounds, scene_time)
+        self._candidate_gdf = await self.load_candidates(candidate_bounds, scene_time)
         self._candidate_cache_key = cache_key
         return self._candidate_gdf
+
+    def _buffer_candidates_for_matching(
+        self,
+        aoi_gdf: gpd.GeoDataFrame,
+        scene_bounds: Sequence[float],
+    ) -> gpd.GeoDataFrame:
+        if self.slick_to_aoi_buffer_m == 0:
+            return aoi_gdf
+
+        scene_gdf = gpd.GeoDataFrame(
+            geometry=[box(*tuple(float(value) for value in scene_bounds))],
+            crs="EPSG:4326",
+        )
+        crs_meters = scene_gdf.estimate_utm_crs(datum_name="WGS 84")
+        buffered_geometry = aoi_gdf.to_crs(crs_meters).geometry.buffer(
+            self.slick_to_aoi_buffer_m
+        )
+        aoi_gdf = aoi_gdf.copy()
+        aoi_gdf["geometry"] = gpd.GeoSeries(
+            buffered_geometry,
+            crs=crs_meters,
+        ).to_crs("EPSG:4326")
+        return aoi_gdf[~aoi_gdf["geometry"].is_empty]
 
     async def matches_for_scene(
         self,
@@ -118,6 +166,10 @@ class BaseAoiAccessor:
         results: List[Dict[str, List[Dict[str, str]]]] = [
             {self.short_name: []} for _ in range(len(slick_gdf))
         ]
+        if aoi_gdf.empty:
+            return results
+
+        aoi_gdf = self._buffer_candidates_for_matching(aoi_gdf, scene_bounds)
         if aoi_gdf.empty:
             return results
 
