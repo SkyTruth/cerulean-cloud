@@ -662,7 +662,20 @@ def run_psql_file(db_url: str, config: AoiConfig, batch_size: int) -> None:
         "-f",
         str(SQL_SCRIPT),
     ]
-    subprocess.run(command, check=True)
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    if result.returncode == 0:
+        if result.stdout:
+            LOGGER.info("psql stdout for %s:\n%s", config.short_name, result.stdout)
+        return
+
+    stderr = (result.stderr or "").strip()
+    stdout = (result.stdout or "").strip()
+    message = f"psql prepare script failed for {config.short_name} with exit code {result.returncode}"
+    if stderr:
+        message = f"{message}\nSTDERR:\n{stderr}"
+    if stdout:
+        message = f"{message}\nSTDOUT:\n{stdout}"
+    raise RuntimeError(message)
 
 
 def call_procedure(db_url: str, sql: str, params: tuple[object, ...]) -> None:
