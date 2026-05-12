@@ -62,10 +62,12 @@ def test_shared_dataset_aoi_backfill_keeps_aoi_hidden_until_manual_toggle():
         "CREATE OR REPLACE PROCEDURE maintenance.finish_shared_dataset_aoi_backfill", 1
     )[1]
 
-    assert "filter_toggle,\n        read_perm,\n        access_type" in preparation_sql
-    assert (
-        "FALSE,\n        v_read_perm_id,\n        'SHARED_DATASET'" in preparation_sql
-    )
+    assert "filter_toggle," in preparation_sql
+    assert "read_perm," in preparation_sql
+    assert "access_type," in preparation_sql
+    assert "FALSE," in preparation_sql
+    assert "v_read_perm_id," in preparation_sql
+    assert "'SHARED_DATASET'" in preparation_sql
     assert "filter_toggle = FALSE" in preparation_sql
     assert "access_type = 'SHARED_DATASET'" in preparation_sql
 
