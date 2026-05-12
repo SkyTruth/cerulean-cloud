@@ -192,6 +192,24 @@ def slug_to_stage_table(short_name: str) -> str:
     return f"maintenance.{table}"
 
 
+def resolve_existing_shared_dataset_short_name(
+    db_url: str, asset_slug: str
+) -> str | None:
+    row = query_one_row(
+        db_url,
+        """
+        SELECT short_name
+        FROM public.aoi_type
+        WHERE access_type = 'SHARED_DATASET'
+          AND properties->>'asset_slug' = %s
+        ORDER BY id
+        LIMIT 1
+        """,
+        (asset_slug,),
+    )
+    return row[0] if row is not None else None
+
+
 def _field_lookup(columns: Sequence[str]) -> dict[str, str]:
     return {column.lower(): column for column in columns}
 
@@ -1110,6 +1128,9 @@ def prepare_backfill(
 ) -> AoiConfig:
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
+    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
+        resolved_db_url, resolved_asset_slug
+    )
     asset = get_catalog_asset(resolved_asset_slug, catalog_source)
     ref = fetch_dataset_ref(
         resolved_asset_slug,
@@ -1125,7 +1146,7 @@ def prepare_backfill(
         asset=asset,
         ref=ref,
         columns=columns,
-        short_name=short_name,
+        short_name=resolved_short_name,
         long_name=long_name,
         ext_id_field=ext_id_field,
         display_name_field=display_name_field,
@@ -1168,7 +1189,10 @@ def run_backfill(
 
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
-    resolved_short_name = short_name or slug_to_short_name(resolved_asset_slug)
+    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
+        resolved_db_url, resolved_asset_slug
+    )
+    resolved_short_name = resolved_short_name or slug_to_short_name(resolved_asset_slug)
     run_context = get_run_context(resolved_db_url, resolved_short_name)
     asset = get_catalog_asset(run_context.asset_slug, catalog_source)
     ref = fetch_dataset_ref(
@@ -1312,7 +1336,10 @@ def validate_backfill(
 ) -> list[tuple]:
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
-    resolved_short_name = short_name or slug_to_short_name(resolved_asset_slug)
+    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
+        resolved_db_url, resolved_asset_slug
+    )
+    resolved_short_name = resolved_short_name or slug_to_short_name(resolved_asset_slug)
     return query_rows(
         resolved_db_url,
         "SELECT * FROM maintenance.validate_shared_dataset_aoi_backfill(%s)",
@@ -1329,7 +1356,10 @@ def get_backfill_status(
 ) -> list[tuple]:
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
-    resolved_short_name = short_name or slug_to_short_name(resolved_asset_slug)
+    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
+        resolved_db_url, resolved_asset_slug
+    )
+    resolved_short_name = resolved_short_name or slug_to_short_name(resolved_asset_slug)
     return query_rows(
         resolved_db_url,
         """
@@ -1366,7 +1396,10 @@ def finish_backfill(
 ) -> None:
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
-    resolved_short_name = short_name or slug_to_short_name(resolved_asset_slug)
+    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
+        resolved_db_url, resolved_asset_slug
+    )
+    resolved_short_name = resolved_short_name or slug_to_short_name(resolved_asset_slug)
     call_procedure(
         resolved_db_url,
         "CALL maintenance.finish_shared_dataset_aoi_backfill(%s)",

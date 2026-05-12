@@ -172,6 +172,7 @@ DECLARE
     v_idx_prefix text;
     v_read_perm_id bigint;
     v_aoi_type_id bigint;
+    v_existing_short_name text;
     v_properties jsonb;
 BEGIN
     SELECT to_regclass(v_stage_table_text) INTO v_stage_table;
@@ -206,42 +207,67 @@ BEGIN
         'dataset_version', NULLIF(v_dataset_version, '')
     ));
 
-    INSERT INTO public.aoi_type (
-        table_name,
-        long_name,
-        short_name,
-        source_url,
-        citation,
-        update_time,
-        filter_toggle,
-        read_perm,
-        access_type,
-        properties
-    )
-    VALUES (
-        NULL,
-        v_aoi_long_name,
-        v_aoi_short_name,
-        NULLIF(v_source_url, ''),
-        NULLIF(v_citation, ''),
-        now(),
-        FALSE,
-        v_read_perm_id,
-        'SHARED_DATASET',
-        v_properties
-    )
-    ON CONFLICT (short_name) DO UPDATE
-    SET
-        table_name = NULL,
-        long_name = EXCLUDED.long_name,
-        source_url = EXCLUDED.source_url,
-        citation = EXCLUDED.citation,
-        update_time = now(),
-        filter_toggle = FALSE,
-        read_perm = COALESCE(public.aoi_type.read_perm, EXCLUDED.read_perm),
-        access_type = 'SHARED_DATASET',
-        properties = EXCLUDED.properties
-    RETURNING id INTO v_aoi_type_id;
+    SELECT id, short_name
+    INTO v_aoi_type_id, v_existing_short_name
+    FROM public.aoi_type
+    WHERE access_type = 'SHARED_DATASET'
+      AND properties->>'asset_slug' = v_asset_slug
+    ORDER BY id
+    LIMIT 1;
+
+    IF v_aoi_type_id IS NULL THEN
+        INSERT INTO public.aoi_type (
+            table_name,
+            long_name,
+            short_name,
+            source_url,
+            citation,
+            update_time,
+            filter_toggle,
+            read_perm,
+            access_type,
+            properties
+        )
+        VALUES (
+            NULL,
+            v_aoi_long_name,
+            v_aoi_short_name,
+            NULLIF(v_source_url, ''),
+            NULLIF(v_citation, ''),
+            now(),
+            FALSE,
+            v_read_perm_id,
+            'SHARED_DATASET',
+            v_properties
+        )
+        ON CONFLICT (short_name) DO UPDATE
+        SET
+            table_name = NULL,
+            long_name = EXCLUDED.long_name,
+            source_url = EXCLUDED.source_url,
+            citation = EXCLUDED.citation,
+            update_time = now(),
+            filter_toggle = FALSE,
+            read_perm = COALESCE(public.aoi_type.read_perm, EXCLUDED.read_perm),
+            access_type = 'SHARED_DATASET',
+            properties = EXCLUDED.properties
+        RETURNING id INTO v_aoi_type_id;
+    ELSE
+        v_aoi_short_name := v_existing_short_name;
+
+        UPDATE public.aoi_type
+        SET
+            table_name = NULL,
+            long_name = v_aoi_long_name,
+            source_url = NULLIF(v_source_url, ''),
+            citation = NULLIF(v_citation, ''),
+            update_time = now(),
+            filter_toggle = FALSE,
+            read_perm = COALESCE(public.aoi_type.read_perm, v_read_perm_id),
+            access_type = 'SHARED_DATASET',
+            properties = v_properties
+        WHERE id = v_aoi_type_id;
+    END IF;
 
     EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I', split_part(v_stage_table_text, '.', 1));
     EXECUTE format(
