@@ -688,7 +688,9 @@ BEGIN
     ) dup;
 
     IF v_duplicate_count > 0 THEN
-        RAISE EXCEPTION 'AOI type % has % duplicate ext_id values in public.aoi', p_aoi_type_short_name, v_duplicate_count;
+        RAISE WARNING 'AOI type % has % duplicate ext_id values in public.aoi',
+            p_aoi_type_short_name,
+            v_duplicate_count;
     END IF;
 
     UPDATE public.aoi_type
