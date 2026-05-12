@@ -39,9 +39,9 @@ CREATE TABLE public.aoi_access_type (
 
 INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
 VALUES
-    (1, 'SHARED_DATASET', ARRAY['asset_slug', 'ext_id_field', 'display_name_field']),
-    (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field']),
-    (3, 'DB_REMOTE', ARRAY['db_conn_secret_name', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field']);
+    (1, 'SHARED_DATASET', ARRAY['asset_slug', 'ext_id_field', 'display_name_field', 'slick_to_aoi_buffer_m']),
+    (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field', 'slick_to_aoi_buffer_m']),
+    (3, 'DB_REMOTE', ARRAY['db_conn_secret_name', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field', 'slick_to_aoi_buffer_m']);
 
 ALTER TABLE public.aoi_type
     ADD COLUMN filter_toggle boolean,
@@ -57,6 +57,12 @@ ALTER TABLE public.aoi_type
         OR (
             properties IS NOT NULL
             AND jsonb_typeof(properties) = 'object'
+            AND CASE
+                WHEN NOT (properties ? 'slick_to_aoi_buffer_m') THEN TRUE
+                WHEN jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'null' THEN TRUE
+                WHEN jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'number' THEN TRUE
+                ELSE FALSE
+            END
             AND (
                 (
                     access_type = 'SHARED_DATASET'
@@ -150,7 +156,9 @@ SELECT
     aoi_type.citation,
     aoi_type.update_time,
     aoi_type.properties->>'dataset_version' AS dataset_version,
-    aoi_type.properties->>'display_name_field' AS display_name_field
+    aoi_type.properties->>'display_name_field' AS display_name_field,
+    COALESCE((aoi_type.properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)
+        AS slick_to_aoi_buffer_m
 FROM public.aoi_type AS aoi_type
 JOIN public.permission AS read_permission
   ON read_permission.id = aoi_type.read_perm

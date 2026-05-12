@@ -4,7 +4,7 @@ import geopandas as gpd
 import pytest
 import sqlalchemy as sa
 from shapely import wkb
-from shapely.geometry import box
+from shapely.geometry import LineString, Point, box
 
 import cerulean_cloud.cloud_run_orchestrator.aoi_join as aoi_join_module
 from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
@@ -23,6 +23,17 @@ SCENE_TIME = datetime(2026, 1, 1)
 
 def _scene_bounds(bounds=(-1, -1, 3, 3)):
     return tuple(bounds)
+
+
+class StaticAoiAccessor(BaseAoiAccessor):
+    def __init__(self, row, candidates):
+        super().__init__(row)
+        self.candidates = candidates
+        self.loaded_bounds = []
+
+    async def load_candidates(self, scene_bounds, scene_time):
+        self.loaded_bounds.append(tuple(scene_bounds))
+        return gpd.GeoDataFrame(self.candidates, geometry="geometry", crs="EPSG:4326")
 
 
 def test_shared_dataset_accessor_owns_shared_config_parsing():
@@ -45,6 +56,7 @@ def test_shared_dataset_accessor_owns_shared_config_parsing():
     assert accessor.ext_id_field == "SITE_ID"
     assert accessor.display_name_field == "NAME"
     assert accessor.dataset_version is None
+    assert accessor.slick_to_aoi_buffer_m == 0.0
 
 
 def test_db_accessors_own_db_config_parsing():
@@ -87,6 +99,47 @@ def test_db_accessors_own_db_config_parsing():
     assert remote_accessor.geog_col == "geometry"
     assert remote_accessor.ext_id_col == "remote_id"
     assert remote_accessor.display_name_field == "remote_name"
+    assert remote_accessor.slick_to_aoi_buffer_m == 0.0
+
+
+@pytest.mark.parametrize(
+    "properties",
+    [
+        {},
+        {"slick_to_aoi_buffer_m": None},
+        {"slick_to_aoi_buffer_m": 0.0},
+    ],
+)
+@pytest.mark.asyncio
+async def test_missing_null_and_zero_aoi_buffers_are_noops(properties):
+    accessor = StaticAoiAccessor(
+        {
+            "short_name": "BUFFERED",
+            "access_type": "SHARED_DATASET",
+            "properties": properties,
+        },
+        [
+            {
+                "ext_id": "point",
+                "name": "Point",
+                "geometry": Point(0.02, 0.005),
+            }
+        ],
+    )
+    slicks = gpd.GeoDataFrame(
+        geometry=[box(0, 0, 0.01, 0.01)],
+        crs="EPSG:4326",
+    )
+
+    matches = await accessor.matches_for_scene(
+        _scene_bounds((-0.01, -0.01, 0.03, 0.03)),
+        SCENE_TIME,
+        slicks,
+    )
+
+    assert accessor.slick_to_aoi_buffer_m == 0.0
+    assert accessor.loaded_bounds == [(-0.01, -0.01, 0.03, 0.03)]
+    assert matches == [{"BUFFERED": []}]
 
 
 def test_accessors_let_missing_config_fields_raise_at_the_source():
@@ -126,6 +179,133 @@ def test_accessors_let_missing_config_fields_raise_at_the_source():
     for access_type in ["GCS", "S3"]:
         with pytest.raises(NotImplementedError, match="Unsupported AOI access_type"):
             build_aoi_accessor({"short_name": "UNKNOWN", "access_type": access_type})
+
+
+@pytest.mark.asyncio
+async def test_aoi_buffer_matches_point_line_and_polygon_candidates():
+    candidates = [
+        {
+            "ext_id": "line",
+            "name": "Line",
+            "geometry": LineString([(0.02, 0), (0.02, 0.01)]),
+        },
+        {
+            "ext_id": "point",
+            "name": "Point",
+            "geometry": Point(0.02, 0.005),
+        },
+        {
+            "ext_id": "polygon",
+            "name": "Polygon",
+            "geometry": box(0.02, 0, 0.021, 0.01),
+        },
+    ]
+    slicks = gpd.GeoDataFrame(
+        geometry=[box(0, 0, 0.01, 0.01)],
+        crs="EPSG:4326",
+    )
+
+    unbuffered_accessor = StaticAoiAccessor(
+        {"short_name": "BUFFERED", "properties": {}},
+        candidates,
+    )
+    assert await unbuffered_accessor.matches_for_scene(
+        _scene_bounds((-0.01, -0.01, 0.03, 0.03)),
+        SCENE_TIME,
+        slicks,
+    ) == [{"BUFFERED": []}]
+
+    buffered_accessor = StaticAoiAccessor(
+        {
+            "short_name": "BUFFERED",
+            "properties": {"slick_to_aoi_buffer_m": 1500.0},
+        },
+        candidates,
+    )
+    assert await buffered_accessor.matches_for_scene(
+        _scene_bounds((-0.01, -0.01, 0.03, 0.03)),
+        SCENE_TIME,
+        slicks,
+    ) == [
+        {
+            "BUFFERED": [
+                {"ext_id": "line", "name": "Line"},
+                {"ext_id": "point", "name": "Point"},
+                {"ext_id": "polygon", "name": "Polygon"},
+            ]
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_negative_aoi_buffer_erodes_polygon_candidates():
+    candidates = [
+        {
+            "ext_id": "polygon",
+            "name": "Polygon",
+            "geometry": box(0, 0, 0.03, 0.03),
+        }
+    ]
+    slicks = gpd.GeoDataFrame(
+        geometry=[box(0.001, 0.001, 0.002, 0.002)],
+        crs="EPSG:4326",
+    )
+
+    unbuffered_accessor = StaticAoiAccessor(
+        {"short_name": "BUFFERED", "properties": {}},
+        candidates,
+    )
+    assert await unbuffered_accessor.matches_for_scene(
+        _scene_bounds((-0.01, -0.01, 0.04, 0.04)),
+        SCENE_TIME,
+        slicks,
+    ) == [{"BUFFERED": [{"ext_id": "polygon", "name": "Polygon"}]}]
+
+    eroded_accessor = StaticAoiAccessor(
+        {
+            "short_name": "BUFFERED",
+            "properties": {"slick_to_aoi_buffer_m": -500.0},
+        },
+        candidates,
+    )
+    assert await eroded_accessor.matches_for_scene(
+        _scene_bounds((-0.01, -0.01, 0.04, 0.04)),
+        SCENE_TIME,
+        slicks,
+    ) == [{"BUFFERED": []}]
+
+
+@pytest.mark.asyncio
+async def test_negative_aoi_buffer_drops_point_and_line_candidates():
+    candidates = [
+        {
+            "ext_id": "line",
+            "name": "Line",
+            "geometry": LineString([(0, 0), (0.01, 0.01)]),
+        },
+        {
+            "ext_id": "point",
+            "name": "Point",
+            "geometry": Point(0.005, 0.005),
+        },
+    ]
+    slicks = gpd.GeoDataFrame(
+        geometry=[box(0, 0, 0.01, 0.01)],
+        crs="EPSG:4326",
+    )
+    eroded_accessor = StaticAoiAccessor(
+        {
+            "short_name": "BUFFERED",
+            "properties": {"slick_to_aoi_buffer_m": -10.0},
+        },
+        candidates,
+    )
+
+    assert await eroded_accessor.matches_for_scene(
+        _scene_bounds((-0.01, -0.01, 0.02, 0.02)),
+        SCENE_TIME,
+        slicks,
+    ) == [{"BUFFERED": []}]
 
 
 @pytest.mark.asyncio
@@ -264,6 +444,96 @@ async def test_shared_dataset_accessor_fetches_by_slug_and_uses_site_id(
         ("fetch", "wdpa-marine", "fgb", "latest", tmp_path),
         ("read", str(local_fgb), (-1.0, -1.0, 3.0, 3.0)),
     ]
+
+
+@pytest.mark.asyncio
+async def test_shared_dataset_accessor_expands_scene_bbox_for_buffer(monkeypatch):
+    read_calls = []
+
+    def fake_read_file(path, bbox=None):
+        read_calls.append({"path": path, "bbox": bbox})
+        return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+
+    monkeypatch.setattr(gpd, "read_file", fake_read_file)
+    monkeypatch.setattr(
+        SharedDatasetAoiAccessor,
+        "_download_aoi_dataset",
+        lambda self: "/tmp/custom.fgb",
+    )
+
+    accessor = build_aoi_accessor(
+        {
+            "short_name": "CUSTOM",
+            "access_type": "SHARED_DATASET",
+            "properties": {
+                "asset_slug": "custom",
+                "ext_id_field": "CUSTOM_ID",
+                "slick_to_aoi_buffer_m": 1000.0,
+            },
+        }
+    )
+    joiner = AOIJoiner(accessors=[accessor])
+    slicks = gpd.GeoDataFrame(
+        geometry=[box(0, 0, 0.01, 0.01)],
+        crs="EPSG:4326",
+    )
+
+    assert await joiner.compute_aoi_matches(
+        slicks,
+        scene_bounds=_scene_bounds((-1, -1, 1, 1)),
+        scene_time=SCENE_TIME,
+    ) == [{"CUSTOM": []}]
+
+    assert len(read_calls) == 1
+    minx, miny, maxx, maxy = read_calls[0]["bbox"]
+    assert minx < -1
+    assert miny < -1
+    assert maxx > 1
+    assert maxy > 1
+
+
+@pytest.mark.asyncio
+async def test_shared_dataset_accessor_does_not_expand_scene_bbox_for_negative_buffer(
+    monkeypatch,
+):
+    read_calls = []
+
+    def fake_read_file(path, bbox=None):
+        read_calls.append({"path": path, "bbox": bbox})
+        return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+
+    monkeypatch.setattr(gpd, "read_file", fake_read_file)
+    monkeypatch.setattr(
+        SharedDatasetAoiAccessor,
+        "_download_aoi_dataset",
+        lambda self: "/tmp/custom.fgb",
+    )
+
+    accessor = build_aoi_accessor(
+        {
+            "short_name": "CUSTOM",
+            "access_type": "SHARED_DATASET",
+            "properties": {
+                "asset_slug": "custom",
+                "ext_id_field": "CUSTOM_ID",
+                "slick_to_aoi_buffer_m": -1000.0,
+            },
+        }
+    )
+    joiner = AOIJoiner(accessors=[accessor])
+    slicks = gpd.GeoDataFrame(
+        geometry=[box(0, 0, 0.01, 0.01)],
+        crs="EPSG:4326",
+    )
+
+    assert await joiner.compute_aoi_matches(
+        slicks,
+        scene_bounds=_scene_bounds((-1, -1, 1, 1)),
+        scene_time=SCENE_TIME,
+    ) == [{"CUSTOM": []}]
+
+    assert len(read_calls) == 1
+    assert read_calls[0]["bbox"] == (-1.0, -1.0, 1.0, 1.0)
 
 
 async def _create_test_aoi_table(engine, table_name="test_aoi", *, postgis=True):
