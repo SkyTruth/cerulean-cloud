@@ -313,6 +313,18 @@ def normalize_dataset_version(
     return raw_version
 
 
+def shared_dataset_fetch_version(asset_slug: str, dataset_version: str | None) -> str:
+    if not dataset_version:
+        return "latest"
+    if dataset_version == f"{asset_slug}@":
+        return "latest"
+    prefix = f"{asset_slug}@"
+    if dataset_version.startswith(prefix):
+        suffix = dataset_version[len(prefix) :]
+        return suffix or "latest"
+    return dataset_version
+
+
 def inspect_dataset_size(path: Path) -> dict[str, object]:
     size_bytes = path.stat().st_size
     result = {
@@ -833,8 +845,14 @@ def refresh_run_status(db_url: str, short_name: str) -> None:
                     SELECT 1
                     FROM maintenance.shared_dataset_aoi_backfill_chunk c
                     WHERE c.aoi_type_short_name = r.aoi_type_short_name
-                      AND c.status IN ('pending', 'running')
+                      AND c.status = 'running'
                 ) THEN 'running'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM maintenance.shared_dataset_aoi_backfill_chunk c
+                    WHERE c.aoi_type_short_name = r.aoi_type_short_name
+                      AND c.status = 'pending'
+                ) THEN 'pending'
                 ELSE 'completed'
             END,
             completed_at = CASE
@@ -1091,7 +1109,6 @@ def prepare_backfill(
     batch_size: int = 5000,
 ) -> AoiConfig:
     resolved_db_url = get_db_url(db_url)
-    cleanup_stale_backfills(resolved_db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
     asset = get_catalog_asset(resolved_asset_slug, catalog_source)
     ref = fetch_dataset_ref(
@@ -1130,6 +1147,7 @@ def prepare_backfill(
     LOGGER.info("planned_chunk_count=%s", chunk_plan["target_chunk_count"])
 
     run_psql_file(resolved_db_url, config, batch_size)
+    cleanup_stale_backfills(resolved_db_url)
     insert_chunk_manifest(resolved_db_url, config.short_name, chunk_plan["chunks"])
     refresh_run_status(resolved_db_url, config.short_name)
     return config
@@ -1155,7 +1173,9 @@ def run_backfill(
     asset = get_catalog_asset(run_context.asset_slug, catalog_source)
     ref = fetch_dataset_ref(
         run_context.asset_slug,
-        version=run_context.dataset_version or "latest",
+        version=shared_dataset_fetch_version(
+            run_context.asset_slug, run_context.dataset_version
+        ),
         cache_dir=Path(DEFAULT_CACHE_DIR),
         force=False,
         catalog_source=catalog_source,
