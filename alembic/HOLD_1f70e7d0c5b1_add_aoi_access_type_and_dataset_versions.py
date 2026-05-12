@@ -123,7 +123,6 @@ SELECT
     aoi_type.update_time,
     aoi_type.properties->>'dataset_version' AS dataset_version,
     aoi_type.properties->>'display_name_field' AS display_name_field,
-    aoi_type.properties->>'pmtiles_access_tier' AS pmtiles_access_tier,
     COALESCE((aoi_type.properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)
         AS slick_to_aoi_buffer_m
 FROM public.aoi_type AS aoi_type
@@ -251,7 +250,6 @@ def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
                 "properties": json.dumps(
                     {
                         "asset_slug": "global-coral-reefs",
-                        "pmtiles_access_tier": "private",
                         "ext_id_field": "METADATA_I",
                         "display_name_field": "NAME",
                         "slick_to_aoi_buffer_m": 10000,
@@ -372,7 +370,7 @@ def upgrade():
         """
         INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
         VALUES
-            (1, 'SHARED_DATASET', ARRAY['asset_slug', 'pmtiles_access_tier', 'ext_id_field', 'display_name_field', 'slick_to_aoi_buffer_m']),
+            (1, 'SHARED_DATASET', ARRAY['asset_slug', 'ext_id_field', 'display_name_field', 'slick_to_aoi_buffer_m']),
             (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field', 'slick_to_aoi_buffer_m']),
             (3, 'DB_REMOTE', ARRAY['db_conn_secret_name', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field', 'slick_to_aoi_buffer_m'])
         """

@@ -73,7 +73,6 @@ async def test_get_aoi_accessor_configs_reads_properties_json(db_session):
                         short_name="SHARED_DATASET",
                         prop_keys=[
                             "asset_slug",
-                            "pmtiles_access_tier",
                             "ext_id_field",
                             "display_name_field",
                         ],
@@ -977,7 +976,6 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         assert "properties->>'format'" not in sql_text
         assert "'SHARED_DATASET'" in sql_text
         assert "NULLIF(properties->>'asset_slug', '') IS NOT NULL" in sql_text
-        assert "'pmtiles_access_tier'" in sql_text
         assert "'slick_to_aoi_buffer_m'" in sql_text
         assert (
             "jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'number'" in sql_text
@@ -1015,7 +1013,6 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         )[1].split(";", 1)[0]
         assert "read_permission.short_name = 'any'" in public_view_sql
         assert "AS slick_to_aoi_buffer_m" in public_view_sql
-        assert "AS pmtiles_access_tier" in public_view_sql
         assert (
             "COALESCE((aoi_type.properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)"
             in public_view_sql
