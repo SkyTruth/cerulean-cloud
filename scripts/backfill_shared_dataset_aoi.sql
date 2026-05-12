@@ -354,6 +354,7 @@ BEGIN
 
     EXECUTE format('SET LOCAL lock_timeout = %L', p_lock_timeout);
     EXECUTE format('SET LOCAL statement_timeout = %L', p_statement_timeout);
+    SET LOCAL jit = off;
 
     EXECUTE format('SELECT count(*) FROM %s', v_stage_ident) INTO v_stage_rows;
     IF v_stage_rows = 0 THEN
@@ -383,14 +384,24 @@ BEGIN
             SELECT
                 ext_id,
                 CASE
-                    WHEN ST_NPoints(geom) > 255
-                        THEN ST_Subdivide(ST_MakeValid(ST_Buffer(geom, 0)), 255)
-                    ELSE ST_MakeValid(ST_Buffer(geom, 0))
+                    WHEN ST_IsValid(geom) THEN geom
+                    ELSE ST_MakeValid(geom)
                 END AS geom
             FROM %s
+        ),
+        chunked AS (
+            SELECT ext_id, ST_Subdivide(geom, 255) AS geom
+            FROM normalized
+            WHERE geom IS NOT NULL
+              AND ST_NPoints(geom) > 255
+            UNION ALL
+            SELECT ext_id, geom
+            FROM normalized
+            WHERE geom IS NOT NULL
+              AND ST_NPoints(geom) <= 255
         )
         SELECT ext_id, (ST_Dump(geom)).geom::geometry(Polygon, 4326) AS geom
-        FROM normalized
+        FROM chunked
         WHERE geom IS NOT NULL
         $sql$,
         v_stage_ident
