@@ -365,17 +365,27 @@ def inspect_fields(path: Path) -> list[str]:
 
 
 def _dataset_metadata(path: Path) -> dict[str, object]:
-    import fiona
+    try:
+        import pyogrio
 
-    with fiona.open(path) as src:
-        bounds = tuple(float(value) for value in src.bounds)
-        feature_count = len(src)
-        crs = src.crs_wkt or src.crs
-    return {
-        "feature_count": int(feature_count),
-        "bounds": bounds,
-        "crs": str(crs),
-    }
+        info = pyogrio.read_info(path)
+        return {
+            "feature_count": int(info["features"]),
+            "bounds": tuple(float(value) for value in info["total_bounds"]),
+            "crs": str(info.get("crs") or ""),
+        }
+    except ImportError:
+        import fiona
+
+        with fiona.open(path) as src:
+            bounds = tuple(float(value) for value in src.bounds)
+            feature_count = len(src)
+            crs = src.crs_wkt or src.crs
+        return {
+            "feature_count": int(feature_count),
+            "bounds": bounds,
+            "crs": str(crs),
+        }
 
 
 def inspect_stage_readiness(path: Path, ext_id_field: str) -> dict[str, object]:
