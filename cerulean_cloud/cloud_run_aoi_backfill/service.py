@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -1149,12 +1150,19 @@ def prepare_backfill(
     citation: str | None = None,
     batch_size: int = 5000,
 ) -> AoiConfig:
+    started = time.perf_counter()
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
+    LOGGER.info("prepare_backfill resolved asset slug=%s", resolved_asset_slug)
     resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
         resolved_db_url, resolved_asset_slug
     )
+    LOGGER.info(
+        "prepare_backfill canonical short_name=%s",
+        resolved_short_name or slug_to_short_name(resolved_asset_slug),
+    )
     asset = get_catalog_asset(resolved_asset_slug, catalog_source)
+    fetch_started = time.perf_counter()
     ref = fetch_dataset_ref(
         resolved_asset_slug,
         version=version,
@@ -1162,8 +1170,21 @@ def prepare_backfill(
         force=force_download,
         catalog_source=catalog_source,
     )
+    LOGGER.info(
+        "prepare_backfill fetched dataset asset_slug=%s elapsed_s=%.3f cache_path=%s",
+        resolved_asset_slug,
+        time.perf_counter() - fetch_started,
+        ref.cache_path,
+    )
     dataset_path = Path(ref.cache_path)
+    fields_started = time.perf_counter()
     columns = inspect_fields(dataset_path)
+    LOGGER.info(
+        "prepare_backfill inspected fields asset_slug=%s columns=%s elapsed_s=%.3f",
+        resolved_asset_slug,
+        len(columns),
+        time.perf_counter() - fields_started,
+    )
     config = build_config(
         resolved_asset_slug=resolved_asset_slug,
         asset=asset,
@@ -1179,7 +1200,15 @@ def prepare_backfill(
         version=version,
     )
     parse_table_name(config.stage_table)
+    chunk_started = time.perf_counter()
     chunk_plan = build_chunk_plan(dataset_path)
+    LOGGER.info(
+        "prepare_backfill built chunk plan asset_slug=%s chunks=%s grid_side=%s elapsed_s=%.3f",
+        resolved_asset_slug,
+        chunk_plan["target_chunk_count"],
+        chunk_plan["grid_side"],
+        time.perf_counter() - chunk_started,
+    )
 
     LOGGER.info("asset_slug=%s", config.asset_slug)
     LOGGER.info("short_name=%s", config.short_name)
@@ -1190,10 +1219,36 @@ def prepare_backfill(
     LOGGER.info("dataset_version=%s", config.dataset_version)
     LOGGER.info("planned_chunk_count=%s", chunk_plan["target_chunk_count"])
 
+    psql_started = time.perf_counter()
     run_psql_file(resolved_db_url, config, batch_size)
+    LOGGER.info(
+        "prepare_backfill bootstrapped SQL short_name=%s elapsed_s=%.3f",
+        config.short_name,
+        time.perf_counter() - psql_started,
+    )
+    cleanup_started = time.perf_counter()
     cleanup_stale_backfills(resolved_db_url)
+    LOGGER.info(
+        "prepare_backfill cleaned stale runs short_name=%s elapsed_s=%.3f",
+        config.short_name,
+        time.perf_counter() - cleanup_started,
+    )
+    manifest_started = time.perf_counter()
     insert_chunk_manifest(resolved_db_url, config.short_name, chunk_plan["chunks"])
+    LOGGER.info(
+        "prepare_backfill inserted chunk manifest short_name=%s chunks=%s elapsed_s=%.3f",
+        config.short_name,
+        len(chunk_plan["chunks"]),
+        time.perf_counter() - manifest_started,
+    )
+    status_started = time.perf_counter()
     refresh_run_status(resolved_db_url, config.short_name)
+    LOGGER.info(
+        "prepare_backfill refreshed run status short_name=%s elapsed_s=%.3f total_elapsed_s=%.3f",
+        config.short_name,
+        time.perf_counter() - status_started,
+        time.perf_counter() - started,
+    )
     return config
 
 
@@ -1210,14 +1265,22 @@ def run_backfill(
 ) -> None:
     import time
 
+    started = time.perf_counter()
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
     resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
         resolved_db_url, resolved_asset_slug
     )
     resolved_short_name = resolved_short_name or slug_to_short_name(resolved_asset_slug)
+    LOGGER.info(
+        "run_backfill resolved asset_slug=%s short_name=%s max_batches=%s",
+        resolved_asset_slug,
+        resolved_short_name,
+        max_batches,
+    )
     run_context = get_run_context(resolved_db_url, resolved_short_name)
     asset = get_catalog_asset(run_context.asset_slug, catalog_source)
+    fetch_started = time.perf_counter()
     ref = fetch_dataset_ref(
         run_context.asset_slug,
         version=shared_dataset_fetch_version(
@@ -1226,6 +1289,12 @@ def run_backfill(
         cache_dir=Path(DEFAULT_CACHE_DIR),
         force=False,
         catalog_source=catalog_source,
+    )
+    LOGGER.info(
+        "run_backfill fetched dataset short_name=%s elapsed_s=%.3f cache_path=%s",
+        resolved_short_name,
+        time.perf_counter() - fetch_started,
+        ref.cache_path,
     )
     config = AoiConfig(
         asset_slug=run_context.asset_slug,
@@ -1240,18 +1309,48 @@ def run_backfill(
     )
     dataset_path = Path(ref.cache_path)
 
+    lock_started = time.perf_counter()
     lock_conn = acquire_run_lock(resolved_db_url, resolved_short_name)
+    LOGGER.info(
+        "run_backfill acquired lock short_name=%s elapsed_s=%.3f",
+        resolved_short_name,
+        time.perf_counter() - lock_started,
+    )
     try:
         chunks_run = 0
         while max_batches is None or chunks_run < max_batches:
+            claim_started = time.perf_counter()
             chunk = claim_next_chunk(resolved_db_url, resolved_short_name)
             if chunk is None:
                 refresh_run_status(resolved_db_url, resolved_short_name)
+                LOGGER.info(
+                    "run_backfill no pending chunks short_name=%s chunks_run=%s total_elapsed_s=%.3f",
+                    resolved_short_name,
+                    chunks_run,
+                    time.perf_counter() - started,
+                )
                 return
+            LOGGER.info(
+                "run_backfill claimed chunk short_name=%s chunk_id=%s chunk_index=%s split_depth=%s bbox=%s claim_elapsed_s=%.3f",
+                resolved_short_name,
+                chunk["id"],
+                chunk["chunk_index"],
+                chunk["split_depth"],
+                chunk["bbox"],
+                time.perf_counter() - claim_started,
+            )
 
             try:
+                load_started = time.perf_counter()
                 stage_gdf = load_chunk_gdf(config, dataset_path, chunk["bbox"])
                 stage_rows = len(stage_gdf)
+                LOGGER.info(
+                    "run_backfill loaded chunk data short_name=%s chunk_id=%s stage_rows=%s elapsed_s=%.3f",
+                    resolved_short_name,
+                    chunk["id"],
+                    stage_rows,
+                    time.perf_counter() - load_started,
+                )
                 if stage_rows == 0:
                     clear_stage_table(resolved_db_url, config.stage_table)
                     mark_chunk_completed(
@@ -1264,6 +1363,11 @@ def run_backfill(
                         aois_inserted=0,
                         links_inserted=0,
                         sub_batches=0,
+                    )
+                    LOGGER.info(
+                        "run_backfill completed empty chunk short_name=%s chunk_id=%s",
+                        resolved_short_name,
+                        chunk["id"],
                     )
                 elif (
                     stage_rows > DEFAULT_MAX_CHUNK_STAGE_ROWS
@@ -1278,8 +1382,24 @@ def run_backfill(
                         chunk["split_depth"],
                         chunk["bbox"],
                     )
+                    LOGGER.info(
+                        "run_backfill split oversized chunk short_name=%s chunk_id=%s stage_rows=%s threshold=%s",
+                        resolved_short_name,
+                        chunk["id"],
+                        stage_rows,
+                        DEFAULT_MAX_CHUNK_STAGE_ROWS,
+                    )
                 else:
+                    stage_started = time.perf_counter()
                     load_stage_table(config, stage_gdf, resolved_db_url)
+                    LOGGER.info(
+                        "run_backfill staged chunk rows short_name=%s chunk_id=%s stage_rows=%s elapsed_s=%.3f",
+                        resolved_short_name,
+                        chunk["id"],
+                        stage_rows,
+                        time.perf_counter() - stage_started,
+                    )
+                    db_started = time.perf_counter()
                     result = query_one_row(
                         resolved_db_url,
                         """
@@ -1306,6 +1426,12 @@ def run_backfill(
                             statement_timeout,
                         ),
                     )
+                    LOGGER.info(
+                        "run_backfill processed chunk in db short_name=%s chunk_id=%s elapsed_s=%.3f",
+                        resolved_short_name,
+                        chunk["id"],
+                        time.perf_counter() - db_started,
+                    )
                     clear_stage_table(resolved_db_url, config.stage_table)
                     if result is None:
                         raise RuntimeError("Chunk processing returned no result row")
@@ -1322,6 +1448,12 @@ def run_backfill(
                             chunk["split_depth"],
                             chunk["bbox"],
                         )
+                        LOGGER.info(
+                            "run_backfill db requested split short_name=%s chunk_id=%s candidate_slick_rows=%s",
+                            resolved_short_name,
+                            chunk["id"],
+                            int(result[2]),
+                        )
                     else:
                         mark_chunk_completed(
                             resolved_db_url,
@@ -1334,6 +1466,17 @@ def run_backfill(
                             links_inserted=int(result[5]),
                             sub_batches=int(result[6]),
                         )
+                        LOGGER.info(
+                            "run_backfill completed chunk short_name=%s chunk_id=%s stage_rows=%s candidate_slick_rows=%s match_rows=%s aois_inserted=%s links_inserted=%s sub_batches=%s",
+                            resolved_short_name,
+                            chunk["id"],
+                            stage_rows,
+                            int(result[2]),
+                            int(result[3]),
+                            int(result[4]),
+                            int(result[5]),
+                            int(result[6]),
+                        )
                 chunks_run += 1
                 if sleep_seconds > 0:
                     time.sleep(sleep_seconds)
@@ -1345,9 +1488,20 @@ def run_backfill(
                     chunk["id"],
                     str(exc),
                 )
+                LOGGER.exception(
+                    "run_backfill chunk failed short_name=%s chunk_id=%s",
+                    resolved_short_name,
+                    chunk["id"],
+                )
                 raise
     finally:
         release_run_lock(lock_conn, resolved_short_name)
+        LOGGER.info(
+            "run_backfill released lock short_name=%s chunks_run=%s total_elapsed_s=%.3f",
+            resolved_short_name,
+            locals().get("chunks_run", 0),
+            time.perf_counter() - started,
+        )
 
 
 def validate_backfill(

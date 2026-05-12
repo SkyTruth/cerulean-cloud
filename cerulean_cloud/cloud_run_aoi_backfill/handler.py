@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Dict
 
 from fastapi import Depends, FastAPI
@@ -24,6 +26,7 @@ from cerulean_cloud.cloud_run_aoi_backfill.schema import (
 
 app = FastAPI(title="Cloud Run AOI Backfill", dependencies=[Depends(api_key_auth)])
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
+LOGGER = logging.getLogger("cloud_run_aoi_backfill.handler")
 
 
 def _status_rows(asset_slug: str, short_name: str | None, catalog_source: str | None):
@@ -74,6 +77,8 @@ def ping() -> Dict[str, str]:
 
 @app.post("/inspect", response_model=InspectResponse, tags=["AOI Backfill"])
 def inspect(payload: InspectRequest) -> InspectResponse:
+    started = time.perf_counter()
+    LOGGER.info("inspect start asset_slug=%s", payload.asset_slug)
     result = service.inspect_asset(
         payload.asset_slug,
         short_name=payload.short_name,
@@ -88,11 +93,24 @@ def inspect(payload: InspectRequest) -> InspectResponse:
         source_url=payload.source_url,
         citation=payload.citation,
     )
+    LOGGER.info(
+        "inspect complete asset_slug=%s short_name=%s elapsed_s=%.3f",
+        payload.asset_slug,
+        result["short_name"],
+        time.perf_counter() - started,
+    )
     return InspectResponse(result=result)
 
 
 @app.post("/prepare", response_model=PrepareResponse, tags=["AOI Backfill"])
 def prepare(payload: PrepareRequest) -> PrepareResponse:
+    started = time.perf_counter()
+    LOGGER.info(
+        "prepare start asset_slug=%s short_name=%s batch_size=%s",
+        payload.asset_slug,
+        payload.short_name,
+        payload.batch_size,
+    )
     config = service.prepare_backfill(
         payload.asset_slug,
         short_name=payload.short_name,
@@ -112,6 +130,13 @@ def prepare(payload: PrepareRequest) -> PrepareResponse:
         payload.asset_slug,
         short_name=config.short_name,
         catalog_source=payload.catalog_source,
+    )
+    LOGGER.info(
+        "prepare complete asset_slug=%s short_name=%s chunks=%s elapsed_s=%.3f",
+        payload.asset_slug,
+        config.short_name,
+        int(status_rows[0][2]) if status_rows else 0,
+        time.perf_counter() - started,
     )
     return PrepareResponse(
         short_name=config.short_name,
@@ -134,6 +159,13 @@ def status(payload: RunRequest) -> StatusResponse:
 
 @app.post("/run", response_model=RunResponse, tags=["AOI Backfill"])
 def run(payload: RunRequest) -> RunResponse:
+    started = time.perf_counter()
+    LOGGER.info(
+        "run start asset_slug=%s short_name=%s max_batches=%s",
+        payload.asset_slug,
+        payload.short_name,
+        payload.max_batches,
+    )
     service.run_backfill(
         payload.asset_slug,
         short_name=payload.short_name,
@@ -145,6 +177,12 @@ def run(payload: RunRequest) -> RunResponse:
     )
     resolved_short_name = payload.short_name or service.slug_to_short_name(
         service.resolve_asset_slug(payload.asset_slug, payload.catalog_source)
+    )
+    LOGGER.info(
+        "run complete asset_slug=%s short_name=%s elapsed_s=%.3f",
+        payload.asset_slug,
+        resolved_short_name,
+        time.perf_counter() - started,
     )
     return RunResponse(short_name=resolved_short_name)
 
