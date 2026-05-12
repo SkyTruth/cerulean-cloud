@@ -45,6 +45,7 @@ VALUES
 
 ALTER TABLE public.aoi_type
     ADD COLUMN filter_toggle boolean,
+    ADD COLUMN slick_to_aoi_enabled boolean NOT NULL DEFAULT TRUE,
     ADD COLUMN owner bigint REFERENCES public.users(id),
     ADD COLUMN read_perm bigint REFERENCES public.permission(id),
     ADD COLUMN access_type text REFERENCES public.aoi_access_type(short_name),

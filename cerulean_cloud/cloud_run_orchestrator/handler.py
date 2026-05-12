@@ -535,7 +535,7 @@ async def _orchestrate(
             )
             aoi_accessors = [
                 build_aoi_accessor(row, local_engine=db_engine)
-                for row in await db_client.get_scene_aoi_access_configs()
+                for row in await db_client.get_slick_to_aoi_accessor_configs()
             ]
 
         success = True

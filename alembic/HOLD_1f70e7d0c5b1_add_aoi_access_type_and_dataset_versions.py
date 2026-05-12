@@ -273,6 +273,15 @@ def upgrade():
     )
 
     op.add_column("aoi_type", sa.Column("filter_toggle", sa.Boolean()))
+    op.add_column(
+        "aoi_type",
+        sa.Column(
+            "slick_to_aoi_enabled",
+            sa.Boolean(),
+            nullable=False,
+            server_default=sa.true(),
+        ),
+    )
     op.add_column("aoi_type", sa.Column("owner", sa.BigInteger()))
     op.add_column("aoi_type", sa.Column("read_perm", sa.BigInteger()))
     op.add_column("aoi_type", sa.Column("access_type", sa.Text()))
@@ -573,6 +582,7 @@ def downgrade():
     op.drop_column("aoi_type", "access_type")
     op.drop_column("aoi_type", "read_perm")
     op.drop_column("aoi_type", "owner")
+    op.drop_column("aoi_type", "slick_to_aoi_enabled")
     op.drop_column("aoi_type", "filter_toggle")
 
     op.drop_table("aoi_access_type")

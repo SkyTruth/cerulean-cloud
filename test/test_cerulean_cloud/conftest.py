@@ -202,6 +202,7 @@ async def _install_spatial_compat_schema(conn) -> None:
             citation text,
             update_time timestamp without time zone DEFAULT now(),
             filter_toggle boolean DEFAULT NULL,
+            slick_to_aoi_enabled boolean NOT NULL DEFAULT TRUE,
             owner bigint REFERENCES public.users(id),
             read_perm bigint REFERENCES public.permission(id),
             access_type text REFERENCES public.aoi_access_type(short_name),
