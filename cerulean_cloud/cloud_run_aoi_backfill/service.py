@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import csv
+import json
 import logging
 import math
 import os
@@ -45,6 +46,8 @@ DEFAULT_CACHE_DIR = str(Path(gettempdir()) / "cerulean_aoi_backfill_cache")
 LARGE_DATASET_WARN_BYTES = 250 * 1024 * 1024
 TARGET_CHUNK_BYTES = 64 * 1024 * 1024
 TARGET_CHUNK_FEATURES = 10000
+DEFAULT_RUN_MAX_BATCHES = 5
+DEFAULT_RUN_STATEMENT_TIMEOUT = "4min"
 DEFAULT_MAX_CHUNK_STAGE_ROWS = 20000
 DEFAULT_SPLIT_CANDIDATE_SLICKS = 50000
 DEFAULT_MAX_SPLIT_DEPTH = 6
@@ -572,6 +575,22 @@ def clear_stage_table(db_url: str, stage_table: str) -> None:
         conn.close()
 
 
+def update_stage_runtime(db_url: str, stage_table: str, runtime_seconds: float) -> None:
+    schema, table = parse_table_name(stage_table)
+    conn = open_connection(db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE {quote_identifier(schema)}.{quote_identifier(table)}
+                SET runtime_seconds = %s
+                """,
+                (runtime_seconds,),
+            )
+    finally:
+        conn.close()
+
+
 def load_stage_table(config: AoiConfig, stage_gdf, db_url: str) -> int:
     import sqlalchemy as sa
     from geoalchemy2 import Geometry
@@ -719,6 +738,23 @@ def get_db_url(db_url: str | None = None) -> str:
     if not resolved_db_url:
         raise RuntimeError("DB_URL is required, either as env var or --db-url")
     return resolved_db_url
+
+
+def resolve_backfill_short_name(
+    asset_slug: str,
+    *,
+    db_url: str | None = None,
+    short_name: str | None = None,
+    catalog_source: str | None = None,
+) -> str:
+    if short_name:
+        return short_name
+    resolved_db_url = get_db_url(db_url)
+    resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
+    existing_short_name = resolve_existing_shared_dataset_short_name(
+        resolved_db_url, resolved_asset_slug
+    )
+    return existing_short_name or slug_to_short_name(resolved_asset_slug)
 
 
 def inspect_asset(
@@ -1133,6 +1169,152 @@ def release_run_lock(lock_conn, short_name: str) -> None:
         lock_conn.close()
 
 
+def enqueue_backfill_run(
+    asset_slug: str,
+    *,
+    short_name: str | None = None,
+    catalog_source: str | None = None,
+    max_batches: int | None = DEFAULT_RUN_MAX_BATCHES,
+    sleep_seconds: float = 0.05,
+    lock_timeout: str = "1s",
+    statement_timeout: str = DEFAULT_RUN_STATEMENT_TIMEOUT,
+    target_url: str,
+) -> str:
+    from google.cloud import tasks_v2
+
+    project = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    location = os.getenv("GCPREGION")
+    queue = os.getenv("AOI_BACKFILL_QUEUE")
+    api_key = os.getenv("API_KEY")
+    if not project or not location or not queue or not api_key:
+        raise RuntimeError(
+            "AOI backfill queue env vars are required: "
+            "PROJECT_ID/GOOGLE_CLOUD_PROJECT, GCPREGION, AOI_BACKFILL_QUEUE, API_KEY"
+        )
+
+    payload = {
+        "asset_slug": asset_slug,
+        "short_name": short_name,
+        "catalog_source": catalog_source,
+        "max_batches": max_batches,
+        "sleep_seconds": sleep_seconds,
+        "lock_timeout": lock_timeout,
+        "statement_timeout": statement_timeout,
+    }
+    client = tasks_v2.CloudTasksClient()
+    response = client.create_task(
+        request={
+            "parent": client.queue_path(project, location, queue),
+            "task": {
+                "http_request": {
+                    "http_method": tasks_v2.HttpMethod.POST,
+                    "url": target_url,
+                    "headers": {
+                        "Content-type": "application/json",
+                        "Authorization": f"Bearer {api_key}",
+                    },
+                    "body": json.dumps(payload).encode(),
+                }
+            },
+        }
+    )
+    return response.name
+
+
+def backfill_has_pending_work(db_url: str, short_name: str) -> bool:
+    row = query_one_row(
+        db_url,
+        """
+        SELECT
+            count(*) FILTER (WHERE status = 'pending')::bigint,
+            count(*) FILTER (WHERE status = 'failed')::bigint
+        FROM maintenance.shared_dataset_aoi_backfill_chunk
+        WHERE aoi_type_short_name = %s
+        """,
+        (short_name,),
+    )
+    if row is None:
+        return False
+    pending_chunks = int(row[0])
+    failed_chunks = int(row[1])
+    return pending_chunks > 0 and failed_chunks == 0
+
+
+def submit_backfill_run(
+    asset_slug: str,
+    *,
+    db_url: str | None = None,
+    short_name: str | None = None,
+    catalog_source: str | None = None,
+    max_batches: int | None = DEFAULT_RUN_MAX_BATCHES,
+    sleep_seconds: float = 0.05,
+    lock_timeout: str = "1s",
+    statement_timeout: str = DEFAULT_RUN_STATEMENT_TIMEOUT,
+    target_url: str,
+) -> tuple[str, str]:
+    resolved_short_name = resolve_backfill_short_name(
+        asset_slug,
+        db_url=db_url,
+        short_name=short_name,
+        catalog_source=catalog_source,
+    )
+    task_name = enqueue_backfill_run(
+        asset_slug,
+        short_name=resolved_short_name,
+        catalog_source=catalog_source,
+        max_batches=max_batches,
+        sleep_seconds=sleep_seconds,
+        lock_timeout=lock_timeout,
+        statement_timeout=statement_timeout,
+        target_url=target_url,
+    )
+    return resolved_short_name, task_name
+
+
+def continue_backfill_run(
+    asset_slug: str,
+    *,
+    db_url: str | None = None,
+    short_name: str | None = None,
+    catalog_source: str | None = None,
+    max_batches: int | None = DEFAULT_RUN_MAX_BATCHES,
+    sleep_seconds: float = 0.05,
+    lock_timeout: str = "1s",
+    statement_timeout: str = DEFAULT_RUN_STATEMENT_TIMEOUT,
+    target_url: str,
+) -> tuple[str, str | None]:
+    resolved_db_url = get_db_url(db_url)
+    resolved_short_name = resolve_backfill_short_name(
+        asset_slug,
+        db_url=resolved_db_url,
+        short_name=short_name,
+        catalog_source=catalog_source,
+    )
+    run_backfill(
+        asset_slug,
+        db_url=resolved_db_url,
+        short_name=resolved_short_name,
+        catalog_source=catalog_source,
+        max_batches=max_batches,
+        sleep_seconds=sleep_seconds,
+        lock_timeout=lock_timeout,
+        statement_timeout=statement_timeout,
+    )
+    if not backfill_has_pending_work(resolved_db_url, resolved_short_name):
+        return resolved_short_name, None
+    next_task_name = enqueue_backfill_run(
+        asset_slug,
+        short_name=resolved_short_name,
+        catalog_source=catalog_source,
+        max_batches=max_batches,
+        sleep_seconds=sleep_seconds,
+        lock_timeout=lock_timeout,
+        statement_timeout=statement_timeout,
+        target_url=target_url,
+    )
+    return resolved_short_name, next_task_name
+
+
 def prepare_backfill(
     asset_slug: str,
     *,
@@ -1258,10 +1440,10 @@ def run_backfill(
     db_url: str | None = None,
     short_name: str | None = None,
     catalog_source: str | None = None,
-    max_batches: int | None = 25,
+    max_batches: int | None = DEFAULT_RUN_MAX_BATCHES,
     sleep_seconds: float = 0.05,
     lock_timeout: str = "1s",
-    statement_timeout: str = "10min",
+    statement_timeout: str = DEFAULT_RUN_STATEMENT_TIMEOUT,
 ) -> None:
     import time
 
@@ -1341,6 +1523,8 @@ def run_backfill(
             )
 
             try:
+                chunk_started = time.perf_counter()
+                stage_table_loaded = False
                 load_started = time.perf_counter()
                 stage_gdf = load_chunk_gdf(config, dataset_path, chunk["bbox"])
                 stage_rows = len(stage_gdf)
@@ -1392,6 +1576,7 @@ def run_backfill(
                 else:
                     stage_started = time.perf_counter()
                     load_stage_table(config, stage_gdf, resolved_db_url)
+                    stage_table_loaded = True
                     LOGGER.info(
                         "run_backfill staged chunk rows short_name=%s chunk_id=%s stage_rows=%s elapsed_s=%.3f",
                         resolved_short_name,
@@ -1432,7 +1617,11 @@ def run_backfill(
                         chunk["id"],
                         time.perf_counter() - db_started,
                     )
-                    clear_stage_table(resolved_db_url, config.stage_table)
+                    update_stage_runtime(
+                        resolved_db_url,
+                        config.stage_table,
+                        time.perf_counter() - chunk_started,
+                    )
                     if result is None:
                         raise RuntimeError("Chunk processing returned no result row")
                     if result[0] == "split_required":
@@ -1481,7 +1670,12 @@ def run_backfill(
                 if sleep_seconds > 0:
                     time.sleep(sleep_seconds)
             except Exception as exc:
-                clear_stage_table(resolved_db_url, config.stage_table)
+                if stage_table_loaded:
+                    update_stage_runtime(
+                        resolved_db_url,
+                        config.stage_table,
+                        time.perf_counter() - chunk_started,
+                    )
                 mark_chunk_retry(
                     resolved_db_url,
                     resolved_short_name,
@@ -1562,6 +1756,48 @@ def get_backfill_status(
         """,
         (resolved_short_name,),
     )
+
+
+def get_stage_table_metrics(
+    asset_slug: str,
+    *,
+    db_url: str | None = None,
+    short_name: str | None = None,
+    catalog_source: str | None = None,
+) -> dict[str, object]:
+    resolved_db_url = get_db_url(db_url)
+    resolved_short_name = resolve_backfill_short_name(
+        asset_slug,
+        db_url=resolved_db_url,
+        short_name=short_name,
+        catalog_source=catalog_source,
+    )
+    try:
+        run_context = get_run_context(resolved_db_url, resolved_short_name)
+    except ValueError:
+        return {"stage_rows": 0, "stage_runtime_seconds": None}
+
+    schema, table = parse_table_name(run_context.stage_table)
+    conn = open_connection(resolved_db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    count(*)::bigint,
+                    max(runtime_seconds)
+                FROM {quote_identifier(schema)}.{quote_identifier(table)}
+                """
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        return {"stage_rows": 0, "stage_runtime_seconds": None}
+    return {
+        "stage_rows": int(row[0]),
+        "stage_runtime_seconds": float(row[1]) if row[1] is not None else None,
+    }
 
 
 def finish_backfill(

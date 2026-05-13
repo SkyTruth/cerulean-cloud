@@ -183,10 +183,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_parser = subparsers.add_parser("run")
     add_common_asset_args(run_parser)
-    run_parser.add_argument("--max-batches", type=int, default=25)
+    run_parser.add_argument(
+        "--max-batches",
+        type=int,
+        default=service.DEFAULT_RUN_MAX_BATCHES,
+    )
     run_parser.add_argument("--sleep-seconds", type=float, default=0.05)
     run_parser.add_argument("--lock-timeout", default="1s")
-    run_parser.add_argument("--statement-timeout", default="10min")
+    run_parser.add_argument(
+        "--statement-timeout",
+        default=service.DEFAULT_RUN_STATEMENT_TIMEOUT,
+    )
     run_parser.set_defaults(func=run)
 
     validate_parser = subparsers.add_parser("validate")

@@ -39,6 +39,8 @@ def test_shared_dataset_aoi_backfill_sql_keeps_online_safety_contract():
     assert "cleanup_shared_dataset_aoi_backfills" in sql_text
     assert "split_required" in sql_text
     assert "DROP TABLE IF EXISTS" in sql_text
+    assert "runtime_seconds double precision" in sql_text
+    assert "ADD COLUMN IF NOT EXISTS runtime_seconds" in sql_text
 
     forbidden_fragments = [
         "TRUNCATE public.",

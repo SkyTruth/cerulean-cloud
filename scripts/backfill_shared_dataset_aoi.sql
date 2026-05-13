@@ -274,8 +274,13 @@ BEGIN
         'CREATE TABLE IF NOT EXISTS %s (
             ext_id text NOT NULL,
             name text NOT NULL,
-            geom geometry(MultiPolygon, 4326) NOT NULL
+            geom geometry(MultiPolygon, 4326) NOT NULL,
+            runtime_seconds double precision
         )',
+        v_stage_table_text
+    );
+    EXECUTE format(
+        'ALTER TABLE %s ADD COLUMN IF NOT EXISTS runtime_seconds double precision',
         v_stage_table_text
     );
     EXECUTE format('TRUNCATE TABLE %s', v_stage_table_text);

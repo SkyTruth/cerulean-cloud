@@ -8,6 +8,7 @@ sqlalchemy==1.4.36
 pandas==2.1.4
 shapely==2.0.1
 google-cloud-storage
+google-cloud-tasks
 google-cloud-secret-manager
 google-cloud-logging==3.11.3
 skytruth-shared-datasets[gcs] @ https://github.com/SkyTruth/shared-datasets-1/archive/2a5d1f9787222e3e446a166b568873c3d247e32c.zip#subdirectory=api/python

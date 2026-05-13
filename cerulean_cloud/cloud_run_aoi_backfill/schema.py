@@ -32,10 +32,10 @@ class PrepareRequest(InspectRequest):
 
 
 class RunRequest(AssetRequest):
-    max_batches: int | None = 25
+    max_batches: int | None = service.DEFAULT_RUN_MAX_BATCHES
     sleep_seconds: float = 0.05
     lock_timeout: str = "1s"
-    statement_timeout: str = "10min"
+    statement_timeout: str = service.DEFAULT_RUN_STATEMENT_TIMEOUT
 
 
 class InspectResponse(BaseModel):
@@ -63,6 +63,7 @@ class ValidateResponse(BaseModel):
 class RunResponse(BaseModel):
     short_name: str
     status: str = "submitted"
+    task_name: str | None = None
 
 
 class FinishResponse(BaseModel):

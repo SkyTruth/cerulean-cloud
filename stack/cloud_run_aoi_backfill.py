@@ -19,6 +19,32 @@ service_account = gcp.serviceaccount.Account(
     display_name="Service Account for AOI backfill cloud run.",
 )
 
+queue = gcp.cloudtasks.Queue(
+    construct_name("queue-cr-aoi-backfill"),
+    location=pulumi.Config("gcp").require("region"),
+    rate_limits=gcp.cloudtasks.QueueRateLimitsArgs(
+        max_concurrent_dispatches=1,
+        max_dispatches_per_second=1,
+    ),
+    retry_config=gcp.cloudtasks.QueueRetryConfigArgs(
+        max_attempts=5,
+        max_backoff="300s",
+        max_doublings=1,
+        max_retry_duration="1800s",
+        min_backoff="30s",
+    ),
+    stackdriver_logging_config=gcp.cloudtasks.QueueStackdriverLoggingConfigArgs(
+        sampling_ratio=0.9,
+    ),
+)
+
+gcp.projects.IAMMember(
+    construct_name("cr-aoi-backfill-cloudTasksEnqueuer"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/cloudtasks.enqueuer",
+    member=service_account.email.apply(lambda email: f"serviceAccount:{email}"),
+)
+
 gcp.projects.IAMMember(
     construct_name("cr-aoi-backfill-cloudSqlClient"),
     project=pulumi.Config("gcp").require("project"),
@@ -77,6 +103,14 @@ default = gcp.cloudrun.Service(
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="GOOGLE_CLOUD_PROJECT",
                             value=pulumi.Config("gcp").require("project"),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="GCPREGION",
+                            value=pulumi.Config("gcp").require("region"),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="AOI_BACKFILL_QUEUE",
+                            value=queue.name,
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="GIT_HASH",

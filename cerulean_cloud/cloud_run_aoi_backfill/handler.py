@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Dict
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from cerulean_cloud.auth import api_key_auth
@@ -51,6 +51,11 @@ def _status_rows(asset_slug: str, short_name: str | None, catalog_source: str | 
                 "aois_inserted": row[10],
                 "links_inserted": row[11],
                 "updated_at": row[12],
+                **service.get_stage_table_metrics(
+                    asset_slug,
+                    short_name=row[0],
+                    catalog_source=catalog_source,
+                ),
             }
             for row in rows
         ]
@@ -158,7 +163,7 @@ def status(payload: RunRequest) -> StatusResponse:
 
 
 @app.post("/run", response_model=RunResponse, tags=["AOI Backfill"])
-def run(payload: RunRequest) -> RunResponse:
+def run(payload: RunRequest, request: Request) -> RunResponse:
     started = time.perf_counter()
     LOGGER.info(
         "run start asset_slug=%s short_name=%s max_batches=%s",
@@ -166,7 +171,7 @@ def run(payload: RunRequest) -> RunResponse:
         payload.short_name,
         payload.max_batches,
     )
-    service.run_backfill(
+    resolved_short_name, task_name = service.submit_backfill_run(
         payload.asset_slug,
         short_name=payload.short_name,
         catalog_source=payload.catalog_source,
@@ -174,17 +179,51 @@ def run(payload: RunRequest) -> RunResponse:
         sleep_seconds=payload.sleep_seconds,
         lock_timeout=payload.lock_timeout,
         statement_timeout=payload.statement_timeout,
-    )
-    resolved_short_name = payload.short_name or service.slug_to_short_name(
-        service.resolve_asset_slug(payload.asset_slug, payload.catalog_source)
+        target_url=str(request.url_for("run_execute")),
     )
     LOGGER.info(
-        "run complete asset_slug=%s short_name=%s elapsed_s=%.3f",
+        "run queued asset_slug=%s short_name=%s task_name=%s elapsed_s=%.3f",
         payload.asset_slug,
         resolved_short_name,
+        task_name,
         time.perf_counter() - started,
     )
-    return RunResponse(short_name=resolved_short_name)
+    return RunResponse(
+        short_name=resolved_short_name, status="queued", task_name=task_name
+    )
+
+
+@app.post("/run/execute", response_model=RunResponse, tags=["AOI Backfill"])
+def run_execute(payload: RunRequest, request: Request) -> RunResponse:
+    started = time.perf_counter()
+    LOGGER.info(
+        "run_execute start asset_slug=%s short_name=%s max_batches=%s",
+        payload.asset_slug,
+        payload.short_name,
+        payload.max_batches,
+    )
+    resolved_short_name, next_task_name = service.continue_backfill_run(
+        payload.asset_slug,
+        short_name=payload.short_name,
+        catalog_source=payload.catalog_source,
+        max_batches=payload.max_batches,
+        sleep_seconds=payload.sleep_seconds,
+        lock_timeout=payload.lock_timeout,
+        statement_timeout=payload.statement_timeout,
+        target_url=str(request.url_for("run_execute")),
+    )
+    LOGGER.info(
+        "run_execute complete asset_slug=%s short_name=%s next_task_name=%s elapsed_s=%.3f",
+        payload.asset_slug,
+        resolved_short_name,
+        next_task_name,
+        time.perf_counter() - started,
+    )
+    return RunResponse(
+        short_name=resolved_short_name,
+        status="queued_next" if next_task_name else "completed",
+        task_name=next_task_name,
+    )
 
 
 @app.post("/validate", response_model=ValidateResponse, tags=["AOI Backfill"])
