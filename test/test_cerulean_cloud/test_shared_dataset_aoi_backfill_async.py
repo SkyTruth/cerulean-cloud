@@ -1,6 +1,18 @@
 from cerulean_cloud.cloud_run_aoi_backfill import service
 
 
+def test_ensure_https_url_upgrades_http_scheme():
+    assert service.ensure_https_url("http://example.test/run/execute") == (
+        "https://example.test/run/execute"
+    )
+
+
+def test_ensure_https_url_leaves_https_unchanged():
+    assert service.ensure_https_url("https://example.test/run/execute") == (
+        "https://example.test/run/execute"
+    )
+
+
 def test_submit_backfill_run_enqueues_resolved_short_name(monkeypatch):
     monkeypatch.setattr(
         service, "resolve_backfill_short_name", lambda *args, **kwargs: "MPA"

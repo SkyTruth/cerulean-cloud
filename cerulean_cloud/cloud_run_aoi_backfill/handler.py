@@ -179,7 +179,7 @@ def run(payload: RunRequest, request: Request) -> RunResponse:
         sleep_seconds=payload.sleep_seconds,
         lock_timeout=payload.lock_timeout,
         statement_timeout=payload.statement_timeout,
-        target_url=str(request.url_for("run_execute")),
+        target_url=service.ensure_https_url(str(request.url_for("run_execute"))),
     )
     LOGGER.info(
         "run queued asset_slug=%s short_name=%s task_name=%s elapsed_s=%.3f",
@@ -210,7 +210,7 @@ def run_execute(payload: RunRequest, request: Request) -> RunResponse:
         sleep_seconds=payload.sleep_seconds,
         lock_timeout=payload.lock_timeout,
         statement_timeout=payload.statement_timeout,
-        target_url=str(request.url_for("run_execute")),
+        target_url=service.ensure_https_url(str(request.url_for("run_execute"))),
     )
     LOGGER.info(
         "run_execute complete asset_slug=%s short_name=%s next_task_name=%s elapsed_s=%.3f",

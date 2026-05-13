@@ -757,6 +757,12 @@ def resolve_backfill_short_name(
     return existing_short_name or slug_to_short_name(resolved_asset_slug)
 
 
+def ensure_https_url(url: str) -> str:
+    if url.startswith("http://"):
+        return "https://" + url[len("http://") :]
+    return url
+
+
 def inspect_asset(
     asset_slug: str,
     *,
