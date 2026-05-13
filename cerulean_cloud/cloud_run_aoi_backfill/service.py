@@ -575,22 +575,6 @@ def clear_stage_table(db_url: str, stage_table: str) -> None:
         conn.close()
 
 
-def update_stage_runtime(db_url: str, stage_table: str, runtime_seconds: float) -> None:
-    schema, table = parse_table_name(stage_table)
-    conn = open_connection(db_url)
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                UPDATE {quote_identifier(schema)}.{quote_identifier(table)}
-                SET runtime_seconds = %s
-                """,
-                (runtime_seconds,),
-            )
-    finally:
-        conn.close()
-
-
 def load_stage_table(config: AoiConfig, stage_gdf, db_url: str) -> int:
     import sqlalchemy as sa
     from geoalchemy2 import Geometry
@@ -1012,6 +996,7 @@ def mark_chunk_completed(
     aois_inserted: int,
     links_inserted: int,
     sub_batches: int,
+    runtime_seconds: float,
 ) -> None:
     call_procedure(
         db_url,
@@ -1025,6 +1010,7 @@ def mark_chunk_completed(
             aois_inserted = %s,
             links_inserted = %s,
             sub_batches = %s,
+            runtime_seconds = %s,
             finished_at = now(),
             updated_at = now(),
             last_error = NULL
@@ -1038,6 +1024,7 @@ def mark_chunk_completed(
             aois_inserted,
             links_inserted,
             sub_batches,
+            runtime_seconds,
             short_name,
             chunk_id,
         ),
@@ -1052,6 +1039,7 @@ def mark_chunk_split(
     chunk_index: int,
     split_depth: int,
     bbox: tuple[float, float, float, float],
+    runtime_seconds: float,
 ) -> None:
     child_specs = split_chunk_bbox(
         ChunkSpec(
@@ -1105,17 +1093,20 @@ def mark_chunk_split(
         UPDATE maintenance.shared_dataset_aoi_backfill_chunk
         SET
             status = 'split',
+            runtime_seconds = %s,
             finished_at = now(),
             updated_at = now()
         WHERE aoi_type_short_name = %s
           AND id = %s
         """,
-        (short_name, chunk_id),
+        (runtime_seconds, short_name, chunk_id),
     )
     refresh_run_status(db_url, short_name)
 
 
-def mark_chunk_retry(db_url: str, short_name: str, chunk_id: int, error: str) -> None:
+def mark_chunk_retry(
+    db_url: str, short_name: str, chunk_id: int, error: str, runtime_seconds: float
+) -> None:
     row = query_one_row(
         db_url,
         """
@@ -1136,12 +1127,13 @@ def mark_chunk_retry(db_url: str, short_name: str, chunk_id: int, error: str) ->
             status = %s,
             retry_count = retry_count + 1,
             last_error = %s,
+            runtime_seconds = %s,
             updated_at = now(),
             finished_at = CASE WHEN %s = 'failed' THEN now() ELSE finished_at END
         WHERE aoi_type_short_name = %s
           AND id = %s
         """,
-        (status, error[:2000], status, short_name, chunk_id),
+        (status, error[:2000], runtime_seconds, status, short_name, chunk_id),
     )
     refresh_run_status(db_url, short_name)
 
@@ -1530,7 +1522,6 @@ def run_backfill(
 
             try:
                 chunk_started = time.perf_counter()
-                stage_table_loaded = False
                 load_started = time.perf_counter()
                 stage_gdf = load_chunk_gdf(config, dataset_path, chunk["bbox"])
                 stage_rows = len(stage_gdf)
@@ -1553,6 +1544,7 @@ def run_backfill(
                         aois_inserted=0,
                         links_inserted=0,
                         sub_batches=0,
+                        runtime_seconds=time.perf_counter() - chunk_started,
                     )
                     LOGGER.info(
                         "run_backfill completed empty chunk short_name=%s chunk_id=%s",
@@ -1571,6 +1563,7 @@ def run_backfill(
                         chunk["chunk_index"],
                         chunk["split_depth"],
                         chunk["bbox"],
+                        time.perf_counter() - chunk_started,
                     )
                     LOGGER.info(
                         "run_backfill split oversized chunk short_name=%s chunk_id=%s stage_rows=%s threshold=%s",
@@ -1582,7 +1575,6 @@ def run_backfill(
                 else:
                     stage_started = time.perf_counter()
                     load_stage_table(config, stage_gdf, resolved_db_url)
-                    stage_table_loaded = True
                     LOGGER.info(
                         "run_backfill staged chunk rows short_name=%s chunk_id=%s stage_rows=%s elapsed_s=%.3f",
                         resolved_short_name,
@@ -1623,11 +1615,6 @@ def run_backfill(
                         chunk["id"],
                         time.perf_counter() - db_started,
                     )
-                    update_stage_runtime(
-                        resolved_db_url,
-                        config.stage_table,
-                        time.perf_counter() - chunk_started,
-                    )
                     if result is None:
                         raise RuntimeError("Chunk processing returned no result row")
                     if result[0] == "split_required":
@@ -1642,6 +1629,7 @@ def run_backfill(
                             chunk["chunk_index"],
                             chunk["split_depth"],
                             chunk["bbox"],
+                            time.perf_counter() - chunk_started,
                         )
                         LOGGER.info(
                             "run_backfill db requested split short_name=%s chunk_id=%s candidate_slick_rows=%s",
@@ -1660,6 +1648,7 @@ def run_backfill(
                             aois_inserted=int(result[4]),
                             links_inserted=int(result[5]),
                             sub_batches=int(result[6]),
+                            runtime_seconds=time.perf_counter() - chunk_started,
                         )
                         LOGGER.info(
                             "run_backfill completed chunk short_name=%s chunk_id=%s stage_rows=%s candidate_slick_rows=%s match_rows=%s aois_inserted=%s links_inserted=%s sub_batches=%s",
@@ -1676,17 +1665,12 @@ def run_backfill(
                 if sleep_seconds > 0:
                     time.sleep(sleep_seconds)
             except Exception as exc:
-                if stage_table_loaded:
-                    update_stage_runtime(
-                        resolved_db_url,
-                        config.stage_table,
-                        time.perf_counter() - chunk_started,
-                    )
                 mark_chunk_retry(
                     resolved_db_url,
                     resolved_short_name,
                     chunk["id"],
                     str(exc),
+                    time.perf_counter() - chunk_started,
                 )
                 LOGGER.exception(
                     "run_backfill chunk failed short_name=%s chunk_id=%s",
@@ -1762,48 +1746,6 @@ def get_backfill_status(
         """,
         (resolved_short_name,),
     )
-
-
-def get_stage_table_metrics(
-    asset_slug: str,
-    *,
-    db_url: str | None = None,
-    short_name: str | None = None,
-    catalog_source: str | None = None,
-) -> dict[str, object]:
-    resolved_db_url = get_db_url(db_url)
-    resolved_short_name = resolve_backfill_short_name(
-        asset_slug,
-        db_url=resolved_db_url,
-        short_name=short_name,
-        catalog_source=catalog_source,
-    )
-    try:
-        run_context = get_run_context(resolved_db_url, resolved_short_name)
-    except ValueError:
-        return {"stage_rows": 0, "stage_runtime_seconds": None}
-
-    schema, table = parse_table_name(run_context.stage_table)
-    conn = open_connection(resolved_db_url)
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT
-                    count(*)::bigint,
-                    max(runtime_seconds)
-                FROM {quote_identifier(schema)}.{quote_identifier(table)}
-                """
-            )
-            row = cur.fetchone()
-    finally:
-        conn.close()
-    if row is None:
-        return {"stage_rows": 0, "stage_runtime_seconds": None}
-    return {
-        "stage_rows": int(row[0]),
-        "stage_runtime_seconds": float(row[1]) if row[1] is not None else None,
-    }
 
 
 def finish_backfill(

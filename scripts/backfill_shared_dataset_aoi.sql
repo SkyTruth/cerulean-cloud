@@ -135,12 +135,16 @@ CREATE TABLE IF NOT EXISTS maintenance.shared_dataset_aoi_backfill_chunk (
     aois_inserted bigint NOT NULL DEFAULT 0,
     links_inserted bigint NOT NULL DEFAULT 0,
     sub_batches integer NOT NULL DEFAULT 0,
+    runtime_seconds double precision,
     last_error text,
     started_at timestamptz,
     finished_at timestamptz,
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (aoi_type_short_name, chunk_index)
 );
+
+ALTER TABLE maintenance.shared_dataset_aoi_backfill_chunk
+    ADD COLUMN IF NOT EXISTS runtime_seconds double precision;
 
 SELECT set_config('maintenance.aoi_short_name', :'aoi_short_name', false);
 SELECT set_config('maintenance.aoi_long_name', :'aoi_long_name', false);
@@ -274,13 +278,8 @@ BEGIN
         'CREATE TABLE IF NOT EXISTS %s (
             ext_id text NOT NULL,
             name text NOT NULL,
-            geom geometry(MultiPolygon, 4326) NOT NULL,
-            runtime_seconds double precision
+            geom geometry(MultiPolygon, 4326) NOT NULL
         )',
-        v_stage_table_text
-    );
-    EXECUTE format(
-        'ALTER TABLE %s ADD COLUMN IF NOT EXISTS runtime_seconds double precision',
         v_stage_table_text
     );
     EXECUTE format('TRUNCATE TABLE %s', v_stage_table_text);

@@ -51,11 +51,6 @@ def _status_rows(asset_slug: str, short_name: str | None, catalog_source: str | 
                 "aois_inserted": row[10],
                 "links_inserted": row[11],
                 "updated_at": row[12],
-                **service.get_stage_table_metrics(
-                    asset_slug,
-                    short_name=row[0],
-                    catalog_source=catalog_source,
-                ),
             }
             for row in rows
         ]
