@@ -49,6 +49,7 @@ class PrepareResponse(BaseModel):
     dataset_version: str
     batch_size: int
     initial_chunk_count: int
+    slick_to_aoi_buffer_m: float
     status: str = "prepared"
 
 

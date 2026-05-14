@@ -139,6 +139,7 @@ def status(args: argparse.Namespace) -> None:
         "matches",
         "aois_inserted",
         "links_inserted",
+        "slick_to_aoi_buffer_m",
         "updated_at",
     )
     print("\t".join(headers))

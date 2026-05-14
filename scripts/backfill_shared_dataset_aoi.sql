@@ -107,12 +107,16 @@ CREATE TABLE IF NOT EXISTS maintenance.shared_dataset_aoi_backfill_run (
     stage_table regclass NOT NULL,
     asset_slug text NOT NULL,
     dataset_version text,
+    slick_to_aoi_buffer_m double precision NOT NULL DEFAULT 0,
     batch_size bigint NOT NULL CHECK (batch_size > 0),
     status text NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed')),
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     completed_at timestamptz
 );
+
+ALTER TABLE maintenance.shared_dataset_aoi_backfill_run
+    ADD COLUMN IF NOT EXISTS slick_to_aoi_buffer_m double precision NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS maintenance.shared_dataset_aoi_backfill_chunk (
     id bigserial PRIMARY KEY,
@@ -178,6 +182,7 @@ DECLARE
     v_aoi_type_id bigint;
     v_existing_short_name text;
     v_properties jsonb;
+    v_slick_to_aoi_buffer_m double precision := 0;
 BEGIN
     SELECT to_regclass(v_stage_table_text) INTO v_stage_table;
     IF v_stage_table IS NOT NULL THEN
@@ -273,6 +278,11 @@ BEGIN
         WHERE id = v_aoi_type_id;
     END IF;
 
+    SELECT COALESCE((properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)
+    INTO v_slick_to_aoi_buffer_m
+    FROM public.aoi_type
+    WHERE id = v_aoi_type_id;
+
     EXECUTE format('CREATE SCHEMA IF NOT EXISTS %I', split_part(v_stage_table_text, '.', 1));
     EXECUTE format(
         'CREATE TABLE IF NOT EXISTS %s (
@@ -302,6 +312,7 @@ BEGIN
         stage_table,
         asset_slug,
         dataset_version,
+        slick_to_aoi_buffer_m,
         batch_size,
         status
     )
@@ -311,6 +322,7 @@ BEGIN
         to_regclass(v_stage_table_text),
         v_asset_slug,
         NULLIF(v_dataset_version, ''),
+        v_slick_to_aoi_buffer_m,
         v_batch_size,
         'pending'
     )
@@ -320,6 +332,7 @@ BEGIN
         stage_table = EXCLUDED.stage_table,
         asset_slug = EXCLUDED.asset_slug,
         dataset_version = EXCLUDED.dataset_version,
+        slick_to_aoi_buffer_m = EXCLUDED.slick_to_aoi_buffer_m,
         batch_size = EXCLUDED.batch_size,
         status = 'pending',
         completed_at = NULL,
@@ -354,6 +367,7 @@ DECLARE
     v_aoi_type_id bigint;
     v_stage_ident text;
     v_batch_size bigint;
+    v_slick_to_aoi_buffer_m double precision;
     v_stage_rows bigint;
     v_candidate_rows bigint;
     v_inserted_aoi_rows bigint;
@@ -368,11 +382,13 @@ BEGIN
     SELECT
         r.aoi_type_id,
         format('%I.%I', n.nspname, c.relname),
-        r.batch_size
+        r.batch_size,
+        r.slick_to_aoi_buffer_m
     INTO
         v_aoi_type_id,
         v_stage_ident,
-        v_batch_size
+        v_batch_size,
+        v_slick_to_aoi_buffer_m
     FROM maintenance.shared_dataset_aoi_backfill_run r
     JOIN pg_class c ON c.oid = r.stage_table
     JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -419,14 +435,29 @@ BEGIN
                 END AS geom
             FROM %s
         ),
+        buffered AS (
+            SELECT
+                ext_id,
+                CASE
+                    WHEN geom IS NULL OR %L <= 0 THEN geom
+                    ELSE ST_Transform(
+                        ST_Buffer(
+                            ST_Transform(geom, 8857),
+                            %L
+                        ),
+                        4326
+                    )::geometry
+                END AS geom
+            FROM normalized
+        ),
         chunked AS (
             SELECT ext_id, ST_Subdivide(geom, 255) AS geom
-            FROM normalized
+            FROM buffered
             WHERE geom IS NOT NULL
               AND ST_NPoints(geom) > 255
             UNION ALL
             SELECT ext_id, geom
-            FROM normalized
+            FROM buffered
             WHERE geom IS NOT NULL
               AND ST_NPoints(geom) <= 255
         )
@@ -434,10 +465,16 @@ BEGIN
         FROM chunked
         WHERE geom IS NOT NULL
         $sql$,
-        v_stage_ident
+        v_stage_ident,
+        v_slick_to_aoi_buffer_m,
+        v_slick_to_aoi_buffer_m
     );
 
     CREATE INDEX tmp_stage_chunks_geom_idx ON tmp_stage_chunks USING gist (geom);
+
+    CREATE TEMP TABLE tmp_stage_bounds ON COMMIT DROP AS
+    SELECT ST_Extent(geom)::box2d AS bbox
+    FROM tmp_stage_chunks;
 
     CREATE TEMP TABLE tmp_existing_aoi ON COMMIT DROP AS
     SELECT MIN(id) AS aoi_id, ext_id
@@ -469,8 +506,12 @@ BEGIN
         s.id AS slick_id,
         s.geometry::geometry AS geom
     FROM public.slick s
+    CROSS JOIN tmp_stage_bounds b
     WHERE s.active
-      AND s.geometry::geometry && ST_MakeEnvelope(p_minx, p_miny, p_maxx, p_maxy, 4326);
+      AND s.geometry::geometry && COALESCE(
+          ST_SetSRID(b.bbox::geometry, 4326),
+          ST_MakeEnvelope(p_minx, p_miny, p_maxx, p_maxy, 4326)
+      );
 
     SELECT count(*) INTO v_candidate_rows FROM tmp_candidate_slicks;
 

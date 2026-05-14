@@ -96,3 +96,65 @@ def test_continue_backfill_run_stops_when_no_pending(monkeypatch):
     assert calls["enqueue"] == 0
     assert short_name == "MPA"
     assert task_name is None
+
+
+def test_get_run_context_includes_snapped_buffer(monkeypatch):
+    monkeypatch.setattr(
+        service,
+        "query_one_row",
+        lambda *args, **kwargs: (
+            "mpa",
+            "MPA",
+            "",
+            "maintenance.aoi_stage_mpa",
+            "MRGID",
+            "NAME",
+            5000,
+            12000.0,
+        ),
+    )
+
+    context = service.get_run_context("postgres://db", "MPA")
+
+    assert context.slick_to_aoi_buffer_m == 12000.0
+    assert context.dataset_version == "latest"
+
+
+def test_get_backfill_status_selects_snapped_buffer(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(service, "get_db_url", lambda db_url=None: "postgres://db")
+    monkeypatch.setattr(service, "resolve_asset_slug", lambda asset_slug, _: asset_slug)
+    monkeypatch.setattr(
+        service, "resolve_existing_shared_dataset_short_name", lambda *args: "MPA"
+    )
+
+    def fake_query_rows(db_url, sql, params):
+        captured["sql"] = sql
+        captured["params"] = params
+        return [
+            (
+                "MPA",
+                "pending",
+                4,
+                1,
+                3,
+                0,
+                0,
+                100,
+                50,
+                20,
+                5,
+                10,
+                2500.0,
+                "2026-05-14T12:00:00Z",
+            )
+        ]
+
+    monkeypatch.setattr(service, "query_rows", fake_query_rows)
+
+    rows = service.get_backfill_status("mpa")
+
+    assert rows[0][12] == 2500.0
+    assert "r.slick_to_aoi_buffer_m" in captured["sql"]
+    assert captured["params"] == ("MPA",)

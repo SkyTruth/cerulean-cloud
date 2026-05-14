@@ -66,6 +66,7 @@ class AoiConfig:
     dataset_version: str
     source_url: str
     citation: str
+    slick_to_aoi_buffer_m: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ class RunContext:
     ext_id_field: str
     display_name_field: str | None
     batch_size: int
+    slick_to_aoi_buffer_m: float
 
 
 @dataclass(frozen=True)
@@ -890,7 +892,8 @@ def get_run_context(db_url: str, short_name: str) -> RunContext:
             r.stage_table::text,
             COALESCE(at.properties->>'ext_id_field', ''),
             NULLIF(at.properties->>'display_name_field', ''),
-            r.batch_size
+            r.batch_size,
+            r.slick_to_aoi_buffer_m
         FROM maintenance.shared_dataset_aoi_backfill_run r
         JOIN public.aoi_type at ON at.id = r.aoi_type_id
         WHERE r.aoi_type_short_name = %s
@@ -910,6 +913,7 @@ def get_run_context(db_url: str, short_name: str) -> RunContext:
         ext_id_field=ext_id_field,
         display_name_field=row[5],
         batch_size=int(row[6]),
+        slick_to_aoi_buffer_m=float(row[7] or 0.0),
     )
 
 
@@ -1440,13 +1444,25 @@ def prepare_backfill(
     )
     status_started = time.perf_counter()
     refresh_run_status(resolved_db_url, config.short_name)
+    run_context = get_run_context(resolved_db_url, config.short_name)
     LOGGER.info(
         "prepare_backfill refreshed run status short_name=%s elapsed_s=%.3f total_elapsed_s=%.3f",
         config.short_name,
         time.perf_counter() - status_started,
         time.perf_counter() - started,
     )
-    return config
+    return AoiConfig(
+        asset_slug=config.asset_slug,
+        short_name=config.short_name,
+        long_name=config.long_name,
+        ext_id_field=config.ext_id_field,
+        display_name_field=config.display_name_field,
+        stage_table=config.stage_table,
+        dataset_version=config.dataset_version,
+        source_url=config.source_url,
+        citation=config.citation,
+        slick_to_aoi_buffer_m=run_context.slick_to_aoi_buffer_m,
+    )
 
 
 def run_backfill(
@@ -1754,12 +1770,17 @@ def get_backfill_status(
             COALESCE(sum(c.match_rows), 0)::bigint AS match_rows,
             COALESCE(sum(c.aois_inserted), 0)::bigint AS aois_inserted,
             COALESCE(sum(c.links_inserted), 0)::bigint AS links_inserted,
+            r.slick_to_aoi_buffer_m,
             r.updated_at
         FROM maintenance.shared_dataset_aoi_backfill_run r
         JOIN maintenance.shared_dataset_aoi_backfill_chunk c
           ON c.aoi_type_short_name = r.aoi_type_short_name
         WHERE r.aoi_type_short_name = %s
-        GROUP BY r.aoi_type_short_name, r.status, r.updated_at
+        GROUP BY
+            r.aoi_type_short_name,
+            r.status,
+            r.slick_to_aoi_buffer_m,
+            r.updated_at
         """,
         (resolved_short_name,),
     )

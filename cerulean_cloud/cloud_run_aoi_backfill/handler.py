@@ -50,7 +50,8 @@ def _status_rows(asset_slug: str, short_name: str | None, catalog_source: str | 
                 "matches": row[9],
                 "aois_inserted": row[10],
                 "links_inserted": row[11],
-                "updated_at": row[12],
+                "slick_to_aoi_buffer_m": row[12],
+                "updated_at": row[13],
             }
             for row in rows
         ]
@@ -145,6 +146,7 @@ def prepare(payload: PrepareRequest) -> PrepareResponse:
         dataset_version=config.dataset_version,
         batch_size=payload.batch_size,
         initial_chunk_count=int(status_rows[0][2]) if status_rows else 0,
+        slick_to_aoi_buffer_m=config.slick_to_aoi_buffer_m,
     )
 
 

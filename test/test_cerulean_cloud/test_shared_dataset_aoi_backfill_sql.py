@@ -42,6 +42,10 @@ def test_shared_dataset_aoi_backfill_sql_keeps_online_safety_contract():
     assert "ALTER TABLE maintenance.shared_dataset_aoi_backfill_chunk" in sql_text
     assert "ADD COLUMN IF NOT EXISTS runtime_seconds double precision" in sql_text
     assert (
+        "ADD COLUMN IF NOT EXISTS slick_to_aoi_buffer_m double precision NOT NULL DEFAULT 0"
+        in sql_text
+    )
+    assert (
         "sub_batches integer NOT NULL DEFAULT 0,\n    runtime_seconds double precision,"
         in sql_text
     )
@@ -81,6 +85,19 @@ def test_shared_dataset_aoi_backfill_keeps_aoi_hidden_until_manual_toggle():
     assert "filter_toggle = FALSE" in finish_sql
     assert "manual UI enablement" in finish_sql
     assert "DROP TABLE IF EXISTS" in finish_sql
+
+
+def test_shared_dataset_aoi_backfill_sql_snapshots_and_uses_buffer():
+    sql_text = BACKFILL_SQL.read_text()
+
+    assert "slick_to_aoi_buffer_m double precision NOT NULL DEFAULT 0" in sql_text
+    assert "(properties->>'slick_to_aoi_buffer_m')::double precision" in sql_text
+    assert "r.slick_to_aoi_buffer_m" in sql_text
+    assert "ST_Buffer(" in sql_text
+    assert "ST_Transform(geom, 8857)" in sql_text
+    assert "s.geometry::geometry && COALESCE(" in sql_text
+    assert "ST_MakeEnvelope(p_minx, p_miny, p_maxx, p_maxy, 4326)" in sql_text
+    assert "WHERE ST_Intersects(slick_geom, aoi_geom)" in sql_text
 
 
 def test_backfill_wrapper_derives_safe_names_from_asset_slug():
