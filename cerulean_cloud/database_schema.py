@@ -4,25 +4,7 @@
 2. Run:
     Build the database locally using the readme
     sqlacodegen postgresql://user:password@localhost:5432/db --generator declarative --noviews --options noindexes --outfile cerulean_cloud/database_schema.py
-3. Add to every class:
-    #noqa
-4. Add:
-    from sqlalchemy.orm.decl_api import DeclarativeMeta
-5. Replace this definition:
-    Base: DeclarativeMeta = declarative_base()
-    metadata = Base.metadata
-6.  Add the following to source_to_tag (There's no way to have sqlacodegen output this relationship without a DB FK):
-        from sqlalchemy import and_
-        from sqlalchemy.orm import foreign, relationship
-        source_ext = relationship(
-            "Source",
-            primaryjoin=lambda: and_(
-                foreign(SourceToTag.source_ext_id) == Source.ext_id,
-                foreign(SourceToTag.source_type)   == Source.type,
-            ),
-            foreign_keys=lambda: [SourceToTag.source_ext_id, SourceToTag.source_type],
-        )
-7. Paste this comment
+3. Paste this comment
 """
 
 import datetime
