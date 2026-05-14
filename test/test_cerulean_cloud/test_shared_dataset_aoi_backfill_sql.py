@@ -230,6 +230,40 @@ def test_backfill_wrapper_infers_fields_when_unambiguous():
     assert wrapper.infer_display_name_field(["MRGID"], "MRGID") is None
 
 
+def test_backfill_wrapper_strips_nul_bytes_from_stage_text():
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import Polygon
+
+    wrapper = load_wrapper_module()
+    gdf = geopandas.GeoDataFrame(
+        {
+            "MRGID": ["abc\x00def"],
+            "Name": ["name\x00with\x00nul"],
+            "geometry": [Polygon([(0, 0), (0, 1), (1, 1), (0, 0)])],
+        },
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+    normalized = wrapper.normalize_stage_gdf(
+        gdf,
+        wrapper.AoiConfig(
+            asset_slug="mpa",
+            short_name="MPA",
+            long_name="MPA",
+            ext_id_field="MRGID",
+            display_name_field="Name",
+            stage_table="maintenance.aoi_stage_mpa",
+            dataset_version="latest",
+            source_url="",
+            citation="",
+        ),
+    )
+
+    assert normalized.iloc[0]["ext_id"] == "abcdef"
+    assert normalized.iloc[0]["name"] == "namewithnul"
+
+
 def test_backfill_wrapper_requires_ext_id_override_when_ambiguous():
     wrapper = load_wrapper_module()
 

@@ -438,6 +438,10 @@ def promote_polygons(geometry):
     return None
 
 
+def sanitize_stage_text(series):
+    return series.astype("string").str.replace("\x00", "", regex=False)
+
+
 def normalize_stage_gdf(gdf, config: AoiConfig):
     import geopandas as gpd
 
@@ -446,13 +450,13 @@ def normalize_stage_gdf(gdf, config: AoiConfig):
 
     gdf = gdf.set_crs("EPSG:4326") if gdf.crs is None else gdf.to_crs("EPSG:4326")
     gdf = gdf.rename(columns={config.ext_id_field: "ext_id"})
-    gdf["ext_id"] = gdf["ext_id"].astype("string")
+    gdf["ext_id"] = sanitize_stage_text(gdf["ext_id"])
     if config.display_name_field:
         if config.display_name_field == config.ext_id_field:
             gdf["name"] = gdf["ext_id"]
         else:
             gdf = gdf.rename(columns={config.display_name_field: "name"})
-            gdf["name"] = gdf["name"].astype("string")
+            gdf["name"] = sanitize_stage_text(gdf["name"])
     else:
         gdf["name"] = gdf["ext_id"]
     gdf["name"] = gdf["name"].fillna(gdf["ext_id"])
