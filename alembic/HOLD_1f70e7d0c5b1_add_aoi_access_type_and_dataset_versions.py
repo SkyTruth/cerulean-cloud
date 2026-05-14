@@ -206,6 +206,108 @@ def _update_aoi_type(
     )
 
 
+def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
+    aoi_type_id = (
+        op.get_bind()
+        .execute(
+            sa.text(
+                """
+            INSERT INTO public.aoi_type (
+                short_name,
+                long_name,
+                filter_toggle,
+                slick_to_aoi_enabled,
+                owner,
+                read_perm,
+                access_type,
+                properties
+            )
+            VALUES (
+                'CORAL',
+                'Global Coral Reefs',
+                TRUE,
+                TRUE,
+                :owner_id,
+                :read_perm_id,
+                'SHARED_DATASET',
+                CAST(:properties AS jsonb)
+            )
+            ON CONFLICT (short_name) DO UPDATE
+            SET
+                long_name = EXCLUDED.long_name,
+                filter_toggle = EXCLUDED.filter_toggle,
+                slick_to_aoi_enabled = EXCLUDED.slick_to_aoi_enabled,
+                owner = EXCLUDED.owner,
+                read_perm = EXCLUDED.read_perm,
+                access_type = EXCLUDED.access_type,
+                properties = EXCLUDED.properties
+            RETURNING id
+            """
+            ),
+            {
+                "owner_id": owner_id,
+                "read_perm_id": read_perm_id,
+                "properties": json.dumps(
+                    {
+                        "asset_slug": "global-coral-reefs",
+                        "ext_id_field": "METADATA_I",
+                        "display_name_field": "NAME",
+                        "slick_to_aoi_buffer_m": 10000,
+                    }
+                ),
+            },
+        )
+        .scalar_one()
+    )
+
+    translations = {
+        "es": "Arrecifes de coral globales",
+        "fr": "Récifs coralliens mondiaux",
+        "pt": "Recifes de coral globais",
+        "pt-br": "Recifes de coral globais",
+        "id": "Terumbu karang global",
+        "sw": "Miamba ya matumbawe duniani",
+    }
+    for locale, long_name in translations.items():
+        op.get_bind().execute(
+            sa.text(
+                """
+                INSERT INTO public.aoi_type_i18n (
+                    aoi_type_id,
+                    locale,
+                    long_name,
+                    citation,
+                    status,
+                    quality,
+                    source_checksum
+                )
+                VALUES (
+                    :aoi_type_id,
+                    :locale,
+                    :long_name,
+                    NULL,
+                    'published',
+                    'human',
+                    '177d90f8f3d9ebb5efd9367b59cea8c0'
+                )
+                ON CONFLICT (aoi_type_id, locale) DO UPDATE
+                SET
+                    long_name = EXCLUDED.long_name,
+                    citation = EXCLUDED.citation,
+                    status = EXCLUDED.status,
+                    quality = EXCLUDED.quality,
+                    source_checksum = EXCLUDED.source_checksum,
+                    updated_at = now()
+                """
+            ),
+            {
+                "aoi_type_id": aoi_type_id,
+                "locale": locale,
+                "long_name": long_name,
+            },
+        )
+
+
 def upgrade():
     owner_id, read_perm_id = _get_seed_ids()
 
@@ -396,6 +498,7 @@ def upgrade():
         owner_id=owner_id,
         read_perm_id=read_perm_id,
     )
+    _upsert_coral_aoi_type(owner_id=owner_id, read_perm_id=read_perm_id)
 
     op.execute(AOI_TYPE_PUBLIC_SQL)
 
@@ -491,6 +594,24 @@ def downgrade():
     op.execute("DROP VIEW IF EXISTS public.aoi_type_public")
     op.execute("DROP VIEW IF EXISTS public.slick_plus_2")
     op.execute("DROP RULE IF EXISTS bypass_slick_to_aoi_insert ON public.slick_to_aoi")
+    op.execute(
+        """
+        DELETE FROM public.slick_to_aoi sta
+        USING public.aoi a
+        JOIN public.aoi_type aoi_t ON aoi_t.id = a.type
+        WHERE sta.aoi = a.id
+          AND aoi_t.short_name = 'CORAL'
+        """
+    )
+    op.execute(
+        """
+        DELETE FROM public.aoi a
+        USING public.aoi_type aoi_t
+        WHERE a.type = aoi_t.id
+          AND aoi_t.short_name = 'CORAL'
+        """
+    )
+    op.execute("DELETE FROM public.aoi_type WHERE short_name = 'CORAL'")
     op.execute(
         """
         CREATE OR REPLACE FUNCTION public.slick_before_trigger_func()

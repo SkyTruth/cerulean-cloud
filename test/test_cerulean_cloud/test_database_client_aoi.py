@@ -989,6 +989,10 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
             '"ext_id_field":"SITE_ID"' in sql_text
             or '"ext_id_field": "SITE_ID"' in sql_text
         )
+        assert (
+            '"asset_slug":"global-coral-reefs"' in sql_text
+            or '"asset_slug": "global-coral-reefs"' in sql_text
+        )
         assert "ck_aoi_type_access_properties" in sql_text
         assert "slick_to_aoi_enabled" in sql_text
         assert "DEFAULT TRUE" in sql_text or "server_default=sa.true()" in sql_text
@@ -1035,6 +1039,7 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         assert "short_name IN ('EEZ', 'IHO', 'MPA')" not in aoi_ids_sql
 
     assert "DROP CONSTRAINT IF EXISTS ck_aoi_type_access_properties" in rollback_text
+    assert "short_name = 'CORAL'" in rollback_text
     assert "DROP COLUMN IF EXISTS slick_to_aoi_enabled" in rollback_text
     assert "DROP VIEW IF EXISTS public.aoi_type_public" in rollback_text
     assert "ALTER COLUMN geometry SET NOT NULL" not in rollback_text
