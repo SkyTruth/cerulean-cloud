@@ -15,6 +15,7 @@ from cerulean_cloud.database_client import (
     AmbiguousAOIError,
     DatabaseClient,
     InstanceNotFoundError,
+    _iter_aoi_match_payload,
 )
 
 
@@ -60,6 +61,47 @@ async def _add_slick_fixture(session, slick_id: int = 1):
         )
     )
     await session.flush()
+
+
+def test_aoi_match_payload_preserves_integer_like_ext_ids_as_text():
+    assert list(
+        _iter_aoi_match_payload(
+            {
+                "CORAL": [
+                    {"ext_id": 1.0, "name": "Coral 1"},
+                    12.0,
+                    "007",
+                    18.5,
+                    None,
+                ]
+            }
+        )
+    ) == [
+        {
+            "aoi_type_short_name": "CORAL",
+            "ext_id": "1",
+            "name": "Coral 1",
+            "is_rich_match": True,
+        },
+        {
+            "aoi_type_short_name": "CORAL",
+            "ext_id": "12",
+            "name": "12",
+            "is_rich_match": False,
+        },
+        {
+            "aoi_type_short_name": "CORAL",
+            "ext_id": "007",
+            "name": "007",
+            "is_rich_match": False,
+        },
+        {
+            "aoi_type_short_name": "CORAL",
+            "ext_id": "18.5",
+            "name": "18.5",
+            "is_rich_match": False,
+        },
+    ]
 
 
 @pytest.mark.asyncio

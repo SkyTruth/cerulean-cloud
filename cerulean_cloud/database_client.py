@@ -17,6 +17,17 @@ import cerulean_cloud.database_schema as db
 _USER_AOI_TYPE_SHORT_NAME = "USER"
 
 
+def _stringify_aoi_ext_id(value: Any) -> str:
+    """Return stable text for AOI IDs without turning integer IDs into decimals."""
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def _coerce_aoi_geometry(geometry):
     """Return a valid MultiPolygon for transient AOI and child-table geometry."""
     geom = geometry if isinstance(geometry, base.BaseGeometry) else shape(geometry)
@@ -66,7 +77,7 @@ def _iter_aoi_match_payload(aoi_payload: Mapping[str, Any]):
             if _is_empty_aoi_value(ext_id):
                 continue
 
-            ext_id = str(ext_id)
+            ext_id = _stringify_aoi_ext_id(ext_id)
             yield {
                 "aoi_type_short_name": aoi_type_short_name,
                 "ext_id": ext_id,
