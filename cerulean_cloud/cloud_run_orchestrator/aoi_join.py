@@ -33,6 +33,17 @@ SLICK_TO_AOI_BUFFER_M_KEY = "slick_to_aoi_buffer_m"
 SecretResolver = Callable[[str], str]
 
 
+def stringify_ext_id(value: Any) -> str:
+    """Return stable text for AOI IDs without turning integer IDs into decimals."""
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def empty_candidate_gdf() -> gpd.GeoDataFrame:
     """Return an empty normalized AOI candidate GeoDataFrame."""
     return gpd.GeoDataFrame(
@@ -237,8 +248,9 @@ class SharedDatasetAoiAccessor(BaseAoiAccessor):
         if self.display_name_field:
             rename_map[self.display_name_field] = "name"
         gdf = gdf.rename(columns=rename_map)
-        if "name" not in gdf.columns:
-            gdf["name"] = gdf["ext_id"]
+        has_name = "name" in gdf.columns
+        if not has_name:
+            gdf["name"] = None
 
         gdf = gdf[["ext_id", "name", "geometry"]].copy()
         gdf = gdf[gdf["geometry"].notna()]
@@ -246,8 +258,8 @@ class SharedDatasetAoiAccessor(BaseAoiAccessor):
         gdf = gdf[gdf["ext_id"].notna()]
         if gdf.empty:
             return empty_candidate_gdf()
-        gdf["ext_id"] = gdf["ext_id"].astype(str)
-        gdf["name"] = gdf["name"].fillna(gdf["ext_id"])
+        gdf["ext_id"] = gdf["ext_id"].map(stringify_ext_id)
+        gdf["name"] = gdf["name"].fillna(gdf["ext_id"]) if has_name else gdf["ext_id"]
         return gdf
 
 
@@ -331,8 +343,8 @@ class DbBaseAoiAccessor(BaseAoiAccessor):
 
         records = [
             {
-                "ext_id": str(row["ext_id"]),
-                "name": row["name"] or str(row["ext_id"]),
+                "ext_id": stringify_ext_id(row["ext_id"]),
+                "name": row["name"] or stringify_ext_id(row["ext_id"]),
                 "geometry": self._loads_ewkb(row["geometry"]),
             }
             for row in rows

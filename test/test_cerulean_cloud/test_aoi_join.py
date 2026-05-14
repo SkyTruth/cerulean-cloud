@@ -383,6 +383,59 @@ async def test_aoi_joiner_loads_candidates_once_and_skips_null_ext_ids(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_shared_dataset_accessor_preserves_integer_like_ext_ids(monkeypatch):
+    def fake_read_file(path, bbox=None):
+        return gpd.GeoDataFrame(
+            {
+                "CUSTOM_ID": [1.0, 12.0, "007", None],
+                "geometry": [
+                    box(0, 0, 2, 2),
+                    box(0, 0, 2, 2),
+                    box(0, 0, 2, 2),
+                    box(0, 0, 2, 2),
+                ],
+            },
+            crs="EPSG:4326",
+        )
+
+    monkeypatch.setattr(gpd, "read_file", fake_read_file)
+    monkeypatch.setattr(
+        SharedDatasetAoiAccessor,
+        "_download_aoi_dataset",
+        lambda self: "/tmp/custom.fgb",
+    )
+
+    accessor = build_aoi_accessor(
+        {
+            "short_name": "CUSTOM",
+            "access_type": "SHARED_DATASET",
+            "properties": {
+                "asset_slug": "custom",
+                "ext_id_field": "CUSTOM_ID",
+            },
+        }
+    )
+    slicks = gpd.GeoDataFrame(
+        geometry=[box(1, 1, 1.5, 1.5)],
+        crs="EPSG:4326",
+    )
+
+    assert await accessor.matches_for_scene(
+        _scene_bounds((-1, -1, 3, 3)),
+        SCENE_TIME,
+        slicks,
+    ) == [
+        {
+            "CUSTOM": [
+                {"ext_id": "007", "name": "007"},
+                {"ext_id": "1", "name": "1"},
+                {"ext_id": "12", "name": "12"},
+            ]
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_shared_dataset_accessor_fetches_by_slug_and_uses_site_id(
     monkeypatch, tmp_path
 ):
