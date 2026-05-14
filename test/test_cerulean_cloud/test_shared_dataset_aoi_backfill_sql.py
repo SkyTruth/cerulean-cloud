@@ -264,6 +264,39 @@ def test_backfill_wrapper_strips_nul_bytes_from_stage_text():
     assert normalized.iloc[0]["name"] == "namewithnul"
 
 
+def test_backfill_wrapper_normalizes_integer_like_ext_ids():
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import Polygon
+
+    wrapper = load_wrapper_module()
+    gdf = geopandas.GeoDataFrame(
+        {
+            "MRGID": [1.0, 12.0, "007", 18.5],
+            "geometry": [Polygon([(0, 0), (0, 1), (1, 1), (0, 0)])] * 4,
+        },
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+    normalized = wrapper.normalize_stage_gdf(
+        gdf,
+        wrapper.AoiConfig(
+            asset_slug="mpa",
+            short_name="MPA",
+            long_name="MPA",
+            ext_id_field="MRGID",
+            display_name_field=None,
+            stage_table="maintenance.aoi_stage_mpa",
+            dataset_version="latest",
+            source_url="",
+            citation="",
+        ),
+    )
+
+    assert normalized["ext_id"].tolist() == ["1", "12", "007", "18.5"]
+    assert normalized["name"].tolist() == ["1", "12", "007", "18.5"]
+
+
 def test_backfill_wrapper_requires_ext_id_override_when_ambiguous():
     wrapper = load_wrapper_module()
 

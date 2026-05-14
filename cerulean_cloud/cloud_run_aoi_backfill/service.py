@@ -396,7 +396,7 @@ def inspect_stage_readiness(path: Path, ext_id_field: str) -> dict[str, object]:
     import geopandas as gpd
 
     gdf = gpd.read_file(path, columns=[ext_id_field])
-    ext_ids = gdf[ext_id_field].astype("string").fillna("")
+    ext_ids = normalize_stage_text(gdf[ext_id_field]).fillna("")
     duplicated = ext_ids[ext_ids.duplicated(keep=False)]
     return {
         "feature_count": len(gdf),
@@ -442,6 +442,19 @@ def sanitize_stage_text(series):
     return series.astype("string").str.replace("\x00", "", regex=False)
 
 
+def normalize_stage_text(series):
+    def stringify_stage_value(value):
+        if value is None:
+            return None
+        if hasattr(value, "item"):
+            value = value.item()
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
+        return str(value)
+
+    return sanitize_stage_text(series.map(stringify_stage_value))
+
+
 def normalize_stage_gdf(gdf, config: AoiConfig):
     import geopandas as gpd
 
@@ -450,7 +463,7 @@ def normalize_stage_gdf(gdf, config: AoiConfig):
 
     gdf = gdf.set_crs("EPSG:4326") if gdf.crs is None else gdf.to_crs("EPSG:4326")
     gdf = gdf.rename(columns={config.ext_id_field: "ext_id"})
-    gdf["ext_id"] = sanitize_stage_text(gdf["ext_id"])
+    gdf["ext_id"] = normalize_stage_text(gdf["ext_id"])
     if config.display_name_field:
         if config.display_name_field == config.ext_id_field:
             gdf["name"] = gdf["ext_id"]
