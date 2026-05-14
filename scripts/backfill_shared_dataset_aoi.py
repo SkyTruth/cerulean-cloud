@@ -114,9 +114,6 @@ def validate(args: argparse.Namespace) -> None:
 
 
 def status(args: argparse.Namespace) -> None:
-    resolved_short_name = args.short_name or service.slug_to_short_name(
-        service.resolve_asset_slug(args.asset_slug, args.catalog_source)
-    )
     rows = service.get_backfill_status(
         args.asset_slug,
         db_url=args.db_url,
@@ -124,7 +121,7 @@ def status(args: argparse.Namespace) -> None:
         catalog_source=args.catalog_source,
     )
     if not rows:
-        print(f"No prepared backfill run for {resolved_short_name}")
+        print(f"No prepared backfill run for {args.short_name}")
         return
     headers = (
         "short_name",
@@ -179,11 +176,13 @@ def build_parser() -> argparse.ArgumentParser:
     add_common_asset_args(prepare_parser)
     add_dataset_args(prepare_parser)
     add_config_args(prepare_parser)
+    require_short_name(prepare_parser)
     prepare_parser.add_argument("--batch-size", type=int, default=5000)
     prepare_parser.set_defaults(func=prepare)
 
     run_parser = subparsers.add_parser("run")
     add_common_asset_args(run_parser)
+    require_short_name(run_parser)
     run_parser.add_argument(
         "--max-batches",
         type=int,
@@ -199,14 +198,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_parser = subparsers.add_parser("validate")
     add_common_asset_args(validate_parser)
+    require_short_name(validate_parser)
     validate_parser.set_defaults(func=validate)
 
     status_parser = subparsers.add_parser("status")
     add_common_asset_args(status_parser)
+    require_short_name(status_parser)
     status_parser.set_defaults(func=status)
 
     finish_parser = subparsers.add_parser("finish")
     add_common_asset_args(finish_parser)
+    require_short_name(finish_parser)
     finish_parser.set_defaults(func=finish)
 
     return parser
@@ -220,7 +222,7 @@ def add_common_asset_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--short-name",
-        help="Override derived AOI type short_name. Defaults to upper snake-case slug.",
+        help="Existing AOI type short_name in public.aoi_type.",
     )
     parser.add_argument(
         "--catalog-source",
@@ -248,6 +250,14 @@ def add_config_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--stage-table")
     parser.add_argument("--source-url")
     parser.add_argument("--citation")
+
+
+def require_short_name(parser: argparse.ArgumentParser) -> None:
+    for action in parser._actions:
+        if action.dest == "short_name":
+            action.required = True
+            return
+    raise RuntimeError("Expected parser to define --short-name")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

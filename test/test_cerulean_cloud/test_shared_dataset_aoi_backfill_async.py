@@ -15,7 +15,7 @@ def test_ensure_https_url_leaves_https_unchanged():
 
 def test_submit_backfill_run_enqueues_resolved_short_name(monkeypatch):
     monkeypatch.setattr(
-        service, "resolve_backfill_short_name", lambda *args, **kwargs: "MPA"
+        service, "require_existing_backfill_short_name", lambda *args, **kwargs: "MPA"
     )
     enqueued = {}
 
@@ -42,7 +42,7 @@ def test_continue_backfill_run_enqueues_followup_when_pending(monkeypatch):
 
     monkeypatch.setattr(service, "get_db_url", lambda db_url=None: "postgres://db")
     monkeypatch.setattr(
-        service, "resolve_backfill_short_name", lambda *args, **kwargs: "MPA"
+        service, "require_existing_backfill_short_name", lambda *args, **kwargs: "MPA"
     )
 
     def fake_run_backfill(*args, **kwargs):
@@ -71,7 +71,7 @@ def test_continue_backfill_run_stops_when_no_pending(monkeypatch):
 
     monkeypatch.setattr(service, "get_db_url", lambda db_url=None: "postgres://db")
     monkeypatch.setattr(
-        service, "resolve_backfill_short_name", lambda *args, **kwargs: "MPA"
+        service, "require_existing_backfill_short_name", lambda *args, **kwargs: "MPA"
     )
 
     def fake_run_backfill(*args, **kwargs):
@@ -124,9 +124,8 @@ def test_get_backfill_status_selects_snapped_buffer(monkeypatch):
     captured = {}
 
     monkeypatch.setattr(service, "get_db_url", lambda db_url=None: "postgres://db")
-    monkeypatch.setattr(service, "resolve_asset_slug", lambda asset_slug, _: asset_slug)
     monkeypatch.setattr(
-        service, "resolve_existing_shared_dataset_short_name", lambda *args: "MPA"
+        service, "require_existing_backfill_short_name", lambda *args, **kwargs: "MPA"
     )
 
     def fake_query_rows(db_url, sql, params):
@@ -158,3 +157,31 @@ def test_get_backfill_status_selects_snapped_buffer(monkeypatch):
     assert rows[0][12] == 2500.0
     assert "r.slick_to_aoi_buffer_m" in captured["sql"]
     assert captured["params"] == ("MPA",)
+
+
+def test_require_existing_backfill_short_name_requires_explicit_short_name():
+    try:
+        service.require_existing_backfill_short_name("mpa")
+    except ValueError as exc:
+        assert "explicit short_name" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError when short_name is omitted")
+
+
+def test_require_existing_backfill_short_name_rejects_asset_mismatch(monkeypatch):
+    monkeypatch.setattr(service, "get_db_url", lambda db_url=None: "postgres://db")
+    monkeypatch.setattr(service, "resolve_asset_slug", lambda asset_slug, _: asset_slug)
+    monkeypatch.setattr(
+        service,
+        "query_one_row",
+        lambda *args, **kwargs: ("MPA", "SHARED_DATASET", "wdpa-marine"),
+    )
+
+    try:
+        service.require_existing_backfill_short_name("coral", short_name="MPA")
+    except ValueError as exc:
+        assert "configured for asset_slug" in str(exc)
+        assert "wdpa-marine" in str(exc)
+        assert "coral" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for mismatched asset_slug")

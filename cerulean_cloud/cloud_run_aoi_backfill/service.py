@@ -760,6 +760,44 @@ def resolve_backfill_short_name(
     return existing_short_name or slug_to_short_name(resolved_asset_slug)
 
 
+def require_existing_backfill_short_name(
+    asset_slug: str,
+    *,
+    db_url: str | None = None,
+    short_name: str | None = None,
+    catalog_source: str | None = None,
+) -> str:
+    if not short_name:
+        raise ValueError("AOI backfill requires an explicit short_name")
+
+    resolved_db_url = get_db_url(db_url)
+    resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
+    row = query_one_row(
+        resolved_db_url,
+        """
+        SELECT
+            short_name,
+            access_type,
+            COALESCE(properties->>'asset_slug', '')
+        FROM public.aoi_type
+        WHERE short_name = %s
+        ORDER BY id
+        LIMIT 1
+        """,
+        (short_name,),
+    )
+    if row is None:
+        raise ValueError(f"AOI type {short_name!r} does not exist in public.aoi_type")
+    if row[1] != "SHARED_DATASET":
+        raise ValueError(f"AOI type {short_name!r} is not a SHARED_DATASET aoi_type")
+    if row[2] != resolved_asset_slug:
+        raise ValueError(
+            f"AOI type {short_name!r} is configured for asset_slug {row[2]!r}, "
+            f"not {resolved_asset_slug!r}"
+        )
+    return row[0]
+
+
 def ensure_https_url(url: str) -> str:
     if url.startswith("http://"):
         return "https://" + url[len("http://") :]
@@ -1271,7 +1309,7 @@ def submit_backfill_run(
     statement_timeout: str = DEFAULT_RUN_STATEMENT_TIMEOUT,
     target_url: str,
 ) -> tuple[str, str]:
-    resolved_short_name = resolve_backfill_short_name(
+    resolved_short_name = require_existing_backfill_short_name(
         asset_slug,
         db_url=db_url,
         short_name=short_name,
@@ -1303,7 +1341,7 @@ def continue_backfill_run(
     target_url: str,
 ) -> tuple[str, str | None]:
     resolved_db_url = get_db_url(db_url)
-    resolved_short_name = resolve_backfill_short_name(
+    resolved_short_name = require_existing_backfill_short_name(
         asset_slug,
         db_url=resolved_db_url,
         short_name=short_name,
@@ -1355,12 +1393,15 @@ def prepare_backfill(
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
     LOGGER.info("prepare_backfill resolved asset slug=%s", resolved_asset_slug)
-    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
-        resolved_db_url, resolved_asset_slug
+    resolved_short_name = require_existing_backfill_short_name(
+        resolved_asset_slug,
+        db_url=resolved_db_url,
+        short_name=short_name,
+        catalog_source=catalog_source,
     )
     LOGGER.info(
         "prepare_backfill canonical short_name=%s",
-        resolved_short_name or slug_to_short_name(resolved_asset_slug),
+        resolved_short_name,
     )
     asset = get_catalog_asset(resolved_asset_slug, catalog_source)
     fetch_started = time.perf_counter()
@@ -1481,10 +1522,12 @@ def run_backfill(
     started = time.perf_counter()
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
-    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
-        resolved_db_url, resolved_asset_slug
+    resolved_short_name = require_existing_backfill_short_name(
+        resolved_asset_slug,
+        db_url=resolved_db_url,
+        short_name=short_name,
+        catalog_source=catalog_source,
     )
-    resolved_short_name = resolved_short_name or slug_to_short_name(resolved_asset_slug)
     LOGGER.info(
         "run_backfill resolved asset_slug=%s short_name=%s max_batches=%s",
         resolved_asset_slug,
@@ -1729,11 +1772,12 @@ def validate_backfill(
     catalog_source: str | None = None,
 ) -> list[tuple]:
     resolved_db_url = get_db_url(db_url)
-    resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
-    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
-        resolved_db_url, resolved_asset_slug
+    resolved_short_name = require_existing_backfill_short_name(
+        asset_slug,
+        db_url=resolved_db_url,
+        short_name=short_name,
+        catalog_source=catalog_source,
     )
-    resolved_short_name = resolved_short_name or slug_to_short_name(resolved_asset_slug)
     return query_rows(
         resolved_db_url,
         "SELECT * FROM maintenance.validate_shared_dataset_aoi_backfill(%s)",
@@ -1749,11 +1793,12 @@ def get_backfill_status(
     catalog_source: str | None = None,
 ) -> list[tuple]:
     resolved_db_url = get_db_url(db_url)
-    resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
-    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
-        resolved_db_url, resolved_asset_slug
+    resolved_short_name = require_existing_backfill_short_name(
+        asset_slug,
+        db_url=resolved_db_url,
+        short_name=short_name,
+        catalog_source=catalog_source,
     )
-    resolved_short_name = resolved_short_name or slug_to_short_name(resolved_asset_slug)
     return query_rows(
         resolved_db_url,
         """
@@ -1794,11 +1839,12 @@ def finish_backfill(
     catalog_source: str | None = None,
 ) -> None:
     resolved_db_url = get_db_url(db_url)
-    resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
-    resolved_short_name = short_name or resolve_existing_shared_dataset_short_name(
-        resolved_db_url, resolved_asset_slug
+    resolved_short_name = require_existing_backfill_short_name(
+        asset_slug,
+        db_url=resolved_db_url,
+        short_name=short_name,
+        catalog_source=catalog_source,
     )
-    resolved_short_name = resolved_short_name or slug_to_short_name(resolved_asset_slug)
     call_procedure(
         resolved_db_url,
         "CALL maintenance.finish_shared_dataset_aoi_backfill(%s)",

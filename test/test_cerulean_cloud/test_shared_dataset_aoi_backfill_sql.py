@@ -81,6 +81,10 @@ def test_shared_dataset_aoi_backfill_keeps_aoi_hidden_until_manual_toggle():
     assert "'SHARED_DATASET'" in preparation_sql
     assert "filter_toggle = FALSE" in preparation_sql
     assert "access_type = 'SHARED_DATASET'" in preparation_sql
+    assert "INSERT INTO public.aoi_type" not in preparation_sql
+    assert "does not exist in public.aoi_type" in preparation_sql
+    assert "is not a SHARED_DATASET aoi_type" in preparation_sql
+    assert "is configured for asset_slug" in preparation_sql
 
     assert "filter_toggle = FALSE" in finish_sql
     assert "manual UI enablement" in finish_sql

@@ -180,7 +180,8 @@ DECLARE
     v_idx_prefix text;
     v_read_perm_id bigint;
     v_aoi_type_id bigint;
-    v_existing_short_name text;
+    v_existing_access_type text;
+    v_existing_asset_slug text;
     v_properties jsonb;
     v_slick_to_aoi_buffer_m double precision := 0;
 BEGIN
@@ -216,67 +217,40 @@ BEGIN
         'dataset_version', NULLIF(v_dataset_version, '')
     ));
 
-    SELECT id, short_name
-    INTO v_aoi_type_id, v_existing_short_name
+    SELECT id, access_type, COALESCE(properties->>'asset_slug', '')
+    INTO v_aoi_type_id, v_existing_access_type, v_existing_asset_slug
     FROM public.aoi_type
-    WHERE access_type = 'SHARED_DATASET'
-      AND properties->>'asset_slug' = v_asset_slug
+    WHERE short_name = v_aoi_short_name
     ORDER BY id
     LIMIT 1;
 
     IF v_aoi_type_id IS NULL THEN
-        INSERT INTO public.aoi_type (
-            table_name,
-            long_name,
-            short_name,
-            source_url,
-            citation,
-            update_time,
-            filter_toggle,
-            read_perm,
-            access_type,
-            properties
-        )
-        VALUES (
-            NULL,
-            v_aoi_long_name,
-            v_aoi_short_name,
-            NULLIF(v_source_url, ''),
-            NULLIF(v_citation, ''),
-            now(),
-            FALSE,
-            v_read_perm_id,
-            'SHARED_DATASET',
-            v_properties
-        )
-        ON CONFLICT (short_name) DO UPDATE
-        SET
-            table_name = NULL,
-            long_name = EXCLUDED.long_name,
-            source_url = EXCLUDED.source_url,
-            citation = EXCLUDED.citation,
-            update_time = now(),
-            filter_toggle = FALSE,
-            read_perm = COALESCE(public.aoi_type.read_perm, EXCLUDED.read_perm),
-            access_type = 'SHARED_DATASET',
-            properties = EXCLUDED.properties
-        RETURNING id INTO v_aoi_type_id;
-    ELSE
-        v_aoi_short_name := v_existing_short_name;
-
-        UPDATE public.aoi_type
-        SET
-            table_name = NULL,
-            long_name = v_aoi_long_name,
-            source_url = NULLIF(v_source_url, ''),
-            citation = NULLIF(v_citation, ''),
-            update_time = now(),
-            filter_toggle = FALSE,
-            read_perm = COALESCE(public.aoi_type.read_perm, v_read_perm_id),
-            access_type = 'SHARED_DATASET',
-            properties = v_properties
-        WHERE id = v_aoi_type_id;
+        RAISE EXCEPTION 'AOI type % does not exist in public.aoi_type', v_aoi_short_name;
     END IF;
+
+    IF v_existing_access_type <> 'SHARED_DATASET' THEN
+        RAISE EXCEPTION 'AOI type % is not a SHARED_DATASET aoi_type', v_aoi_short_name;
+    END IF;
+
+    IF COALESCE(v_existing_asset_slug, '') <> v_asset_slug THEN
+        RAISE EXCEPTION 'AOI type % is configured for asset_slug %, not %',
+            v_aoi_short_name,
+            COALESCE(v_existing_asset_slug, ''),
+            v_asset_slug;
+    END IF;
+
+    UPDATE public.aoi_type
+    SET
+        table_name = NULL,
+        long_name = v_aoi_long_name,
+        source_url = NULLIF(v_source_url, ''),
+        citation = NULLIF(v_citation, ''),
+        update_time = now(),
+        filter_toggle = FALSE,
+        read_perm = COALESCE(public.aoi_type.read_perm, v_read_perm_id),
+        access_type = 'SHARED_DATASET',
+        properties = v_properties
+    WHERE id = v_aoi_type_id;
 
     SELECT COALESCE((properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)
     INTO v_slick_to_aoi_buffer_m
