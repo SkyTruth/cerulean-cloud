@@ -8,7 +8,7 @@ Create Date: 2022-07-06 12:49:46.037868
 
 from datetime import datetime
 
-from sqlalchemy import orm
+from sqlalchemy import column, delete, exists, or_, orm, table
 
 import cerulean_cloud.database_schema as database_schema
 from alembic import op
@@ -18,6 +18,116 @@ revision = "c941681a050d"
 down_revision = "39277f6278f4"
 branch_labels = None
 depends_on = None
+
+
+CLS_DELETE_GROUPS = [
+    ["COIN_VESSEL"],
+    ["OLD_VESSEL", "REC_VESSEL"],
+    ["INFRA", "VESSEL"],
+    ["BACKGROUND", "ANTHRO", "NATURAL", "AMBIGUOUS"],
+]
+MODEL_FILE_PATHS = [
+    (
+        "experiments/2023_10_05_02_22_46_4cls_rnxt101_pr512_px1024_680min_"
+        "maskrcnn_wd01/scripting_cpu_model.pt"
+    ),
+    (
+        "experiments/2024_09_04_21_34_24_4cls_resnet34_pr512_px1024_"
+        "100epochs_unet/tracing_cpu_model.pt"
+    ),
+]
+LAYER_SHORT_NAMES = ["VV", "INFRA", "VESSEL", "ALL_255", "ALL_ZEROS"]
+AOI_TYPE_SHORT_NAMES = ["EEZ", "IHO", "MPA", "USER"]
+SOURCE_TYPE_SHORT_NAMES = ["VESSEL", "INFRA", "DARK", "NATURAL"]
+PERMISSION_SHORT_NAMES = ["own", "org", "any"]
+TAG_SHORT_NAMES = ["fxo", "obs", "lng", "exc"]
+FREQUENCY_SHORT_NAMES = ["REALTIME", "DAILY", "WEEKLY", "MONTHLY"]
+DUMMY_USER_EMAIL = "dummy@dummy.dummy"
+
+
+def _table_with_column(table_name: str, column_name: str):
+    return table(table_name, column(column_name))
+
+
+def _delete_by_column(
+    bind,
+    table_name: str,
+    column_name: str,
+    values: list[str],
+    reference_checks: list[tuple[str, str]] | None = None,
+) -> None:
+    table_ = table(table_name, column("id"), column(column_name))
+    statement = delete(table_).where(table_.c[column_name].in_(values))
+
+    for reference_table_name, reference_column_name in reference_checks or []:
+        reference_table = _table_with_column(
+            reference_table_name, reference_column_name
+        )
+        statement = statement.where(
+            ~exists().where(reference_table.c[reference_column_name] == table_.c.id)
+        )
+
+    bind.execute(statement)
+
+
+def _delete_tags(bind) -> None:
+    _delete_by_column(
+        bind,
+        "tag",
+        "short_name",
+        TAG_SHORT_NAMES,
+        reference_checks=[("source_to_tag", "tag")],
+    )
+
+
+def _delete_users(bind) -> None:
+    _delete_by_column(
+        bind,
+        "users",
+        "email",
+        [DUMMY_USER_EMAIL],
+        reference_checks=[
+            ("accounts", "userId"),
+            ("sessions", "userId"),
+            ("subscription", "user"),
+            ("aoi_user", "user"),
+            ("hitl_request", "user"),
+            ("hitl_slick", "user"),
+            ("tag", "owner"),
+        ],
+    )
+
+
+def _delete_permissions(bind) -> None:
+    permission = table("permission", column("id"), column("short_name"))
+    tag = table("tag", column("read_perm"), column("write_perm"))
+    bind.execute(
+        delete(permission).where(
+            permission.c.short_name.in_(PERMISSION_SHORT_NAMES),
+            ~exists().where(
+                or_(
+                    tag.c.read_perm == permission.c.id,
+                    tag.c.write_perm == permission.c.id,
+                )
+            ),
+        )
+    )
+
+
+def _delete_cls_group(bind, short_names: list[str]) -> None:
+    cls = table("cls", column("id"), column("short_name"), column("supercls"))
+    cls_child = cls.alias("cls_child")
+    slick = table("slick", column("cls"), column("hitl_cls"))
+    hitl_slick = _table_with_column("hitl_slick", "cls")
+
+    bind.execute(
+        delete(cls).where(
+            cls.c.short_name.in_(short_names),
+            ~exists().where(cls_child.c.supercls == cls.c.id),
+            ~exists().where(or_(slick.c.cls == cls.c.id, slick.c.hitl_cls == cls.c.id)),
+            ~exists().where(hitl_slick.c.cls == cls.c.id),
+        )
+    )
 
 
 def upgrade() -> None:
@@ -339,73 +449,41 @@ def upgrade() -> None:
 def downgrade() -> None:
     """drop initial rows"""
     bind = op.get_bind()
-    session = orm.Session(bind=bind)
 
-    with session.begin():
-        models = session.query(database_schema.Model).all()
-        for model in models:
-            session.delete(model)
+    # Use lightweight table expressions instead of the live ORM mappings. This
+    # historical migration must run after later schema changes have been undone.
+    _delete_by_column(
+        bind,
+        "model",
+        "file_path",
+        MODEL_FILE_PATHS,
+        reference_checks=[("orchestrator_run", "model")],
+    )
+    _delete_tags(bind)
+    _delete_by_column(bind, "layer", "short_name", LAYER_SHORT_NAMES)
+    _delete_by_column(
+        bind,
+        "aoi_type",
+        "short_name",
+        AOI_TYPE_SHORT_NAMES,
+        reference_checks=[("aoi", "type")],
+    )
+    _delete_by_column(
+        bind,
+        "source_type",
+        "short_name",
+        SOURCE_TYPE_SHORT_NAMES,
+        reference_checks=[("source", "type")],
+    )
+    _delete_by_column(
+        bind,
+        "frequency",
+        "short_name",
+        FREQUENCY_SHORT_NAMES,
+        reference_checks=[("subscription", "frequency")],
+    )
+    _delete_permissions(bind)
+    _delete_users(bind)
 
-        layers = (
-            session.query(database_schema.Layer)
-            .filter(
-                database_schema.Layer.short_name.in_(
-                    ["VV", "INFRA", "VESSEL", "ALL_255", "ALL_ZEROS"]
-                )
-            )
-            .all()
-        )
-        for layer in layers:
-            session.delete(layer)
-
-        aoi_types = (
-            session.query(database_schema.AoiType)
-            .filter(
-                database_schema.AoiType.short_name.in_(["EEZ", "IHO", "MPA", "USER"])
-            )
-            .all()
-        )
-        for aoi_type in aoi_types:
-            session.delete(aoi_type)
-
-        source_types = (
-            session.query(database_schema.SourceType)
-            .filter(database_schema.SourceType.short_name.in_(["VESSEL", "INFRA"]))
-            .all()
-        )
-        for source_type in source_types:
-            session.delete(source_type)
-
-        frequencies = (
-            session.query(database_schema.Frequency)
-            .filter(
-                database_schema.Frequency.short_name.in_(
-                    ["REALTIME", "DAILY", "WEEKLY", "MONTHLY"]
-                )
-            )
-            .all()
-        )
-        for frequency in frequencies:
-            session.delete(frequency)
-
-        clses = (
-            session.query(database_schema.Cls)
-            .filter(
-                database_schema.Cls.short_name.in_(
-                    [
-                        "BACKGROUND",
-                        "ANTHRO",
-                        "NATURAL",
-                        "INFRA",
-                        "VESSEL",
-                        "OLD_VESSEL",
-                        "REC_VESSEL",
-                        "COIN_VESSEL",
-                        "AMBIGUOUS",
-                    ]
-                )
-            )
-            .all()
-        )
-        for clas in clses:
-            session.delete(clas)
+    for short_names in CLS_DELETE_GROUPS:
+        _delete_cls_group(bind, short_names)
