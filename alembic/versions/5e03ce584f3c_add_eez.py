@@ -8,11 +8,9 @@ Create Date: 2022-07-08 11:24:31.802462
 
 import geojson
 import httpx
-from geoalchemy2.shape import from_shape
+import sqlalchemy as sa
 from shapely.geometry import MultiPolygon, shape
-from sqlalchemy import orm
 
-import cerulean_cloud.database_schema as database_schema
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -20,6 +18,7 @@ revision = "5e03ce584f3c"
 down_revision = "c941681a050d"
 branch_labels = None
 depends_on = None
+AOI_TYPE_SHORT_NAME = "EEZ"
 
 
 def save_eez_to_file():
@@ -38,10 +37,24 @@ def get_eez_from_url(
     return res
 
 
+def _aoi_type_id(bind) -> int:
+    return bind.execute(
+        sa.text("SELECT id FROM aoi_type WHERE short_name = :short_name"),
+        {"short_name": AOI_TYPE_SHORT_NAME},
+    ).scalar_one()
+
+
+def _multipolygon_wkt(feature_geometry) -> str:
+    geometry = shape(feature_geometry).buffer(0)
+    if not isinstance(geometry, MultiPolygon):
+        geometry = MultiPolygon([geometry])
+    return geometry.wkt
+
+
 def upgrade() -> None:
     """Add eez"""
     bind = op.get_bind()
-    session = orm.Session(bind=bind)
+    aoi_type_id = _aoi_type_id(bind)
 
     eez = get_eez_from_url()  # geojson.load(open("EEZ_and_HighSeas_20230410.json"))
     for feat in eez.get("features"):
@@ -54,28 +67,43 @@ def upgrade() -> None:
             if feat["properties"][k] is not None
         ]
 
-        geometry = shape(feat["geometry"]).buffer(0)
-        if not isinstance(geometry, MultiPolygon):
-            geometry = MultiPolygon([geometry])
-
-        with session.begin():
-            aoi_eez = database_schema.AoiEez(
-                type=1,
-                name=feat["properties"]["GEONAME"],
-                geometry=from_shape(geometry),
-                mrgid=feat["properties"]["MRGID"],
-                sovereigns=sovereigns,
-            )
-            session.add(aoi_eez)
+        aoi_id = bind.execute(
+            sa.text("""
+                INSERT INTO aoi (type, name, geometry)
+                VALUES (:type, :name, ST_GeogFromText(:geometry))
+                RETURNING id
+                """),
+            {
+                "type": aoi_type_id,
+                "name": feat["properties"]["GEONAME"],
+                "geometry": f"SRID=4326;{_multipolygon_wkt(feat['geometry'])}",
+            },
+        ).scalar_one()
+        bind.execute(
+            sa.text("""
+                INSERT INTO aoi_eez (aoi_id, mrgid, sovereigns)
+                VALUES (:aoi_id, :mrgid, :sovereigns)
+                """),
+            {
+                "aoi_id": aoi_id,
+                "mrgid": feat["properties"]["MRGID"],
+                "sovereigns": sovereigns,
+            },
+        )
 
 
 def downgrade() -> None:
     """remove eez"""
     bind = op.get_bind()
-    session = orm.Session(bind=bind)
-
-    with session.begin():
-        session.query(database_schema.AoiEez).delete()
-        session.query(database_schema.Aoi).filter(
-            database_schema.Aoi.type == 1
-        ).delete()
+    bind.execute(sa.text("DELETE FROM aoi_eez"))
+    bind.execute(
+        sa.text("""
+            DELETE FROM aoi
+            WHERE type = (
+                SELECT id
+                FROM aoi_type
+                WHERE short_name = :short_name
+            )
+            """),
+        {"short_name": AOI_TYPE_SHORT_NAME},
+    )
