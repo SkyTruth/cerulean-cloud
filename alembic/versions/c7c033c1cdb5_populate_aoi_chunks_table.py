@@ -7,7 +7,6 @@ Create Date: 2023-11-17 11:44:59.370910
 """
 
 import sqlalchemy as sa
-from sqlalchemy import orm
 
 from alembic import op
 
@@ -27,25 +26,21 @@ def upgrade() -> None:
     This is done to manage large geometries more efficiently.
     """
     bind = op.get_bind()
-    session = orm.Session(bind=bind)
-    with session.begin():
-        session.execute(
-            sa.text(
-                """
-                WITH dumped AS (
-                    SELECT aoi.id, (st_dump(st_makevalid(st_buffer(geometry::geometry,0)))).geom as dgeom
-                    FROM aoi
-                ), split as(
-                    SELECT id, st_subdivide(dgeom) as dgeom FROM dumped WHERE st_npoints(dgeom)>255
-                    UNION ALL
-                    SELECT id, dgeom FROM dumped WHERE st_npoints(dgeom)<=255
-                )
-                INSERT INTO aoi_chunks (id, geometry)
-                    SELECT id, dgeom
-                    FROM split;
-                """
+    bind.execute(
+        sa.text("""
+            WITH dumped AS (
+                SELECT aoi.id, (st_dump(st_makevalid(st_buffer(geometry::geometry,0)))).geom as dgeom
+                FROM aoi
+            ), split as(
+                SELECT id, st_subdivide(dgeom) as dgeom FROM dumped WHERE st_npoints(dgeom)>255
+                UNION ALL
+                SELECT id, dgeom FROM dumped WHERE st_npoints(dgeom)<=255
             )
-        )
+            INSERT INTO aoi_chunks (id, geometry)
+                SELECT id, dgeom
+                FROM split;
+            """)
+    )
 
 
 def downgrade() -> None:
@@ -56,7 +51,4 @@ def downgrade() -> None:
     undoing the changes made by the upgrade function.
     """
     bind = op.get_bind()
-    session = orm.Session(bind=bind)
-    with session.begin():
-        session.execute(sa.text("TRUNCATE TABLE aoi_chunks;"))
-    pass
+    bind.execute(sa.text("TRUNCATE TABLE aoi_chunks;"))
