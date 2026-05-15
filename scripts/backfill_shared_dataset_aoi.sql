@@ -377,10 +377,15 @@ BEGIN
         WITH normalized AS (
             SELECT
                 ext_id,
-                CASE
-                    WHEN ST_IsValid(geom) THEN geom
-                    ELSE ST_MakeValid(geom)
-                END AS geom
+                ST_Multi(
+                    ST_CollectionExtract(
+                        CASE
+                            WHEN ST_IsValid(geom) THEN geom
+                            ELSE ST_MakeValid(geom)
+                        END,
+                        3
+                    )
+                )::geometry(MultiPolygon, 4326) AS geom
             FROM %s
         ),
         buffered AS (
@@ -388,13 +393,20 @@ BEGIN
                 ext_id,
                 CASE
                     WHEN geom IS NULL OR %L <= 0 THEN geom
-                    ELSE ST_Transform(
-                        ST_Buffer(
-                            ST_Transform(geom, 8857),
-                            %L
-                        ),
-                        4326
-                    )::geometry
+                    ELSE ST_Multi(
+                        ST_CollectionExtract(
+                            ST_MakeValid(
+                                ST_Transform(
+                                    ST_Buffer(
+                                        ST_Transform(geom, 8857),
+                                        %L
+                                    ),
+                                    4326
+                                )
+                            ),
+                            3
+                        )
+                    )::geometry(MultiPolygon, 4326)
                 END AS geom
             FROM normalized
         ),
@@ -412,6 +424,7 @@ BEGIN
         SELECT ext_id, (ST_Dump(geom)).geom::geometry(Polygon, 4326) AS geom
         FROM chunked
         WHERE geom IS NOT NULL
+          AND NOT ST_IsEmpty(geom)
         $sql$,
         v_stage_ident,
         v_slick_to_aoi_buffer_m,

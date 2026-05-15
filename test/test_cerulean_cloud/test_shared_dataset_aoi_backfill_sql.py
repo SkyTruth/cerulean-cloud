@@ -91,6 +91,10 @@ def test_shared_dataset_aoi_backfill_sql_snapshots_and_uses_buffer():
     assert "r.slick_to_aoi_buffer_m" in sql_text
     assert "ST_Buffer(" in sql_text
     assert "ST_Transform(geom, 8857)" in sql_text
+    assert "ST_CollectionExtract(" in sql_text
+    assert "ST_MakeValid(" in sql_text
+    assert "ST_Multi(" in sql_text
+    assert "AND NOT ST_IsEmpty(geom)" in sql_text
     assert "s.geometry::geometry && COALESCE(" in sql_text
     assert "ST_MakeEnvelope(p_minx, p_miny, p_maxx, p_maxy, 4326)" in sql_text
     assert "WHERE ST_Intersects(slick_geom, aoi_geom)" in sql_text
