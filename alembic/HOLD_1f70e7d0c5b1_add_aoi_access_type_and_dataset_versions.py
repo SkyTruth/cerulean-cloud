@@ -347,6 +347,11 @@ def upgrade():
         existing_type=sa.Text(),
         nullable=False,
     )
+    op.create_check_constraint(
+        "ck_aoi_type_short_name_no_underscore",
+        "aoi_type",
+        "position('_' in short_name) = 0",
+    )
     op.alter_column(
         "aoi_type",
         "table_name",
@@ -720,6 +725,11 @@ def downgrade():
         "uq_aoi_type_short_name",
         "aoi_type",
         type_="unique",
+    )
+    op.drop_constraint(
+        "ck_aoi_type_short_name_no_underscore",
+        "aoi_type",
+        type_="check",
     )
     op.alter_column(
         "aoi_type",

@@ -111,6 +111,9 @@ ALTER TABLE public.aoi_type
     DROP CONSTRAINT IF EXISTS uq_aoi_type_short_name;
 
 ALTER TABLE public.aoi_type
+    DROP CONSTRAINT IF EXISTS ck_aoi_type_short_name_no_underscore;
+
+ALTER TABLE public.aoi_type
     ALTER COLUMN short_name DROP NOT NULL;
 
 DROP INDEX IF EXISTS public.idx_aoi_type_ext_id;

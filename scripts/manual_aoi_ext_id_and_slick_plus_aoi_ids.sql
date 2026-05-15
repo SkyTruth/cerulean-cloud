@@ -26,6 +26,10 @@ ALTER TABLE public.aoi_type
     ALTER COLUMN short_name SET NOT NULL;
 
 ALTER TABLE public.aoi_type
+    ADD CONSTRAINT ck_aoi_type_short_name_no_underscore
+    CHECK (position('_' in short_name) = 0);
+
+ALTER TABLE public.aoi_type
     ALTER COLUMN table_name DROP NOT NULL;
 
 ALTER TABLE public.aoi_type
