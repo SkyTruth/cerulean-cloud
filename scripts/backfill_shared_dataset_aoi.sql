@@ -59,9 +59,9 @@ BEGIN
         FROM information_schema.columns
         WHERE table_schema = 'public'
           AND table_name = 'aoi_type'
-          AND column_name IN ('filter_toggle', 'read_perm', 'access_type', 'properties')
+          AND column_name IN ('access_type', 'properties')
         GROUP BY table_schema, table_name
-        HAVING count(*) = 4
+        HAVING count(*) = 2
     ) THEN
         RAISE EXCEPTION 'Target DB is missing AOI access columns. Apply the AOI access migration/manual script before this backfill.';
     END IF;
@@ -178,11 +178,9 @@ DECLARE
     v_stage_relname text;
     v_stage_ident text;
     v_idx_prefix text;
-    v_read_perm_id bigint;
     v_aoi_type_id bigint;
     v_existing_access_type text;
     v_existing_asset_slug text;
-    v_properties jsonb;
     v_slick_to_aoi_buffer_m double precision := 0;
 BEGIN
     SELECT to_regclass(v_stage_table_text) INTO v_stage_table;
@@ -200,25 +198,14 @@ BEGIN
         v_stage_ident := v_stage_table_text;
     END IF;
 
-    SELECT id INTO v_read_perm_id
-    FROM public.permission
-    WHERE short_name = 'any'
-    ORDER BY id
-    LIMIT 1;
-
-    IF v_read_perm_id IS NULL THEN
-        RAISE EXCEPTION 'Expected permission short_name=any before AOI backfill';
-    END IF;
-
-    v_properties := jsonb_strip_nulls(jsonb_build_object(
-        'asset_slug', v_asset_slug,
-        'ext_id_field', v_ext_id_field,
-        'display_name_field', NULLIF(v_display_name_field, ''),
-        'dataset_version', NULLIF(v_dataset_version, '')
-    ));
-
-    SELECT id, access_type, COALESCE(properties->>'asset_slug', '')
-    INTO v_aoi_type_id, v_existing_access_type, v_existing_asset_slug
+    SELECT
+        id,
+        access_type,
+        COALESCE(properties->>'asset_slug', '')
+    INTO
+        v_aoi_type_id,
+        v_existing_access_type,
+        v_existing_asset_slug
     FROM public.aoi_type
     WHERE short_name = v_aoi_short_name
     ORDER BY id
@@ -238,19 +225,6 @@ BEGIN
             COALESCE(v_existing_asset_slug, ''),
             v_asset_slug;
     END IF;
-
-    UPDATE public.aoi_type
-    SET
-        table_name = NULL,
-        long_name = v_aoi_long_name,
-        source_url = NULLIF(v_source_url, ''),
-        citation = NULLIF(v_citation, ''),
-        update_time = now(),
-        filter_toggle = FALSE,
-        read_perm = COALESCE(public.aoi_type.read_perm, v_read_perm_id),
-        access_type = 'SHARED_DATASET',
-        properties = v_properties
-    WHERE id = v_aoi_type_id;
 
     SELECT COALESCE((properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)
     INTO v_slick_to_aoi_buffer_m
@@ -712,12 +686,6 @@ BEGIN
             v_duplicate_count;
     END IF;
 
-    UPDATE public.aoi_type
-    SET
-        filter_toggle = FALSE,
-        update_time = now()
-    WHERE id = v_aoi_type_id;
-
     UPDATE maintenance.shared_dataset_aoi_backfill_run
     SET
         status = 'completed',
@@ -727,7 +695,7 @@ BEGIN
 
     EXECUTE format('DROP TABLE IF EXISTS %s', v_stage_ident);
 
-    RAISE NOTICE 'AOI type % passed finish checks, stage table % was dropped, and filter_toggle remains FALSE for manual UI enablement',
+    RAISE NOTICE 'AOI type % passed finish checks and stage table % was dropped',
         p_aoi_type_short_name,
         v_stage_ident;
 END;

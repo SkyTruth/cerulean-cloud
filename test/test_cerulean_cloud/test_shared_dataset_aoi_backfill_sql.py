@@ -62,7 +62,7 @@ def test_shared_dataset_aoi_backfill_sql_keeps_online_safety_contract():
         assert fragment not in sql_text
 
 
-def test_shared_dataset_aoi_backfill_keeps_aoi_hidden_until_manual_toggle():
+def test_shared_dataset_aoi_backfill_requires_existing_shared_dataset_aoi_type():
     sql_text = BACKFILL_SQL.read_text()
 
     preparation_sql = sql_text.split(
@@ -73,21 +73,13 @@ def test_shared_dataset_aoi_backfill_keeps_aoi_hidden_until_manual_toggle():
         "CREATE OR REPLACE PROCEDURE maintenance.finish_shared_dataset_aoi_backfill", 1
     )[1]
 
-    assert "filter_toggle," in preparation_sql
-    assert "read_perm," in preparation_sql
-    assert "access_type," in preparation_sql
-    assert "FALSE," in preparation_sql
-    assert "v_read_perm_id," in preparation_sql
-    assert "'SHARED_DATASET'" in preparation_sql
-    assert "filter_toggle = FALSE" in preparation_sql
-    assert "access_type = 'SHARED_DATASET'" in preparation_sql
     assert "INSERT INTO public.aoi_type" not in preparation_sql
+    assert "UPDATE public.aoi_type" not in preparation_sql
     assert "does not exist in public.aoi_type" in preparation_sql
     assert "is not a SHARED_DATASET aoi_type" in preparation_sql
     assert "is configured for asset_slug" in preparation_sql
 
-    assert "filter_toggle = FALSE" in finish_sql
-    assert "manual UI enablement" in finish_sql
+    assert "UPDATE public.aoi_type" not in finish_sql
     assert "DROP TABLE IF EXISTS" in finish_sql
 
 
@@ -102,6 +94,13 @@ def test_shared_dataset_aoi_backfill_sql_snapshots_and_uses_buffer():
     assert "s.geometry::geometry && COALESCE(" in sql_text
     assert "ST_MakeEnvelope(p_minx, p_miny, p_maxx, p_maxy, 4326)" in sql_text
     assert "WHERE ST_Intersects(slick_geom, aoi_geom)" in sql_text
+
+
+def test_shared_dataset_aoi_backfill_does_not_mutate_aoi_type_metadata():
+    sql_text = BACKFILL_SQL.read_text()
+
+    assert "UPDATE public.aoi_type" not in sql_text
+    assert "INSERT INTO public.aoi_type" not in sql_text
 
 
 def test_backfill_wrapper_derives_safe_names_from_asset_slug():
