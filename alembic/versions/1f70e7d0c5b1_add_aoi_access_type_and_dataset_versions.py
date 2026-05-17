@@ -1,7 +1,7 @@
 """Add AOI access type and dataset version metadata
 
 Revision ID: 1f70e7d0c5b1
-Revises: d6c7b48d9f11
+Revises: 9c73b5c1d2e4
 Create Date: 2026-04-23 15:00:00.000000
 
 """
@@ -15,7 +15,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "1f70e7d0c5b1"
-down_revision = "d6c7b48d9f11"
+down_revision = "9c73b5c1d2e4"
 branch_labels = None
 depends_on = None
 
