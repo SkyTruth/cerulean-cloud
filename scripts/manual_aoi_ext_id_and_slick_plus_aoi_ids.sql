@@ -95,6 +95,7 @@ DECLARE
     owner_id bigint;
     read_perm_id bigint;
     coral_aoi_type_id bigint;
+    s1_envelope_aoi_type_id bigint;
 BEGIN
     SELECT id INTO owner_id
     FROM public.users
@@ -155,6 +156,8 @@ BEGIN
     INSERT INTO public.aoi_type (
         short_name,
         long_name,
+        source_url,
+        citation,
         filter_toggle,
         slick_to_aoi_enabled,
         owner,
@@ -165,6 +168,8 @@ BEGIN
     VALUES (
         'CORAL',
         'Global Coral Reefs',
+        NULL,
+        NULL,
         TRUE,
         TRUE,
         owner_id,
@@ -175,6 +180,8 @@ BEGIN
     ON CONFLICT (short_name) DO UPDATE
     SET
         long_name = EXCLUDED.long_name,
+        source_url = NULL,
+        citation = NULL,
         filter_toggle = EXCLUDED.filter_toggle,
         slick_to_aoi_enabled = EXCLUDED.slick_to_aoi_enabled,
         owner = EXCLUDED.owner,
@@ -199,6 +206,68 @@ BEGIN
         (coral_aoi_type_id, 'pt-br', 'Recifes de coral globais', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
         (coral_aoi_type_id, 'id', 'Terumbu karang global', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
         (coral_aoi_type_id, 'sw', 'Miamba ya matumbawe duniani', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0')
+    ON CONFLICT (aoi_type_id, locale) DO UPDATE
+    SET
+        long_name = EXCLUDED.long_name,
+        citation = EXCLUDED.citation,
+        status = EXCLUDED.status,
+        quality = EXCLUDED.quality,
+        source_checksum = EXCLUDED.source_checksum,
+        updated_at = now();
+
+    INSERT INTO public.aoi_type (
+        short_name,
+        long_name,
+        source_url,
+        citation,
+        filter_toggle,
+        slick_to_aoi_enabled,
+        owner,
+        read_perm,
+        access_type,
+        properties
+    )
+    VALUES (
+        'S1',
+        'Processed Sentinel-1 Envelope',
+        NULL,
+        NULL,
+        FALSE,
+        FALSE,
+        owner_id,
+        read_perm_id,
+        NULL,
+        '{"asset_slug":"cerulean-s1-envelope","dataset_version":"cerulean-s1-envelope@2026-05-01","slick_to_aoi_buffer_m":0}'::jsonb
+    )
+    ON CONFLICT (short_name) DO UPDATE
+    SET
+        long_name = EXCLUDED.long_name,
+        source_url = EXCLUDED.source_url,
+        citation = EXCLUDED.citation,
+        filter_toggle = EXCLUDED.filter_toggle,
+        slick_to_aoi_enabled = EXCLUDED.slick_to_aoi_enabled,
+        owner = EXCLUDED.owner,
+        read_perm = EXCLUDED.read_perm,
+        access_type = EXCLUDED.access_type,
+        properties = EXCLUDED.properties
+    RETURNING id INTO s1_envelope_aoi_type_id;
+
+    INSERT INTO public.aoi_type_i18n (
+        aoi_type_id,
+        locale,
+        long_name,
+        citation,
+        status,
+        quality,
+        source_checksum
+    )
+    VALUES
+        (s1_envelope_aoi_type_id, 'es', 'Envolvente Sentinel-1 procesada', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'fr', 'Enveloppe Sentinel-1 traitée', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'pt', 'Envelope Sentinel-1 processado', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'pt-br', 'Envelope Sentinel-1 processado', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'id', 'Envelope Sentinel-1 yang Diproses', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'sw', 'Eneo funikizi la Sentinel-1 lililochakatwa', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48')
     ON CONFLICT (aoi_type_id, locale) DO UPDATE
     SET
         long_name = EXCLUDED.long_name,

@@ -206,7 +206,18 @@ def _update_aoi_type(
     )
 
 
-def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
+def _upsert_shared_dataset_aoi_type(
+    *,
+    short_name: str,
+    long_name: str,
+    filter_toggle: bool,
+    slick_to_aoi_enabled: bool,
+    properties: dict,
+    translations: dict[str, str],
+    source_checksum: str,
+    owner_id: int,
+    read_perm_id: int,
+) -> None:
     aoi_type_id = (
         op.get_bind()
         .execute(
@@ -215,6 +226,8 @@ def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
             INSERT INTO public.aoi_type (
                 short_name,
                 long_name,
+                source_url,
+                citation,
                 filter_toggle,
                 slick_to_aoi_enabled,
                 owner,
@@ -223,10 +236,12 @@ def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
                 properties
             )
             VALUES (
-                'CORAL',
-                'Global Coral Reefs',
-                TRUE,
-                TRUE,
+                :short_name,
+                :long_name,
+                NULL,
+                NULL,
+                :filter_toggle,
+                :slick_to_aoi_enabled,
                 :owner_id,
                 :read_perm_id,
                 'SHARED_DATASET',
@@ -235,6 +250,8 @@ def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
             ON CONFLICT (short_name) DO UPDATE
             SET
                 long_name = EXCLUDED.long_name,
+                source_url = NULL,
+                citation = NULL,
                 filter_toggle = EXCLUDED.filter_toggle,
                 slick_to_aoi_enabled = EXCLUDED.slick_to_aoi_enabled,
                 owner = EXCLUDED.owner,
@@ -245,30 +262,19 @@ def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
             """
             ),
             {
+                "short_name": short_name,
+                "long_name": long_name,
+                "filter_toggle": filter_toggle,
+                "slick_to_aoi_enabled": slick_to_aoi_enabled,
                 "owner_id": owner_id,
                 "read_perm_id": read_perm_id,
-                "properties": json.dumps(
-                    {
-                        "asset_slug": "global-coral-reefs",
-                        "ext_id_field": "METADATA_I",
-                        "display_name_field": "NAME",
-                        "slick_to_aoi_buffer_m": 10000,
-                    }
-                ),
+                "properties": json.dumps(properties),
             },
         )
         .scalar_one()
     )
 
-    translations = {
-        "es": "Arrecifes de coral globales",
-        "fr": "Récifs coralliens mondiaux",
-        "pt": "Recifes de coral globais",
-        "pt-br": "Recifes de coral globais",
-        "id": "Terumbu karang global",
-        "sw": "Miamba ya matumbawe duniani",
-    }
-    for locale, long_name in translations.items():
+    for locale, translated_long_name in translations.items():
         op.get_bind().execute(
             sa.text(
                 """
@@ -288,7 +294,7 @@ def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
                     NULL,
                     'published',
                     'human',
-                    '177d90f8f3d9ebb5efd9367b59cea8c0'
+                    :source_checksum
                 )
                 ON CONFLICT (aoi_type_id, locale) DO UPDATE
                 SET
@@ -303,9 +309,58 @@ def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
             {
                 "aoi_type_id": aoi_type_id,
                 "locale": locale,
-                "long_name": long_name,
+                "long_name": translated_long_name,
+                "source_checksum": source_checksum,
             },
         )
+
+
+def _upsert_extra_aoi_types(*, owner_id: int, read_perm_id: int) -> None:
+    _upsert_shared_dataset_aoi_type(
+        short_name="CORAL",
+        long_name="Global Coral Reefs",
+        filter_toggle=False,
+        slick_to_aoi_enabled=True,
+        properties={
+            "asset_slug": "global-coral-reefs",
+            "ext_id_field": "METADATA_I",
+            "display_name_field": "NAME",
+            "slick_to_aoi_buffer_m": 10000,
+        },
+        translations={
+            "es": "Arrecifes de coral globales",
+            "fr": "Récifs coralliens mondiaux",
+            "pt": "Recifes de coral globais",
+            "pt-br": "Recifes de coral globais",
+            "id": "Terumbu karang global",
+            "sw": "Miamba ya matumbawe duniani",
+        },
+        source_checksum="177d90f8f3d9ebb5efd9367b59cea8c0",
+        owner_id=owner_id,
+        read_perm_id=read_perm_id,
+    )
+    _upsert_shared_dataset_aoi_type(
+        short_name="S1",
+        long_name="Processed Sentinel-1 Envelope",
+        filter_toggle=False,
+        slick_to_aoi_enabled=False,
+        properties={
+            "asset_slug": "cerulean-s1-envelope",
+            "ext_id_field": "shared_datasets_row_id",
+            "display_name_field": "source_layer",
+        },
+        translations={
+            "es": "Envolvente Sentinel-1 procesada",
+            "fr": "Enveloppe Sentinel-1 traitée",
+            "pt": "Envelope Sentinel-1 processado",
+            "pt-br": "Envelope Sentinel-1 processado",
+            "id": "Envelope Sentinel-1 yang Diproses",
+            "sw": "Eneo funikizi la Sentinel-1 lililochakatwa",
+        },
+        source_checksum="5947b3f6ab7ea17f8a07219bb7b8df48",
+        owner_id=owner_id,
+        read_perm_id=read_perm_id,
+    )
 
 
 def upgrade():
@@ -503,7 +558,7 @@ def upgrade():
         owner_id=owner_id,
         read_perm_id=read_perm_id,
     )
-    _upsert_coral_aoi_type(owner_id=owner_id, read_perm_id=read_perm_id)
+    _upsert_extra_aoi_types(owner_id=owner_id, read_perm_id=read_perm_id)
 
     op.execute(AOI_TYPE_PUBLIC_SQL)
 
@@ -605,7 +660,24 @@ def downgrade():
         USING public.aoi a
         JOIN public.aoi_type aoi_t ON aoi_t.id = a.type
         WHERE sta.aoi = a.id
+          AND aoi_t.short_name = 'S1'
+        """
+    )
+    op.execute(
+        """
+        DELETE FROM public.slick_to_aoi sta
+        USING public.aoi a
+        JOIN public.aoi_type aoi_t ON aoi_t.id = a.type
+        WHERE sta.aoi = a.id
           AND aoi_t.short_name = 'CORAL'
+        """
+    )
+    op.execute(
+        """
+        DELETE FROM public.aoi a
+        USING public.aoi_type aoi_t
+        WHERE a.type = aoi_t.id
+          AND aoi_t.short_name = 'S1'
         """
     )
     op.execute(
@@ -616,6 +688,7 @@ def downgrade():
           AND aoi_t.short_name = 'CORAL'
         """
     )
+    op.execute("DELETE FROM public.aoi_type WHERE short_name = 'S1'")
     op.execute("DELETE FROM public.aoi_type WHERE short_name = 'CORAL'")
     op.execute(
         """
