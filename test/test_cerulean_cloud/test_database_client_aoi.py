@@ -58,6 +58,7 @@ async def _add_slick_fixture(session, slick_id: int = 1):
             active=True,
             orchestrator_run=1,
             inference_idx=1,
+            cls=1,
         )
     )
     await session.flush()
@@ -993,7 +994,7 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
     repo_root = Path(__file__).resolve().parents[2]
     migration_text = (
         repo_root
-        / "alembic/HOLD_1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
+        / "alembic/versions/1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
     ).read_text()
     rollback_text = (
         repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids_rollback.sql"
