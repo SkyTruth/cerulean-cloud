@@ -8,11 +8,9 @@ Create Date: 2023-07-15 00:26:04.493750
 
 import geojson
 import httpx
-from geoalchemy2.shape import from_shape
+import sqlalchemy as sa
 from shapely.geometry import MultiPolygon, shape
-from sqlalchemy import orm
 
-import cerulean_cloud.database_schema as database_schema
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -20,6 +18,7 @@ revision = "c0bd1215a3ca"
 down_revision = "cb7ceecc3f87"
 branch_labels = None
 depends_on = None
+AOI_TYPE_SHORT_NAME = "IHO"
 
 
 def get_iho_from_url(
@@ -30,35 +29,61 @@ def get_iho_from_url(
     return res
 
 
+def _aoi_type_id(bind) -> int:
+    return bind.execute(
+        sa.text("SELECT id FROM aoi_type WHERE short_name = :short_name"),
+        {"short_name": AOI_TYPE_SHORT_NAME},
+    ).scalar_one()
+
+
+def _multipolygon_wkt(feature_geometry) -> str:
+    geometry = shape(feature_geometry).buffer(0)
+    if not isinstance(geometry, MultiPolygon):
+        geometry = MultiPolygon([geometry])
+    return geometry.wkt
+
+
 def upgrade() -> None:
     """Add iho"""
     bind = op.get_bind()
-    session = orm.Session(bind=bind)
+    aoi_type_id = _aoi_type_id(bind)
 
     iho = get_iho_from_url()
 
     for feat in iho.get("features"):
-        geometry = shape(feat["geometry"]).buffer(0)
-        if not isinstance(geometry, MultiPolygon):
-            geometry = MultiPolygon([geometry])
-
-        with session.begin():
-            aoi_iho = database_schema.AoiIho(
-                type=2,
-                name=feat["properties"]["NAME"],
-                geometry=from_shape(geometry),
-                mrgid=feat["properties"]["MRGID"],
-            )
-            session.add(aoi_iho)
+        aoi_id = bind.execute(
+            sa.text("""
+                INSERT INTO aoi (type, name, geometry)
+                VALUES (:type, :name, ST_GeogFromText(:geometry))
+                RETURNING id
+                """),
+            {
+                "type": aoi_type_id,
+                "name": feat["properties"]["NAME"],
+                "geometry": f"SRID=4326;{_multipolygon_wkt(feat['geometry'])}",
+            },
+        ).scalar_one()
+        bind.execute(
+            sa.text("""
+                INSERT INTO aoi_iho (aoi_id, mrgid)
+                VALUES (:aoi_id, :mrgid)
+                """),
+            {"aoi_id": aoi_id, "mrgid": feat["properties"]["MRGID"]},
+        )
 
 
 def downgrade() -> None:
     """remove iho"""
     bind = op.get_bind()
-    session = orm.Session(bind=bind)
-
-    with session.begin():
-        session.query(database_schema.AoiIho).delete()
-        session.query(database_schema.Aoi).filter(
-            database_schema.Aoi.type == 2
-        ).delete()
+    bind.execute(sa.text("DELETE FROM aoi_iho"))
+    bind.execute(
+        sa.text("""
+            DELETE FROM aoi
+            WHERE type = (
+                SELECT id
+                FROM aoi_type
+                WHERE short_name = :short_name
+            )
+            """),
+        {"short_name": AOI_TYPE_SHORT_NAME},
+    )

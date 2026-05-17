@@ -642,9 +642,9 @@ class DatabaseClient:
             zoom=zoom,
             scale=scale,
             geometry=from_shape(box(*bounds)),
-            trigger1=trigger,
-            model1=model,
-            sentinel1_grd1=sentinel1_grd,
+            trigger_=trigger,
+            model_=model,
+            sentinel1_grd_=sentinel1_grd,
         )
         return orchestrator_run
 
@@ -672,7 +672,7 @@ class DatabaseClient:
             geometry=from_shape(s),
             inference_idx=inference_idx,
             active=True,
-            orchestrator_run1=orchestrator_run,
+            orchestrator_run_=orchestrator_run,
             machine_confidence=machine_confidence,
             centerlines=centerlines,
             aspect_ratio_factor=aspect_ratio_factor,
@@ -928,7 +928,7 @@ class DatabaseClient:
                 db.SourceType.short_name,
             )
             .select_from(db.SlickToSource)
-            .join(db.SlickToSource.source1)
+            .join(db.SlickToSource.source_)
             .join(db.Source.source_type)
             .where(
                 and_(
