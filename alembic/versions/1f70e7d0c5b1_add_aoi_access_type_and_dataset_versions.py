@@ -252,7 +252,7 @@ def _upsert_coral_aoi_type(*, owner_id: int, read_perm_id: int) -> None:
                         "asset_slug": "global-coral-reefs",
                         "ext_id_field": "METADATA_I",
                         "display_name_field": "NAME",
-                        "slick_to_aoi_buffer_m": 10000,
+                        "slick_to_aoi_buffer_m": 0,
                     }
                 ),
             },
