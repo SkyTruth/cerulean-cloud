@@ -22,6 +22,17 @@ def load_wrapper_module():
     return module
 
 
+def chunk_processing_sql() -> str:
+    sql_text = BACKFILL_SQL.read_text()
+    return sql_text.split(
+        "CREATE OR REPLACE FUNCTION maintenance.process_shared_dataset_aoi_backfill_chunk",
+        1,
+    )[1].split(
+        "CREATE OR REPLACE FUNCTION maintenance.validate_shared_dataset_aoi_backfill",
+        1,
+    )[0]
+
+
 def test_shared_dataset_aoi_backfill_sql_keeps_online_safety_contract():
     sql_text = BACKFILL_SQL.read_text()
 
@@ -83,21 +94,28 @@ def test_shared_dataset_aoi_backfill_requires_existing_shared_dataset_aoi_type()
     assert "DROP TABLE IF EXISTS" in finish_sql
 
 
-def test_shared_dataset_aoi_backfill_sql_snapshots_and_uses_buffer():
+def test_shared_dataset_aoi_backfill_sql_uses_distance_matching_without_buffering():
     sql_text = BACKFILL_SQL.read_text()
+    process_sql = chunk_processing_sql()
 
     assert "slick_to_aoi_buffer_m double precision NOT NULL DEFAULT 0" in sql_text
     assert "(properties->>'slick_to_aoi_buffer_m')::double precision" in sql_text
     assert "r.slick_to_aoi_buffer_m" in sql_text
-    assert "ST_Buffer(" in sql_text
-    assert "ST_Transform(geom, 8857)" in sql_text
-    assert "ST_CollectionExtract(" in sql_text
-    assert "ST_MakeValid(" in sql_text
-    assert "ST_Multi(" in sql_text
-    assert "AND NOT ST_IsEmpty(geom)" in sql_text
-    assert "s.geometry::geometry && COALESCE(" in sql_text
-    assert "ST_MakeEnvelope(p_minx, p_miny, p_maxx, p_maxy, 4326)" in sql_text
-    assert "WHERE ST_Intersects(slick_geom, aoi_geom)" in sql_text
+    assert "ST_Buffer(" not in process_sql
+    assert "ST_CollectionExtract(" in process_sql
+    assert "ST_MakeValid(" in process_sql
+    assert "ST_Multi(" in process_sql
+    assert "AND NOT ST_IsEmpty(geom)" in process_sql
+    assert "geom_8857" in process_sql
+    assert "CREATE INDEX tmp_stage_chunks_geom_8857_idx" in process_sql
+    assert "candidate_bbox_4326" in process_sql
+    assert "ST_Expand(" in process_sql
+    assert "ST_Transform(dumped.geom::geometry(Polygon, 4326), 8857)" in process_sql
+    assert "ST_Transform(s.geometry::geometry, 8857) AS geom_8857" in process_sql
+    assert "s.geometry::geometry && b.candidate_bbox_4326" in process_sql
+    assert "IF v_slick_to_aoi_buffer_m > 0 THEN" in process_sql
+    assert "WHERE ST_DWithin(" in process_sql
+    assert "WHERE ST_Intersects(slick_geom, aoi_geom)" in process_sql
 
 
 def test_shared_dataset_aoi_backfill_does_not_mutate_aoi_type_metadata():
