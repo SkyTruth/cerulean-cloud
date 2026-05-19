@@ -1,3 +1,5 @@
+import logging
+
 from scripts.backfill_shared_dataset_aoi import build_parser
 
 from cerulean_cloud.cloud_run_aoi_backfill import service
@@ -28,3 +30,7 @@ def test_backfill_cli_requires_short_name_for_run():
         assert exc.code == 2
     else:
         raise AssertionError("Expected parse failure when --short-name is omitted")
+
+
+def test_backfill_service_logger_defaults_to_info():
+    assert service.LOGGER.level == logging.INFO

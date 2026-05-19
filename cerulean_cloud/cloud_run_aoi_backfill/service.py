@@ -19,6 +19,9 @@ from tempfile import gettempdir
 
 
 LOGGER = logging.getLogger("backfill_shared_dataset_aoi")
+# Notebook imports do not run the CLI's basicConfig(), so set the module logger's
+# threshold explicitly to keep INFO logs visible in interactive runs.
+LOGGER.setLevel(logging.INFO)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SQL_SCRIPT = REPO_ROOT / "scripts/backfill_shared_dataset_aoi.sql"
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
