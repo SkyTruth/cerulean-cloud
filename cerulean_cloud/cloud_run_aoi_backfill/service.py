@@ -281,11 +281,11 @@ def quote_identifier(identifier: str) -> str:
     return f'"{identifier}"'
 
 
-def open_connection(db_url: str):
+def open_connection(db_url: str, *, autocommit: bool = True):
     import psycopg2
 
     conn = psycopg2.connect(normalize_db_url(db_url))
-    conn.autocommit = True
+    conn.autocommit = autocommit
     return conn
 
 
@@ -735,6 +735,126 @@ def execute_values(db_url: str, sql: str, rows: Sequence[tuple[object, ...]]) ->
     try:
         with conn.cursor() as cur:
             cur.executemany(sql, rows)
+    finally:
+        conn.close()
+
+
+def process_chunk_sub_batches(
+    db_url: str,
+    short_name: str,
+    chunk: Mapping[str, object],
+    *,
+    lock_timeout: str,
+    statement_timeout: str,
+    slick_to_aoi_buffer_m: float,
+) -> tuple[str, int, int, int, int, int, int]:
+    conn = open_connection(db_url, autocommit=False)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT *
+                FROM maintenance.start_shared_dataset_aoi_backfill_chunk(
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s,
+                    %s
+                )
+                """,
+                (
+                    short_name,
+                    chunk["bbox"][0],
+                    chunk["bbox"][1],
+                    chunk["bbox"][2],
+                    chunk["bbox"][3],
+                    lock_timeout,
+                    statement_timeout,
+                ),
+            )
+            result = cur.fetchone()
+            if result is None:
+                raise RuntimeError("Chunk setup returned no result row")
+
+            if result[0] == "split_required":
+                conn.commit()
+                return (
+                    "split_required",
+                    int(result[1]),
+                    int(result[2]),
+                    0,
+                    int(result[3]),
+                    0,
+                    0,
+                )
+
+            stage_rows = int(result[1])
+            candidate_rows = int(result[2])
+            aois_inserted = int(result[3])
+            batch_size = int(result[4])
+            total_sub_batches = (
+                math.ceil(candidate_rows / batch_size)
+                if candidate_rows and batch_size
+                else 0
+            )
+            total_match_rows = 0
+            total_insert_rows = 0
+
+            for sub_batch_index, seq_start in enumerate(
+                range(1, candidate_rows + 1, batch_size),
+                start=1,
+            ):
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM maintenance.process_shared_dataset_aoi_backfill_sub_batch(
+                        %s,
+                        %s,
+                        %s
+                    )
+                    """,
+                    (seq_start, batch_size, slick_to_aoi_buffer_m),
+                )
+                sub_batch_result = cur.fetchone()
+                if sub_batch_result is None:
+                    raise RuntimeError(
+                        f"Sub-batch {sub_batch_index} returned no result row"
+                    )
+
+                batch_match_rows = int(sub_batch_result[0])
+                batch_insert_rows = int(sub_batch_result[1])
+                total_match_rows += batch_match_rows
+                total_insert_rows += batch_insert_rows
+                batch_end = min(seq_start + batch_size - 1, candidate_rows)
+                LOGGER.info(
+                    "run_backfill sub-batch progress short_name=%s chunk_id=%s sub_batch=%s/%s seq_range=%s-%s batch_match_rows=%s batch_links_inserted=%s total_match_rows=%s total_links_inserted=%s",
+                    short_name,
+                    chunk["id"],
+                    sub_batch_index,
+                    total_sub_batches,
+                    seq_start,
+                    batch_end,
+                    batch_match_rows,
+                    batch_insert_rows,
+                    total_match_rows,
+                    total_insert_rows,
+                )
+
+        conn.commit()
+        return (
+            "completed",
+            stage_rows,
+            candidate_rows,
+            total_match_rows,
+            aois_inserted,
+            total_insert_rows,
+            total_sub_batches,
+        )
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -1662,31 +1782,13 @@ def run_backfill(
                         time.perf_counter() - stage_started,
                     )
                     db_started = time.perf_counter()
-                    result = query_one_row(
+                    result = process_chunk_sub_batches(
                         resolved_db_url,
-                        """
-                        SELECT *
-                        FROM maintenance.process_shared_dataset_aoi_backfill_chunk(
-                            %s,
-                            %s,
-                            %s,
-                            %s,
-                            %s,
-                            %s,
-                            %s,
-                            %s
-                        )
-                        """,
-                        (
-                            resolved_short_name,
-                            chunk["id"],
-                            chunk["bbox"][0],
-                            chunk["bbox"][1],
-                            chunk["bbox"][2],
-                            chunk["bbox"][3],
-                            lock_timeout,
-                            statement_timeout,
-                        ),
+                        resolved_short_name,
+                        chunk,
+                        lock_timeout=lock_timeout,
+                        statement_timeout=statement_timeout,
+                        slick_to_aoi_buffer_m=config.slick_to_aoi_buffer_m,
                     )
                     LOGGER.info(
                         "run_backfill processed chunk in db short_name=%s chunk_id=%s elapsed_s=%.3f",

@@ -290,9 +290,8 @@ BEGIN
     WHERE aoi_type_short_name = v_aoi_short_name;
 END $$;
 
-CREATE OR REPLACE FUNCTION maintenance.process_shared_dataset_aoi_backfill_chunk(
+CREATE OR REPLACE FUNCTION maintenance.start_shared_dataset_aoi_backfill_chunk(
     p_aoi_type_short_name text,
-    p_chunk_id bigint,
     p_minx double precision,
     p_miny double precision,
     p_maxx double precision,
@@ -304,10 +303,8 @@ RETURNS TABLE(
     chunk_status text,
     stage_rows bigint,
     candidate_slick_rows bigint,
-    match_rows bigint,
     aoi_rows_inserted bigint,
-    slick_to_aoi_rows_inserted bigint,
-    sub_batches integer
+    batch_size bigint
 )
 LANGUAGE plpgsql
 AS $$
@@ -319,13 +316,7 @@ DECLARE
     v_stage_rows bigint;
     v_candidate_rows bigint;
     v_inserted_aoi_rows bigint;
-    v_batch_match_rows bigint;
-    v_batch_insert_rows bigint;
-    v_total_match_rows bigint := 0;
-    v_total_insert_rows bigint := 0;
-    v_seq_start bigint := 1;
     v_split_candidate_limit bigint := 50000;
-    v_sub_batches integer := 0;
 BEGIN
     SELECT
         r.aoi_type_id,
@@ -357,9 +348,7 @@ BEGIN
             0::bigint,
             0::bigint,
             0::bigint,
-            0::bigint,
-            0::bigint,
-            0::integer;
+            v_batch_size;
         RETURN;
     END IF;
 
@@ -490,123 +479,116 @@ BEGIN
             'split_required'::text,
             v_stage_rows,
             v_candidate_rows,
-            0::bigint,
             COALESCE(v_inserted_aoi_rows, 0)::bigint,
-            0::bigint,
-            0::integer;
+            v_batch_size;
         RETURN;
-    END IF;
-
-    IF v_slick_to_aoi_buffer_m > 0 THEN
-        WHILE v_seq_start <= v_candidate_rows LOOP
-            WITH batch_slicks AS MATERIALIZED (
-                SELECT slick_id, geom, geom_8857
-                FROM tmp_candidate_slicks
-                WHERE seq >= v_seq_start
-                  AND seq < v_seq_start + v_batch_size
-            ),
-            unresolved_pairs AS MATERIALIZED (
-                SELECT DISTINCT
-                    s.slick_id,
-                    l.aoi_id,
-                    s.geom_8857 AS slick_geom_8857,
-                    st.geom_8857 AS aoi_geom_8857
-                FROM batch_slicks s
-                JOIN tmp_stage_chunks st
-                  ON s.geom_8857 && ST_Expand(st.geom_8857, v_slick_to_aoi_buffer_m)
-                JOIN tmp_aoi_lookup l
-                  ON l.ext_id = st.ext_id
-                LEFT JOIN public.slick_to_aoi sta
-                  ON sta.slick = s.slick_id
-                 AND sta.aoi = l.aoi_id
-                WHERE sta.slick IS NULL
-            ),
-            matches AS MATERIALIZED (
-                SELECT DISTINCT slick_id, aoi_id
-                FROM unresolved_pairs
-                WHERE ST_DWithin(
-                    slick_geom_8857,
-                    aoi_geom_8857,
-                    v_slick_to_aoi_buffer_m
-                )
-            ),
-            inserted_slick_to_aoi AS (
-                INSERT INTO public.slick_to_aoi (slick, aoi)
-                SELECT slick_id, aoi_id
-                FROM matches
-                ON CONFLICT DO NOTHING
-                RETURNING 1
-            )
-            SELECT
-                (SELECT count(*) FROM matches)::bigint,
-                (SELECT count(*) FROM inserted_slick_to_aoi)::bigint
-            INTO
-                v_batch_match_rows,
-                v_batch_insert_rows;
-
-            v_total_match_rows := v_total_match_rows + COALESCE(v_batch_match_rows, 0);
-            v_total_insert_rows := v_total_insert_rows + COALESCE(v_batch_insert_rows, 0);
-            v_seq_start := v_seq_start + v_batch_size;
-            v_sub_batches := v_sub_batches + 1;
-        END LOOP;
-    ELSE
-        WHILE v_seq_start <= v_candidate_rows LOOP
-            WITH batch_slicks AS MATERIALIZED (
-                SELECT slick_id, geom
-                FROM tmp_candidate_slicks
-                WHERE seq >= v_seq_start
-                  AND seq < v_seq_start + v_batch_size
-            ),
-            unresolved_pairs AS MATERIALIZED (
-                SELECT DISTINCT
-                    s.slick_id,
-                    l.aoi_id,
-                    s.geom AS slick_geom,
-                    st.geom AS aoi_geom
-                FROM batch_slicks s
-                JOIN tmp_stage_chunks st
-                  ON s.geom && st.geom
-                JOIN tmp_aoi_lookup l
-                  ON l.ext_id = st.ext_id
-                LEFT JOIN public.slick_to_aoi sta
-                  ON sta.slick = s.slick_id
-                 AND sta.aoi = l.aoi_id
-                WHERE sta.slick IS NULL
-            ),
-            matches AS MATERIALIZED (
-                SELECT DISTINCT slick_id, aoi_id
-                FROM unresolved_pairs
-                WHERE ST_Intersects(slick_geom, aoi_geom)
-            ),
-            inserted_slick_to_aoi AS (
-                INSERT INTO public.slick_to_aoi (slick, aoi)
-                SELECT slick_id, aoi_id
-                FROM matches
-                ON CONFLICT DO NOTHING
-                RETURNING 1
-            )
-            SELECT
-                (SELECT count(*) FROM matches)::bigint,
-                (SELECT count(*) FROM inserted_slick_to_aoi)::bigint
-            INTO
-                v_batch_match_rows,
-                v_batch_insert_rows;
-
-            v_total_match_rows := v_total_match_rows + COALESCE(v_batch_match_rows, 0);
-            v_total_insert_rows := v_total_insert_rows + COALESCE(v_batch_insert_rows, 0);
-            v_seq_start := v_seq_start + v_batch_size;
-            v_sub_batches := v_sub_batches + 1;
-        END LOOP;
     END IF;
 
     RETURN QUERY SELECT
         'completed'::text,
         v_stage_rows,
         v_candidate_rows,
-        v_total_match_rows,
         COALESCE(v_inserted_aoi_rows, 0)::bigint,
-        v_total_insert_rows,
-        v_sub_batches;
+        v_batch_size;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION maintenance.process_shared_dataset_aoi_backfill_sub_batch(
+    p_seq_start bigint,
+    p_batch_size bigint,
+    p_slick_to_aoi_buffer_m double precision DEFAULT 0
+)
+RETURNS TABLE(
+    match_rows bigint,
+    slick_to_aoi_rows_inserted bigint
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF p_slick_to_aoi_buffer_m > 0 THEN
+        RETURN QUERY
+        WITH batch_slicks AS MATERIALIZED (
+            SELECT slick_id, geom, geom_8857
+            FROM tmp_candidate_slicks
+            WHERE seq >= p_seq_start
+              AND seq < p_seq_start + p_batch_size
+        ),
+        unresolved_pairs AS MATERIALIZED (
+            SELECT DISTINCT
+                s.slick_id,
+                l.aoi_id,
+                s.geom_8857 AS slick_geom_8857,
+                st.geom_8857 AS aoi_geom_8857
+            FROM batch_slicks s
+            JOIN tmp_stage_chunks st
+              ON s.geom_8857 && ST_Expand(st.geom_8857, p_slick_to_aoi_buffer_m)
+            JOIN tmp_aoi_lookup l
+              ON l.ext_id = st.ext_id
+            LEFT JOIN public.slick_to_aoi sta
+              ON sta.slick = s.slick_id
+             AND sta.aoi = l.aoi_id
+            WHERE sta.slick IS NULL
+        ),
+        matches AS MATERIALIZED (
+            SELECT DISTINCT slick_id, aoi_id
+            FROM unresolved_pairs
+            WHERE ST_DWithin(
+                slick_geom_8857,
+                aoi_geom_8857,
+                p_slick_to_aoi_buffer_m
+            )
+        ),
+        inserted_slick_to_aoi AS (
+            INSERT INTO public.slick_to_aoi (slick, aoi)
+            SELECT slick_id, aoi_id
+            FROM matches
+            ON CONFLICT DO NOTHING
+            RETURNING 1
+        )
+        SELECT
+            (SELECT count(*) FROM matches)::bigint,
+            (SELECT count(*) FROM inserted_slick_to_aoi)::bigint;
+        RETURN;
+    END IF;
+
+    RETURN QUERY
+    WITH batch_slicks AS MATERIALIZED (
+        SELECT slick_id, geom
+        FROM tmp_candidate_slicks
+        WHERE seq >= p_seq_start
+          AND seq < p_seq_start + p_batch_size
+    ),
+    unresolved_pairs AS MATERIALIZED (
+        SELECT DISTINCT
+            s.slick_id,
+            l.aoi_id,
+            s.geom AS slick_geom,
+            st.geom AS aoi_geom
+        FROM batch_slicks s
+        JOIN tmp_stage_chunks st
+          ON s.geom && st.geom
+        JOIN tmp_aoi_lookup l
+          ON l.ext_id = st.ext_id
+        LEFT JOIN public.slick_to_aoi sta
+          ON sta.slick = s.slick_id
+         AND sta.aoi = l.aoi_id
+        WHERE sta.slick IS NULL
+    ),
+    matches AS MATERIALIZED (
+        SELECT DISTINCT slick_id, aoi_id
+        FROM unresolved_pairs
+        WHERE ST_Intersects(slick_geom, aoi_geom)
+    ),
+    inserted_slick_to_aoi AS (
+        INSERT INTO public.slick_to_aoi (slick, aoi)
+        SELECT slick_id, aoi_id
+        FROM matches
+        ON CONFLICT DO NOTHING
+        RETURNING 1
+    )
+    SELECT
+        (SELECT count(*) FROM matches)::bigint,
+        (SELECT count(*) FROM inserted_slick_to_aoi)::bigint;
 END;
 $$;
 

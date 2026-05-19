@@ -25,7 +25,7 @@ def load_wrapper_module():
 def chunk_processing_sql() -> str:
     sql_text = BACKFILL_SQL.read_text()
     return sql_text.split(
-        "CREATE OR REPLACE FUNCTION maintenance.process_shared_dataset_aoi_backfill_chunk",
+        "CREATE OR REPLACE FUNCTION maintenance.start_shared_dataset_aoi_backfill_chunk",
         1,
     )[1].split(
         "CREATE OR REPLACE FUNCTION maintenance.validate_shared_dataset_aoi_backfill",
@@ -77,7 +77,7 @@ def test_shared_dataset_aoi_backfill_requires_existing_shared_dataset_aoi_type()
     sql_text = BACKFILL_SQL.read_text()
 
     preparation_sql = sql_text.split(
-        "CREATE OR REPLACE FUNCTION maintenance.process_shared_dataset_aoi_backfill_chunk",
+        "CREATE OR REPLACE FUNCTION maintenance.start_shared_dataset_aoi_backfill_chunk",
         1,
     )[0]
     finish_sql = sql_text.split(
@@ -98,6 +98,14 @@ def test_shared_dataset_aoi_backfill_sql_uses_distance_matching_without_bufferin
     sql_text = BACKFILL_SQL.read_text()
     process_sql = chunk_processing_sql()
 
+    assert (
+        "CREATE OR REPLACE FUNCTION maintenance.start_shared_dataset_aoi_backfill_chunk"
+        in sql_text
+    )
+    assert (
+        "CREATE OR REPLACE FUNCTION maintenance.process_shared_dataset_aoi_backfill_sub_batch"
+        in sql_text
+    )
     assert "slick_to_aoi_buffer_m double precision NOT NULL DEFAULT 0" in sql_text
     assert "(properties->>'slick_to_aoi_buffer_m')::double precision" in sql_text
     assert "r.slick_to_aoi_buffer_m" in sql_text
@@ -113,7 +121,8 @@ def test_shared_dataset_aoi_backfill_sql_uses_distance_matching_without_bufferin
     assert "ST_Transform(dumped.geom::geometry(Polygon, 4326), 8857)" in process_sql
     assert "ST_Transform(s.geometry::geometry, 8857) AS geom_8857" in process_sql
     assert "s.geometry::geometry && b.candidate_bbox_4326" in process_sql
-    assert "IF v_slick_to_aoi_buffer_m > 0 THEN" in process_sql
+    assert "WHEN v_slick_to_aoi_buffer_m > 0 THEN" in process_sql
+    assert "IF p_slick_to_aoi_buffer_m > 0 THEN" in process_sql
     assert "WHERE ST_DWithin(" in process_sql
     assert "WHERE ST_Intersects(slick_geom, aoi_geom)" in process_sql
 
