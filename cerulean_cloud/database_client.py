@@ -405,7 +405,7 @@ class DatabaseClient:
             name=name,
             ext_id=str(ext_id) if ext_id is not None else None,
             user=user_id,
-            aoi_user_geometry=from_shape(user_geom),
+            geometry=from_shape(user_geom),
         )
         await self.session.flush()
         return aoi_user
