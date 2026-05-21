@@ -246,6 +246,8 @@ async def _install_spatial_compat_schema(conn) -> None:
             name text,
             tile_width_m integer NOT NULL,
             tile_width_px integer NOT NULL,
+            zoom_level integer,
+            scale integer,
             epochs integer,
             thresholds json NOT NULL,
             backbone_size integer,
