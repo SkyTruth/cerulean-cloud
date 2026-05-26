@@ -62,10 +62,10 @@ def test_shared_dataset_accessor_owns_shared_config_parsing():
 def test_db_accessors_own_db_config_parsing():
     local_accessor = build_aoi_accessor(
         {
-            "short_name": "USER",
+            "short_name": "LOCAL",
             "access_type": "DB_LOCAL",
             "properties": {
-                "table_name": "aoi_user",
+                "table_name": "local_aoi",
                 "geog_col": "geometry",
                 "ext_id_col": "aoi_id",
             },
@@ -87,8 +87,8 @@ def test_db_accessors_own_db_config_parsing():
     )
 
     assert isinstance(local_accessor, DbLocalAoiAccessor)
-    assert local_accessor.short_name == "USER"
-    assert local_accessor.table_name == "aoi_user"
+    assert local_accessor.short_name == "LOCAL"
+    assert local_accessor.table_name == "local_aoi"
     assert local_accessor.geog_col == "geometry"
     assert local_accessor.ext_id_col == "aoi_id"
 
