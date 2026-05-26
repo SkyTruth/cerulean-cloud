@@ -34,3 +34,7 @@ def test_backfill_cli_requires_short_name_for_run():
 
 def test_backfill_service_logger_defaults_to_info():
     assert service.LOGGER.level == logging.INFO
+
+
+def test_backfill_service_logger_has_handler():
+    assert service.LOGGER.handlers

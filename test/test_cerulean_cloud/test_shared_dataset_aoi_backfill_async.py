@@ -120,6 +120,64 @@ def test_get_run_context_includes_snapped_buffer(monkeypatch):
     assert context.dataset_version == "latest"
 
 
+def test_run_backfill_passes_buffer_to_sub_batches(monkeypatch):
+    monkeypatch.setattr(service, "get_db_url", lambda db_url=None: "postgres://db")
+    monkeypatch.setattr(service, "resolve_asset_slug", lambda asset_slug, _: asset_slug)
+    monkeypatch.setattr(
+        service, "require_existing_backfill_short_name", lambda *args, **kwargs: "MPA"
+    )
+    monkeypatch.setattr(
+        service,
+        "get_run_context",
+        lambda *args, **kwargs: service.RunContext(
+            asset_slug="mpa",
+            short_name="MPA",
+            dataset_version="latest",
+            stage_table="maintenance.aoi_stage_mpa",
+            ext_id_field="MRGID",
+            display_name_field="NAME",
+            batch_size=5000,
+            slick_to_aoi_buffer_m=12000.0,
+        ),
+    )
+    monkeypatch.setattr(
+        service, "get_catalog_asset", lambda *args, **kwargs: type("Asset", (), {})()
+    )
+    monkeypatch.setattr(
+        service,
+        "fetch_dataset_ref",
+        lambda *args, **kwargs: type("Ref", (), {"cache_path": "/tmp/mpa.fgb"})(),
+    )
+    monkeypatch.setattr(service, "acquire_run_lock", lambda *args, **kwargs: object())
+    monkeypatch.setattr(service, "release_run_lock", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        service,
+        "claim_next_chunk",
+        lambda *args, **kwargs: {
+            "id": 7,
+            "chunk_index": 1,
+            "split_depth": 0,
+            "bbox": (0.0, 0.0, 1.0, 1.0),
+        },
+    )
+    monkeypatch.setattr(service, "load_chunk_gdf", lambda *args, **kwargs: [object()])
+    monkeypatch.setattr(service, "load_stage_table", lambda *args, **kwargs: 1)
+    monkeypatch.setattr(service, "derive_catalog_citation", lambda *args, **kwargs: "")
+    monkeypatch.setattr(service.time, "sleep", lambda *_args, **_kwargs: None)
+    captured = {}
+
+    def fake_process(*args, **kwargs):
+        captured["slick_to_aoi_buffer_m"] = kwargs["slick_to_aoi_buffer_m"]
+        return ("completed", 1, 1, 1, 0, 1, 1)
+
+    monkeypatch.setattr(service, "process_chunk_sub_batches", fake_process)
+    monkeypatch.setattr(service, "mark_chunk_completed", lambda *args, **kwargs: None)
+
+    service.run_backfill("mpa", short_name="MPA", max_batches=1)
+
+    assert captured["slick_to_aoi_buffer_m"] == 12000.0
+
+
 def test_get_backfill_status_selects_snapped_buffer(monkeypatch):
     captured = {}
 

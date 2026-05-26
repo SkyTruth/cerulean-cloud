@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -22,6 +23,12 @@ LOGGER = logging.getLogger("backfill_shared_dataset_aoi")
 # Notebook imports do not run the CLI's basicConfig(), so set the module logger's
 # threshold explicitly to keep INFO logs visible in interactive runs.
 LOGGER.setLevel(logging.INFO)
+if not LOGGER.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+    LOGGER.addHandler(handler)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SQL_SCRIPT = REPO_ROOT / "scripts/backfill_shared_dataset_aoi.sql"
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -829,7 +836,7 @@ def process_chunk_sub_batches(
                 total_insert_rows += batch_insert_rows
                 batch_end = min(seq_start + batch_size - 1, candidate_rows)
                 LOGGER.info(
-                    "run_backfill sub-batch progress short_name=%s chunk_id=%s sub_batch=%s/%s seq_range=%s-%s batch_match_rows=%s batch_links_inserted=%s total_match_rows=%s total_links_inserted=%s",
+                    "run_backfill sub-batch progress short_name=%s chunk_id=%s sub_batch=%s/%s seq_range=%s-%s batch_match_rows=%s batch_links_inserted=%s total_match_rows=%s total_links_inserted=%s slick_to_aoi_buffer_m=%s",
                     short_name,
                     chunk["id"],
                     sub_batch_index,
@@ -840,6 +847,7 @@ def process_chunk_sub_batches(
                     batch_insert_rows,
                     total_match_rows,
                     total_insert_rows,
+                    slick_to_aoi_buffer_m,
                 )
 
         conn.commit()
@@ -1685,8 +1693,19 @@ def run_backfill(
         dataset_version=run_context.dataset_version,
         source_url=getattr(asset, "canonical_path", None) or "",
         citation=derive_catalog_citation(asset),
+        slick_to_aoi_buffer_m=run_context.slick_to_aoi_buffer_m,
     )
     dataset_path = Path(ref.cache_path)
+    LOGGER.info(
+        "run_backfill runtime config short_name=%s batch_size=%s slick_to_aoi_buffer_m=%s max_chunk_stage_rows=%s split_candidate_slick_limit=%s max_split_depth=%s statement_timeout=%s",
+        resolved_short_name,
+        run_context.batch_size,
+        run_context.slick_to_aoi_buffer_m,
+        DEFAULT_MAX_CHUNK_STAGE_ROWS,
+        DEFAULT_SPLIT_CANDIDATE_SLICKS,
+        DEFAULT_MAX_SPLIT_DEPTH,
+        statement_timeout,
+    )
 
     lock_started = time.perf_counter()
     lock_conn = acquire_run_lock(resolved_db_url, resolved_short_name)
