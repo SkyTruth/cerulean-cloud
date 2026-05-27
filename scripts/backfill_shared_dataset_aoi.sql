@@ -461,6 +461,22 @@ BEGIN
       AND ext_id IN (SELECT ext_id FROM tmp_stage_aoi)
     GROUP BY ext_id;
 
+    CREATE TEMP TABLE tmp_stage_candidate_aois ON COMMIT DROP AS
+    SELECT
+        l.aoi_id,
+        st.ext_id,
+        ST_SetSRID(ST_Extent(st.geom_8857)::box2d::geometry, 8857) AS bbox_8857
+    FROM tmp_stage_chunks st
+    JOIN tmp_aoi_lookup l
+      ON l.ext_id = st.ext_id
+    GROUP BY l.aoi_id, st.ext_id;
+
+    CREATE INDEX tmp_stage_candidate_aois_bbox_8857_idx
+        ON tmp_stage_candidate_aois
+        USING gist (bbox_8857);
+    CREATE INDEX tmp_stage_candidate_aois_ext_id_idx
+        ON tmp_stage_candidate_aois (ext_id);
+
     CREATE TEMP TABLE tmp_candidate_slicks ON COMMIT DROP AS
     SELECT
         row_number() OVER (ORDER BY s.id) AS seq,
@@ -513,29 +529,36 @@ BEGIN
             WHERE seq >= p_seq_start
               AND seq < p_seq_start + p_batch_size
         ),
-        unresolved_pairs AS MATERIALIZED (
+        candidate_aois AS MATERIALIZED (
             SELECT DISTINCT
                 s.slick_id,
-                l.aoi_id,
-                s.geom_8857 AS slick_geom_8857,
-                st.geom_8857 AS aoi_geom_8857
+                a.ext_id,
+                a.aoi_id,
+                s.geom_8857 AS slick_geom_8857
             FROM batch_slicks s
-            JOIN tmp_stage_chunks st
-              ON s.geom_8857 && ST_Expand(st.geom_8857, p_slick_to_aoi_buffer_m)
-            JOIN tmp_aoi_lookup l
-              ON l.ext_id = st.ext_id
+            JOIN tmp_stage_candidate_aois a
+              ON s.geom_8857 && ST_Expand(a.bbox_8857, p_slick_to_aoi_buffer_m)
             LEFT JOIN public.slick_to_aoi sta
               ON sta.slick = s.slick_id
-             AND sta.aoi = l.aoi_id
+             AND sta.aoi = a.aoi_id
             WHERE sta.slick IS NULL
         ),
         matches AS MATERIALIZED (
-            SELECT DISTINCT slick_id, aoi_id
-            FROM unresolved_pairs
-            WHERE ST_DWithin(
-                slick_geom_8857,
-                aoi_geom_8857,
-                p_slick_to_aoi_buffer_m
+            SELECT c.slick_id, c.aoi_id
+            FROM candidate_aois c
+            WHERE EXISTS (
+                SELECT 1
+                FROM tmp_stage_chunks st
+                WHERE st.ext_id = c.ext_id
+                  AND st.geom_8857 && ST_Expand(
+                      c.slick_geom_8857,
+                      p_slick_to_aoi_buffer_m
+                  )
+                  AND ST_DWithin(
+                      c.slick_geom_8857,
+                      st.geom_8857,
+                      p_slick_to_aoi_buffer_m
+                  )
             )
         ),
         inserted_slick_to_aoi AS (
