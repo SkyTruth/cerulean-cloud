@@ -549,14 +549,14 @@ BEGIN
             WHERE EXISTS (
                 SELECT 1
                 FROM tmp_stage_chunks st
-                WHERE st.ext_id = c.ext_id
-                  AND st.geom_8857 && ST_Expand(
-                      c.slick_geom_8857,
-                      p_slick_to_aoi_buffer_m
-                  )
-                  AND ST_DWithin(
+                WHERE ST_DWithin(
                       c.slick_geom_8857,
                       st.geom_8857,
+                      p_slick_to_aoi_buffer_m
+                  )
+                  AND st.ext_id = c.ext_id
+                  AND st.geom_8857 && ST_Expand(
+                      c.slick_geom_8857,
                       p_slick_to_aoi_buffer_m
                   )
             )
