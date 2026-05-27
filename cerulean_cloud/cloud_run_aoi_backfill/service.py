@@ -520,12 +520,23 @@ def _uniform_chunk_grid(
     return chunks
 
 
-def build_chunk_plan(path: Path) -> dict[str, object]:
+def normalize_initial_grid_side(initial_grid_side: int | None) -> int | None:
+    if initial_grid_side is None:
+        return None
+    if initial_grid_side < 1:
+        raise ValueError("initial_grid_side must be >= 1")
+    return initial_grid_side
+
+
+def build_chunk_plan(
+    path: Path, *, initial_grid_side: int | None = None
+) -> dict[str, object]:
+    initial_grid_side = normalize_initial_grid_side(initial_grid_side)
     metadata = _dataset_metadata(path)
     feature_count = int(metadata["feature_count"])
     bounds = metadata["bounds"]
     size_bytes = path.stat().st_size
-    target_chunks = max(
+    heuristic_target_chunks = max(
         1,
         math.ceil(
             max(
@@ -534,13 +545,17 @@ def build_chunk_plan(path: Path) -> dict[str, object]:
             )
         ),
     )
-    grid_side = max(1, math.ceil(math.sqrt(target_chunks)))
+    if initial_grid_side is None:
+        grid_side = max(1, math.ceil(math.sqrt(heuristic_target_chunks)))
+    else:
+        grid_side = initial_grid_side
     chunks = _uniform_chunk_grid(bounds, grid_side)
     return {
         "bounds": bounds,
         "feature_count": feature_count,
         "grid_side": grid_side,
         "target_chunk_count": len(chunks),
+        "heuristic_target_chunk_count": heuristic_target_chunks,
         "target_chunk_bytes": TARGET_CHUNK_BYTES,
         "target_chunk_features": TARGET_CHUNK_FEATURES,
         "max_chunk_stage_rows": DEFAULT_MAX_CHUNK_STAGE_ROWS,
@@ -949,7 +964,9 @@ def inspect_asset(
     stage_table: str | None = None,
     source_url: str | None = None,
     citation: str | None = None,
+    initial_grid_side: int | None = None,
 ) -> dict[str, object]:
+    initial_grid_side = normalize_initial_grid_side(initial_grid_side)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
     asset = get_catalog_asset(resolved_asset_slug, catalog_source)
     ref = fetch_dataset_ref(
@@ -975,7 +992,10 @@ def inspect_asset(
         citation=citation,
         version=version,
     )
-    chunk_plan = build_chunk_plan(dataset_path)
+    chunk_plan = build_chunk_plan(
+        dataset_path,
+        initial_grid_side=initial_grid_side,
+    )
     result = {
         "input": asset_slug,
         "asset_slug": config.asset_slug,
@@ -992,6 +1012,7 @@ def inspect_asset(
             "bounds": chunk_plan["bounds"],
             "grid_side": chunk_plan["grid_side"],
             "target_chunk_count": chunk_plan["target_chunk_count"],
+            "heuristic_target_chunk_count": chunk_plan["heuristic_target_chunk_count"],
             "target_chunk_bytes": chunk_plan["target_chunk_bytes"],
             "target_chunk_features": chunk_plan["target_chunk_features"],
             "max_chunk_stage_rows": chunk_plan["max_chunk_stage_rows"],
@@ -1519,8 +1540,10 @@ def prepare_backfill(
     source_url: str | None = None,
     citation: str | None = None,
     batch_size: int = 5000,
+    initial_grid_side: int | None = None,
 ) -> AoiConfig:
     started = time.perf_counter()
+    initial_grid_side = normalize_initial_grid_side(initial_grid_side)
     resolved_db_url = get_db_url(db_url)
     resolved_asset_slug = resolve_asset_slug(asset_slug, catalog_source)
     LOGGER.info("prepare_backfill resolved asset slug=%s", resolved_asset_slug)
@@ -1574,7 +1597,10 @@ def prepare_backfill(
     )
     parse_table_name(config.stage_table)
     chunk_started = time.perf_counter()
-    chunk_plan = build_chunk_plan(dataset_path)
+    chunk_plan = build_chunk_plan(
+        dataset_path,
+        initial_grid_side=initial_grid_side,
+    )
     LOGGER.info(
         "prepare_backfill built chunk plan asset_slug=%s chunks=%s grid_side=%s elapsed_s=%.3f",
         resolved_asset_slug,

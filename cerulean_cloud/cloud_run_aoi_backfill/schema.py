@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from cerulean_cloud.cloud_run_aoi_backfill import service
 
@@ -25,6 +25,7 @@ class InspectRequest(AssetRequest):
     stage_table: str | None = None
     source_url: str | None = None
     citation: str | None = None
+    initial_grid_side: int | None = Field(default=None, ge=1)
 
 
 class PrepareRequest(InspectRequest):

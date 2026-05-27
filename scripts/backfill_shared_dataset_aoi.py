@@ -42,6 +42,7 @@ def inspect_asset(args: argparse.Namespace) -> None:
         stage_table=args.stage_table,
         source_url=args.source_url,
         citation=args.citation,
+        initial_grid_side=args.initial_grid_side,
     )
     print(f"input\t{result['input']}")
     print(f"asset_slug\t{result['asset_slug']}")
@@ -57,6 +58,10 @@ def inspect_asset(args: argparse.Namespace) -> None:
     print(f"chunk_bounds\t{result['chunk_plan']['bounds']}")
     print(f"chunk_grid_side\t{result['chunk_plan']['grid_side']}")
     print(f"target_chunk_count\t{result['chunk_plan']['target_chunk_count']}")
+    print(
+        "heuristic_target_chunk_count\t"
+        f"{result['chunk_plan']['heuristic_target_chunk_count']}"
+    )
     for key in (
         "feature_count",
         "crs",
@@ -86,6 +91,7 @@ def prepare(args: argparse.Namespace) -> None:
         source_url=args.source_url,
         citation=args.citation,
         batch_size=args.batch_size,
+        initial_grid_side=args.initial_grid_side,
     )
 
 
@@ -244,6 +250,14 @@ def add_dataset_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_config_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--initial-grid-side",
+        type=int,
+        help=(
+            "Override the initial uniform chunk grid side length. "
+            "For example: 4 -> 16 chunks, 5 -> 25 chunks, 6 -> 36 chunks."
+        ),
+    )
     parser.add_argument("--long-name")
     parser.add_argument("--ext-id-field")
     parser.add_argument("--display-name-field")

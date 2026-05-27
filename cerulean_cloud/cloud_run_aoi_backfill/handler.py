@@ -93,6 +93,7 @@ def inspect(payload: InspectRequest) -> InspectResponse:
         stage_table=payload.stage_table,
         source_url=payload.source_url,
         citation=payload.citation,
+        initial_grid_side=payload.initial_grid_side,
     )
     LOGGER.info(
         "inspect complete asset_slug=%s short_name=%s elapsed_s=%.3f",
@@ -126,6 +127,7 @@ def prepare(payload: PrepareRequest) -> PrepareResponse:
         source_url=payload.source_url,
         citation=payload.citation,
         batch_size=payload.batch_size,
+        initial_grid_side=payload.initial_grid_side,
     )
     status_rows = service.get_backfill_status(
         payload.asset_slug,
