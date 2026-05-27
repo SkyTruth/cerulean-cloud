@@ -1663,6 +1663,59 @@ def prepare_backfill(
     )
 
 
+def prepare_and_run_backfill_local(
+    asset_slug: str,
+    *,
+    db_url: str | None = None,
+    short_name: str | None = None,
+    catalog_source: str | None = None,
+    version: str = "latest",
+    cache_dir: str = DEFAULT_CACHE_DIR,
+    force_download: bool = False,
+    long_name: str | None = None,
+    ext_id_field: str | None = None,
+    display_name_field: str | None = None,
+    stage_table: str | None = None,
+    source_url: str | None = None,
+    citation: str | None = None,
+    batch_size: int = 5000,
+    initial_grid_side: int | None = None,
+    max_batches: int | None = DEFAULT_RUN_MAX_BATCHES,
+    sleep_seconds: float = 0.05,
+    lock_timeout: str = "1s",
+    statement_timeout: str = DEFAULT_RUN_STATEMENT_TIMEOUT,
+) -> None:
+    config = prepare_backfill(
+        asset_slug,
+        db_url=db_url,
+        short_name=short_name,
+        catalog_source=catalog_source,
+        version=version,
+        cache_dir=cache_dir,
+        force_download=force_download,
+        long_name=long_name,
+        ext_id_field=ext_id_field,
+        display_name_field=display_name_field,
+        stage_table=stage_table,
+        source_url=source_url,
+        citation=citation,
+        batch_size=batch_size,
+        initial_grid_side=initial_grid_side,
+    )
+    resolved_db_url = get_db_url(db_url)
+    while backfill_has_pending_work(resolved_db_url, config.short_name):
+        run_backfill(
+            asset_slug,
+            db_url=resolved_db_url,
+            short_name=config.short_name,
+            catalog_source=catalog_source,
+            max_batches=max_batches,
+            sleep_seconds=sleep_seconds,
+            lock_timeout=lock_timeout,
+            statement_timeout=statement_timeout,
+        )
+
+
 def run_backfill(
     asset_slug: str,
     *,

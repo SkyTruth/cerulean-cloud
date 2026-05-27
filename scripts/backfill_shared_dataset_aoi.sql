@@ -354,55 +354,66 @@ BEGIN
 
     EXECUTE format(
         'CREATE TEMP TABLE tmp_stage_aoi ON COMMIT DROP AS
-         SELECT ext_id, MIN(name) AS name
-         FROM %s
-         GROUP BY ext_id',
+         WITH grouped AS (
+             SELECT ext_id, MIN(name) AS name, ST_Union(geom) AS geom
+             FROM %s
+             GROUP BY ext_id
+         )
+         SELECT
+             ext_id,
+             name,
+             ST_Multi(
+                 ST_CollectionExtract(
+                     CASE
+                         WHEN ST_IsValid(geom) THEN geom
+                         ELSE ST_MakeValid(geom)
+                     END,
+                     3
+                 )
+             )::geometry(MultiPolygon, 4326) AS geom,
+             ST_Transform(
+                 ST_Multi(
+                     ST_CollectionExtract(
+                         CASE
+                             WHEN ST_IsValid(geom) THEN geom
+                             ELSE ST_MakeValid(geom)
+                         END,
+                         3
+                     )
+                 )::geometry(MultiPolygon, 4326),
+                 8857
+             ) AS geom_8857
+         FROM grouped',
         v_stage_ident
     );
 
-    EXECUTE format(
-        $sql$
-        CREATE TEMP TABLE tmp_stage_chunks ON COMMIT DROP AS
-        WITH normalized AS (
-            SELECT
-                ext_id,
-                ST_Multi(
-                    ST_CollectionExtract(
-                        CASE
-                            WHEN ST_IsValid(geom) THEN geom
-                            ELSE ST_MakeValid(geom)
-                        END,
-                        3
-                    )
-                )::geometry(MultiPolygon, 4326) AS geom
-            FROM %s
-        ),
-        chunked AS (
-            SELECT ext_id, ST_Subdivide(geom, 255) AS geom
-            FROM normalized
-            WHERE geom IS NOT NULL
-              AND ST_NPoints(geom) > 255
-            UNION ALL
-            SELECT ext_id, geom
-            FROM normalized
-            WHERE geom IS NOT NULL
-              AND ST_NPoints(geom) <= 255
-        )
-        SELECT
-            dumped.ext_id,
-            dumped.geom::geometry(Polygon, 4326) AS geom,
-            ST_Transform(dumped.geom::geometry(Polygon, 4326), 8857) AS geom_8857
-        FROM (
-            SELECT ext_id, (ST_Dump(geom)).geom
-            FROM chunked
-            WHERE geom IS NOT NULL
-              AND NOT ST_IsEmpty(geom)
-        ) AS dumped
-        WHERE dumped.geom IS NOT NULL
-          AND NOT ST_IsEmpty(dumped.geom)
-        $sql$,
-        v_stage_ident
-    );
+    CREATE INDEX tmp_stage_aoi_geom_idx ON tmp_stage_aoi USING gist (geom);
+    CREATE INDEX tmp_stage_aoi_geom_8857_idx ON tmp_stage_aoi USING gist (geom_8857);
+
+    CREATE TEMP TABLE tmp_stage_chunks ON COMMIT DROP AS
+    WITH chunked AS (
+        SELECT ext_id, ST_Subdivide(geom, 255) AS geom
+        FROM tmp_stage_aoi
+        WHERE geom IS NOT NULL
+          AND ST_NPoints(geom) > 255
+        UNION ALL
+        SELECT ext_id, geom
+        FROM tmp_stage_aoi
+        WHERE geom IS NOT NULL
+          AND ST_NPoints(geom) <= 255
+    )
+    SELECT
+        dumped.ext_id,
+        dumped.geom::geometry(Polygon, 4326) AS geom,
+        ST_Transform(dumped.geom::geometry(Polygon, 4326), 8857) AS geom_8857
+    FROM (
+        SELECT ext_id, (ST_Dump(geom)).geom
+        FROM chunked
+        WHERE geom IS NOT NULL
+          AND NOT ST_IsEmpty(geom)
+    ) AS dumped
+    WHERE dumped.geom IS NOT NULL
+      AND NOT ST_IsEmpty(dumped.geom);
 
     CREATE INDEX tmp_stage_chunks_geom_idx ON tmp_stage_chunks USING gist (geom);
     CREATE INDEX tmp_stage_chunks_geom_8857_idx ON tmp_stage_chunks USING gist (geom_8857);
@@ -435,7 +446,7 @@ BEGIN
                     ST_MakeEnvelope(p_minx, p_miny, p_maxx, p_maxy, 4326)
                 )
         END AS candidate_bbox_4326
-    FROM tmp_stage_chunks;
+    FROM tmp_stage_aoi;
 
     CREATE TEMP TABLE tmp_existing_aoi ON COMMIT DROP AS
     SELECT MIN(id) AS aoi_id, ext_id
@@ -466,7 +477,7 @@ BEGIN
         l.aoi_id,
         st.ext_id,
         ST_SetSRID(ST_Extent(st.geom_8857)::box2d::geometry, 8857) AS bbox_8857
-    FROM tmp_stage_chunks st
+    FROM tmp_stage_aoi st
     JOIN tmp_aoi_lookup l
       ON l.ext_id = st.ext_id
     GROUP BY l.aoi_id, st.ext_id;

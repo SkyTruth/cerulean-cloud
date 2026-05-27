@@ -6,6 +6,7 @@ The common path only needs the shared-datasets asset slug:
 
     scripts/backfill_shared_dataset_aoi.py prepare <asset-slug>
     scripts/backfill_shared_dataset_aoi.py inspect <asset-slug>
+    scripts/backfill_shared_dataset_aoi.py local-workflow <asset-slug>
     scripts/backfill_shared_dataset_aoi.py run <asset-slug>
     scripts/backfill_shared_dataset_aoi.py status <asset-slug>
     scripts/backfill_shared_dataset_aoi.py validate <asset-slug>
@@ -108,6 +109,30 @@ def run(args: argparse.Namespace) -> None:
     )
 
 
+def local_workflow(args: argparse.Namespace) -> None:
+    service.prepare_and_run_backfill_local(
+        args.asset_slug,
+        db_url=args.db_url,
+        short_name=args.short_name,
+        catalog_source=args.catalog_source,
+        version=args.version,
+        cache_dir=args.cache_dir,
+        force_download=args.force_download,
+        long_name=args.long_name,
+        ext_id_field=args.ext_id_field,
+        display_name_field=args.display_name_field,
+        stage_table=args.stage_table,
+        source_url=args.source_url,
+        citation=args.citation,
+        batch_size=args.batch_size,
+        initial_grid_side=args.initial_grid_side,
+        max_batches=args.max_batches,
+        sleep_seconds=args.sleep_seconds,
+        lock_timeout=args.lock_timeout,
+        statement_timeout=args.statement_timeout,
+    )
+
+
 def validate(args: argparse.Namespace) -> None:
     rows = service.validate_backfill(
         args.asset_slug,
@@ -185,6 +210,25 @@ def build_parser() -> argparse.ArgumentParser:
     require_short_name(prepare_parser)
     prepare_parser.add_argument("--batch-size", type=int, default=5000)
     prepare_parser.set_defaults(func=prepare)
+
+    local_parser = subparsers.add_parser("local-workflow")
+    add_common_asset_args(local_parser)
+    add_dataset_args(local_parser)
+    add_config_args(local_parser)
+    require_short_name(local_parser)
+    local_parser.add_argument("--batch-size", type=int, default=5000)
+    local_parser.add_argument(
+        "--max-batches",
+        type=int,
+        default=service.DEFAULT_RUN_MAX_BATCHES,
+    )
+    local_parser.add_argument("--sleep-seconds", type=float, default=0.05)
+    local_parser.add_argument("--lock-timeout", default="1s")
+    local_parser.add_argument(
+        "--statement-timeout",
+        default=service.DEFAULT_RUN_STATEMENT_TIMEOUT,
+    )
+    local_parser.set_defaults(func=local_workflow)
 
     run_parser = subparsers.add_parser("run")
     add_common_asset_args(run_parser)
