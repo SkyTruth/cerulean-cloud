@@ -111,12 +111,14 @@ def test_get_run_context_includes_snapped_buffer(monkeypatch):
             "NAME",
             5000,
             12000.0,
+            0.001,
         ),
     )
 
     context = service.get_run_context("postgres://db", "MPA")
 
     assert context.slick_to_aoi_buffer_m == 12000.0
+    assert context.simplify == 0.001
     assert context.dataset_version == "latest"
 
 
@@ -138,6 +140,7 @@ def test_run_backfill_passes_buffer_to_sub_batches(monkeypatch):
             display_name_field="NAME",
             batch_size=5000,
             slick_to_aoi_buffer_m=12000.0,
+            simplify=0.001,
         ),
     )
     monkeypatch.setattr(

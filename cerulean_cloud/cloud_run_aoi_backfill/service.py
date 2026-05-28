@@ -77,6 +77,7 @@ class AoiConfig:
     source_url: str
     citation: str
     slick_to_aoi_buffer_m: float = 0.0
+    simplify: float | None = None
 
 
 @dataclass(frozen=True)
@@ -104,6 +105,7 @@ class RunContext:
     display_name_field: str | None
     batch_size: int
     slick_to_aoi_buffer_m: float
+    simplify: float | None
 
 
 @dataclass(frozen=True)
@@ -439,15 +441,50 @@ def to_plain_python(value):
 
 
 def promote_polygons(geometry):
-    from shapely.geometry import MultiPolygon, Polygon
+    from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 
     if geometry is None or geometry.is_empty:
         return None
+    if isinstance(geometry, GeometryCollection):
+        polygons = []
+        for part in geometry.geoms:
+            if isinstance(part, Polygon):
+                polygons.append(part)
+            elif isinstance(part, MultiPolygon):
+                polygons.extend(part.geoms)
+        return MultiPolygon(polygons) if polygons else None
     if isinstance(geometry, MultiPolygon):
         return geometry
     if isinstance(geometry, Polygon):
         return MultiPolygon([geometry])
     return None
+
+
+def simplify_stage_geometry(geometry, simplify: float | None):
+    if geometry is None or geometry.is_empty or simplify is None or simplify <= 0:
+        return geometry
+    return geometry.simplify(simplify, preserve_topology=True)
+
+
+def repair_stage_geometry(geometry):
+    if geometry is None or geometry.is_empty:
+        return geometry
+    if geometry.is_valid:
+        return geometry
+
+    try:
+        from shapely.validation import make_valid
+
+        repaired = make_valid(geometry)
+    except Exception:
+        repaired = geometry.buffer(0)
+
+    if repaired is None or repaired.is_empty:
+        return None
+    if repaired.is_valid:
+        return repaired
+    buffered = repaired.buffer(0)
+    return None if buffered is None or buffered.is_empty else buffered
 
 
 def sanitize_stage_text(series):
@@ -485,7 +522,11 @@ def normalize_stage_gdf(gdf, config: AoiConfig):
     else:
         gdf["name"] = gdf["ext_id"]
     gdf["name"] = gdf["name"].fillna(gdf["ext_id"])
-    gdf["geom"] = gdf.geometry.map(promote_polygons)
+    gdf["geom"] = gdf.geometry.map(
+        lambda geometry: promote_polygons(
+            repair_stage_geometry(simplify_stage_geometry(geometry, config.simplify))
+        )
+    )
     stage_gdf = gdf[["ext_id", "name", "geom"]].dropna(subset=["ext_id", "geom"])
     return gpd.GeoDataFrame(stage_gdf, geometry="geom", crs="EPSG:4326")
 
@@ -1003,6 +1044,7 @@ def inspect_asset(
         "long_name": config.long_name,
         "ext_id_field": config.ext_id_field,
         "display_name_field": config.display_name_field or "<ext_id>",
+        "simplify": config.simplify,
         "stage_table": config.stage_table,
         "dataset_version": config.dataset_version,
         "source_url": config.source_url,
@@ -1083,7 +1125,8 @@ def get_run_context(db_url: str, short_name: str) -> RunContext:
             COALESCE(at.properties->>'ext_id_field', ''),
             NULLIF(at.properties->>'display_name_field', ''),
             r.batch_size,
-            r.slick_to_aoi_buffer_m
+            r.slick_to_aoi_buffer_m,
+            NULLIF(at.properties->>'simplify', '')::double precision
         FROM maintenance.shared_dataset_aoi_backfill_run r
         JOIN public.aoi_type at ON at.id = r.aoi_type_id
         WHERE r.aoi_type_short_name = %s
@@ -1104,6 +1147,7 @@ def get_run_context(db_url: str, short_name: str) -> RunContext:
         display_name_field=row[5],
         batch_size=int(row[6]),
         slick_to_aoi_buffer_m=float(row[7] or 0.0),
+        simplify=float(row[8]) if row[8] is not None else None,
     )
 
 
@@ -1643,6 +1687,7 @@ def prepare_backfill(
     status_started = time.perf_counter()
     refresh_run_status(resolved_db_url, config.short_name)
     run_context = get_run_context(resolved_db_url, config.short_name)
+    LOGGER.info("live simplify=%s", run_context.simplify)
     LOGGER.info(
         "prepare_backfill refreshed run status short_name=%s elapsed_s=%.3f total_elapsed_s=%.3f",
         config.short_name,
@@ -1660,6 +1705,7 @@ def prepare_backfill(
         source_url=config.source_url,
         citation=config.citation,
         slick_to_aoi_buffer_m=run_context.slick_to_aoi_buffer_m,
+        simplify=run_context.simplify,
     )
 
 
@@ -1773,13 +1819,15 @@ def run_backfill(
         source_url=getattr(asset, "canonical_path", None) or "",
         citation=derive_catalog_citation(asset),
         slick_to_aoi_buffer_m=run_context.slick_to_aoi_buffer_m,
+        simplify=run_context.simplify,
     )
     dataset_path = Path(ref.cache_path)
     LOGGER.info(
-        "run_backfill runtime config short_name=%s batch_size=%s slick_to_aoi_buffer_m=%s max_chunk_stage_rows=%s split_candidate_slick_limit=%s max_split_depth=%s statement_timeout=%s",
+        "run_backfill runtime config short_name=%s batch_size=%s slick_to_aoi_buffer_m=%s simplify=%s max_chunk_stage_rows=%s split_candidate_slick_limit=%s max_split_depth=%s statement_timeout=%s",
         resolved_short_name,
         run_context.batch_size,
         run_context.slick_to_aoi_buffer_m,
+        run_context.simplify,
         DEFAULT_MAX_CHUNK_STAGE_ROWS,
         DEFAULT_SPLIT_CANDIDATE_SLICKS,
         DEFAULT_MAX_SPLIT_DEPTH,

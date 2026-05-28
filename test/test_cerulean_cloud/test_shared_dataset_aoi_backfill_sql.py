@@ -348,6 +348,88 @@ def test_backfill_wrapper_normalizes_integer_like_ext_ids():
     assert normalized["name"].tolist() == ["1", "12", "007", "18.5"]
 
 
+def test_backfill_wrapper_simplifies_stage_geometry_when_configured():
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import Polygon
+
+    wrapper = load_wrapper_module()
+    polygon = Polygon(
+        [
+            (0, 0),
+            (0.0005, 0.0002),
+            (0.001, 0),
+            (0.001, 0.001),
+            (0, 0.001),
+            (0, 0),
+        ]
+    )
+    gdf = geopandas.GeoDataFrame(
+        {
+            "METADATA_I": ["reef-1"],
+            "NAME": ["Reef 1"],
+            "geometry": [polygon],
+        },
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+    normalized = wrapper.normalize_stage_gdf(
+        gdf,
+        wrapper.AoiConfig(
+            asset_slug="global-coral-reefs",
+            short_name="CORAL",
+            long_name="Global Coral Reefs",
+            ext_id_field="METADATA_I",
+            display_name_field="NAME",
+            stage_table="maintenance.aoi_stage_coral",
+            dataset_version="latest",
+            source_url="",
+            citation="",
+            simplify=0.001,
+        ),
+    )
+
+    assert len(normalized.iloc[0]["geom"].geoms[0].exterior.coords) < len(
+        polygon.exterior.coords
+    )
+
+
+def test_backfill_wrapper_repairs_invalid_stage_geometry():
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import Polygon
+
+    wrapper = load_wrapper_module()
+    bowtie = Polygon([(0, 0), (1, 1), (1, 0), (0, 1), (0, 0)])
+    gdf = geopandas.GeoDataFrame(
+        {
+            "METADATA_I": ["reef-2"],
+            "NAME": ["Reef 2"],
+            "geometry": [bowtie],
+        },
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+    normalized = wrapper.normalize_stage_gdf(
+        gdf,
+        wrapper.AoiConfig(
+            asset_slug="global-coral-reefs",
+            short_name="CORAL",
+            long_name="Global Coral Reefs",
+            ext_id_field="METADATA_I",
+            display_name_field="NAME",
+            stage_table="maintenance.aoi_stage_coral",
+            dataset_version="latest",
+            source_url="",
+            citation="",
+            simplify=0.001,
+        ),
+    )
+
+    assert len(normalized) == 1
+    assert normalized.iloc[0]["geom"].is_valid
+
+
 def test_backfill_wrapper_requires_ext_id_override_when_ambiguous():
     wrapper = load_wrapper_module()
 

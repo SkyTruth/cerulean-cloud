@@ -560,7 +560,7 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
     repo_root = Path(__file__).resolve().parents[2]
     migration_text = (
         repo_root
-        / "alembic/HOLD_1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
+        / "alembic/versions/1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
     ).read_text()
     rollback_text = (
         repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids_rollback.sql"
@@ -586,14 +586,18 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
         assert "'SHARED_DATASET'" in sql_text
         assert "NULLIF(properties->>'asset_slug', '') IS NOT NULL" in sql_text
         assert "'slick_to_aoi_buffer_m'" in sql_text
+        assert "'simplify'" in sql_text
         assert (
             "jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'number'" in sql_text
         )
         assert "jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'null'" in sql_text
+        assert "jsonb_typeof(properties->'simplify') = 'number'" in sql_text
+        assert "jsonb_typeof(properties->'simplify') = 'null'" in sql_text
         assert (
             "(properties->>'slick_to_aoi_buffer_m')::double precision >= 0"
             not in sql_text
         )
+        assert '"simplify": 0.001' in sql_text or '"simplify":0.001' in sql_text
         assert (
             '"ext_id_field":"SITE_ID"' in sql_text
             or '"ext_id_field": "SITE_ID"' in sql_text
