@@ -17,6 +17,7 @@ Current repo-local skills:
 - `.claude/skills/cerulean-external-dependency-packaging/SKILL.md`
 - `.claude/skills/cerulean-published-geoasset-debugging/SKILL.md`
 - `.claude/skills/cerulean-slick-classification-boundary/SKILL.md`
+- `.claude/skills/shared-datasets-consumer-skill/SKILL.md`
 - `.claude/skills/cerulean-ui-frontend-sql/SKILL.md`
 - `.claude/skills/cerulean-vocabulary-translation-seed/SKILL.md`
 - `.claude/skills/skytruth-intent-engineering/SKILL.md`
@@ -44,6 +45,7 @@ Current repo-local skills:
 - Use `.claude/skills/cerulean-database-change-checklist/SKILL.md` for migrations, schema changes, lookup data, or DB-backed vocabulary changes.
 - Use `.claude/skills/cerulean-external-dependency-packaging/SKILL.md` when adding or changing GitHub URL dependencies, private repo package pins, subdirectory installs, or service-image dependency paths.
 - Use `.claude/skills/cerulean-vocabulary-translation-seed/SKILL.md` when adding or renaming rows in translatable vocabulary tables or updating `docs/vocabulary_translations.csv`.
+- Use `.claude/skills/shared-datasets-consumer-skill/SKILL.md` when integrating shared-datasets-1, shared catalog metadata, shared PMTiles URLs, shared-dataset backend fetches, or shared dataset lineage.
 - Use `.claude/skills/cerulean-ui-frontend-sql/SKILL.md` when answering frontend SQL questions without the `cerulean-ui` repo open.
 - Use `.claude/skills/skytruth-intent-engineering/SKILL.md` for ambiguous prompts, multi-step SkyTruth workflows, publishable artifacts, operational risk, measurement/mapping work, or decisions that need explicit outcomes, constraints, stop rules, and validation.
 

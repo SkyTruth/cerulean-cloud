@@ -1477,8 +1477,9 @@ class AoiUser(Aoi):
     create_time: Mapped[Optional[datetime.datetime]] = mapped_column(
         DateTime, server_default=text("now()")
     )
-    geometry: Mapped[Optional[Any]] = mapped_column(
-        Geography(dimension=2, from_text="ST_GeogFromText", name="geography")
+    aoi_user_geometry: Mapped[Optional[Any]] = mapped_column(
+        "geometry",
+        Geography(dimension=2, from_text="ST_GeogFromText", name="geography"),
     )
 
     users: Mapped[Optional["Users"]] = relationship("Users", back_populates="aoi_user")

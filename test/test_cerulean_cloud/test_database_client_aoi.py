@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy as sa
 from geoalchemy2.shape import from_shape
 from shapely.geometry import MultiPolygon, box
+from pathlib import Path
 
 import cerulean_cloud.database_schema as database_schema
 from cerulean_cloud.database_client import (
@@ -553,6 +554,279 @@ async def test_insert_slick_to_aoi_legacy_ext_ids_require_existing_aoi(db_sessio
                         ]
                     )
                 )
+
+
+@pytest.mark.asyncio
+async def test_insert_slick_to_aoi_associates_user_by_child_aoi_id(db_session):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+            session.add(database_schema.Users(id=1, email="tester@example.com"))
+            await _add_slick_fixture(session)
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            aoi_user = await db_client.create_user_aoi(
+                user_id=1,
+                name="User AOI",
+                geometry=box(1, 2, 3, 4),
+                ext_id="profile-aoi",
+            )
+            aoi_id = getattr(aoi_user, "id", None) or aoi_user.aoi_id
+            slick_aoi_df = pd.DataFrame(
+                [
+                    {
+                        "slick_id": 1,
+                        "aoi_matches": {
+                            "USER": [
+                                {
+                                    "ext_id": str(aoi_id),
+                                    "name": "User AOI",
+                                }
+                            ]
+                        },
+                    }
+                ]
+            )
+            inserted_count = await db_client.insert_slick_to_aoi_from_dataframe(
+                slick_aoi_df
+            )
+            duplicate_inserted_count = (
+                await db_client.insert_slick_to_aoi_from_dataframe(slick_aoi_df)
+            )
+
+        result = await session.execute(
+            sa.text("SELECT slick, aoi FROM public.slick_to_aoi")
+        )
+        row = result.mappings().one()
+
+        assert inserted_count == 1
+        assert duplicate_inserted_count == 0
+        assert row["slick"] == 1
+        assert row["aoi"] == aoi_id
+
+
+@pytest.mark.asyncio
+async def test_insert_slick_to_aoi_associates_user_by_parent_ext_id_fallback(
+    db_session,
+):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+            session.add(database_schema.Users(id=1, email="tester@example.com"))
+            await _add_slick_fixture(session)
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            aoi_user = await db_client.create_user_aoi(
+                user_id=1,
+                name="User AOI",
+                geometry=box(1, 2, 3, 4),
+                ext_id="user-parent-ext-id",
+            )
+            aoi_id = getattr(aoi_user, "id", None) or aoi_user.aoi_id
+            inserted_count = await db_client.insert_slick_to_aoi_from_dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "slick_id": 1,
+                            "aoi_matches": {
+                                "USER": [
+                                    {
+                                        "ext_id": "user-parent-ext-id",
+                                        "name": "User AOI",
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                )
+            )
+
+        result = await session.execute(
+            sa.text("SELECT slick, aoi FROM public.slick_to_aoi")
+        )
+        row = result.mappings().one()
+
+        assert inserted_count == 1
+        assert row["slick"] == 1
+        assert row["aoi"] == aoi_id
+
+
+@pytest.mark.asyncio
+async def test_insert_slick_to_aoi_does_not_create_missing_user_aoi(db_session):
+    async with db_session() as session:
+        async with session.begin():
+            session.add(
+                database_schema.AoiType(
+                    id=4,
+                    table_name="aoi_user",
+                    short_name="USER",
+                )
+            )
+            await _add_slick_fixture(session)
+
+        db_client = DatabaseClient(session.bind)
+        db_client.session = session
+
+        async with session.begin():
+            with pytest.raises(InstanceNotFoundError, match="AOI ext_id values"):
+                await db_client.insert_slick_to_aoi_from_dataframe(
+                    pd.DataFrame(
+                        [
+                            {
+                                "slick_id": 1,
+                                "aoi_matches": {
+                                    "USER": [
+                                        {
+                                            "ext_id": "missing-user-aoi",
+                                            "name": "Missing user AOI",
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    )
+                )
+
+        result = await session.execute(
+            sa.text("SELECT COUNT(*) FROM public.aoi WHERE type = 4")
+        )
+        assert result.scalar_one() == 0
+
+
+def test_aoi_access_sql_contracts_are_kept_in_sync():
+    repo_root = Path(__file__).resolve().parents[2]
+    migration_text = (
+        repo_root
+        / "alembic/versions/1f70e7d0c5b1_add_aoi_access_type_and_dataset_versions.py"
+    ).read_text()
+    rollback_text = (
+        repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids_rollback.sql"
+    ).read_text()
+    current_branch_sql = [
+        (
+            repo_root / "scripts/manual_aoi_ext_id_and_slick_plus_aoi_ids.sql"
+        ).read_text(),
+        migration_text.split("def downgrade():", 1)[0],
+    ]
+    tipg_text = (repo_root / "stack/cloud_run_tipg.py").read_text()
+
+    for sql_text in current_branch_sql:
+        assert "aoi_chunks" not in sql_text
+        assert "skytruth-shared-datasets-1" not in sql_text
+        assert "'GCS'" not in sql_text
+        assert "fgb_uri" not in sql_text
+        assert "pmt_uri" not in sql_text
+        assert '"version":' not in sql_text
+        assert '"format":' not in sql_text
+        assert "properties->>'version'" not in sql_text
+        assert "properties->>'format'" not in sql_text
+        assert "'SHARED_DATASET'" in sql_text
+        assert "NULLIF(properties->>'asset_slug', '') IS NOT NULL" in sql_text
+        assert "'slick_to_aoi_buffer_m'" in sql_text
+        assert (
+            "jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'number'" in sql_text
+        )
+        assert "jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'null'" in sql_text
+        assert (
+            "(properties->>'slick_to_aoi_buffer_m')::double precision >= 0"
+            not in sql_text
+        )
+        assert (
+            '"ext_id_field":"SITE_ID"' in sql_text
+            or '"ext_id_field": "SITE_ID"' in sql_text
+        )
+        assert (
+            '"asset_slug":"global-coral-reefs"' in sql_text
+            or '"asset_slug": "global-coral-reefs"' in sql_text
+        )
+        assert "ck_aoi_type_access_properties" in sql_text
+        assert "ck_aoi_type_short_name_no_underscore" in sql_text
+        assert "position('_' in short_name) = 0" in sql_text
+        assert "slick_to_aoi_enabled" in sql_text
+        assert "DEFAULT TRUE" in sql_text or "server_default=sa.true()" in sql_text
+        assert "db_conn_str" not in sql_text
+        assert "NULLIF(properties->>'db_conn_secret_name', '') IS NOT NULL" in sql_text
+        assert "CREATE OR REPLACE VIEW public.aoi_type_public" in sql_text
+        assert (
+            "ALTER COLUMN table_name DROP NOT NULL" in sql_text
+            or '"table_name",\n        existing_type=sa.Text(),\n        nullable=True'
+            in sql_text
+        )
+        assert "ALTER COLUMN geometry DROP NOT NULL" in sql_text
+        assert "SET table_name = NULL" not in sql_text
+        assert "DROP COLUMN geometry" not in sql_text
+
+        public_view_sql = sql_text.split(
+            "CREATE OR REPLACE VIEW public.aoi_type_public", 1
+        )[1].split(";", 1)[0]
+        assert "read_permission.short_name = 'any'" in public_view_sql
+        assert "AS slick_to_aoi_buffer_m" in public_view_sql
+        assert (
+            "COALESCE((aoi_type.properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)"
+            in public_view_sql
+        )
+        assert "COALESCE(filter_toggle, FALSE) IS TRUE" not in public_view_sql
+        assert "slick_to_aoi_enabled" not in public_view_sql
+        assert "public_properties" not in public_view_sql
+        assert "jsonb_build_object" not in public_view_sql
+        for sensitive_key in [
+            "db_conn_secret_name",
+            "fgb_uri",
+            "pmt_uri",
+            "style",
+            "table_name",
+            "geog_col",
+            "ext_id_col",
+        ]:
+            assert sensitive_key not in public_view_sql
+
+        aoi_ids_sql = sql_text.split("json_object_agg(aoi_ids.short_name", 1)[1].split(
+            ") AS aoi_ids",
+            1,
+        )[0]
+        assert "short_name IN ('EEZ', 'IHO', 'MPA')" not in aoi_ids_sql
+
+    assert "DROP CONSTRAINT IF EXISTS ck_aoi_type_access_properties" in rollback_text
+    assert (
+        "DROP CONSTRAINT IF EXISTS ck_aoi_type_short_name_no_underscore"
+        in rollback_text
+    )
+    assert "short_name = 'CORAL'" in rollback_text
+    assert "DROP COLUMN IF EXISTS slick_to_aoi_enabled" in rollback_text
+    assert "DROP VIEW IF EXISTS public.aoi_type_public" in rollback_text
+    assert "ALTER COLUMN geometry SET NOT NULL" not in rollback_text
+    assert "ALTER COLUMN table_name SET NOT NULL" not in rollback_text
+    assert "SET table_name = COALESCE" not in rollback_text
+    assert "WHEN 'EEZ' THEN 'aoi_eez'" not in rollback_text
+    assert (
+        "ALTER TABLE public.aoi\n    DROP COLUMN IF EXISTS geometry"
+        not in rollback_text
+    )
+
+    datetime_table_config = tipg_text.split("for datetime_table in [", 1)[1].split(
+        "]", 1
+    )[0]
+    assert '"aoi_type_public",' in datetime_table_config
+    assert '"aoi_type",' not in datetime_table_config
+    assert '"public.aoi_type"' in tipg_text
 
 
 @pytest.mark.asyncio

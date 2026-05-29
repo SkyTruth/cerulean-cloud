@@ -6,12 +6,26 @@ DELETE FROM public.slick_to_aoi sta
 USING public.aoi a
 JOIN public.aoi_type aoi_t ON aoi_t.id = a.type
 WHERE sta.aoi = a.id
+  AND aoi_t.short_name = 'S1';
+
+DELETE FROM public.slick_to_aoi sta
+USING public.aoi a
+JOIN public.aoi_type aoi_t ON aoi_t.id = a.type
+WHERE sta.aoi = a.id
   AND aoi_t.short_name = 'CORAL';
 
 DELETE FROM public.aoi a
 USING public.aoi_type aoi_t
 WHERE a.type = aoi_t.id
+  AND aoi_t.short_name = 'S1';
+
+DELETE FROM public.aoi a
+USING public.aoi_type aoi_t
+WHERE a.type = aoi_t.id
   AND aoi_t.short_name = 'CORAL';
+
+DELETE FROM public.aoi_type
+WHERE short_name = 'S1';
 
 DELETE FROM public.aoi_type
 WHERE short_name = 'CORAL';
@@ -109,6 +123,9 @@ DROP TABLE IF EXISTS public.aoi_access_type;
 
 ALTER TABLE public.aoi_type
     DROP CONSTRAINT IF EXISTS uq_aoi_type_short_name;
+
+ALTER TABLE public.aoi_type
+    DROP CONSTRAINT IF EXISTS ck_aoi_type_short_name_no_underscore;
 
 ALTER TABLE public.aoi_type
     ALTER COLUMN short_name DROP NOT NULL;
