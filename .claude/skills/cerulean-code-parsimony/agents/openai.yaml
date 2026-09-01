@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cerulean Code Parsimony"
+  short_description: "Keep Cerulean refactors lean"
+  default_prompt: "Use $cerulean-code-parsimony to simplify this Cerulean backend refactor without adding speculative abstractions."

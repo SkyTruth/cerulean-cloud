@@ -1,0 +1,466 @@
+ALTER TABLE public.aoi
+    ADD COLUMN ext_id text;
+
+ALTER TABLE public.aoi
+    ALTER COLUMN geometry DROP NOT NULL;
+
+UPDATE public.aoi a
+SET ext_id = eez.mrgid::text
+FROM public.aoi_eez eez
+WHERE eez.aoi_id = a.id;
+
+UPDATE public.aoi a
+SET ext_id = iho.mrgid::text
+FROM public.aoi_iho iho
+WHERE iho.aoi_id = a.id;
+
+UPDATE public.aoi a
+SET ext_id = mpa.wdpaid::text
+FROM public.aoi_mpa mpa
+WHERE mpa.aoi_id = a.id;
+
+CREATE INDEX idx_aoi_type_ext_id
+    ON public.aoi (type, ext_id);
+
+ALTER TABLE public.aoi_type
+    ALTER COLUMN short_name SET NOT NULL;
+
+ALTER TABLE public.aoi_type
+    ADD CONSTRAINT ck_aoi_type_short_name_no_underscore
+    CHECK (position('_' in short_name) = 0);
+
+ALTER TABLE public.aoi_type
+    ALTER COLUMN table_name DROP NOT NULL;
+
+ALTER TABLE public.aoi_type
+    ADD CONSTRAINT uq_aoi_type_short_name UNIQUE (short_name);
+
+CREATE TABLE public.aoi_access_type (
+    id integer PRIMARY KEY,
+    short_name text NOT NULL UNIQUE,
+    prop_keys text[] NOT NULL
+);
+
+INSERT INTO public.aoi_access_type (id, short_name, prop_keys)
+VALUES
+    (1, 'SHARED_DATASET', ARRAY['asset_slug', 'ext_id_field', 'display_name_field', 'slick_to_aoi_buffer_m']),
+    (2, 'DB_LOCAL', ARRAY['table_name', 'geog_col', 'ext_id_col', 'display_name_field', 'slick_to_aoi_buffer_m']),
+    (3, 'DB_REMOTE', ARRAY['db_conn_secret_name', 'table_name', 'geog_col', 'ext_id_col', 'display_name_field', 'slick_to_aoi_buffer_m']);
+
+ALTER TABLE public.aoi_type
+    ADD COLUMN filter_toggle boolean,
+    ADD COLUMN slick_to_aoi_enabled boolean NOT NULL DEFAULT TRUE,
+    ADD COLUMN owner bigint REFERENCES public.users(id),
+    ADD COLUMN read_perm bigint REFERENCES public.permission(id),
+    ADD COLUMN access_type text REFERENCES public.aoi_access_type(short_name),
+    ADD COLUMN properties jsonb;
+
+ALTER TABLE public.aoi_type
+    ADD CONSTRAINT ck_aoi_type_access_properties CHECK (
+        access_type IS NULL
+        OR (
+            properties IS NOT NULL
+            AND jsonb_typeof(properties) = 'object'
+            AND CASE
+                WHEN NOT (properties ? 'slick_to_aoi_buffer_m') THEN TRUE
+                WHEN jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'null' THEN TRUE
+                WHEN jsonb_typeof(properties->'slick_to_aoi_buffer_m') = 'number' THEN TRUE
+                ELSE FALSE
+            END
+            AND (
+                (
+                    access_type = 'SHARED_DATASET'
+                    AND NULLIF(properties->>'asset_slug', '') IS NOT NULL
+                    AND NULLIF(properties->>'ext_id_field', '') IS NOT NULL
+                )
+                OR (
+                    access_type = 'DB_LOCAL'
+                    AND NULLIF(properties->>'table_name', '') IS NOT NULL
+                    AND NULLIF(properties->>'geog_col', '') IS NOT NULL
+                    AND NULLIF(properties->>'ext_id_col', '') IS NOT NULL
+                )
+                OR (
+                    access_type = 'DB_REMOTE'
+                    AND NULLIF(properties->>'db_conn_secret_name', '') IS NOT NULL
+                    AND NULLIF(properties->>'table_name', '') IS NOT NULL
+                    AND NULLIF(properties->>'geog_col', '') IS NOT NULL
+                    AND NULLIF(properties->>'ext_id_col', '') IS NOT NULL
+                )
+            )
+        )
+    );
+
+DO $$
+DECLARE
+    owner_id bigint;
+    read_perm_id bigint;
+    coral_aoi_type_id bigint;
+    s1_envelope_aoi_type_id bigint;
+BEGIN
+    SELECT id INTO owner_id
+    FROM public.users
+    WHERE email = 'dummy@dummy.dummy'
+    ORDER BY id
+    LIMIT 1;
+
+    IF owner_id IS NULL THEN
+        RAISE NOTICE 'No bootstrap user dummy@dummy.dummy found; leaving aoi_type.owner NULL.';
+    END IF;
+
+    SELECT id INTO read_perm_id
+    FROM public.permission
+    WHERE short_name = 'any'
+    ORDER BY id
+    LIMIT 1;
+
+    IF read_perm_id IS NULL THEN
+        RAISE EXCEPTION 'Expected seeded permission short_name=any before AOI access migration.';
+    END IF;
+
+    UPDATE public.aoi_type
+    SET
+        filter_toggle = TRUE,
+        owner = owner_id,
+        read_perm = read_perm_id,
+        access_type = 'SHARED_DATASET',
+        properties = '{"asset_slug":"marine-regions-eez","ext_id_field":"MRGID","display_name_field":"GEONAME"}'::jsonb
+    WHERE short_name = 'EEZ';
+
+    UPDATE public.aoi_type
+    SET
+        filter_toggle = FALSE,
+        owner = owner_id,
+        read_perm = read_perm_id,
+        access_type = 'SHARED_DATASET',
+        properties = '{"asset_slug":"iho-world-seas","ext_id_field":"MRGID","display_name_field":"NAME"}'::jsonb
+    WHERE short_name = 'IHO';
+
+    UPDATE public.aoi_type
+    SET
+        filter_toggle = TRUE,
+        owner = owner_id,
+        read_perm = read_perm_id,
+        access_type = 'SHARED_DATASET',
+        properties = '{"asset_slug":"wdpa-marine","ext_id_field":"SITE_ID","display_name_field":"NAME"}'::jsonb
+    WHERE short_name = 'MPA';
+
+    UPDATE public.aoi_type
+    SET
+        filter_toggle = FALSE,
+        owner = owner_id,
+        read_perm = read_perm_id,
+        access_type = 'DB_LOCAL',
+        properties = '{"table_name":"aoi_user","geog_col":"geometry","ext_id_col":"aoi_id"}'::jsonb
+    WHERE short_name = 'USER';
+
+    INSERT INTO public.aoi_type (
+        short_name,
+        long_name,
+        source_url,
+        citation,
+        filter_toggle,
+        slick_to_aoi_enabled,
+        owner,
+        read_perm,
+        access_type,
+        properties
+    )
+    VALUES (
+        'CORAL',
+        'Global Coral Reefs',
+        NULL,
+        NULL,
+        TRUE,
+        TRUE,
+        owner_id,
+        read_perm_id,
+        'SHARED_DATASET',
+        '{"asset_slug":"global-coral-reefs","ext_id_field":"METADATA_I","display_name_field":"NAME","slick_to_aoi_buffer_m":10000}'::jsonb
+    )
+    ON CONFLICT (short_name) DO UPDATE
+    SET
+        long_name = EXCLUDED.long_name,
+        source_url = NULL,
+        citation = NULL,
+        filter_toggle = EXCLUDED.filter_toggle,
+        slick_to_aoi_enabled = EXCLUDED.slick_to_aoi_enabled,
+        owner = EXCLUDED.owner,
+        read_perm = EXCLUDED.read_perm,
+        access_type = EXCLUDED.access_type,
+        properties = EXCLUDED.properties
+    RETURNING id INTO coral_aoi_type_id;
+
+    INSERT INTO public.aoi_type_i18n (
+        aoi_type_id,
+        locale,
+        long_name,
+        citation,
+        status,
+        quality,
+        source_checksum
+    )
+    VALUES
+        (coral_aoi_type_id, 'es', 'Arrecifes de coral globales', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'fr', 'Récifs coralliens mondiaux', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'pt', 'Recifes de coral globais', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'pt-br', 'Recifes de coral globais', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'id', 'Terumbu karang global', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0'),
+        (coral_aoi_type_id, 'sw', 'Miamba ya matumbawe duniani', NULL, 'published', 'human', '177d90f8f3d9ebb5efd9367b59cea8c0')
+    ON CONFLICT (aoi_type_id, locale) DO UPDATE
+    SET
+        long_name = EXCLUDED.long_name,
+        citation = EXCLUDED.citation,
+        status = EXCLUDED.status,
+        quality = EXCLUDED.quality,
+        source_checksum = EXCLUDED.source_checksum,
+        updated_at = now();
+
+    INSERT INTO public.aoi_type (
+        short_name,
+        long_name,
+        source_url,
+        citation,
+        filter_toggle,
+        slick_to_aoi_enabled,
+        owner,
+        read_perm,
+        access_type,
+        properties
+    )
+    VALUES (
+        'S1',
+        'Processed Sentinel-1 Envelope',
+        NULL,
+        NULL,
+        FALSE,
+        FALSE,
+        owner_id,
+        read_perm_id,
+        NULL,
+        '{"asset_slug":"cerulean-s1-envelope","dataset_version":"cerulean-s1-envelope@2026-05-01","slick_to_aoi_buffer_m":0}'::jsonb
+    )
+    ON CONFLICT (short_name) DO UPDATE
+    SET
+        long_name = EXCLUDED.long_name,
+        source_url = EXCLUDED.source_url,
+        citation = EXCLUDED.citation,
+        filter_toggle = EXCLUDED.filter_toggle,
+        slick_to_aoi_enabled = EXCLUDED.slick_to_aoi_enabled,
+        owner = EXCLUDED.owner,
+        read_perm = EXCLUDED.read_perm,
+        access_type = EXCLUDED.access_type,
+        properties = EXCLUDED.properties
+    RETURNING id INTO s1_envelope_aoi_type_id;
+
+    INSERT INTO public.aoi_type_i18n (
+        aoi_type_id,
+        locale,
+        long_name,
+        citation,
+        status,
+        quality,
+        source_checksum
+    )
+    VALUES
+        (s1_envelope_aoi_type_id, 'es', 'Envolvente Sentinel-1 procesada', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'fr', 'Enveloppe Sentinel-1 traitée', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'pt', 'Envelope Sentinel-1 processado', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'pt-br', 'Envelope Sentinel-1 processado', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'id', 'Envelope Sentinel-1 yang Diproses', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48'),
+        (s1_envelope_aoi_type_id, 'sw', 'Eneo funikizi la Sentinel-1 lililochakatwa', NULL, 'published', 'human', '5947b3f6ab7ea17f8a07219bb7b8df48')
+    ON CONFLICT (aoi_type_id, locale) DO UPDATE
+    SET
+        long_name = EXCLUDED.long_name,
+        citation = EXCLUDED.citation,
+        status = EXCLUDED.status,
+        quality = EXCLUDED.quality,
+        source_checksum = EXCLUDED.source_checksum,
+        updated_at = now();
+END $$;
+
+CREATE OR REPLACE VIEW public.aoi_type_public AS
+SELECT
+    aoi_type.short_name,
+    aoi_type.long_name,
+    aoi_type.source_url,
+    aoi_type.citation,
+    aoi_type.update_time,
+    aoi_type.properties->>'dataset_version' AS dataset_version,
+    aoi_type.properties->>'display_name_field' AS display_name_field,
+    COALESCE((aoi_type.properties->>'slick_to_aoi_buffer_m')::double precision, 0.0)
+        AS slick_to_aoi_buffer_m
+FROM public.aoi_type AS aoi_type
+JOIN public.permission AS read_permission
+  ON read_permission.id = aoi_type.read_perm
+WHERE aoi_type.short_name <> 'USER'
+  AND read_permission.short_name = 'any';
+
+ALTER TABLE public.aoi_user
+    ADD COLUMN geometry geography;
+
+CREATE INDEX idx_aoi_user_geometry
+    ON public.aoi_user
+    USING gist (geometry);
+
+CREATE OR REPLACE FUNCTION public.slick_before_trigger_func()
+RETURNS trigger
+AS $$
+DECLARE
+    timer timestamptz := clock_timestamp();
+    _geog geography := NEW.geometry;
+    _geom geometry;
+    oriented_envelope geometry;
+    oe_ring geometry;
+    rec record;
+BEGIN
+    RAISE NOTICE '---------------------------------------------------------';
+    RAISE NOTICE 'In slick_before_trigger_func. %', (clock_timestamp() - timer)::interval;
+    _geom := _geog::geometry;
+    oriented_envelope := st_orientedenvelope(_geom);
+    oe_ring := st_exteriorring(oriented_envelope);
+    NEW.geometry_count := st_numgeometries(_geom);
+    NEW.largest_area := (
+        SELECT MAX(st_area((poly.geom)::geography))
+        FROM st_dump(_geom) AS poly
+    );
+    NEW.median_area := (
+        SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY st_area((poly.geom)::geography))
+        FROM st_dump(_geom) AS poly
+    );
+    NEW.area := st_area(_geog);
+    NEW.centroid := st_centroid(_geog);
+    NEW.perimeter = st_perimeter(_geog);
+    NEW.polsby_popper := 4.0 * pi() * NEW.area / (NEW.perimeter ^ 2.0);
+    NEW.fill_factor := NEW.area / st_area(oriented_envelope::geography);
+    NEW.length := GREATEST(
+        st_distance(
+            st_pointn(oe_ring,1)::geography,
+            st_pointn(oe_ring,2)::geography
+        ),
+        st_distance(
+            st_pointn(oe_ring,2)::geography,
+            st_pointn(oe_ring,3)::geography
+        )
+    );
+    RAISE NOTICE 'Calculated all generated fields. %', (clock_timestamp() - timer)::interval;
+    NEW.cls := COALESCE(
+        NEW.cls,
+        (
+            SELECT cls.id
+            FROM cls
+            JOIN orchestrator_run ON NEW.orchestrator_run = orchestrator_run.id
+            JOIN LATERAL json_each_text((SELECT cls_map FROM model WHERE id = orchestrator_run.model))
+                m(key, value)
+                ON key::integer = NEW.inference_idx
+            WHERE cls.short_name = CASE
+                WHEN value = 'BACKGROUND' THEN 'NOT_OIL'
+                ELSE value
+            END
+            LIMIT 1
+        )
+    );
+    RAISE NOTICE 'Calculated NEW.cls. %', (clock_timestamp() - timer)::interval;
+
+    RAISE NOTICE 'Skipped automatic slick_to_aoi insert on this branch. %', (clock_timestamp() - timer)::interval;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE PLPGSQL;
+
+ALTER TABLE public.orchestrator_run
+    ADD COLUMN dataset_versions jsonb;
+
+UPDATE public.orchestrator_run
+SET dataset_versions = jsonb_build_object('sea_ice_date', sea_ice_date);
+
+CREATE OR REPLACE VIEW public.slick_plus_2 AS
+WITH not_oil_clses AS (
+    SELECT id
+    FROM public.get_slick_subclses(1)
+),
+base AS (
+    SELECT
+        id,
+        slick_timestamp,
+        geometry::geometry,
+        machine_confidence,
+        geometric_slick_potential AS slick_confidence,
+        length,
+        area,
+        perimeter,
+        centroid,
+        polsby_popper,
+        fill_factor,
+        centerlines,
+        aspect_ratio_factor,
+        cls,
+        orchestrator_run,
+        length^2 / area / polsby_popper AS linearity
+    FROM public.slick
+    WHERE active
+      AND cls NOT IN (SELECT id FROM not_oil_clses)
+)
+SELECT
+    base.*,
+    sentinel1_grd.scene_id AS s1_scene_id,
+    sentinel1_grd.geometry AS s1_geometry,
+    hs.cls AS hitl_cls,
+    cls.long_name AS hitl_cls_name,
+    aois.aoi_type_1_ids,
+    aois.aoi_type_2_ids,
+    aois.aoi_type_3_ids,
+    srcs.source_type_1_ids,
+    srcs.source_type_2_ids,
+    srcs.source_type_3_ids,
+    srcs.max_source_collated_score,
+    'https://cerulean.skytruth.org/slicks/' || base.id || '?ref=api&slick_id=' || base.id
+        AS slick_url,
+    aois.aoi_ids
+FROM base
+JOIN public.orchestrator_run ON orchestrator_run.id = base.orchestrator_run
+JOIN public.sentinel1_grd ON sentinel1_grd.id = orchestrator_run.sentinel1_grd
+LEFT JOIN LATERAL (
+    SELECT hs.cls
+    FROM public.hitl_slick hs
+    WHERE hs.slick = base.id
+    ORDER BY hs.update_time DESC
+    LIMIT 1
+) AS hs ON TRUE
+LEFT JOIN public.cls ON cls.id = hs.cls
+LEFT JOIN LATERAL (
+    SELECT
+        array_agg(aoi.id) FILTER (WHERE aoi_type_for_ids.short_name = 'EEZ') AS aoi_type_1_ids,
+        array_agg(aoi.id) FILTER (WHERE aoi_type_for_ids.short_name = 'IHO') AS aoi_type_2_ids,
+        array_agg(aoi.id) FILTER (WHERE aoi_type_for_ids.short_name = 'MPA') AS aoi_type_3_ids,
+        (
+            SELECT COALESCE(json_object_agg(aoi_ids.short_name, aoi_ids.ext_ids), '{}'::json)
+            FROM (
+                SELECT
+                    aoi_type.short_name,
+                    json_agg(aoi_by_type.ext_id ORDER BY aoi_by_type.ext_id) AS ext_ids
+                FROM public.slick_to_aoi sta_by_type
+                JOIN public.aoi aoi_by_type ON aoi_by_type.id = sta_by_type.aoi
+                JOIN public.aoi_type ON aoi_type.id = aoi_by_type.type
+                WHERE sta_by_type.slick = base.id
+                  AND aoi_by_type.ext_id IS NOT NULL
+                GROUP BY aoi_type.short_name
+            ) AS aoi_ids
+        ) AS aoi_ids
+    FROM public.slick_to_aoi sta
+    JOIN public.aoi ON aoi.id = sta.aoi
+    JOIN public.aoi_type AS aoi_type_for_ids ON aoi_type_for_ids.id = aoi.type
+    WHERE sta.slick = base.id
+) AS aois ON TRUE
+LEFT JOIN LATERAL (
+    SELECT
+        array_agg(src.ext_id) FILTER (WHERE source_type.short_name = 'VESSEL') AS source_type_1_ids,
+        array_agg(src.ext_id) FILTER (WHERE source_type.short_name = 'INFRA') AS source_type_2_ids,
+        array_agg(src.ext_id) FILTER (WHERE source_type.short_name = 'DARK') AS source_type_3_ids,
+        MAX(sts.collated_score) AS max_source_collated_score
+    FROM public.slick_to_source sts
+    JOIN public.source src ON src.id = sts.source
+    JOIN public.source_type ON source_type.id = src.type
+    WHERE sts.slick = base.id
+      AND sts.active = TRUE
+) AS srcs ON TRUE
+WHERE hs.cls IS NULL OR hs.cls NOT IN (SELECT id FROM not_oil_clses);

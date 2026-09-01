@@ -27,6 +27,7 @@ import geopandas as gpd
 import httpx
 import morecantile
 import numpy as np
+import pandas as pd
 import supermercado
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +37,10 @@ from shapely.geometry import shape
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
+from cerulean_cloud.cloud_run_orchestrator.aoi_join import (
+    AOIJoiner,
+    build_aoi_accessor,
+)
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
@@ -408,6 +413,8 @@ async def _orchestrate(
     # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
     logger.info("Getting scene bounds")
     scene_bounds = await titiler_client.get_bounds(payload.scene_id)
+    # Antimeridian scenes can produce a world-spanning bbox here. AOI matching
+    # should eventually use exact scene footprint or split wrapped bounds.
 
     logger.info("Getting scene statistics")
     scene_stats = await titiler_client.get_statistics(payload.scene_id, band="vv")
@@ -526,6 +533,10 @@ async def _orchestrate(
                 db_model,
                 sentinel1_grd,
             )
+            aoi_accessors = [
+                build_aoi_accessor(row, local_engine=db_engine)
+                for row in await db_client.get_slick_to_aoi_accessor_configs()
+            ]
 
         success = True
         sea_ice_date = None
@@ -578,6 +589,32 @@ async def _orchestrate(
             n_features = len(features)
 
             if features:
+                aoi_matches_by_feature = [{} for _ in features]
+                if aoi_accessors:
+                    logger.info(
+                        {
+                            "message": "Loading scene AOI candidates",
+                            "n_aoi_types": len(aoi_accessors),
+                            "aoi_types": [
+                                accessor.short_name for accessor in aoi_accessors
+                            ],
+                        }
+                    )
+                    slicks_gdf = gpd.GeoDataFrame(
+                        geometry=[shape(feat["geometry"]) for feat in features],
+                        crs="4326",
+                    )
+                    aoi_joiner = AOIJoiner(accessors=aoi_accessors)
+                    # AOI bounds are a temporary bbox approximation. Temporal
+                    # and antimeridian-aware accessors should use richer scene
+                    # footprint input when the upstream scene geometry path
+                    # supports it.
+                    aoi_matches_by_feature = await aoi_joiner.compute_aoi_matches(
+                        slicks_gdf,
+                        scene_bounds=tuple(scene_bounds),
+                        scene_time=sentinel1_grd.start_time,
+                    )
+
                 reclass_counts = Counter()
 
                 LAND_MASK_BUFFER_M = 1000
@@ -644,13 +681,17 @@ async def _orchestrate(
                         "n_slicks": n_features - n_not_oil_slicks,
                     }
                 )
-                del features
                 # Removed all preprocessing of features from within the
                 # database session to avoid holidng locks on the
                 # table while performing un-related calculations.
                 async with db_client.session.begin():
-                    for feat in final_ensemble.get("features"):
-                        _ = await db_client.add_slick(
+                    slick_aoi_rows = []
+                    for feat, aoi_matches in zip(
+                        features,
+                        aoi_matches_by_feature,
+                        strict=True,
+                    ):
+                        slick = await db_client.add_slick(
                             orchestrator_run,
                             sentinel1_grd.start_time,
                             feat.get("geometry"),
@@ -660,7 +701,34 @@ async def _orchestrate(
                             feat.get("properties").get("aspect_ratio_factor"),
                             cls_id=feat.get("properties").get("cls_id_override"),
                         )
+                        slick_aoi_rows.append(
+                            {
+                                "slick": slick,
+                                "aoi_matches": aoi_matches,
+                            }
+                        )
                         logger.info("Added slick")
+
+                    await db_client.session.flush()
+                    n_slick_to_aoi_rows = (
+                        await db_client.insert_slick_to_aoi_from_dataframe(
+                            pd.DataFrame(
+                                [
+                                    {
+                                        "slick_id": row["slick"].id,
+                                        "aoi_matches": row["aoi_matches"],
+                                    }
+                                    for row in slick_aoi_rows
+                                ]
+                            )
+                        )
+                    )
+                    logger.info(
+                        {
+                            "message": "Inserted slick_to_aoi rows",
+                            "n_slick_to_aoi_rows": n_slick_to_aoi_rows,
+                        }
+                    )
 
                 logger.info("Queueing up Automatic Source Association")
                 add_to_asa_queue(
@@ -681,7 +749,13 @@ async def _orchestrate(
                 }
             )
         async with db_client.session.begin():
-            orchestrator_run.sea_ice_date = sea_ice_date
+            orchestrator_run.dataset_versions = {
+                "sea_ice_date": sea_ice_date.isoformat() if sea_ice_date else None,
+                "aoi": {
+                    accessor.short_name: accessor.dataset_version
+                    for accessor in aoi_accessors
+                },
+            }
             end_time = datetime.now()
             orchestrator_run.success = success
             orchestrator_run.inference_end_time = end_time

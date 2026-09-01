@@ -176,3 +176,5 @@ local data/*
 
 *.pt 
 *.pth
+# repo-local conda test env (see .claude/skills/cerulean-cloud-test-env)
+.conda/

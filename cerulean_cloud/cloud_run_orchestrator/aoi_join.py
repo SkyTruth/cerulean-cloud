@@ -1,0 +1,473 @@
+"""Utilities for orchestrator-side AOI joins."""
+
+import hashlib
+import os
+import re
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+)
+
+import geopandas as gpd
+import sqlalchemy as sa
+from shapely import wkb
+from shapely.geometry import box
+from skytruth_shared_datasets import fetch_dataset
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+
+IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+SHARED_DATASET_FORMAT = "fgb"
+SLICK_TO_AOI_BUFFER_M_KEY = "slick_to_aoi_buffer_m"
+
+
+SecretResolver = Callable[[str], str]
+
+
+def stringify_ext_id(value: Any) -> str:
+    """Return stable text for AOI IDs without turning integer IDs into decimals."""
+    if isinstance(value, str):
+        return value
+    if hasattr(value, "item"):
+        value = value.item()
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def empty_candidate_gdf() -> gpd.GeoDataFrame:
+    """Return an empty normalized AOI candidate GeoDataFrame."""
+    return gpd.GeoDataFrame(
+        {"ext_id": [], "name": [], "geometry": []},
+        geometry="geometry",
+        crs="EPSG:4326",
+    )
+
+
+def quote_identifier(identifier: str) -> str:
+    """Quote a single SQL identifier after validating a conservative pattern."""
+    if not IDENTIFIER_RE.fullmatch(identifier):
+        raise ValueError(f"Unsafe SQL identifier in AOI config: {identifier!r}")
+    return f'"{identifier}"'
+
+
+def quote_table_name(table_name: str) -> str:
+    """Quote a possibly schema-qualified table name."""
+    return ".".join(quote_identifier(part) for part in table_name.split("."))
+
+
+def buffer_scene_bounds(
+    scene_bounds: Sequence[float],
+    buffer_m: float,
+) -> tuple[float, float, float, float]:
+    bounds = tuple(float(value) for value in scene_bounds)
+    if buffer_m <= 0:
+        return bounds
+
+    scene_gdf = gpd.GeoDataFrame(geometry=[box(*bounds)], crs="EPSG:4326")
+    crs_meters = scene_gdf.estimate_utm_crs(datum_name="WGS 84")
+    buffered_bounds = (
+        scene_gdf.to_crs(crs_meters).buffer(buffer_m).to_crs("EPSG:4326").total_bounds
+    )
+    return tuple(float(value) for value in buffered_bounds)
+
+
+def resolve_secret_manager_value(secret_name: str) -> str:
+    """Resolve a Secret Manager secret name into its latest string payload."""
+    from google.cloud import secretmanager
+
+    name = secret_name
+    if not name.startswith("projects/"):
+        project_id = os.getenv("PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+        if not project_id:
+            raise ValueError(
+                "PROJECT_ID or GOOGLE_CLOUD_PROJECT is required for bare "
+                "db_conn_secret_name values"
+            )
+        name = f"projects/{project_id}/secrets/{name}"
+    if "/versions/" not in name:
+        name = f"{name}/versions/latest"
+
+    response = secretmanager.SecretManagerServiceClient().access_secret_version(
+        request={"name": name}
+    )
+    return response.payload.data.decode("utf-8")
+
+
+class BaseAoiAccessor:
+    """
+    Shared AOI accessor behavior.
+
+    Concrete accessors normalize candidates into EPSG:4326 GeoDataFrames with
+    `ext_id`, `name`, and `geometry`. `ext_id` and `geometry` are non-null,
+    geometry is non-empty, and `name` falls back to `ext_id`.
+    """
+
+    def __init__(self, row: Mapping[str, Any]) -> None:
+        self.short_name = row["short_name"]
+        self.properties = row.get("properties") or {}
+        self.dataset_version = self.properties.get("dataset_version")
+        self.slick_to_aoi_buffer_m = (
+            self.properties.get(SLICK_TO_AOI_BUFFER_M_KEY) or 0.0
+        )
+        self._candidate_cache_key: Optional[tuple] = None
+        self._candidate_gdf: Optional[gpd.GeoDataFrame] = None
+
+    async def load_candidates(
+        self, scene_bounds: Sequence[float], scene_time: datetime
+    ) -> gpd.GeoDataFrame:
+        raise NotImplementedError
+
+    async def candidates_for_scene(
+        self, scene_bounds: Sequence[float], scene_time: datetime
+    ) -> gpd.GeoDataFrame:
+        candidate_bounds = buffer_scene_bounds(
+            scene_bounds,
+            self.slick_to_aoi_buffer_m,
+        )
+        cache_key = (candidate_bounds, scene_time)
+        if self._candidate_cache_key == cache_key and self._candidate_gdf is not None:
+            return self._candidate_gdf
+        self._candidate_gdf = await self.load_candidates(candidate_bounds, scene_time)
+        self._candidate_cache_key = cache_key
+        return self._candidate_gdf
+
+    def _buffer_candidates_for_matching(
+        self,
+        aoi_gdf: gpd.GeoDataFrame,
+        scene_bounds: Sequence[float],
+    ) -> gpd.GeoDataFrame:
+        if self.slick_to_aoi_buffer_m == 0:
+            return aoi_gdf
+
+        scene_gdf = gpd.GeoDataFrame(
+            geometry=[box(*tuple(float(value) for value in scene_bounds))],
+            crs="EPSG:4326",
+        )
+        crs_meters = scene_gdf.estimate_utm_crs(datum_name="WGS 84")
+        buffered_geometry = aoi_gdf.to_crs(crs_meters).geometry.buffer(
+            self.slick_to_aoi_buffer_m
+        )
+        aoi_gdf = aoi_gdf.copy()
+        aoi_gdf["geometry"] = gpd.GeoSeries(
+            buffered_geometry,
+            crs=crs_meters,
+        ).to_crs("EPSG:4326")
+        return aoi_gdf[~aoi_gdf["geometry"].is_empty]
+
+    async def matches_for_scene(
+        self,
+        scene_bounds: Sequence[float],
+        scene_time: datetime,
+        slick_gdf: gpd.GeoDataFrame,
+    ) -> List[Dict[str, List[Dict[str, str]]]]:
+        if slick_gdf.empty:
+            return []
+
+        aoi_gdf = await self.candidates_for_scene(scene_bounds, scene_time)
+        results: List[Dict[str, List[Dict[str, str]]]] = [
+            {self.short_name: []} for _ in range(len(slick_gdf))
+        ]
+        if aoi_gdf.empty:
+            return results
+
+        aoi_gdf = self._buffer_candidates_for_matching(aoi_gdf, scene_bounds)
+        if aoi_gdf.empty:
+            return results
+
+        joined = gpd.sjoin(
+            slick_gdf[["geometry"]],
+            aoi_gdf[["ext_id", "name", "geometry"]],
+            how="left",
+            predicate="intersects",
+        )
+        for slick_idx, group in joined.groupby(level=0):
+            matched = group.dropna(subset=["ext_id", "index_right"])
+            if matched.empty:
+                continue
+
+            matches: List[Dict[str, str]] = []
+            for ext_id, ext_id_group in matched.groupby("ext_id", sort=True):
+                names = ext_id_group["name"].dropna().tolist()
+                matches.append(
+                    {
+                        "ext_id": str(ext_id),
+                        "name": str(names[0]) if names else str(ext_id),
+                    }
+                )
+            results[int(slick_idx)][self.short_name] = matches
+
+        return results
+
+
+class SharedDatasetAoiAccessor(BaseAoiAccessor):
+    """AOI accessor for FlatGeobuf assets resolved through shared-datasets."""
+
+    def __init__(self, row: Mapping[str, Any]) -> None:
+        super().__init__(row)
+        self.asset_slug = self.properties["asset_slug"]
+        self.version = "latest"
+        self.ext_id_field = self.properties["ext_id_field"]
+        self.display_name_field = self.properties.get("display_name_field")
+        self.dataset_version = self.properties.get("dataset_version")
+        self.cache_dir = Path(tempfile.gettempdir()) / "cerulean_aoi_cache"
+
+    def _download_aoi_dataset(self) -> str:
+        ref = fetch_dataset(
+            self.asset_slug,
+            SHARED_DATASET_FORMAT,
+            version=self.version,
+            cache_dir=self.cache_dir,
+        )
+        self.dataset_version = ref.resolved_id
+        path = ref.cache_path
+        if path.stat().st_size <= 0:
+            raise ValueError(f"Downloaded empty AOI dataset: {ref.gs_uri}")
+        return str(path)
+
+    async def load_candidates(
+        self, scene_bounds: Sequence[float], scene_time: datetime
+    ) -> gpd.GeoDataFrame:
+        # Antimeridian scenes need this bbox read split into wrapped east/west
+        # ranges, then concatenated and deduped by ext_id.
+        gdf = gpd.read_file(self._download_aoi_dataset(), bbox=tuple(scene_bounds))
+        if gdf.empty:
+            return empty_candidate_gdf()
+
+        gdf = gdf.set_crs("EPSG:4326") if gdf.crs is None else gdf.to_crs("EPSG:4326")
+        rename_map = {self.ext_id_field: "ext_id"}
+        if self.display_name_field:
+            rename_map[self.display_name_field] = "name"
+        gdf = gdf.rename(columns=rename_map)
+        has_name = "name" in gdf.columns
+        if not has_name:
+            gdf["name"] = None
+
+        gdf = gdf[["ext_id", "name", "geometry"]].copy()
+        gdf = gdf[gdf["geometry"].notna()]
+        gdf = gdf[~gdf["geometry"].is_empty]
+        gdf = gdf[gdf["ext_id"].notna()]
+        if gdf.empty:
+            return empty_candidate_gdf()
+        gdf["ext_id"] = gdf["ext_id"].map(stringify_ext_id)
+        gdf["name"] = gdf["name"].fillna(gdf["ext_id"]) if has_name else gdf["ext_id"]
+        return gdf
+
+
+class DbBaseAoiAccessor(BaseAoiAccessor):
+    """Base AOI accessor for PostGIS-backed AOI sources."""
+
+    def __init__(self, row: Mapping[str, Any]) -> None:
+        super().__init__(row)
+        self.table_name = self.properties["table_name"]
+        self.geog_col = self.properties["geog_col"]
+        self.ext_id_col = self.properties["ext_id_col"]
+        self.display_name_field = self.properties.get("display_name_field")
+
+    @staticmethod
+    def _loads_ewkb(value):
+        if value is None:
+            return None
+        if isinstance(value, memoryview):
+            value = value.tobytes()
+        if isinstance(value, str):
+            return wkb.loads(value, hex=True)
+        return wkb.loads(bytes(value))
+
+    def _candidate_sql(self) -> str:
+        table_name = quote_table_name(self.table_name)
+        geog_col = quote_identifier(self.geog_col)
+        ext_id_col = quote_identifier(self.ext_id_col)
+        name_expr = (
+            f"{quote_identifier(self.display_name_field)}::text"
+            if self.display_name_field
+            else f"{ext_id_col}::text"
+        )
+        return f"""
+            WITH candidates AS (
+                SELECT
+                    {ext_id_col}::text AS ext_id,
+                    {name_expr} AS name,
+                    {geog_col}::geometry AS geom
+                FROM {table_name}
+                WHERE {ext_id_col} IS NOT NULL
+            ),
+            normalized AS (
+                SELECT
+                    ext_id,
+                    COALESCE(name, ext_id) AS name,
+                    CASE
+                        WHEN ST_SRID(geom) = 0 THEN ST_SetSRID(geom, 4326)
+                        WHEN ST_SRID(geom) = 4326 THEN geom
+                        ELSE ST_Transform(geom, 4326)
+                    END AS geom
+                FROM candidates
+                WHERE geom IS NOT NULL
+                  AND NOT ST_IsEmpty(geom)
+            )
+            SELECT
+                ext_id,
+                name,
+                ST_AsEWKB(geom) AS geometry
+            FROM normalized
+            WHERE ST_Intersects(
+                geom,
+                -- Antimeridian scenes cannot be represented by one envelope;
+                -- query split envelopes or exact scene geometry when supported.
+                ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)
+            )
+        """
+
+    async def _load_candidates_from_engine(
+        self, engine: AsyncEngine, scene_bounds: Sequence[float]
+    ) -> gpd.GeoDataFrame:
+        minx, miny, maxx, maxy = scene_bounds
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                sa.text(self._candidate_sql()),
+                {"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy},
+            )
+            rows = result.mappings().all()
+
+        if not rows:
+            return empty_candidate_gdf()
+
+        records = [
+            {
+                "ext_id": stringify_ext_id(row["ext_id"]),
+                "name": row["name"] or stringify_ext_id(row["ext_id"]),
+                "geometry": self._loads_ewkb(row["geometry"]),
+            }
+            for row in rows
+        ]
+        return gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326")
+
+
+class DbLocalAoiAccessor(DbBaseAoiAccessor):
+    """AOI accessor for local PostGIS tables or views."""
+
+    def __init__(self, row: Mapping[str, Any], local_engine: AsyncEngine) -> None:
+        super().__init__(row)
+        self.local_engine = local_engine
+
+    async def load_candidates(
+        self, scene_bounds: Sequence[float], scene_time: datetime
+    ) -> gpd.GeoDataFrame:
+        return await self._load_candidates_from_engine(self.local_engine, scene_bounds)
+
+
+class DbRemoteAoiAccessor(DbBaseAoiAccessor):
+    """AOI accessor for remote PostGIS tables or views."""
+
+    _engine_cache: Dict[str, AsyncEngine] = {}
+
+    def __init__(
+        self,
+        row: Mapping[str, Any],
+        secret_resolver: Optional[SecretResolver] = None,
+    ) -> None:
+        super().__init__(row)
+        if "db_conn_str" in self.properties:
+            raise ValueError(
+                "DB_REMOTE AOI config must use db_conn_secret_name, not db_conn_str"
+            )
+        self.db_conn_secret_name = self.properties["db_conn_secret_name"]
+        self.secret_resolver = secret_resolver or resolve_secret_manager_value
+        self._db_conn_str: Optional[str] = None
+
+    def _resolved_db_conn_str(self) -> str:
+        if self._db_conn_str is None:
+            self._db_conn_str = self.secret_resolver(self.db_conn_secret_name)
+        return self._db_conn_str
+
+    def _engine(self) -> AsyncEngine:
+        db_conn_str = self._resolved_db_conn_str()
+        db_url = db_conn_str
+        if db_url.startswith("postgresql://"):
+            db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif db_url.startswith("postgresql+psycopg2://"):
+            db_url = db_url.replace(
+                "postgresql+psycopg2://", "postgresql+asyncpg://", 1
+            )
+        cache_key = hashlib.sha256(db_conn_str.encode("utf-8")).hexdigest()
+        if cache_key not in self._engine_cache:
+            self._engine_cache[cache_key] = create_async_engine(
+                db_url,
+                echo=False,
+                connect_args={"command_timeout": 60},
+                pool_size=1,
+                max_overflow=0,
+                pool_timeout=300,
+                pool_recycle=600,
+            )
+        return self._engine_cache[cache_key]
+
+    async def load_candidates(
+        self, scene_bounds: Sequence[float], scene_time: datetime
+    ) -> gpd.GeoDataFrame:
+        return await self._load_candidates_from_engine(self._engine(), scene_bounds)
+
+
+def build_aoi_accessor(
+    row: Mapping[str, Any],
+    *,
+    local_engine: Optional[AsyncEngine] = None,
+    secret_resolver: Optional[SecretResolver] = None,
+) -> BaseAoiAccessor:
+    """Build an AOI accessor from an `aoi_type` access row."""
+    access_type = row["access_type"]
+    if access_type == "SHARED_DATASET":
+        return SharedDatasetAoiAccessor(row)
+    if access_type == "DB_LOCAL":
+        return DbLocalAoiAccessor(row, local_engine)
+    if access_type == "DB_REMOTE":
+        return DbRemoteAoiAccessor(row, secret_resolver=secret_resolver)
+    raise NotImplementedError(
+        f"Unsupported AOI access_type={access_type!r} "
+        f"for AOI type {row['short_name']!r}"
+    )
+
+
+class AOIJoiner:
+    """Coordinate AOI accessors and merge their per-slick match payloads."""
+
+    def __init__(self, accessors: Iterable[BaseAoiAccessor]) -> None:
+        self.accessors = tuple(accessors)
+
+    async def compute_aoi_matches(
+        self,
+        slick_gdf: gpd.GeoDataFrame,
+        *,
+        scene_bounds: Sequence[float],
+        scene_time: datetime,
+    ) -> List[Dict[str, List[Dict[str, str]]]]:
+        """
+        Return compact AOI matches for each slick across all accessors.
+
+        Caller provides EPSG:4326 slick geometries with a dense default index.
+        """
+        if slick_gdf.empty:
+            return []
+
+        results: List[Dict[str, List[Dict[str, str]]]] = [
+            {accessor.short_name: [] for accessor in self.accessors}
+            for _ in range(len(slick_gdf))
+        ]
+        for accessor in self.accessors:
+            accessor_results = await accessor.matches_for_scene(
+                scene_bounds, scene_time, slick_gdf
+            )
+            for idx, accessor_result in enumerate(accessor_results):
+                results[idx].update(accessor_result)
+        return results
