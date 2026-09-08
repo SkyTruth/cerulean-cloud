@@ -8,7 +8,7 @@ from utils import construct_name
 instance = gcp.sql.DatabaseInstance(
     construct_name("database-instance"),
     region=pulumi.Config("gcp").require("region"),
-    database_version="POSTGRES_14",
+    database_version="POSTGRES_17",
     settings=gcp.sql.DatabaseInstanceSettingsArgs(
         tier=pulumi.Config("db").require("db-instance"),
         backup_configuration=dict(enabled=True),
