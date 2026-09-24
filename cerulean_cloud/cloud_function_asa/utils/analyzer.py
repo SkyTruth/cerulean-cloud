@@ -239,11 +239,11 @@ class AISAnalyzer(SourceAnalyzer):
                 ves.ais_identity.shipname_mostcommon.value as shipname,
                 ves.ais_identity.shiptype[SAFE_OFFSET(0)].value as shiptype,
                 ves.best.best_flag as flag,
-                ves.best.best_vessel_class as best_shiptype
+                ves.random_forest_info.best_vessel_class as best_shiptype
             FROM
                 `global-fishing-watch.pipe_ais_v5_published.messages` as seg
             LEFT JOIN
-                `global-fishing-watch.pipe_ais_v5_published.vi_ssvid` as ves
+                `global-fishing-watch.pipe_ais_identity_v5_partners_published.vi_ssvid` as ves
                 ON seg.ssvid = ves.ssvid
             WHERE TRUE
                 -- AND clean_segs IS TRUE
