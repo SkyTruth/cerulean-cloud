@@ -158,7 +158,12 @@ postgres_settings = PostgresSettings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await _initialize_db(app)
+    await connect_to_db(
+        app,
+        settings=postgres_settings,
+        schemas=db_settings.schemas,
+    )
+    await register_collection_catalog(app, db_settings=db_settings)
 
     yield
     # shutdown
@@ -212,26 +217,6 @@ app.add_middleware(
     db_settings=db_settings,  # passed as **kwargs
 )
 add_exception_handlers(app, DEFAULT_STATUS_CODES)
-
-
-@app.get("/register", include_in_schema=False)
-async def register_table(request: Request):
-    """Manually register tables"""
-    await _initialize_db(request.app)
-    return {
-        "status": "ok",
-        "registered": list(request.app.state.collection_catalog.keys()),
-    }
-
-
-async def _initialize_db(app: FastAPI):
-    """Common DB setup: connect and register catalog."""
-    await connect_to_db(
-        app,
-        settings=postgres_settings,
-        schemas=db_settings.schemas,
-    )
-    await register_collection_catalog(app, db_settings=db_settings)
 
 
 @app.get("/health", description="Health Check", tags=["Health Check"])

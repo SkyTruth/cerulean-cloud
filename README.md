@@ -35,7 +35,7 @@ For each of these deployments there exists a configuration directory that includ
 
 __Initial deployment__
 
-If you are deploying a completely new stack, make sure to create matching configuration files in `cerulean-cloud-images` and `cerulean-cloud`, with matching stack names. In addition, specifically for the tipg deployment, since the database is empty when a stack is deployed for the first time (alembic migrations occur after the initial migration), if you want to access `tipg` after this initial deployment make sure to poll the `/register` endpoint of the resulting URL in order to correctly load the tables (i.e. `curl https://some-tipg-url.app/register`). For any deployments after the first one, this is not required.
+If you are deploying a completely new stack, make sure to create matching configuration files in `cerulean-cloud-images` and `cerulean-cloud`, with matching stack names. The TiPG service loads its collection catalog at startup and refreshes it after five minutes when it receives a request. Since Alembic migrations run after the initial infrastructure deployment, newly created tables may not appear immediately. Once five minutes have elapsed since the catalog was loaded, request `/collections` to trigger a background refresh, then request it again to see the updated catalog. Refreshing the catalog reuses the existing database connection pool.
 
 __Decreasing cold starts for Cloud Run__
 
