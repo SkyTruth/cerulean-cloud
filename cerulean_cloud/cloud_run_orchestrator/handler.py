@@ -752,7 +752,10 @@ async def _orchestrate(
             orchestrator_run.dataset_versions = {
                 "sea_ice_date": sea_ice_date.isoformat() if sea_ice_date else None,
                 "aoi": {
-                    accessor.short_name: accessor.dataset_version
+                    accessor.short_name: {
+                        "resolved_id": accessor.dataset_version,
+                        "gs_uri": accessor.dataset_gs_uri,
+                    }
                     for accessor in aoi_accessors
                 },
             }

@@ -116,6 +116,7 @@ class BaseAoiAccessor:
         self.short_name = row["short_name"]
         self.properties = row.get("properties") or {}
         self.dataset_version = self.properties.get("dataset_version")
+        self.dataset_gs_uri: Optional[str] = None
         self.slick_to_aoi_buffer_m = (
             self.properties.get(SLICK_TO_AOI_BUFFER_M_KEY) or 0.0
         )
@@ -218,7 +219,6 @@ class SharedDatasetAoiAccessor(BaseAoiAccessor):
         self.version = "latest"
         self.ext_id_field = self.properties["ext_id_field"]
         self.display_name_field = self.properties.get("display_name_field")
-        self.dataset_version = self.properties.get("dataset_version")
         self.cache_dir = Path(tempfile.gettempdir()) / "cerulean_aoi_cache"
 
     def _download_aoi_dataset(self) -> str:
@@ -229,6 +229,7 @@ class SharedDatasetAoiAccessor(BaseAoiAccessor):
             cache_dir=self.cache_dir,
         )
         self.dataset_version = ref.resolved_id
+        self.dataset_gs_uri = ref.gs_uri
         path = ref.cache_path
         if path.stat().st_size <= 0:
             raise ValueError(f"Downloaded empty AOI dataset: {ref.gs_uri}")
@@ -247,7 +248,7 @@ class SharedDatasetAoiAccessor(BaseAoiAccessor):
         rename_map = {self.ext_id_field: "ext_id"}
         if self.display_name_field:
             rename_map[self.display_name_field] = "name"
-        gdf = gdf.rename(columns=rename_map)
+        gdf = gdf[[*rename_map, "geometry"]].rename(columns=rename_map)
         has_name = "name" in gdf.columns
         if not has_name:
             gdf["name"] = None

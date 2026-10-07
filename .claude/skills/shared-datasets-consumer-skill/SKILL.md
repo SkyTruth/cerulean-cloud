@@ -88,9 +88,9 @@ Start here. Do not add more machinery than the consumer actually needs.
    files, install the Python SDK with the `gcs` extra and use
    `fetch_dataset(...)` or `resolve_dataset(...)`. A successful
    `fetch_dataset(...)` returns a `DatasetRef`; use `ref.cache_path` as the
-   local file path and `ref.resolved_id` as the durable resolved identity to
-   record when callers request `version="latest"`. When both bytes and lineage
-   are needed, call `fetch_dataset(...)` once; do not call
+   local file path. Record `ref.gs_uri` and the generation-bearing
+   `ref.resolved_id` together when callers request `version="latest"`. When both
+   bytes and lineage are needed, call `fetch_dataset(...)` once; do not call
    `resolve_dataset(...)` and `fetch_dataset(...)` separately.
 3. Public catalog reads should use
    `https://tiles.skytruth.org/_catalog/shared-datasets-catalog.csv` or
@@ -318,16 +318,28 @@ from skytruth_shared_datasets import fetch_dataset
 
 ref = fetch_dataset("wdpa-marine", "fgb")
 path = ref.cache_path
+gs_uri = ref.gs_uri
 resolved_id = ref.resolved_id
 ```
 
 For AOI joins, job records, lineage tables, or other durable references, record
-`resolved_id` values such as `wdpa-marine@2026-05-02`, not
-`wdpa-marine@latest` and not a value inferred from the cache path.
+the fetched `ref.gs_uri` together with generation-bearing `resolved_id` values
+such as `wdpa-marine@2026-05-02#generation=1777680000000000`.
+Indexed fetches select one dated release and exact object generation, including
+same-date corrections. Assets without a release index, or with a valid empty
+index, retain an unknown release date and return
+`<slug>@latest#generation=<generation>` rather than inventing a date.
+Do not infer lineage from the cache path. Old date-only records cannot be
+retroactively treated as exact artifact identities.
 
 When both bytes and lineage are needed, call `fetch_dataset(...)` once and use
-`ref.cache_path` plus `ref.resolved_id`; do not call `resolve_dataset(...)` and
-`fetch_dataset(...)` separately.
+`ref.cache_path`, `ref.gs_uri`, and `ref.resolved_id`; do not call
+`resolve_dataset(...)` and `fetch_dataset(...)` separately.
+
+The SDK verifies cached bytes by URI and generation in its `v2` cache. It does
+not trust or migrate the old date-only cache. Forbidden, unavailable, or
+malformed release indexes fail even when older bytes are cached; do not add a
+stale-cache fallback. See the upstream `api/python/README.md` cache contract.
 
 Or resolve without downloading:
 
@@ -337,9 +349,11 @@ from skytruth_shared_datasets import resolve_dataset
 ref = resolve_dataset("wdpa-marine", "pmtiles")
 print(ref.gs_uri)
 print(ref.url)
-print(ref.resolved_id)
+print(ref.resolved_id)  # wdpa-marine@latest: an unpinned alias, not byte lineage
 ```
 
+Latest `resolve_dataset(...)` results have no verified release date or
+generation. Use a fetched reference when exact artifact lineage matters.
 This path uses Application Default Credentials. In Cloud Run, scheduled jobs, or
 CI with Workload Identity Federation, the established runtime service account
 should be enough.
@@ -388,6 +402,7 @@ from skytruth_shared_datasets import fetch_dataset
 
 ref = fetch_dataset("wdpa-marine", "fgb")
 path = ref.cache_path
+gs_uri = ref.gs_uri
 resolved_id = ref.resolved_id
 ```
 
@@ -443,7 +458,7 @@ map-layer behavior.
   browser credentials and private layers wait for the session endpoint.
 - If backend code downloads shared data, add the SDK dependency and use
   `fetch_dataset("<slug>", "<format>")`; read the local path from
-  `ref.cache_path` and record resolved dataset identity from `ref.resolved_id`
+  `ref.cache_path` and record `ref.gs_uri` plus generation-bearing `ref.resolved_id`
   when lineage matters.
 - If backend code runs in GCP, confirm the runtime identity has
   `roles/storage.objectViewer` on the shared bucket.
@@ -483,10 +498,12 @@ Add focused tests that prove:
   no-store`, set `Cloud-CDN-Cookie` for authorized users, send browser fetch
   credentials, and do not expose GCS credentials.
 - WDPA MPA selection/join logic uses `site_id`, not `WDPAID`.
-- Backend code that needs data files uses `fetch_dataset(...)` or
-  `resolve_dataset(...)` rather than service account keys.
+- Backend code that needs data files uses `fetch_dataset(...)` with ADC.
+  Code that only needs alias URLs or metadata uses `resolve_dataset(...)`.
 - Backend code that requests `version="latest"` and records lineage persists
-  `ref.resolved_id`, not `<slug>@latest` and not a cache-path-derived version.
+  fetched `ref.gs_uri` and generation-bearing `ref.resolved_id` together,
+  including observed generations for latest-only assets. Unpinned latest
+  resolve results and cache paths do not establish artifact lineage.
 
 ## Non-Goals
 

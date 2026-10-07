@@ -56,6 +56,7 @@ def test_shared_dataset_accessor_owns_shared_config_parsing():
     assert accessor.ext_id_field == "SITE_ID"
     assert accessor.display_name_field == "NAME"
     assert accessor.dataset_version is None
+    assert accessor.dataset_gs_uri is None
     assert accessor.slick_to_aoi_buffer_m == 0.0
 
 
@@ -444,8 +445,8 @@ async def test_shared_dataset_accessor_fetches_by_slug_and_uses_site_id(
     calls = []
 
     class FakeRef:
-        gs_uri = "gs://shared/wdpa-marine/latest/wdpa-marine.fgb"
-        resolved_id = "wdpa-marine@2026-05-02"
+        gs_uri = "gs://shared/wdpa-marine/releases/2026-05-02/wdpa-marine.fgb"
+        resolved_id = "wdpa-marine@2026-05-02#generation=1777680000000000"
         cache_path = local_fgb
 
     def fake_fetch(asset_slug, dataset_format, *, version, cache_dir):
@@ -492,10 +493,48 @@ async def test_shared_dataset_accessor_fetches_by_slug_and_uses_site_id(
     )
 
     assert matches == [{"MPA": [{"ext_id": "site-1", "name": "Marine Area"}]}]
-    assert accessor.dataset_version == "wdpa-marine@2026-05-02"
+    assert accessor.dataset_version == FakeRef.resolved_id
+    assert accessor.dataset_gs_uri == FakeRef.gs_uri
     assert calls == [
         ("fetch", "wdpa-marine", "fgb", "latest", tmp_path),
         ("read", str(local_fgb), (-1.0, -1.0, 3.0, 3.0)),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_shared_dataset_accessor_uses_configured_name_with_source_name_column(
+    monkeypatch,
+):
+    candidates = gpd.GeoDataFrame(
+        {
+            "MRGID": [63203],
+            "GEONAME": ["High Seas"],
+            "name": ["Other source label"],
+            "ext_id": ["other-source-id"],
+            "geometry": [box(0, 0, 2, 2)],
+        },
+        crs="EPSG:4326",
+    )
+    monkeypatch.setattr(gpd, "read_file", lambda *args, **kwargs: candidates)
+    monkeypatch.setattr(
+        SharedDatasetAoiAccessor,
+        "_download_aoi_dataset",
+        lambda self: "unused.fgb",
+    )
+    accessor = SharedDatasetAoiAccessor(
+        {
+            "short_name": "EEZ",
+            "properties": {
+                "asset_slug": "marine-regions-eez",
+                "ext_id_field": "MRGID",
+                "display_name_field": "GEONAME",
+            },
+        }
+    )
+    slicks = gpd.GeoDataFrame(geometry=[box(1, 1, 1.5, 1.5)], crs="EPSG:4326")
+
+    assert await accessor.matches_for_scene(_scene_bounds(), SCENE_TIME, slicks) == [
+        {"EEZ": [{"ext_id": "63203", "name": "High Seas"}]}
     ]
 
 
