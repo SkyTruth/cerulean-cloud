@@ -9,6 +9,8 @@ Create Date: 2023-07-15 01:52:45.298587
 import geojson
 import httpx
 import sqlalchemy as sa
+from shapely import make_valid
+from shapely.errors import GEOSException
 from shapely.geometry import MultiPolygon, shape
 
 from alembic import op
@@ -37,7 +39,11 @@ def _aoi_type_id(bind) -> int:
 
 
 def _multipolygon_wkt(feature_geometry) -> str:
-    geometry = shape(feature_geometry).buffer(0)
+    geometry = shape(feature_geometry)
+    try:
+        geometry = geometry.buffer(0)
+    except GEOSException:
+        geometry = make_valid(geometry).buffer(0)
     if not isinstance(geometry, MultiPolygon):
         geometry = MultiPolygon([geometry])
     return geometry.wkt
