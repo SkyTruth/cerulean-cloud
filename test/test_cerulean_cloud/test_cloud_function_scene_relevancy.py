@@ -11,7 +11,8 @@ from cerulean_cloud.cloud_function_scene_relevancy.main import (
 
 
 @pytest.mark.parametrize("mode", ["IW", "EW", "S3"])
-def test_handle_notification(mode):
+@pytest.mark.parametrize("resolution", ["H", "M"])
+def test_handle_notification(mode, resolution):
     ocean_poly = load_ocean_poly(
         "cerulean_cloud/cloud_function_scene_relevancy/OceanGeoJSON_lowres.geojson"
     )
@@ -21,7 +22,9 @@ def test_handle_notification(mode):
     message = json.loads(event["Records"][0]["Sns"]["Message"])
     assert message["version"] == 3
     message["mode"] = mode
+    message["resolution"] = resolution
     message["id"] = message["id"].replace("_IW_", f"_{mode}_")
+    message["id"] = message["id"].replace("GRDH", f"GRD{resolution}")
     event["Records"][0]["Sns"]["Message"] = json.dumps(message)
 
     res = handle_notification(event, ocean_poly=ocean_poly)
