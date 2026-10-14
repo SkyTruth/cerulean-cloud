@@ -143,10 +143,6 @@ def handle_notification(request_json, ocean_poly):
         sns = r["Sns"]
         msg = json.loads(sns["Message"])
 
-        if not (msg["mode"] == "IW"):
-            # Check Beam Mode
-            # XXX This is workaround a bug in Titiler.get_bounds (404 not found) that fails if the beam mode is not IW
-            continue
         if not (msg["resolution"] == "H"):
             # Check High Definition
             continue
