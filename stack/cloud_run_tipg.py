@@ -68,6 +68,7 @@ default = gcp.cloudrun.Service(
                             name="TIPG_DB_TABLES",
                             value=json.dumps(
                                 [
+                                    "public.aoi",
                                     "public.aoi_eez",
                                     "public.aoi_iho",
                                     "public.aoi_mpa",

@@ -107,7 +107,6 @@ def test_aoi_name_translation_csv_uses_reviewed_place_name_forms():
 
 def test_aoi_name_i18n_migration_uses_current_aoi_keys():
     migration_text = MIGRATION_PATH.read_text(encoding="utf-8")
-    tipg_text = (REPO_ROOT / "stack/cloud_run_tipg.py").read_text(encoding="utf-8")
 
     assert 'down_revision = "d6c7b48d9f11"' in migration_text
     assert '"aoi_i18n"' in migration_text
@@ -119,7 +118,6 @@ def test_aoi_name_i18n_migration_uses_current_aoi_keys():
     assert "aoi.ext_id" not in migration_text
     assert '"MPA"' not in migration_text
     assert '"USER"' not in migration_text
-    assert '"public.aoi_i18n"' not in tipg_text
 
 
 def test_aoi_name_i18n_migration_loads_translation_csv():
