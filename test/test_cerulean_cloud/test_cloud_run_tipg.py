@@ -1,11 +1,17 @@
 """Public TiPG collections must be explicitly allowlisted."""
 
 import importlib
+from pathlib import Path
 
 import httpx
 import pytest
 
+PG_CTL = Path(__file__).resolve().parents[2] / ".conda" / "ceru-ci" / "bin" / "pg_ctl"
 
+
+@pytest.mark.skipif(
+    not PG_CTL.exists(), reason="canonical ceru-ci PostgreSQL pg_ctl is unavailable"
+)
 @pytest.mark.asyncio
 async def test_catalog_uses_allowlists(postgresql, monkeypatch):
     monkeypatch.setenv(
