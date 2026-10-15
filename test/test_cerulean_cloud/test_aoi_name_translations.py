@@ -119,7 +119,7 @@ def test_aoi_name_i18n_migration_uses_current_aoi_keys():
     assert "aoi.ext_id" not in migration_text
     assert '"MPA"' not in migration_text
     assert '"USER"' not in migration_text
-    assert '"public.aoi_i18n"' in tipg_text
+    assert '"public.aoi_i18n"' not in tipg_text
 
 
 def test_aoi_name_i18n_migration_loads_translation_csv():

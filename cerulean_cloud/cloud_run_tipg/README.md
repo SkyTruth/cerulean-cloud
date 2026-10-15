@@ -21,3 +21,19 @@ Start the container as described in [Debug image](#debug-image) and in another s
 ```shell
 docker cp cloud_run_tipg:/app/sbom.xml .
 ```
+
+# Public collections
+
+`TIPG_DB_TABLES` and `TIPG_DB_FUNCTIONS` are JSON arrays of schema-qualified
+collection names. The deployed allowlists live in `stack/cloud_run_tipg.py`.
+Only listed tables, views, and functions appear in `/collections` or have API
+endpoints; new database objects remain private until explicitly added.
+Missing or empty allowlists expose no collections of that type.
+
+There is no API-key override for omitted collections. For local development, set
+both allowlists explicitly, for example:
+
+```shell
+export TIPG_DB_TABLES='["public.slick_plus", "public.source_plus", "public.sentinel1_grd"]'
+export TIPG_DB_FUNCTIONS='[]'
+```
