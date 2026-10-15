@@ -79,6 +79,7 @@ default = gcp.cloudrun.Service(
                                     "public.sentinel1_grd",
                                     "public.slick_plus",
                                     "public.source_plus",
+                                    "public.source_type",
                                 ]
                             ),
                         ),
