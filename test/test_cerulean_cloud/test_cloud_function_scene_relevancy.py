@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from dateutil.parser import parse
 
 from cerulean_cloud.cloud_function_scene_relevancy.main import (
@@ -9,14 +10,19 @@ from cerulean_cloud.cloud_function_scene_relevancy.main import (
 )
 
 
-def test_handle_notification():
+@pytest.mark.parametrize("mode,resolution", [("IW", "H"), ("EW", "M"), ("S3", "H")])
+def test_handle_notification(mode, resolution):
     ocean_poly = load_ocean_poly(
         "cerulean_cloud/cloud_function_scene_relevancy/OceanGeoJSON_lowres.geojson"
     )
     with open("test/test_cerulean_cloud/fixtures/valid_sns_event.json") as src:
         event = json.load(src)
 
-    assert json.loads(event["Records"][0]["Sns"]["Message"])["version"] == 3
+    message = json.loads(event["Records"][0]["Sns"]["Message"])
+    assert message["version"] == 3
+    message["mode"] = mode
+    message["resolution"] = resolution
+    event["Records"][0]["Sns"]["Message"] = json.dumps(message)
 
     res = handle_notification(event, ocean_poly=ocean_poly)
     assert len(res) == 1
@@ -44,7 +50,6 @@ def test_handle_notification_filters():
     invalids = [
         "invalid_sns_event_pol.json",
         "invalid_sns_event_res.json",
-        "invalid_sns_event_mode.json",
         "invalid_sns_event_loc.json",
     ]
     for invalid in invalids:
