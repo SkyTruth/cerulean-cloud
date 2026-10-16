@@ -24,9 +24,7 @@ depends_on = None
 STATUS_CHECK = "status IN ('draft', 'reviewed', 'published')"
 QUALITY_CHECK = "quality IN ('human', 'machine', 'machine_reviewed')"
 TRANSLATION_CSV_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "docs"
-    / "vocabulary_translations_es_fr_pt_id.csv"
+    Path(__file__).resolve().parents[2] / "docs" / "vocabulary_translations.csv"
 )
 LOCALE_METADATA_PREFIX = "# locale:"
 TRANSLATION_SOURCE_COLUMNS = (

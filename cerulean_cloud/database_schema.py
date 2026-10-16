@@ -4,7 +4,10 @@
 2. Run:
     Build the database locally using the readme
     sqlacodegen postgresql://user:password@localhost:5432/db --generator declarative --noviews --options noindexes --outfile cerulean_cloud/database_schema.py
-3. Paste this comment
+3. Aoi.geometry is a deprecated nullable compatibility column. Do not use it in
+   live paths. In AoiUser, keep the child-table "geometry" column mapped as
+   aoi_user_geometry to avoid colliding with inherited Aoi.geometry.
+4. Paste this comment
 """
 
 import datetime
@@ -39,23 +42,19 @@ class Base(DeclarativeBase):
     pass
 
 
-class AoiType(Base):
-    __tablename__ = "aoi_type"
-    __table_args__ = (PrimaryKeyConstraint("id", name="aoi_type_pkey"),)
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    table_name: Mapped[str] = mapped_column(Text, nullable=False)
-    long_name: Mapped[Optional[str]] = mapped_column(Text)
-    short_name: Mapped[Optional[str]] = mapped_column(Text)
-    source_url: Mapped[Optional[str]] = mapped_column(Text)
-    citation: Mapped[Optional[str]] = mapped_column(Text)
-    update_time: Mapped[Optional[datetime.datetime]] = mapped_column(
-        DateTime, server_default=text("now()")
+class AoiAccessType(Base):
+    __tablename__ = "aoi_access_type"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="aoi_access_type_pkey"),
+        UniqueConstraint("short_name", name="aoi_access_type_short_name_key"),
     )
 
-    aoi: Mapped[list["Aoi"]] = relationship("Aoi", back_populates="aoi_type")
-    aoi_type_i18n: Mapped[list["AoiTypeI18n"]] = relationship(
-        "AoiTypeI18n", back_populates="aoi_type"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    short_name: Mapped[str] = mapped_column(Text, nullable=False)
+    prop_keys: Mapped[list[str]] = mapped_column(ARRAY(Text()), nullable=False)
+
+    aoi_type: Mapped[list["AoiType"]] = relationship(
+        "AoiType", back_populates="aoi_access_type"
     )
 
 
@@ -190,6 +189,9 @@ class Permission(Base):
     short_name: Mapped[str] = mapped_column(Text, nullable=False)
     long_name: Mapped[str] = mapped_column(Text, nullable=False)
 
+    aoi_type: Mapped[list["AoiType"]] = relationship(
+        "AoiType", back_populates="permission"
+    )
     permission_i18n: Mapped[list["PermissionI18n"]] = relationship(
         "PermissionI18n", back_populates="permission"
     )
@@ -317,9 +319,6 @@ class SupportedLocale(Base):
         remote_side=[fallback_code],
         back_populates="supported_locale",
     )
-    aoi_type_i18n: Mapped[list["AoiTypeI18n"]] = relationship(
-        "AoiTypeI18n", back_populates="supported_locale"
-    )
     cls_i18n: Mapped[list["ClsI18n"]] = relationship(
         "ClsI18n", back_populates="supported_locale"
     )
@@ -335,11 +334,14 @@ class SupportedLocale(Base):
     source_type_i18n: Mapped[list["SourceTypeI18n"]] = relationship(
         "SourceTypeI18n", back_populates="supported_locale"
     )
-    aoi_i18n: Mapped[list["AoiI18n"]] = relationship(
-        "AoiI18n", back_populates="supported_locale"
+    aoi_type_i18n: Mapped[list["AoiTypeI18n"]] = relationship(
+        "AoiTypeI18n", back_populates="supported_locale"
     )
     tag_i18n: Mapped[list["TagI18n"]] = relationship(
         "TagI18n", back_populates="supported_locale"
+    )
+    aoi_i18n: Mapped[list["AoiI18n"]] = relationship(
+        "AoiI18n", back_populates="supported_locale"
     )
 
 
@@ -393,9 +395,7 @@ class Users(Base):
     accounts: Mapped[list["Accounts"]] = relationship(
         "Accounts", back_populates="users"
     )
-    aoi_type_i18n: Mapped[list["AoiTypeI18n"]] = relationship(
-        "AoiTypeI18n", back_populates="users"
-    )
+    aoi_type: Mapped[list["AoiType"]] = relationship("AoiType", back_populates="users")
     cls_i18n: Mapped[list["ClsI18n"]] = relationship("ClsI18n", back_populates="users")
     frequency_i18n: Mapped[list["FrequencyI18n"]] = relationship(
         "FrequencyI18n", back_populates="users"
@@ -416,9 +416,12 @@ class Users(Base):
         "Subscription", back_populates="users"
     )
     tag: Mapped[list["Tag"]] = relationship("Tag", back_populates="users")
+    aoi_type_i18n: Mapped[list["AoiTypeI18n"]] = relationship(
+        "AoiTypeI18n", back_populates="users"
+    )
+    tag_i18n: Mapped[list["TagI18n"]] = relationship("TagI18n", back_populates="users")
     aoi_i18n: Mapped[list["AoiI18n"]] = relationship("AoiI18n", back_populates="users")
     aoi_user: Mapped[list["AoiUser"]] = relationship("AoiUser", back_populates="users")
-    tag_i18n: Mapped[list["TagI18n"]] = relationship("TagI18n", back_populates="users")
     hitl_request: Mapped[list["HitlRequest"]] = relationship(
         "HitlRequest", back_populates="users"
     )
@@ -472,95 +475,54 @@ class Accounts(Base):
     users: Mapped["Users"] = relationship("Users", back_populates="accounts")
 
 
-class Aoi(Base):
-    __tablename__ = "aoi"
+class AoiType(Base):
+    __tablename__ = "aoi_type"
     __table_args__ = (
-        ForeignKeyConstraint(["type"], ["aoi_type.id"], name="aoi_type_fkey"),
-        PrimaryKeyConstraint("id", name="aoi_pkey"),
+        CheckConstraint(
+            "access_type IS NULL OR properties IS NOT NULL AND jsonb_typeof(properties) = 'object'::text AND\nCASE\n    WHEN NOT properties ? 'slick_to_aoi_buffer_m'::text THEN true\n    WHEN jsonb_typeof(properties -> 'slick_to_aoi_buffer_m'::text) = 'null'::text THEN true\n    WHEN jsonb_typeof(properties -> 'slick_to_aoi_buffer_m'::text) = 'number'::text THEN true\n    ELSE false\nEND AND (access_type = 'SHARED_DATASET'::text AND NULLIF(properties ->> 'asset_slug'::text, ''::text) IS NOT NULL AND NULLIF(properties ->> 'ext_id_field'::text, ''::text) IS NOT NULL OR access_type = 'DB_LOCAL'::text AND NULLIF(properties ->> 'table_name'::text, ''::text) IS NOT NULL AND NULLIF(properties ->> 'geog_col'::text, ''::text) IS NOT NULL AND NULLIF(properties ->> 'ext_id_col'::text, ''::text) IS NOT NULL OR access_type = 'DB_REMOTE'::text AND NULLIF(properties ->> 'db_conn_secret_name'::text, ''::text) IS NOT NULL AND NULLIF(properties ->> 'table_name'::text, ''::text) IS NOT NULL AND NULLIF(properties ->> 'geog_col'::text, ''::text) IS NOT NULL AND NULLIF(properties ->> 'ext_id_col'::text, ''::text) IS NOT NULL)",
+            name="ck_aoi_type_access_properties",
+        ),
+        ForeignKeyConstraint(
+            ["access_type"],
+            ["aoi_access_type.short_name"],
+            name="fk_aoi_type_access_type_aoi_access_type",
+        ),
+        ForeignKeyConstraint(["owner"], ["users.id"], name="fk_aoi_type_owner_users"),
+        ForeignKeyConstraint(
+            ["read_perm"], ["permission.id"], name="fk_aoi_type_read_perm_permission"
+        ),
+        PrimaryKeyConstraint("id", name="aoi_type_pkey"),
+        UniqueConstraint("short_name", name="uq_aoi_type_short_name"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    type: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    geometry: Mapped[Any] = mapped_column(
-        Geography(
-            "MULTIPOLYGON",
-            4326,
-            2,
-            from_text="ST_GeogFromText",
-            name="geography",
-            nullable=False,
-        ),
-        nullable=False,
+    short_name: Mapped[str] = mapped_column(Text, nullable=False)
+    slick_to_aoi_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
     )
-
-    aoi_type: Mapped["AoiType"] = relationship("AoiType", back_populates="aoi")
-    slick: Mapped[list["Slick"]] = relationship(
-        "Slick", secondary="slick_to_aoi", back_populates="aoi"
-    )
-    aoi_i18n: Mapped[list["AoiI18n"]] = relationship("AoiI18n", back_populates="aoi")
-
-
-class AoiTypeI18n(Base):
-    __tablename__ = "aoi_type_i18n"
-    __table_args__ = (
-        CheckConstraint(
-            "num_nonnulls(long_name, citation) > 0",
-            name="ck_aoi_type_i18n_has_translation",
-        ),
-        CheckConstraint(
-            "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])",
-            name="ck_aoi_type_i18n_quality",
-        ),
-        CheckConstraint(
-            "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])",
-            name="ck_aoi_type_i18n_status",
-        ),
-        ForeignKeyConstraint(
-            ["aoi_type_id"],
-            ["aoi_type.id"],
-            ondelete="CASCADE",
-            name="aoi_type_i18n_aoi_type_id_fkey",
-        ),
-        ForeignKeyConstraint(
-            ["locale"], ["supported_locale.code"], name="aoi_type_i18n_locale_fkey"
-        ),
-        ForeignKeyConstraint(
-            ["updated_by"],
-            ["users.id"],
-            ondelete="SET NULL",
-            name="aoi_type_i18n_updated_by_fkey",
-        ),
-        PrimaryKeyConstraint("aoi_type_id", "locale", name="aoi_type_i18n_pkey"),
-    )
-
-    aoi_type_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    locale: Mapped[str] = mapped_column(Text, primary_key=True)
-    status: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default=text("'published'::text")
-    )
-    quality: Mapped[str] = mapped_column(
-        Text, nullable=False, server_default=text("'human'::text")
-    )
-    source_checksum: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime(True), nullable=False, server_default=text("now()")
-    )
-    updated_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime(True), nullable=False, server_default=text("now()")
-    )
+    table_name: Mapped[Optional[str]] = mapped_column(Text)
     long_name: Mapped[Optional[str]] = mapped_column(Text)
+    source_url: Mapped[Optional[str]] = mapped_column(Text)
     citation: Mapped[Optional[str]] = mapped_column(Text)
-    updated_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+    update_time: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime, server_default=text("now()")
+    )
+    filter_toggle: Mapped[Optional[bool]] = mapped_column(Boolean)
+    owner: Mapped[Optional[int]] = mapped_column(BigInteger)
+    read_perm: Mapped[Optional[int]] = mapped_column(BigInteger)
+    access_type: Mapped[Optional[str]] = mapped_column(Text)
+    properties: Mapped[Optional[dict]] = mapped_column(JSONB)
 
-    aoi_type: Mapped["AoiType"] = relationship(
-        "AoiType", back_populates="aoi_type_i18n"
+    aoi_access_type: Mapped[Optional["AoiAccessType"]] = relationship(
+        "AoiAccessType", back_populates="aoi_type"
     )
-    supported_locale: Mapped["SupportedLocale"] = relationship(
-        "SupportedLocale", back_populates="aoi_type_i18n"
+    users: Mapped[Optional["Users"]] = relationship("Users", back_populates="aoi_type")
+    permission: Mapped[Optional["Permission"]] = relationship(
+        "Permission", back_populates="aoi_type"
     )
-    users: Mapped[Optional["Users"]] = relationship(
-        "Users", back_populates="aoi_type_i18n"
+    aoi: Mapped[list["Aoi"]] = relationship("Aoi", back_populates="aoi_type")
+    aoi_type_i18n: Mapped[list["AoiTypeI18n"]] = relationship(
+        "AoiTypeI18n", back_populates="aoi_type"
     )
 
 
@@ -790,6 +752,7 @@ class OrchestratorRun(Base):
     success: Mapped[Optional[bool]] = mapped_column(Boolean)
     sentinel1_grd: Mapped[Optional[int]] = mapped_column(BigInteger)
     sea_ice_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
+    dataset_versions: Mapped[Optional[dict]] = mapped_column(JSONB)
 
     model_: Mapped["Model"] = relationship("Model", back_populates="orchestrator_run")
     sentinel1_grd_: Mapped[Optional["Sentinel1Grd"]] = relationship(
@@ -1041,75 +1004,65 @@ class Tag(Base):
     tag_i18n: Mapped[list["TagI18n"]] = relationship("TagI18n", back_populates="tag")
 
 
-t_aoi_chunks = Table(
-    "aoi_chunks",
-    Base.metadata,
-    Column("id", BigInteger),
-    Column(
-        "geometry",
-        Geometry(
-            "POLYGON",
-            4326,
-            2,
-            from_text="ST_GeomFromEWKT",
-            name="geometry",
-            nullable=False,
-        ),
-        nullable=False,
-    ),
-    ForeignKeyConstraint(
-        ["id"],
-        ["aoi.id"],
-        ondelete="CASCADE",
-        deferrable=True,
-        initially="DEFERRED",
-        name="aoi_chunks_id_fkey",
-    ),
-)
-
-
-class AoiEez(Aoi):
-    __tablename__ = "aoi_eez"
+class Aoi(Base):
+    __tablename__ = "aoi"
     __table_args__ = (
-        ForeignKeyConstraint(["aoi_id"], ["aoi.id"], name="aoi_eez_aoi_id_fkey"),
-        PrimaryKeyConstraint("aoi_id", name="aoi_eez_pkey"),
+        ForeignKeyConstraint(["type"], ["aoi_type.id"], name="aoi_type_fkey"),
+        PrimaryKeyConstraint("id", name="aoi_pkey"),
     )
 
-    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    mrgid: Mapped[Optional[int]] = mapped_column(Integer)
-    sovereigns: Mapped[Optional[list[str]]] = mapped_column(ARRAY(Text()))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    type: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    geometry: Mapped[Optional[Any]] = mapped_column(
+        Geography(
+            "MULTIPOLYGON", 4326, 2, from_text="ST_GeogFromText", name="geography"
+        )
+    )
+    ext_id: Mapped[Optional[str]] = mapped_column(Text)
+
+    aoi_type: Mapped["AoiType"] = relationship("AoiType", back_populates="aoi")
+    slick: Mapped[list["Slick"]] = relationship(
+        "Slick", secondary="slick_to_aoi", back_populates="aoi"
+    )
+    aoi_i18n: Mapped[list["AoiI18n"]] = relationship("AoiI18n", back_populates="aoi")
 
 
-class AoiI18n(Base):
-    __tablename__ = "aoi_i18n"
+class AoiTypeI18n(Base):
+    __tablename__ = "aoi_type_i18n"
     __table_args__ = (
-        CheckConstraint("name <> ''::text", name="ck_aoi_i18n_name_not_empty"),
+        CheckConstraint(
+            "num_nonnulls(long_name, citation) > 0",
+            name="ck_aoi_type_i18n_has_translation",
+        ),
         CheckConstraint(
             "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])",
-            name="ck_aoi_i18n_quality",
+            name="ck_aoi_type_i18n_quality",
         ),
         CheckConstraint(
             "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])",
-            name="ck_aoi_i18n_status",
+            name="ck_aoi_type_i18n_status",
         ),
         ForeignKeyConstraint(
-            ["aoi_id"], ["aoi.id"], ondelete="CASCADE", name="aoi_i18n_aoi_id_fkey"
+            ["aoi_type_id"],
+            ["aoi_type.id"],
+            ondelete="CASCADE",
+            name="aoi_type_i18n_aoi_type_id_fkey",
         ),
         ForeignKeyConstraint(
-            ["locale"], ["supported_locale.code"], name="aoi_i18n_locale_fkey"
+            ["locale"], ["supported_locale.code"], name="aoi_type_i18n_locale_fkey"
         ),
         ForeignKeyConstraint(
             ["updated_by"],
             ["users.id"],
             ondelete="SET NULL",
-            name="aoi_i18n_updated_by_fkey",
+            name="aoi_type_i18n_updated_by_fkey",
         ),
-        PrimaryKeyConstraint("aoi_id", "locale", name="aoi_i18n_pkey"),
+        PrimaryKeyConstraint("aoi_type_id", "locale", name="aoi_type_i18n_pkey"),
     )
 
-    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    aoi_type_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     locale: Mapped[str] = mapped_column(Text, primary_key=True)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'published'::text")
     )
@@ -1123,57 +1076,19 @@ class AoiI18n(Base):
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(True), nullable=False, server_default=text("now()")
     )
+    long_name: Mapped[Optional[str]] = mapped_column(Text)
+    citation: Mapped[Optional[str]] = mapped_column(Text)
     updated_by: Mapped[Optional[int]] = mapped_column(BigInteger)
 
-    aoi: Mapped["Aoi"] = relationship("Aoi", back_populates="aoi_i18n")
+    aoi_type: Mapped["AoiType"] = relationship(
+        "AoiType", back_populates="aoi_type_i18n"
+    )
     supported_locale: Mapped["SupportedLocale"] = relationship(
-        "SupportedLocale", back_populates="aoi_i18n"
+        "SupportedLocale", back_populates="aoi_type_i18n"
     )
-    users: Mapped[Optional["Users"]] = relationship("Users", back_populates="aoi_i18n")
-
-
-class AoiIho(Aoi):
-    __tablename__ = "aoi_iho"
-    __table_args__ = (
-        ForeignKeyConstraint(["aoi_id"], ["aoi.id"], name="aoi_iho_aoi_id_fkey"),
-        PrimaryKeyConstraint("aoi_id", name="aoi_iho_pkey"),
+    users: Mapped[Optional["Users"]] = relationship(
+        "Users", back_populates="aoi_type_i18n"
     )
-
-    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    mrgid: Mapped[Optional[int]] = mapped_column(Integer)
-
-
-class AoiMpa(Aoi):
-    __tablename__ = "aoi_mpa"
-    __table_args__ = (
-        ForeignKeyConstraint(["aoi_id"], ["aoi.id"], name="aoi_mpa_aoi_id_fkey"),
-        PrimaryKeyConstraint("aoi_id", name="aoi_mpa_pkey"),
-    )
-
-    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    wdpaid: Mapped[Optional[int]] = mapped_column(Integer)
-    desig: Mapped[Optional[str]] = mapped_column(Text)
-    desig_type: Mapped[Optional[str]] = mapped_column(Text)
-    status_yr: Mapped[Optional[int]] = mapped_column(Integer)
-    mang_auth: Mapped[Optional[str]] = mapped_column(Text)
-    parent_iso: Mapped[Optional[str]] = mapped_column(Text)
-
-
-class AoiUser(Aoi):
-    __tablename__ = "aoi_user"
-    __table_args__ = (
-        ForeignKeyConstraint(["aoi_id"], ["aoi.id"], name="aoi_user_aoi_id_fkey"),
-        ForeignKeyConstraint(["user"], ["users.id"], name="aoi_user_user_fkey"),
-        PrimaryKeyConstraint("aoi_id", name="aoi_user_pkey"),
-    )
-
-    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    user: Mapped[Optional[int]] = mapped_column(BigInteger)
-    create_time: Mapped[Optional[datetime.datetime]] = mapped_column(
-        DateTime, server_default=text("now()")
-    )
-
-    users: Mapped[Optional["Users"]] = relationship("Users", back_populates="aoi_user")
 
 
 class Slick(Base):
@@ -1429,6 +1344,145 @@ class TagI18n(Base):
     )
     tag: Mapped["Tag"] = relationship("Tag", back_populates="tag_i18n")
     users: Mapped[Optional["Users"]] = relationship("Users", back_populates="tag_i18n")
+
+
+t_aoi_chunks = Table(
+    "aoi_chunks",
+    Base.metadata,
+    Column("id", BigInteger),
+    Column(
+        "geometry",
+        Geometry(
+            "POLYGON",
+            4326,
+            2,
+            from_text="ST_GeomFromEWKT",
+            name="geometry",
+            nullable=False,
+        ),
+        nullable=False,
+    ),
+    ForeignKeyConstraint(
+        ["id"],
+        ["aoi.id"],
+        ondelete="CASCADE",
+        deferrable=True,
+        initially="DEFERRED",
+        name="aoi_chunks_id_fkey",
+    ),
+)
+
+
+class AoiEez(Aoi):
+    __tablename__ = "aoi_eez"
+    __table_args__ = (
+        ForeignKeyConstraint(["aoi_id"], ["aoi.id"], name="aoi_eez_aoi_id_fkey"),
+        PrimaryKeyConstraint("aoi_id", name="aoi_eez_pkey"),
+    )
+
+    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    mrgid: Mapped[Optional[int]] = mapped_column(Integer)
+    sovereigns: Mapped[Optional[list[str]]] = mapped_column(ARRAY(Text()))
+
+
+class AoiI18n(Base):
+    __tablename__ = "aoi_i18n"
+    __table_args__ = (
+        CheckConstraint("name <> ''::text", name="ck_aoi_i18n_name_not_empty"),
+        CheckConstraint(
+            "quality = ANY (ARRAY['human'::text, 'machine'::text, 'machine_reviewed'::text])",
+            name="ck_aoi_i18n_quality",
+        ),
+        CheckConstraint(
+            "status = ANY (ARRAY['draft'::text, 'reviewed'::text, 'published'::text])",
+            name="ck_aoi_i18n_status",
+        ),
+        ForeignKeyConstraint(
+            ["aoi_id"], ["aoi.id"], ondelete="CASCADE", name="aoi_i18n_aoi_id_fkey"
+        ),
+        ForeignKeyConstraint(
+            ["locale"], ["supported_locale.code"], name="aoi_i18n_locale_fkey"
+        ),
+        ForeignKeyConstraint(
+            ["updated_by"],
+            ["users.id"],
+            ondelete="SET NULL",
+            name="aoi_i18n_updated_by_fkey",
+        ),
+        PrimaryKeyConstraint("aoi_id", "locale", name="aoi_i18n_pkey"),
+    )
+
+    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    locale: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'published'::text")
+    )
+    quality: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'human'::text")
+    )
+    source_checksum: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(True), nullable=False, server_default=text("now()")
+    )
+    updated_by: Mapped[Optional[int]] = mapped_column(BigInteger)
+
+    aoi: Mapped["Aoi"] = relationship("Aoi", back_populates="aoi_i18n")
+    supported_locale: Mapped["SupportedLocale"] = relationship(
+        "SupportedLocale", back_populates="aoi_i18n"
+    )
+    users: Mapped[Optional["Users"]] = relationship("Users", back_populates="aoi_i18n")
+
+
+class AoiIho(Aoi):
+    __tablename__ = "aoi_iho"
+    __table_args__ = (
+        ForeignKeyConstraint(["aoi_id"], ["aoi.id"], name="aoi_iho_aoi_id_fkey"),
+        PrimaryKeyConstraint("aoi_id", name="aoi_iho_pkey"),
+    )
+
+    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    mrgid: Mapped[Optional[int]] = mapped_column(Integer)
+
+
+class AoiMpa(Aoi):
+    __tablename__ = "aoi_mpa"
+    __table_args__ = (
+        ForeignKeyConstraint(["aoi_id"], ["aoi.id"], name="aoi_mpa_aoi_id_fkey"),
+        PrimaryKeyConstraint("aoi_id", name="aoi_mpa_pkey"),
+    )
+
+    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    wdpaid: Mapped[Optional[int]] = mapped_column(Integer)
+    desig: Mapped[Optional[str]] = mapped_column(Text)
+    desig_type: Mapped[Optional[str]] = mapped_column(Text)
+    status_yr: Mapped[Optional[int]] = mapped_column(Integer)
+    mang_auth: Mapped[Optional[str]] = mapped_column(Text)
+    parent_iso: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class AoiUser(Aoi):
+    __tablename__ = "aoi_user"
+    __table_args__ = (
+        ForeignKeyConstraint(["aoi_id"], ["aoi.id"], name="aoi_user_aoi_id_fkey"),
+        ForeignKeyConstraint(["user"], ["users.id"], name="aoi_user_user_fkey"),
+        PrimaryKeyConstraint("aoi_id", name="aoi_user_pkey"),
+    )
+
+    aoi_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user: Mapped[Optional[int]] = mapped_column(BigInteger)
+    create_time: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime, server_default=text("now()")
+    )
+    aoi_user_geometry: Mapped[Optional[Any]] = mapped_column(
+        "geometry",
+        Geography(dimension=2, from_text="ST_GeogFromText", name="geography"),
+    )
+
+    users: Mapped[Optional["Users"]] = relationship("Users", back_populates="aoi_user")
 
 
 class HitlRequest(Base):
