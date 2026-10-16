@@ -21,3 +21,14 @@ Start the container as described in [Debug image](#debug-image) and in another s
 ```shell
 docker cp cloud_run_tipg:/app/sbom.xml .
 ```
+
+# Public collections
+
+Only tables, views, and functions listed in `TIPG_DB_TABLES` and
+`TIPG_DB_FUNCTIONS` (deployed values in `stack/cloud_run_tipg.py`) are served.
+An unset or empty allowlist serves nothing, so set both for local development:
+
+```shell
+export TIPG_DB_TABLES='["public.slick_plus", "public.source_plus", "public.sentinel1_grd"]'
+export TIPG_DB_FUNCTIONS='[]'
+```
