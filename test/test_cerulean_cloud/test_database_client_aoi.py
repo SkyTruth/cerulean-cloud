@@ -1105,7 +1105,11 @@ def test_aoi_access_sql_contracts_are_kept_in_sync():
     )[0]
     assert '"aoi_type_public",' in datetime_table_config
     assert '"aoi_type",' not in datetime_table_config
-    assert '"public.aoi_type"' in tipg_text
+    assert '"public.aoi_type_public"' in tipg_text
+    assert '"public.slick_plus_2"' in tipg_text
+    assert '"public.aoi"' not in tipg_text
+    assert '"public.aoi_type"' not in tipg_text
+    assert '"public.aoi_user"' not in tipg_text
 
 
 @pytest.mark.asyncio

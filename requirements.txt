@@ -1,6 +1,7 @@
 -r requirements-pulumi.txt
 morecantile~=6.1.0
 numpy<2.0.0
+pyarrow<26  # PyArrow 26 requires NumPy 2.
 supermercado
 httpx==0.22.*
 geojson

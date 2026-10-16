@@ -2,6 +2,8 @@
 Reference doc: https://www.pulumi.com/blog/build-publish-containers-iac/
 """
 
+import json
+
 import cloud_run_images
 import pulumi
 import pulumi_gcp as gcp
@@ -12,7 +14,7 @@ from utils import construct_name
 config = pulumi.Config()
 stack = pulumi.get_stack()
 
-# Assign access to cloud secrets
+# Service account for Cloud SQL access
 cloud_function_service_account = gcp.serviceaccount.Account(
     construct_name("cr-tipg"),
     account_id=f"{stack}-cr-tipg",
@@ -28,30 +30,9 @@ cloud_function_service_account_iam = gcp.projects.IAMMember(
     ),
 )
 
-cloud_function_service_account_iam = gcp.projects.IAMMember(
-    construct_name("cr-tipg-secretmanagerSecretAccessor"),
-    project=pulumi.Config("gcp").require("project"),
-    role="roles/secretmanager.secretAccessor",
-    member=cloud_function_service_account.email.apply(
-        lambda email: f"serviceAccount:{email}"
-    ),
-)
-
-# IAM Binding for Secret Manager access
-secret_accessor_binding = gcp.secretmanager.SecretIamMember(
-    construct_name("cr-tipg-secret-accessor-binding"),
-    secret_id=pulumi.Config("cerulean-cloud").require("keyname"),
-    role="roles/secretmanager.secretAccessor",
-    member=pulumi.Output.concat(
-        "serviceAccount:", cloud_function_service_account.email
-    ),
-    opts=pulumi.ResourceOptions(depends_on=[cloud_function_service_account]),
-)
-
 service_name = construct_name("cr-tipg")
 default = gcp.cloudrun.Service(
     service_name,
-    opts=pulumi.ResourceOptions(depends_on=[secret_accessor_binding]),
     name=service_name,
     location=pulumi.Config("gcp").require("region"),
     autogenerate_revision_name=True,
@@ -82,9 +63,37 @@ default = gcp.cloudrun.Service(
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TIPG_DB_ONLY_SPATIAL_TABLES", value="False"
                         ),
+                        # EditTheDatabase: explicitly opt collections into the public API.
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="TIPG_DB_EXCLUDE_FUNCTIONS",
-                            value='["st_squaregrid", "st_hexagongrid", "st_subdivide", "postgis_srs_search", "postgis_srs_all", "postgis_srs", "postgis_srs_codes"]',
+                            name="TIPG_DB_TABLES",
+                            value=json.dumps(
+                                [
+                                    "public.aoi_eez",
+                                    "public.aoi_iho",
+                                    "public.aoi_mpa",
+                                    "public.aoi_type_public",
+                                    "public.cls",
+                                    "public.layer",
+                                    "public.model",
+                                    "public.sentinel1_grd",
+                                    "public.slick_plus",
+                                    "public.slick_plus_2",
+                                    "public.source_plus",
+                                    "public.source_type",
+                                ]
+                            ),
+                        ),
+                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
+                            name="TIPG_DB_FUNCTIONS",
+                            value=json.dumps(
+                                [
+                                    "public.get_slick_subclses",
+                                    "public.get_slicks_by_aoi",
+                                    "public.get_slicks_by_aoi_or_source",
+                                    "public.get_slicks_by_source",
+                                    "public.slick_history",
+                                ]
+                            ),
                         ),
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TIPG_SORT_COLUMNS", value="False"
@@ -138,22 +147,6 @@ default = gcp.cloudrun.Service(
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="TIPG_MAX_FEATURES_PER_QUERY",
                             value=50000,
-                        ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="RESTRICTED_COLLECTIONS",
-                            value='["public.aoi","public.aoi_user","public.aoi_type","public.filter", "public.frequency", "public.verification_token", "public.accounts", "public.sessions", "public.subscription", "public.users", "public.slick_to_source", "public.source", "public.source_infra", "public.source_type", "public.source_vessel", "public.source_dark", "public.source_natural", "public.source_to_tag", "public.tag", "public.hitl_slick", "public.permission", "public.slick", "public.slick_to_aoi", "public.aoi_chunks", "public.trigger", "public.orchestrator_run", "public.repeat_source", "public.hitl_request", "public.supported_locale", "public.cls_i18n", "public.tag_i18n", "public.aoi_type_i18n", "public.aoi_i18n", "public.source_type_i18n", "public.frequency_i18n", "public.permission_i18n", "public.layer_i18n"]',
-                            # EditTheDatabase
-                        ),
-                        gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
-                            name="SECRET_API_KEY",
-                            value_from=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromArgs(
-                                secret_key_ref=gcp.cloudrun.ServiceTemplateSpecContainerEnvValueFromSecretKeyRefArgs(
-                                    name=pulumi.Config("cerulean-cloud").require(
-                                        "keyname"
-                                    ),
-                                    key="latest",
-                                )
-                            ),
                         ),
                     ],
                     resources=dict(limits=dict(memory="8Gi", cpu="6000m")),
