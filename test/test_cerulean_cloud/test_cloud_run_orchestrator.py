@@ -4,7 +4,8 @@ import os
 import sys
 from base64 import b64decode
 from datetime import date, datetime
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import geojson
 import geopandas as gpd
@@ -14,7 +15,7 @@ import pytest
 import rasterio
 from rasterio.io import MemoryFile
 from rasterio.plot import reshape_as_image
-from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
+from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping, shape
 
 import cerulean_cloud
 import cerulean_cloud.cloud_run_orchestrator.handler as orchestrator_handler
@@ -263,6 +264,138 @@ def test_is_tile_over_water():
 
     offset_bounds_over_water = [b for b in offset_tiles_bounds if is_tile_over_water(b)]
     assert len(offset_bounds_over_water) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bounds, expected_groups",
+    [
+        (
+            [
+                175.38292995222957,
+                61.06949078480844,
+                -179.34123633603335,
+                62.88226850489882,
+            ],
+            2,
+        ),
+        ([32.989094, 43.338009, 36.540836, 45.235191], 1),
+    ],
+    ids=["antimeridian", "ordinary"],
+)
+async def test_orchestrator_keeps_inference_regions_compact(
+    monkeypatch, bounds, expected_groups
+):
+    model_config = {
+        "zoom_level": 9,
+        "scale": 2,
+        "tile_width_px": 512,
+        "layers": ["VV"],
+        "type": "MASKRCNN",
+    }
+    db_model = SimpleNamespace(
+        **model_config,
+        __table__=SimpleNamespace(
+            columns=[SimpleNamespace(name=name) for name in model_config]
+        ),
+    )
+    db_client = MagicMock()
+    db_client.__aenter__.return_value = db_client
+    for method, value in {
+        "get_db_model": db_model,
+        "get_cls_subtree_ids": {},
+        "get_trigger": None,
+        "get_layer": SimpleNamespace(short_name="VV"),
+        "get_or_insert_sentinel1_grd": SimpleNamespace(
+            start_time=datetime(2023, 7, 26), scene_id=S1_ID
+        ),
+        "deactivate_stale_slicks_from_scene_id": 0,
+        "add_orchestrator": SimpleNamespace(id=1),
+        "add_slick": None,
+    }.items():
+        setattr(db_client, method, AsyncMock(return_value=value))
+    monkeypatch.setattr(orchestrator_handler, "DatabaseClient", lambda _: db_client)
+
+    clients = []
+    inferred_tilesets = []
+
+    class InferenceClient:
+        def __init__(self, **kwargs):
+            self.envelope = kwargs["tileset_envelope_bounds"]
+            west, _, east, _ = self.envelope
+            assert -180 <= west < east <= 180
+            assert east - west < 10
+            assert kwargs["image_hw_pixels"][1] < 10_000
+            clients.append(self)
+
+        async def run_parallel_inference(self, tileset):
+            assert len(tileset) < 150
+            for tile_bounds in tileset:
+                assert box(*self.envelope).covers(box(*tile_bounds))
+            inferred_tilesets.append(tileset)
+            return [InferenceResultStack(stack=[]) for _ in tileset]
+
+    monkeypatch.setattr(
+        orchestrator_handler, "CloudRunInferenceClient", InferenceClient
+    )
+
+    def postprocess(results, nested_bounds):
+        tile_bounds = [b[0] for b in nested_bounds]
+        assert len(results) == len(tile_bounds)
+        envelope = group_bounds_from_list_of_bounds(tile_bounds)
+        assert envelope[2] - envelope[0] < 10
+        west, south, east, north = envelope
+        x, y = (west + east) / 2, (south + north) / 2
+        return geojson.FeatureCollection(
+            [
+                geojson.Feature(
+                    geometry=mapping(box(x, y, x + 0.01, y + 0.01)),
+                    properties={"inf_idx": 1, "machine_confidence": 0.9},
+                )
+            ]
+        )
+
+    model = MagicMock()
+    model.postprocess_tileset.side_effect = postprocess
+    model.nms_feature_reduction.side_effect = lambda features, **_: (
+        geojson.FeatureCollection([f for fc in features for f in fc["features"]])
+    )
+    monkeypatch.setattr(orchestrator_handler, "get_model", lambda _: model)
+    monkeypatch.setattr(
+        orchestrator_handler,
+        "get_landmask_gdf",
+        lambda: gpd.GeoDataFrame(geometry=[], crs="EPSG:4326"),
+    )
+    monkeypatch.setattr(
+        orchestrator_handler, "get_sea_ice_mask", lambda _: (None, None)
+    )
+    monkeypatch.setattr(
+        orchestrator_handler, "calculate_centerlines", lambda *_: ({}, 1.0)
+    )
+    monkeypatch.setattr(orchestrator_handler, "add_to_asa_queue", MagicMock())
+    titiler = MagicMock()
+    titiler.get_bounds = AsyncMock(return_value=bounds)
+    titiler.get_statistics = AsyncMock(return_value={})
+    roda = SimpleNamespace(get_product_info=AsyncMock(return_value={}))
+
+    result = await _orchestrate(
+        OrchestratorInput(scene_id=S1_ID), TMS, titiler, roda, None
+    )
+
+    assert result.status == "Success"
+    assert len(clients) == expected_groups
+    assert len(inferred_tilesets) == expected_groups * 3
+    assert model.postprocess_tileset.call_count == expected_groups * 3
+    assert model.nms_feature_reduction.call_count == expected_groups
+    saved_geometries = [
+        shape(call.args[2]) for call in db_client.add_slick.call_args_list
+    ]
+    assert len(saved_geometries) == expected_groups * 3
+    assert all(g.bounds[2] - g.bounds[0] < 0.02 for g in saved_geometries)
+    if expected_groups == 2:
+        assert any(g.bounds[0] < 0 for g in saved_geometries)
+        assert any(g.bounds[0] > 0 for g in saved_geometries)
+    assert db_client.add_orchestrator.return_value.success is True
 
 
 def custom_response(url, data, timeout):
