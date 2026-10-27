@@ -249,6 +249,8 @@ def upgrade() -> None:
         sa.Column("scope", sa.Text),
         sa.Column("createdAt", sa.DateTime, server_default=sa.func.now()),
         sa.Column("updatedAt", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("refreshTokenExpiresAt", sa.DateTime),
+        sa.Column("password", sa.Text()),
     )
 
     op.create_table(
