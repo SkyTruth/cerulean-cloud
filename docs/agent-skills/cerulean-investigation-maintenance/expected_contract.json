@@ -1,0 +1,189 @@
+{
+  "checked_at": "2026-10-26",
+  "collections": [
+    "public.aoi",
+    "public.aoi_eez",
+    "public.aoi_iho",
+    "public.aoi_mpa",
+    "public.aoi_type",
+    "public.cls",
+    "public.get_slick_subclses",
+    "public.get_slicks_by_aoi",
+    "public.get_slicks_by_aoi_or_source",
+    "public.get_slicks_by_source",
+    "public.layer",
+    "public.model",
+    "public.sentinel1_grd",
+    "public.slick_history",
+    "public.slick_plus",
+    "public.source_plus",
+    "public.source_type"
+  ],
+  "slick_plus_queryables": [
+    "aoi_type_1_ids",
+    "aoi_type_2_ids",
+    "aoi_type_3_ids",
+    "area",
+    "aspect_ratio_factor",
+    "centerlines",
+    "centroid",
+    "cls",
+    "fill_factor",
+    "geometry",
+    "hitl_cls",
+    "hitl_cls_name",
+    "id",
+    "length",
+    "linearity",
+    "machine_confidence",
+    "max_source_collated_score",
+    "orchestrator_run",
+    "perimeter",
+    "polsby_popper",
+    "s1_geometry",
+    "s1_scene_id",
+    "slick_confidence",
+    "slick_timestamp",
+    "slick_url",
+    "source_type_1_ids",
+    "source_type_2_ids",
+    "source_type_3_ids"
+  ],
+  "source_plus_queryables": [
+    "create_time",
+    "geometry",
+    "git_tag",
+    "mmsi_or_structure_id",
+    "slick_confidence",
+    "slick_id",
+    "slick_url",
+    "source_collated_score",
+    "source_id",
+    "source_rank",
+    "source_type",
+    "source_url"
+  ],
+  "classes": {
+    "1": [
+      "Not Oil",
+      null
+    ],
+    "2": [
+      "Anthropogenic",
+      null
+    ],
+    "3": [
+      "Natural",
+      null
+    ],
+    "4": [
+      "Infrastructure",
+      2
+    ],
+    "5": [
+      "Vessel",
+      2
+    ],
+    "6": [
+      "Vessel, old",
+      5
+    ],
+    "7": [
+      "Vessel, recent",
+      5
+    ],
+    "8": [
+      "Vessel, coincident",
+      7
+    ],
+    "9": [
+      "Ambiguous",
+      null
+    ],
+    "10": [
+      "Land",
+      1
+    ],
+    "11": [
+      "Sea Ice",
+      1
+    ],
+    "12": [
+      "Artefact",
+      1
+    ]
+  },
+  "source_types": {
+    "1": "VESSEL",
+    "2": "INFRA",
+    "3": "DARK",
+    "4": "NATURAL"
+  },
+  "aoi_types": {
+    "1": "EEZ",
+    "2": "IHO",
+    "3": "MPA",
+    "4": "USER"
+  },
+  "items_limit": {
+    "default": 10,
+    "maximum": 50000
+  },
+  "example": {
+    "bbox": [
+      11,
+      36,
+      20,
+      43
+    ],
+    "start": "2025-05-01",
+    "end": "2025-05-08",
+    "ids": [
+      3935019,
+      4110801,
+      4111397,
+      4112995,
+      4112997
+    ]
+  },
+  "polygon": {
+    "wkt": "POLYGON((14 36, 15 36, 15 37, 14 37, 14 36))",
+    "ids": [
+      4111397
+    ]
+  },
+  "aoi": {
+    "mrgid": 5682,
+    "aoi_id": 224,
+    "ids": [
+      3935019,
+      4110801,
+      4111397,
+      4112995,
+      4112997,
+      4136202
+    ]
+  },
+  "vessel": {
+    "mmsi": "215371000",
+    "rows": 32,
+    "screened_ids": [
+      3517386,
+      4111397,
+      4255584,
+      4261997,
+      4261999
+    ]
+  },
+  "detail": {
+    "id": 4111397,
+    "hitl_cls": 8,
+    "rank1_mmsi": "215371000",
+    "candidates": 8
+  },
+  "manual_map_checks": [
+    "Open the example search in references/computer-use.md; the map shows '5 Slicks | 7 km²'.",
+    "Open https://cerulean.skytruth.org/; date_range defaults to the 12 months ending today (UTC).",
+    "Search MMSI 215371000 with dates 2024-01-01 to today; the map lists only detection 4111397."
+  ]
+}
