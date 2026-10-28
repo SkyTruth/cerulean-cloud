@@ -148,6 +148,9 @@ Before merging the switch to Actions secrets, coordinate the following rollout:
 1. Rotate or revoke the database and SciHub credentials previously committed as
    ciphertext. Include the legacy `production` stack; changing encryption alone
    does not revoke credentials recoverable from Git history.
+   For retained stacks, use `pulumi config set --secret` to update `db:db-password`
+   and `scihub:password` to their replacements so deployment cannot restore an old
+   database password or keep using revoked SciHub credentials.
 2. For each retained stack, rotate its Pulumi passphrase in both projects using
    [`pulumi stack change-secrets-provider passphrase --stack <stack>`](https://www.pulumi.com/docs/iac/concepts/secrets/#changing-the-secrets-provider-for-a-stack).
    Unset `PULUMI_CONFIG_PASSPHRASE` and `PULUMI_CONFIG_PASSPHRASE_FILE` first and
