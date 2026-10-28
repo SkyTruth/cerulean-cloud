@@ -131,6 +131,35 @@ If you get an error while running tests mentioning that `psycopg` is not install
 pip install "psycopg[binary]"
 ```
 ### Pulumi
+#### CI passphrases
+
+Configure these GitHub Actions secrets with a different random passphrase per
+stack. Each passphrase must unlock both the infrastructure project at the
+repository root and the image project in `images/`.
+
+| Stack | Actions secret | Scope |
+| --- | --- | --- |
+| `test` (preview and deploy) | `PULUMI_CONFIG_PASSPHRASE_TEST` | Repository |
+| `staging` | `PULUMI_CONFIG_PASSPHRASE_STAGING` | `staging` environment |
+| `prod20240903` | `PULUMI_CONFIG_PASSPHRASE_PRODUCTION` | `prod20240903` environment |
+
+Before merging the switch to Actions secrets, coordinate the following rollout:
+
+1. Rotate or revoke the database and SciHub credentials previously committed as
+   ciphertext. Include the legacy `production` stack; changing encryption alone
+   does not revoke credentials recoverable from Git history.
+2. For each retained stack, rotate its Pulumi passphrase in both projects using
+   [`pulumi stack change-secrets-provider passphrase --stack <stack>`](https://www.pulumi.com/docs/iac/concepts/secrets/#changing-the-secrets-provider-for-a-stack).
+   Unset `PULUMI_CONFIG_PASSPHRASE` and `PULUMI_CONFIG_PASSPHRASE_FILE` first and
+   enter the old and new passphrases at the prompts. Commit the updated encrypted
+   configuration from both projects; this command also re-encrypts backend state.
+3. Set the Actions secrets above to the new passphrases and verify a preview for
+   both projects. Do not reuse the exposed passphrases or add a literal fallback.
+
+Merging to `main` immediately deploys staging, so complete this rollout first.
+Fork PRs do not receive Actions secrets and cannot run the authenticated preview;
+their ordinary tests still run.
+
 #### Check available stages
 ```
 pulumi stack ls
