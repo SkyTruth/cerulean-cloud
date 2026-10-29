@@ -48,7 +48,7 @@ from cerulean_cloud.structured_logger import (
     configure_structured_logger,
     context_dict_var,
 )
-from cerulean_cloud.tiling import TMS, offset_bounds_from_base_tiles
+from cerulean_cloud.tiling import TMS, group_tiles_by_x, offset_bounds_from_base_tiles
 from cerulean_cloud.titiler_client import TitilerClient
 
 # Configure logger
@@ -403,9 +403,6 @@ async def _orchestrate(
             }
         )
 
-    # WARNING: until this is resolved https://github.com/cogeotiff/rio-tiler-pds/issues/77
-    # When scene traverses the anti-meridian, scene_bounds are nonsensical
-    # Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7 >>> [-180.0, 61.06949078480844, 180.0, 62.88226850489882]
     logger.info("Getting scene bounds")
     scene_bounds = await titiler_client.get_bounds(payload.scene_id)
 
@@ -428,16 +425,24 @@ async def _orchestrate(
 
     base_tiles = list(tiler.tiles(*scene_bounds, [zoom], truncate=False))
     n_basetiles = len(base_tiles)
+    # Upstream returns west > east for wrapped bounds. Keep the two sides
+    # separate through auxiliary raster loading, stitching, and ensembling.
+    base_tile_groups = group_tiles_by_x(base_tiles)
 
     offset_amounts = [0.0, 0.33, 0.66]
-    tileset_list = [
-        offset_bounds_from_base_tiles(base_tiles, offset_amount=o_a)
-        for o_a in offset_amounts
+    tileset_groups = [
+        [
+            offset_bounds_from_base_tiles(group, offset_amount=o_a)
+            for o_a in offset_amounts
+        ]
+        for group in base_tile_groups
     ]
 
-    n_offsettiles = len(tileset_list[0])
-    tileset_hw_pixels = offset_group_shape_from_base_tiles(base_tiles, scale=scale)
-    tileset_envelope_bounds = group_bounds_from_list_of_bounds(tileset_list[0])
+    n_offsettiles = sum(len(tilesets[0]) for tilesets in tileset_groups)
+    tileset_envelopes = [
+        group_bounds_from_list_of_bounds([b for tileset in group for b in tileset])
+        for group in tileset_groups
+    ]
 
     logger.info(
         {
@@ -447,28 +452,18 @@ async def _orchestrate(
     )
 
     # Filter out land tiles
-    try:
-        tileset_list = [
-            [b for b in tileset if is_tile_over_water(b)] for tileset in tileset_list
-        ]
-        logger.info(
-            {
-                "message": "Removed tiles over land",
-                "n_tilesets": len(tileset_list[0]),
-            }
-        )
-    except ValueError as e:
-        # XXX BUG is_tile_over_water throws ValueError if the scene crosses or is close to the antimeridian. Example: S1A_IW_GRDH_1SDV_20230726T183302_20230726T183327_049598_05F6CA_31E7
+    tileset_groups = [
+        [[b for b in tileset if is_tile_over_water(b)] for tileset in group]
+        for group in tileset_groups
+    ]
+    logger.info(
+        {
+            "message": "Removed tiles over land",
+            "n_tilesets": sum(len(group[0]) for group in tileset_groups),
+        }
+    )
 
-        logger.error(
-            {
-                "message": "FAILURE - scene touches antimeridian, and is_tile_over_water() failed!",
-                "traceback": traceback.format_exc(),
-            }
-        )
-        return OrchestratorResult(status=str(e))
-
-    if not any(set for set in tileset_list):
+    if not any(tileset for group in tileset_groups for tileset in group):
         # There are actually no tiles to be processed! This is because the scene relevancy ocean mask is coarser than globe.is_ocean().
         # WARNING this will return success, but there will be not trace in the DB of your request (i.e. in S1 or Orchestrator tables)
         # XXX TODO
@@ -530,26 +525,6 @@ async def _orchestrate(
         success = True
         sea_ice_date = None
         try:
-            logger.info("Instantiating inference client")
-            cloud_run_inference = CloudRunInferenceClient(
-                url=os.getenv("INFERENCE_URL"),
-                titiler_client=titiler_client,
-                scene_id=payload.scene_id,
-                tileset_envelope_bounds=tileset_envelope_bounds,
-                image_hw_pixels=tileset_hw_pixels,
-                layers=layers,
-                scale=scale,
-                model_dict=model_dict,
-            )
-
-            # Perform inferences
-            logger.info("Inference starting")
-            tileset_results_list = [
-                await cloud_run_inference.run_parallel_inference(tileset)
-                for tileset in tileset_list
-            ]
-
-            # Stitch inferences
             logger.info(
                 {
                     "message": "Initializing model",
@@ -558,22 +533,45 @@ async def _orchestrate(
             )
             model = get_model(model_dict)
 
-            logger.info("Stitching result")
-            tileset_fc_list = []
-            for tileset_results, tileset_bounds in zip(
-                tileset_results_list, tileset_list
+            final_ensemble = {"type": "FeatureCollection", "features": []}
+            for group, tilesets, envelope in zip(
+                base_tile_groups, tileset_groups, tileset_envelopes
             ):
-                if tileset_results and tileset_bounds:
+                if not any(tilesets):
+                    continue
+                logger.info("Instantiating inference client")
+                cloud_run_inference = CloudRunInferenceClient(
+                    url=os.getenv("INFERENCE_URL"),
+                    titiler_client=titiler_client,
+                    scene_id=payload.scene_id,
+                    tileset_envelope_bounds=envelope,
+                    image_hw_pixels=offset_group_shape_from_base_tiles(
+                        group, scale=scale
+                    ),
+                    layers=layers,
+                    scale=scale,
+                    model_dict=model_dict,
+                )
+
+                tileset_fc_list = []
+                for tileset in tilesets:
+                    if not tileset:
+                        continue
+                    logger.info("Inference starting")
+                    tileset_results = await cloud_run_inference.run_parallel_inference(
+                        tileset
+                    )
+                    logger.info("Stitching result")
                     fc = model.postprocess_tileset(
-                        tileset_results, [[b] for b in tileset_bounds]
+                        tileset_results, [[b] for b in tileset]
                     )  # extra square brackets needed because each stack only has one tile in it for now XXX HACK
                     tileset_fc_list.append(fc)
 
-            # Ensemble inferences
-            logger.info("Ensembling results")
-            final_ensemble = model.nms_feature_reduction(
-                features=tileset_fc_list, min_overlaps_to_keep=1
-            )
+                logger.info("Ensembling results")
+                ensemble = model.nms_feature_reduction(
+                    features=tileset_fc_list, min_overlaps_to_keep=1
+                )
+                final_ensemble["features"].extend(ensemble.get("features", []))
             features = final_ensemble.get("features", [])
             n_features = len(features)
 
