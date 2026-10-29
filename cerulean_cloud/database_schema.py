@@ -468,6 +468,8 @@ class Accounts(Base):
     updatedAt: Mapped[Optional[datetime.datetime]] = mapped_column(
         DateTime, server_default=text("now()")
     )
+    refreshTokenExpiresAt: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    password: Mapped[Optional[str]] = mapped_column(Text)
 
     users: Mapped["Users"] = relationship("Users", back_populates="accounts")
 

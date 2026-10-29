@@ -71,7 +71,7 @@ Search for `# EditTheDatabase` and confirm whether each marker needs action for 
 
 5. Check TiPG exposure.
    - Decide whether the new table or view should be publicly readable.
-   - Update `RESTRICTED_COLLECTIONS` when needed.
+   - Add only intentionally public tables/views to `TIPG_DB_TABLES` and public functions to `TIPG_DB_FUNCTIONS` in `stack/cloud_run_tipg.py`.
    - Add `TIPG_TABLE_CONFIG` geometry or datetime settings only if the table needs them.
 
 6. Check frontend-visible vocabulary.
