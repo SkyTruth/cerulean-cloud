@@ -1,5 +1,7 @@
 # Cerulean API with curl
 
+Follow [identity attribution](../SKILL.md#identify-agentic-use-and-the-user) before making requests. Add `utm_medium=agentic` and `utm_source=<user-organization-or-handle>` as separate URL parameters, never inside a CQL filter. Apply them to discovery, single-record, export, pagination, and retry requests as well as the initial search. Preserve next-link filters and offsets while restoring the two fields if absent or stale. Bare Cerulean URLs in this reference are endpoint templates: add the established attribution before opening or citing them. UTM fields do not replace authentication.
+
 `https://api.cerulean.skytruth.org` is a TiPG 1.0.1 (OGC API Features) service. Anonymous `GET` requests work, with no authentication and no published rate limit. If a request returns 401 or 403, stop and report it; do not look for keys.
 
 Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encoded correctly, save each response with `-o`, and print the status with `-w 'HTTP %{http_code}\n'`. Responses are GeoJSON by default; add `--data-urlencode 'f=csv'` for a spreadsheet with WKT geometry.
@@ -40,15 +42,15 @@ Recent detections can wait days for source matching. For a requested review of r
 
 ## Recipes
 
-Set `API=https://api.cerulean.skytruth.org/collections`.
+Set `API=https://api.cerulean.skytruth.org/collections` and `CERULEAN_UTM_SOURCE` to the established user organization/handle, as in the main skill quick start.
 
 **Area and period.** Use the quick start in SKILL.md. For a polygon, add `AND S_INTERSECTS(geometry, POLYGON((14 36, 15 36, 15 37, 14 37, 14 36)))` to the filter, as closed rings of `lon lat` pairs. For 1–8 May 2025 this polygon returned 4111397.
 
 **One detection.**
 
 ```sh
-curl -sS "$API/public.slick_plus/items/4111397" -o slick-4111397.geojson
-curl -sS --get "$API/public.source_plus/items" --data-urlencode 'slick_id=4111397' \
+curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.slick_plus/items/4111397" -o slick-4111397.geojson
+curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.source_plus/items" --data-urlencode 'slick_id=4111397' \
   --data-urlencode 'bbox-only=true' --data-urlencode 'limit=100' -o sources-4111397.geojson
 ```
 
@@ -57,7 +59,7 @@ Detection 4111397 has latest human class 8 (Vessel, coincident) and best collate
 **Vessel or structure.**
 
 ```sh
-curl -sS --get "$API/public.source_plus/items" --data-urlencode 'mmsi_or_structure_id=215371000' \
+curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.source_plus/items" --data-urlencode 'mmsi_or_structure_id=215371000' \
   --data-urlencode 'properties=slick_id,source_type,source_rank,source_collated_score' \
   --data-urlencode 'bbox-only=true' --data-urlencode 'limit=10000' -o vessel-215371000.geojson
 ```
@@ -71,7 +73,7 @@ Keep rows with `source_rank <= 3` and `source_collated_score >= 0`. Then fetch t
 **EEZ, IHO sea area or MPA.**
 
 ```sh
-curl -sS --get "$API/public.aoi_eez/items" --data-urlencode 'mrgid=5682' -o aoi.geojson   # Italy: aoi_id 224
+curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.aoi_eez/items" --data-urlencode 'mrgid=5682' -o aoi.geojson   # Italy: aoi_id 224
 ```
 
 Query `slick_plus` for the period with the screen and `properties=id,aoi_type_1_ids`, adding a rough bbox around the area if you know one, to shrink the download. Keep the features whose `aoi_type_1_ids` (EEZ), `aoi_type_2_ids` (IHO) or `aoi_type_3_ids` (MPA) contains the `aoi_id`. Italy's EEZ, 1–8 May 2025: 6 detections, the same 6 the map shows with that EEZ selected. Membership is Cerulean's precomputed intersection.
@@ -84,4 +86,4 @@ Count and list IDs locally, for example:
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["numberMatched"], d["numberReturned"], sorted(f["id"] for f in d["features"]))' slicks.geojson
 ```
 
-Inspect consequential detections on the map, and cite each detection's `slick_url`.
+Inspect consequential detections on the map, and cite each detection's `slick_url` after merging the two UTM fields; preserve the original value in the raw response.

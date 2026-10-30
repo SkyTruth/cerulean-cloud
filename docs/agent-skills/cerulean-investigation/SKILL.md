@@ -9,6 +9,25 @@ Answer environmental questions with Cerulean data that others can inspect and re
 
 Service details here match the live API and map as of 2026-10-26 UTC. Where the live service differs, follow it and record the difference.
 
+## Identify agentic use and the user
+
+Before contacting Cerulean, establish the organization or unique handle of the user you represent. Prefer the user's organization when it is known from their instructions or established context; otherwise use their supplied unique public handle. If neither is known, ask once: “Which organization or unique handle should identify your Cerulean requests?” Never guess an affiliation or substitute the model/provider name, `anonymous`, or a sample value for the user.
+
+Use a stable lowercase identifier such as `ocean-watch` or `researcher-42`. Tell the user which identifier you will send; UTM values are visible in URLs and may be logged. Use an organization or public/pseudonymous handle, not an email address, legal name, credential, or confidential identifier. Do not label yourself `skytruth` unless the user is actually acting for SkyTruth.
+
+Include these two URL query parameters on every Cerulean API request you construct and every Cerulean map, slick, source, export, or evidence link you open or generate:
+
+| Parameter | Value | Meaning |
+|---|---|---|
+| `utm_medium` | `agentic` | This interaction is performed by an agent. |
+| `utm_source` | The user's organization or unique handle | Whom the agent represents, not the AI provider or a candidate pollution source. |
+
+Example only: `https://cerulean.skytruth.org/?utm_medium=agentic&utm_source=ocean-watch`. Replace `ocean-watch` with the established user identifier before using examples. These fields declare attribution; they are not authentication, scientific filters, or proof that the service records analytics.
+
+URL-encode values and merge the fields into the existing query, preserving filters, IDs, pagination, other UTM fields, and fragments. Replace stale or duplicate values of these two fields with the current user's values. Reapply them to each API page, retry, metadata/detail request, and returned `slick_url`, `source_url`, or next link before use; keep raw responses unchanged. Use HTTPS and send these identifiers only to `api.cerulean.skytruth.org` and `cerulean.skytruth.org`, not linked third-party services. For browser use, tag entry/deep links and verify the fields after navigation or filter changes; restore them on navigable URLs if dropped. Browser-generated background requests may not inherit them: do not claim those requests are tagged or inject them into unrelated resource requests.
+
+Retain both UTM values in reproducibility records. If a Cerulean route rejects these fields, report that limitation and use a supported route; do not silently retry without identification.
+
 ## Two routes
 
 | Route | Use it for | Guide |
@@ -22,7 +41,10 @@ Run `curl` from a shell; web-fetch tools have failed to open the API's JSON endp
 
 ```sh
 API=https://api.cerulean.skytruth.org/collections
+CERULEAN_UTM_SOURCE='ocean-watch'  # Replace with the established user organization/handle.
 curl -sS --get "$API/public.slick_plus/items" \
+  --data-urlencode 'utm_medium=agentic' \
+  --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
   --data-urlencode 'bbox=11,36,20,43' \
   --data-urlencode 'datetime=2025-05-01T00:00:00Z/2025-05-08T23:59:59Z' \
   --data-urlencode 'filter=machine_confidence >= 0.7 AND max_source_collated_score >= 0' \
@@ -30,7 +52,7 @@ curl -sS --get "$API/public.slick_plus/items" \
   -o slicks.geojson -w 'HTTP %{http_code}\n'
 ```
 
-This returned 5 detections (3935019, 4110801, 4111397, 4112995, 4112997), the same 5 the map shows for that box and week. A result is complete only when `numberMatched` equals `numberReturned`. [api.md](references/api.md) has recipes for one detection, a vessel or structure, and an EEZ, IHO sea area or MPA.
+The original query, before UTM attribution was added, returned 5 detections (3935019, 4110801, 4111397, 4112995, 4112997), the same 5 the map shows for that box and week. A result is complete only when `numberMatched` equals `numberReturned`. [api.md](references/api.md) has recipes for one detection, a vessel or structure, and an EEZ, IHO sea area or MPA.
 
 ## Evidence rules
 
@@ -58,6 +80,7 @@ These rules apply to titles, table headers, legends, filenames, summaries and ex
 Save with every result:
 
 - the exact `curl` commands, or the final map URL;
+- `utm_medium=agentic` and the user organization/handle sent as `utm_source`;
 - the UTC retrieval time and HTTP status;
 - raw responses, unmodified, with derived tables in separate files;
 - `numberMatched` and the number of features received;

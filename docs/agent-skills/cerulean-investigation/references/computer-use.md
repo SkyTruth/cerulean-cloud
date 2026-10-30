@@ -1,5 +1,7 @@
 # Cerulean map with computer use
 
+Before opening Cerulean, apply [identity attribution](../SKILL.md#identify-agentic-use-and-the-user): `utm_medium=agentic` and `utm_source=<user-organization-or-handle>`. Merge both into the entry URL, example searches, returned slick/source links, and final share/export links without changing filters or fragments. After navigation or filter changes, check the current URL and restore the two fields if dropped; reopen share links to verify both attribution and search scope. Do not alter raw downloaded data. These URL tags do not guarantee attribution of the application's background API/tile requests.
+
 Open `https://cerulean.skytruth.org`. Searching needs no account. SkyTruth's guides cover [search and filter](https://skytruth.org/cerulean/guide-search-and-filter), [slick details](https://skytruth.org/cerulean/guide-slick-details) and [source profiles](https://skytruth.org/cerulean/guide-source-profile). Labels below match the English interface on 2026-10-25. Where they differ, use the current labels and accessible names; take a fresh screenshot after each action, and never reuse saved coordinates.
 
 ## Default filters
