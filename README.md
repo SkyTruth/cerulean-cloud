@@ -284,13 +284,61 @@ for scene_id in SCENES:
 
 The services deployed by cerulean-cloud that DO NOT require this API key are:
 - tipg Cloud Run
-- Historical run Cloud Function
 - Scene relevancy Cloud Function
 
 
+## Historical processing and scene inventory
+
+Historical-run owns discovery and orchestrator queue submission. Existing
+`start`/`end`/GeoJSON requests still use EODAG's PEPS catalog with `VV VH`
+polarization and the ocean intersection filter. New requests can instead supply
+`source: "s3"` with inclusive UTC acquisition dates and optional `modes` and
+`polarizations`, or an explicit `scene_ids` list. S3 discovery includes land
+scenes and rejects geographic filters; use EODAG for geographic/ocean selection.
+Explicit IDs bypass discovery. Duplicate IDs are queued once per request.
+
+Every enqueue request records a `HISTORICAL_RUN` trigger with raw/selected counts
+and a log link, then submits to the stack's existing orchestrator queue. Tasks
+carry the trigger ID and a 30-minute execution deadline. Omitted `dry_run` uses
+`dryrun_historical`; an explicit JSON boolean overrides it for that request.
+Optional `manual_trigger: true` gives downstream source-association tasks
+run-specific names. The JSON response reports the trigger ID, counts, and dry-run
+setting; successful submission does not mean processing has completed.
+`action: "list"` returns scene IDs without creating a trigger or queueing tasks.
+Discovery and queue failures return errors rather than a successful partial result.
+A queue failure can leave a partially submitted batch; resubmission creates a new
+batch and may reprocess scenes already submitted.
+
+Set `CERULEAN_API_KEY` in the environment for the CLI. The client discovers the
+endpoint from Pulumi's `historical_run_url` output for any `--stage` stack name;
+`--url` or `HISTORICAL_RUN_URL` can supply it directly. Examples from the checkout:
+
+```bash
+# Existing geographic search, with the stack's dry-run default.
+python -m scripts.historical_run --stage test eodag \
+  --date-start 2025-01-01 --date-end 2025-01-02 \
+  --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson
+
+# Export an archive inventory locally, without credentials or a function timeout.
+python -m scripts.historical_run s3 --list-only \
+  --date-start 2025-01-01 --date-end 2025-12-31 \
+  --mode IW --mode EW --polarization DV > scene_inventory.json
+
+# Submit a CSV with a scene_id column; request a dry run explicitly.
+python -m scripts.historical_run --stage test scenes \
+  --csv notebooks/scene_ids.csv --dry-run --manual-trigger
+```
+
+`notebooks/TriggerOnDemand.ipynb` uses the same archive inventory implementation
+locally and sends selected IDs to historical-run for processing. Deploy the
+updated historical-run function before using the new selectors. Remote discovery
+and queue submission are subject to the function's execution timeout; use local
+inventory for long date ranges and submit manageable batches. A full archive
+inventory establishes archive availability, not ocean coverage or prior processing.
+
 ## Adding a new Pulumi Stack
 Don't forget to edit the following places:
-- historical_run.py (add the stack name to stage options)
+- Historical-run discovers its URL from the selected stack’s `historical_run_url` output.
 - TODO add other places/steps
 - create a new git branch with the same name
 - copy changes in Git hash 7f1dcda and b55e6c7 (but use more modern yamls as base), commit and push

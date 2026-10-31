@@ -1,23 +1,26 @@
-"""cloud function scene relevancy handler
-inspired by the legacy ceruleanserver Machinable handler
-"""
+"""Discover Sentinel-1 scenes and submit tracked historical processing batches."""
 
 import asyncio
 import json
 import os
 import urllib.parse as urlparse
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import asyncpg
 import geojson
 import shapely.geometry as sh  # https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
-from eodag import EODataAccessGateway, setup_logging
 from flask import abort
 from google.cloud import tasks_v2
 from shapely.geometry import MultiPolygon, shape
 
-setup_logging(2)
+
+# Cloud Functions imports main.py at the root of the deployed source archive;
+# repository callers import it as part of cerulean_cloud.
+if __package__:
+    from .inventory import list_sentinel1_scene_ids
+else:
+    from inventory import list_sentinel1_scene_ids
 
 
 def load_ocean_poly(file_path: Optional[str] = None):
@@ -66,18 +69,19 @@ def make_cloud_function_logs_url(
 async def add_trigger_row(n_scenes=1, n_filtered_scenes=1, logs_url=""):
     """get a row"""
     conn = await asyncpg.connect(os.getenv("DB_URL"))
-    row = await conn.fetchrow("SELECT * FROM trigger")
-
-    row = await conn.fetchrow(
-        """
-        INSERT INTO trigger(scene_count, filtered_scene_count, trigger_logs, trigger_type) VALUES($1, $2, $3, $4) RETURNING id
-    """,
-        n_scenes,
-        n_filtered_scenes,
-        logs_url,
-        "HISTORICAL_RUN",
-    )
-    return row
+    try:
+        return await conn.fetchrow(
+            """
+            INSERT INTO trigger(scene_count, filtered_scene_count, trigger_logs, trigger_type)
+            VALUES($1, $2, $3, $4) RETURNING id
+            """,
+            n_scenes,
+            n_filtered_scenes,
+            logs_url,
+            "HISTORICAL_RUN",
+        )
+    finally:
+        await conn.close()
 
 
 def verify_api_key(request):
@@ -93,7 +97,7 @@ def verify_api_key(request):
     parts = auth_header.split()
 
     # Check if the header is formed correctly
-    if parts[0].lower() != "bearer" or len(parts) != 2:
+    if len(parts) != 2 or parts[0].lower() != "bearer":
         abort(401, description="Unauthorized: Invalid Authorization header format")
 
     request_api_key = parts[1]
@@ -103,47 +107,130 @@ def verify_api_key(request):
         abort(401, description="Unauthorized: Invalid API key")
 
 
+def validate_request(request_json):
+    """Reject ambiguous selectors and invalid options before creating a batch."""
+    if not isinstance(request_json, dict):
+        raise ValueError("Expected a JSON object")
+    if request_json.get("action", "enqueue") not in ("list", "enqueue"):
+        raise ValueError("action must be list or enqueue")
+    for key in ("dry_run", "manual_trigger"):
+        if key in request_json and not isinstance(request_json[key], bool):
+            raise ValueError(f"{key} must be a boolean")
+    if "scene_ids" in request_json:
+        scenes = request_json["scene_ids"]
+        if not isinstance(scenes, list) or any(
+            not isinstance(scene, str) or not scene.strip() for scene in scenes
+        ):
+            raise ValueError("scene_ids must be a list of nonempty strings")
+        if any(
+            key in request_json
+            for key in ("source", "start", "end", "geometry", "modes", "polarizations")
+        ):
+            raise ValueError("scene_ids cannot be combined with search options")
+        return
+    source = request_json.get("source", "eodag")
+    if source not in ("eodag", "s3"):
+        raise ValueError("source must be eodag or s3")
+    try:
+        if source == "s3":
+            start = date.fromisoformat(request_json["start"])
+            end = date.fromisoformat(request_json["end"])
+        else:
+            # Existing EODAG callers may supply full ISO timestamps, not just dates.
+            start = datetime.fromisoformat(request_json["start"])
+            end = datetime.fromisoformat(request_json["end"])
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=timezone.utc)
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=timezone.utc)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            "start and end must be ISO dates (or EODAG timestamps)"
+        ) from exc
+    if end < start:
+        raise ValueError("end must be on or after start")
+    if source == "eodag":
+        if not isinstance(request_json.get("geometry"), dict):
+            raise ValueError(
+                "EODAG search requires a GeoJSON FeatureCollection geometry"
+            )
+        if any(key in request_json for key in ("modes", "polarizations")):
+            raise ValueError("modes and polarizations apply to S3 discovery only")
+    else:
+        if "geometry" in request_json:
+            raise ValueError(
+                "S3 inventory has no spatial filter; use EODAG for geographic/ocean filtering"
+            )
+        for key in ("modes", "polarizations"):
+            value = request_json.get(key)
+            if value is not None and (
+                not isinstance(value, list)
+                or any(not isinstance(item, str) or not item for item in value)
+            ):
+                raise ValueError(f"{key} must be a list of strings or null")
+
+
 def main(request):
-    """Responds to any HTTP request.
-    Args:
-        request (flask.Request): HTTP request object.
-    Returns:
-        The response text or any set of values that can be turned into a
-        Response object using
-        `make_response <http://flask.pocoo.org/docs/1.0/api/#flask.Flask.make_response>`.
-    """
+    """List scenes or queue a tracked batch, preserving the stack dry-run default."""
     start_time = datetime.now()
     verify_api_key(request)
+    request_json = request.get_json(silent=True)
+    try:
+        validate_request(request_json)
+    except ValueError as exc:
+        abort(400, description=str(exc))
 
-    request_json = request.get_json()
-    print(request_json)
-    ocean_poly = load_ocean_poly()
+    total_scenes, filtered_scenes = handle_search(request_json)
+    # Submit each scene once, even when a catalog or supplied list repeats it.
+    filtered_scenes = list(dict.fromkeys(filtered_scenes))
+    summary = {
+        "scene_count": total_scenes,
+        "filtered_scene_count": len(filtered_scenes),
+    }
+    if request_json.get("action") == "list":
+        return {**summary, "scene_ids": filtered_scenes}
 
-    len_total_scene, filtered_scenes = handle_search(
-        request_json, ocean_poly=ocean_poly
-    )
-    filtered_scene_count = len(filtered_scenes)
-    print(filtered_scenes)
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    dry_run = request_json.get("dry_run", os.getenv("IS_DRY_RUN", "").lower() == "true")
     logs_url = make_cloud_function_logs_url(
         os.getenv("FUNCTIONNAME"), start_time, os.getenv("GCPPROJECT")
     )
-    print(logs_url)
-    row = loop.run_until_complete(
-        add_trigger_row(len_total_scene, filtered_scene_count, logs_url=logs_url)
+    row = asyncio.run(
+        add_trigger_row(total_scenes, len(filtered_scenes), logs_url=logs_url)
     )
-    print(row)
+    handler_queue(
+        filtered_scenes,
+        row["id"],
+        dry_run=dry_run,
+        manual_trigger=request_json.get("manual_trigger", False),
+    )
+    return {
+        **summary,
+        "trigger_id": row["id"],
+        "queued_count": len(filtered_scenes),
+        "dry_run": dry_run,
+    }
 
-    handler_queue(filtered_scenes, row["id"])
 
-    return "Success!"
+def handle_search(request_json, ocean_poly=None):
+    """Select explicit IDs, archive folders, or the existing spatial catalog search."""
+    if "scene_ids" in request_json:
+        scenes = [scene.strip() for scene in request_json["scene_ids"]]
+        return len(scenes), list(dict.fromkeys(scenes))
+    if request_json.get("source", "eodag") == "s3":
+        scenes = list_sentinel1_scene_ids(
+            date.fromisoformat(request_json["start"]),
+            date.fromisoformat(request_json["end"]),
+            modes=request_json.get("modes"),
+            polarizations=request_json.get("polarizations"),
+        )
+        return len(scenes), scenes
 
+    # Catalog dependencies are only needed for the existing EODAG search path.
+    from eodag import EODataAccessGateway, setup_logging
 
-def handle_search(request_json, ocean_poly):
-    """handle search"""
-
+    setup_logging(2)
+    if ocean_poly is None:
+        ocean_poly = load_ocean_poly()
     dag = EODataAccessGateway()
     dag.update_providers_config(
         f"""
@@ -191,52 +278,29 @@ def handle_search(request_json, ocean_poly):
     return len_total_scenes, filtered_scenes
 
 
-def handler_queue(filtered_scenes, trigger_id):
-    """handler queue"""
-    # Create a client.
+def handler_queue(filtered_scenes, trigger_id, *, dry_run=None, manual_trigger=False):
+    """Queue scenes with their historical batch and the selected execution options."""
     client = tasks_v2.CloudTasksClient()
-
-    project = os.getenv("GCPPROJECT")
-    queue = os.getenv("QUEUE")
-    location = os.getenv("GCPREGION")
-    url = os.getenv("ORCHESTRATOR_URL")
-    dry_run = os.getenv("IS_DRY_RUN", "").lower() == "true"
-
-    # Construct the fully qualified queue name.
-    parent = client.queue_path(project, location, queue)
-
+    parent = client.queue_path(
+        os.environ["GCPPROJECT"], os.environ["GCPREGION"], os.environ["QUEUE"]
+    )
+    if dry_run is None:
+        dry_run = os.getenv("IS_DRY_RUN", "").lower() == "true"
     for scene in filtered_scenes:
-        # Construct the request body.
-        # TODO: Add orchestrate and POST method instead
-        task = {
-            "http_request": {  # Specify the type of request.
-                "http_method": tasks_v2.HttpMethod.POST,
-                "url": urlparse.urljoin(
-                    url, "orchestrate"
-                ),  # The full url path that the task will be sent to.
-            }
-        }
-
         payload = {"scene_id": scene, "trigger": trigger_id, "dry_run": dry_run}
-        print(payload)
-        # Add the payload to the request.
-        if payload is not None:
-            if isinstance(payload, dict):
-                # Convert dict to JSON string
-                payload = json.dumps(payload)
-                # specify http content-type to application/json
-                task["http_request"]["headers"] = {
+        if manual_trigger:
+            payload["manual_trigger"] = True
+        task = {
+            "dispatch_deadline": {"seconds": 1800},
+            "http_request": {
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": os.environ["ORCHESTRATOR_URL"].rstrip("/") + "/orchestrate",
+                "headers": {
                     "Content-type": "application/json",
-                    "Authorization": f"Bearer {os.getenv('API_KEY')}",
-                }
-
-            # The API expects a payload of type bytes.
-            converted_payload = payload.encode()
-
-            # Add the payload to the request.
-            task["http_request"]["body"] = converted_payload
-
-        # Use the client to build and send the task.
+                    "Authorization": f"Bearer {os.environ['API_KEY']}",
+                },
+                "body": json.dumps(payload).encode(),
+            },
+        }
         response = client.create_task(request={"parent": parent, "task": task})
-
         print(f"Created task {response.name}")
