@@ -224,6 +224,115 @@ In another process connect to the database (i.e. with `psql`):
 psql ${database_url_alembic}
 ```
 
+### Selecting one database target for backend services and the UI
+
+Each stack defaults to its managed instance and database. To connect to an
+existing instance and an existing database inside it, set:
+
+```sh
+pulumi config set db:connection-instance CLONE_INSTANCE_NAME --stack prod20240903
+pulumi config set db:connection-database DATABASE_NAME --stack prod20240903
+```
+
+Database names use ASCII letters, digits, underscores, and hyphens so every
+connection driver interprets the name identically. Unsupported names are rejected
+before any infrastructure resource is registered.
+
+These are connection settings. They do not create or rename the selected database,
+change the original managed instance/database/user, or upgrade PostgreSQL. The
+selected database must already exist and grant access to the existing stack user
+and password. The UI continues to use the account selected by its `DB_SECRET_NAME`;
+that account also needs access to the selected database. Either connection setting
+can be omitted to use its original default independently.
+
+The selected target supplies all five backend consumers (orchestrator, TiPG, scene
+relevancy, historical runs, and ASA), their SQL attachments, and the migration
+proxy/connection URL. Pulumi exports `database_target`, a nonsecret object with
+`project`, `region`, `connection_name`, `private_ip`, `database`, and `port`.
+Credentials remain in their existing secret stores. The existing connection URL
+outputs remain available for clients that need their driver-specific format.
+
+Changing config alone does not change running services. Review `pulumi preview`:
+the original instance, database, and user must remain unchanged, and the selected
+instance should only be read. Deploy through the normal release process. PROD
+uses the `prod20240903` stack and a tagged release. The deploy still runs Alembic
+against the selected database, so review pending migrations before releasing.
+
+#### Coordinated production cutover
+
+There is no atomic switch across backend and UI deployments. Keep public traffic
+and all writers paused from the final consistent clone/snapshot through backend
+and UI verification. Pause ingestion, queues, scheduled/manual jobs, and UI writes
+(including authentication/session writes); drain in-flight work. Confirm a backend
+deployment will preserve those pauses. An older clone does not receive later
+writes automatically. Freeze the production UI Cloud Build trigger during the
+cutover so it cannot replace the selected image or revision concurrently.
+
+Deploy the selected backend target first, then inspect the proposed UI changes:
+
+```sh
+python scripts/database_target.py plan --stack prod20240903
+```
+
+The helper reads `database_target` once from the deployed stack. It checks the
+templates and revisions actually serving traffic, and includes both
+`cerulean-ui-production` and `cerulean-ui-prod-preview` in `us-east4`. The preview
+also uses production data. Split traffic is rejected so a partial target switch
+cannot be mistaken for a completed deployment. `plan` is read-only and reports
+differences without requiring the UIs to have switched yet.
+
+While maintenance remains active, apply the same target to both UIs:
+
+```sh
+python scripts/database_target.py apply-ui --stack prod20240903 \
+  --snapshot /tmp/cerulean-ui-before-cutover.json
+python scripts/database_target.py verify --stack prod20240903
+```
+
+`apply-ui` first requires all five backends to select the target and confirms that
+the database exists. It saves previous UI settings to a new, owner-readable file
+without credentials. It preserves each UI's currently serving image, updates
+`DB_HOST`, `DB_NAME`, `DB_PORT`, and the SQL attachment, and leaves credential
+bindings and other service settings in place. Both new revisions must be ready
+with the correct target before it routes 100% of traffic to their explicit
+revision names. A failure leaves maintenance in effect; the helper does not
+reopen traffic, resume writers, or automatically roll back. The two UI traffic
+updates are sequential, so keep maintenance active throughout.
+
+`verify` exits unsuccessfully if any backend or UI template or serving revision
+selects a different target. This checks connection configuration, not database
+connectivity or application behavior. Before reopening public traffic, verify
+uncached TiPG/UI reads, login/session behavior, map queries, and a controlled HITL
+write. Review DB-derived caches separately. Re-enable the UI build trigger and
+resume writers only after validation succeeds. Ordinary UI image builds preserve
+these service settings; they do not contain another database target definition.
+
+Before resuming writes, rollback selects the previous instance/database in Pulumi,
+deploys the backend, and runs the same `apply-ui`/`verify` commands with a new
+snapshot filename. To return to the original defaults, remove both connection
+settings. Resolve SQL attachments from that target rather than restoring stale
+names from an old UI revision. After writes resume, reconciling new data is
+required before any rollback to an older database.
+
+For other stacks, pass each intended `--ui-service` explicitly. A different UI
+region can be supplied with `--ui-region`. PROD always includes both production
+UIs. These resource names identify consumers; the database endpoint and name
+come exclusively from the stack output.
+
+#### Local database tools
+
+Start the installed Cloud SQL Auth Proxy against the selected target without a
+hard-coded instance name:
+
+```sh
+python scripts/database_target.py proxy --stack prod20240903 --port 1234
+pulumi stack output database_target --stack prod20240903 --json
+```
+
+Use the output's `database` field when configuring DBeaver, pgAdmin, or a notebook
+against that local proxy. Use credentials for that client separately. Existing
+saved client connections and shell `DB_URL` values are not rewritten by a deploy.
+
 ### Migrations
 
 We are using [alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html) to run migration in our database. You can create a new revision using:

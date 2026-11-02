@@ -1,11 +1,22 @@
 """database configurations"""
 
+import re
+
 import pulumi
 import pulumi_gcp as gcp
 from utils import construct_name
 
+db_name = construct_name("database")
+connection_database = pulumi.Config("db").get("connection-database")
+if connection_database is None:
+    connection_database = db_name
+if not re.fullmatch(r"[A-Za-z0-9_-]+", connection_database):
+    raise ValueError(
+        "db:connection-database must use only ASCII letters, digits, underscores, and hyphens"
+    )
+
 # See versions at https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database_instance#database_version
-instance = gcp.sql.DatabaseInstance(
+managed_instance = gcp.sql.DatabaseInstance(
     construct_name("database-instance"),
     region=pulumi.Config("gcp").require("region"),
     database_version="POSTGRES_14",
@@ -57,31 +68,40 @@ instance = gcp.sql.DatabaseInstance(
             ),
         ],
     ),
-    deletion_protection=pulumi.Config("db").require("deletion-protection"),
+    deletion_protection=pulumi.Config("db").require_bool("deletion-protection"),
 )
 
 
-db_name = construct_name("database")
 users = gcp.sql.User(
     construct_name("database-users"),
     name=db_name,
-    instance=instance.name,
+    instance=managed_instance.name,
     password=pulumi.Config("db").require_secret("db-password"),
 )
 database = gcp.sql.Database(
     db_name,
-    instance=instance.name,
+    instance=managed_instance.name,
     name=db_name,
     opts=pulumi.ResourceOptions(depends_on=[users]),
 )
 
+# Connection selection never changes the original instance, database, or user.
+connection_instance = pulumi.Config("db").get("connection-instance")
+instance = (
+    gcp.sql.DatabaseInstance.get(
+        construct_name("database-connection"),
+        f"projects/{pulumi.Config('gcp').require('project')}/instances/{connection_instance}",
+    )
+    if connection_instance
+    else managed_instance
+)
 sql_instance_url_with_asyncpg = pulumi.Output.concat(
     "postgresql+asyncpg://",
     db_name,
     ":",
     pulumi.Config("db").require_secret("db-password"),
     "@/",
-    db_name,
+    connection_database,
     "?host=/cloudsql/",
     instance.connection_name,
 )
@@ -91,7 +111,7 @@ sql_instance_url = pulumi.Output.concat(
     ":",
     pulumi.Config("db").require_secret("db-password"),
     "@/",
-    db_name,
+    connection_database,
     "?host=/cloudsql/",
     instance.connection_name,
 )
@@ -103,7 +123,7 @@ sql_instance_url_alembic = pulumi.Output.concat(
     "@",
     "127.0.0.1",
     "/",
-    db_name,
+    connection_database,
 )
 
 private_ip = instance.ip_addresses.apply(
@@ -118,7 +138,7 @@ sql_instance_url_with_ip = pulumi.Output.concat(
     "@",
     private_ip,
     ":5432/",
-    db_name,
+    connection_database,
 )
 sql_instance_url_with_ip_asyncpg = pulumi.Output.concat(
     "postgresql+asyncpg://",
@@ -128,5 +148,15 @@ sql_instance_url_with_ip_asyncpg = pulumi.Output.concat(
     "@",
     private_ip,
     ":5432/",
-    db_name,
+    connection_database,
+)
+
+# Public connection metadata for deployments and local tools; credentials stay secret.
+target = pulumi.Output.all(
+    project=pulumi.Config("gcp").require("project"),
+    region=pulumi.Config("gcp").require("region"),
+    connection_name=instance.connection_name,
+    private_ip=private_ip,
+    database=connection_database,
+    port=5432,
 )
