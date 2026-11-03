@@ -350,8 +350,13 @@ python -m scripts.historical_run --stage test scenes \
 locally and sends selected IDs to historical-run for processing. Deploy the
 updated historical-run function before using the new selectors. Remote discovery
 and queue submission are subject to the function's execution timeout; use local
-inventory for long date ranges and submit manageable batches. The notebook's
-upstream selection defaults to `APPLY_RELEVANCY = False`; set it to `True` to opt in.
+inventory for long date ranges and submit manageable batches. In the notebook,
+choose one scene source, then run the common selection options: optional processed
+CSV exclusion, `APPLY_RELEVANCY = False` (set `True` to opt in), and an optional
+region. CSV input/exclusion accepts either `scene_id` or legacy `s1_scene_id`.
+Orchestration sends batches of 100 through historical-run and defaults to
+`DRY_RUN = False`; set `True` for a dry run or `None` to inherit the stack setting.
+Each batch creates its own trigger. ASA and download utilities retain their own routes.
 The CLI's S3 `--list-only` applies the selected relevance/region filters locally.
 Footprint metadata requests add time proportional to scene count; failures abort discovery before any
 batch or tasks are created. The Python `list_sentinel1_scene_ids` helper still returns
