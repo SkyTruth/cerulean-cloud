@@ -238,17 +238,10 @@ def handle_search(request_json, ocean_poly=None):
     setup_logging(2)
     if ocean_poly is None:
         ocean_poly = load_ocean_poly()
-    dag = EODataAccessGateway()
-    dag.update_providers_config(
-        f"""
-    scihub:
-        api:
-            credentials:
-                username: "{os.getenv("SCIHUB_USERNAME")}"
-                password: "{os.getenv("SCIHUB_PASSWORD")}"
-    """
+    dag = EODataAccessGateway(
+        user_conf_file_path=os.path.join(os.path.dirname(__file__), "geodes.yml")
     )
-    dag.set_preferred_provider("peps")
+    dag.set_preferred_provider("geodes")
 
     fc = geojson.FeatureCollection(**request_json["geometry"])
 

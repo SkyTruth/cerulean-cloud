@@ -206,6 +206,7 @@ def test_cloud_function_source_imports_from_deployment_root(tmp_path):
     )
     with zipfile.ZipFile(archive) as bundle:
         bundle.extractall(source)
+    assert (source / "geodes.yml").is_file()
     result = subprocess.run(
         [
             sys.executable,

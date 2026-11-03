@@ -290,7 +290,7 @@ The services deployed by cerulean-cloud that DO NOT require this API key are:
 ## Historical processing and scene inventory
 
 Historical-run owns discovery and orchestrator queue submission. Existing
-`start`/`end`/GeoJSON requests still use EODAG's PEPS catalog with `VV VH`
+`start`/`end`/GeoJSON requests still use EODAG's GEODES catalog with `VV VH`
 polarization and the ocean intersection filter. New requests can instead supply
 `source: "s3"` with inclusive UTC acquisition dates and optional `modes` and
 `polarizations`, or an explicit `scene_ids` list. S3 discovery reads each supported
@@ -308,6 +308,13 @@ queue submission. Filtering lives entirely within historical-run; the live
 scene-relevancy function and its deployment code are unchanged.
 Explicit IDs bypass discovery and relevance filtering. Duplicate IDs are queued once
 per request.
+
+Historical-run configures GEODES through its bundled `geodes.yml`, compatible with
+the pinned EODAG version. Public metadata search requires no GEODES key; this path
+does not download imagery from GEODES. GEODES catalog URNs are mapped to Sentinel
+scene names before queueing. The retired PEPS endpoint and SciHub credentials are
+no longer used by discovery. The function-specific `setuptools<81` constraint keeps
+EODAG 2.5's `pkg_resources` import available; shared requirements are unchanged.
 
 Every enqueue request records a `HISTORICAL_RUN` trigger with raw/selected counts
 and a log link, then submits to the stack's existing orchestrator queue. Tasks

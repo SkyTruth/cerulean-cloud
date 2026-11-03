@@ -103,7 +103,7 @@ def test_reversed_archive_dates():
         historical.list_sentinel1_scene_ids(date(2025, 1, 18), date(2025, 1, 17))
 
 
-def test_existing_eodag_search_keeps_provider_spatial_dates_and_ocean_filter(
+def test_eodag_uses_geodes_and_keeps_spatial_dates_and_ocean_filter(
     monkeypatch,
 ):
     dag = MagicMock()
@@ -112,7 +112,8 @@ def test_existing_eodag_search_keeps_provider_spatial_dates_and_ocean_filter(
         geometry=box(10, 10, 11, 11), properties={"id": "land"}
     )
     dag.search_iter_page.return_value = [[land_result], [ocean_result]]
-    eodag = SimpleNamespace(EODataAccessGateway=lambda: dag, setup_logging=MagicMock())
+    gateway = MagicMock(return_value=dag)
+    eodag = SimpleNamespace(EODataAccessGateway=gateway, setup_logging=MagicMock())
     monkeypatch.setitem(sys.modules, "eodag", eodag)
     geometry = {
         "type": "FeatureCollection",
@@ -134,7 +135,8 @@ def test_existing_eodag_search_keeps_provider_spatial_dates_and_ocean_filter(
         2,
         ["ocean"],
     )
-    dag.set_preferred_provider.assert_called_once_with("peps")
+    dag.set_preferred_provider.assert_called_once_with("geodes")
+    assert gateway.call_args.kwargs["user_conf_file_path"].endswith("geodes.yml")
     criteria = dag.search_iter_page.call_args.kwargs
     assert criteria["start"] == request["start"]
     assert criteria["end"] == request["end"]
