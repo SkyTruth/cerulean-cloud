@@ -15,6 +15,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cerulean_cloud.cloud_function_historical_run.inventory import (
+    filter_sentinel1_scene_ids,
     list_sentinel1_scene_ids,
 )
 
@@ -118,12 +119,16 @@ def eodag(ctx, date_start, date_end, geometry, **options):
     multiple=True,
     help="Repeat to select polarizations; omitted includes all.",
 )
+@click.option(
+    "--geometry", type=click.File(mode="r"), help="GeoJSON region FeatureCollection."
+)
 @execution_options
 @click.pass_context
-def s3(ctx, date_start, date_end, mode, polarization, **options):
-    """Discover archive scenes for inclusive UTC dates, including land scenes."""
+def s3(ctx, date_start, date_end, mode, polarization, geometry, **options):
+    """Discover archive scenes and apply scene-relevancy before listing or queueing."""
     if date_end < date_start:
         raise click.UsageError("date-end must be on or after date-start")
+    geometry_json = json.load(geometry) if geometry is not None else None
     if options["list_only"]:
         ids = list_sentinel1_scene_ids(
             date_start.date(),
@@ -131,7 +136,17 @@ def s3(ctx, date_start, date_end, mode, polarization, **options):
             modes=mode or None,
             polarizations=polarization or None,
         )
-        click.echo(json.dumps({"scene_count": len(ids), "scene_ids": ids}, indent=2))
+        selected = filter_sentinel1_scene_ids(ids, geometry=geometry_json)
+        click.echo(
+            json.dumps(
+                {
+                    "scene_count": len(ids),
+                    "filtered_scene_count": len(selected),
+                    "scene_ids": selected,
+                },
+                indent=2,
+            )
+        )
         return
     submit(
         ctx,
@@ -141,6 +156,7 @@ def s3(ctx, date_start, date_end, mode, polarization, **options):
             "end": date_end.strftime("%Y-%m-%d"),
             "modes": list(mode) or None,
             "polarizations": list(polarization) or None,
+            **({"geometry": geometry_json} if geometry is not None else {}),
         },
         **options,
     )

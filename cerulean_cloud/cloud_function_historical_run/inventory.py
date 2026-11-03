@@ -1,10 +1,23 @@
 """List Sentinel-1 scene IDs present in the upstream S3 archive."""
 
 from collections.abc import Collection
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from xml.etree import ElementTree
 
 import httpx
+
+if __package__:
+    from .relevance import (
+        is_scene_relevant,
+        load_ocean_poly,
+        region_from_geojson,
+    )
+else:
+    from relevance import (
+        is_scene_relevant,
+        load_ocean_poly,
+        region_from_geojson,
+    )
 
 
 def list_sentinel1_scene_ids(
@@ -61,3 +74,29 @@ def list_sentinel1_scene_ids(
                     )
 
     return sorted(scene_ids)
+
+
+def filter_sentinel1_scene_ids(scene_ids, *, geometry=None, ocean_poly=None):
+    """Apply scene-relevancy checks before queueing; metadata failures propagate."""
+    region = region_from_geojson(geometry) if geometry is not None else None
+    if ocean_poly is None:
+        ocean_poly = load_ocean_poly()
+    selected = []
+    with httpx.Client(timeout=30) as client:
+        for scene_id in dict.fromkeys(scene_ids):
+            parts = scene_id.split("_")
+            resolution, polarization = parts[2][-1], parts[3][-2:]
+            if resolution not in ("H", "M") or polarization not in ("DV", "SV"):
+                continue
+            day = datetime.strptime(parts[4], "%Y%m%dT%H%M%S").date()
+            path = f"GRD/{day.year}/{day.month}/{day.day}/{parts[1]}/{polarization}/{scene_id}"
+            response = client.get(
+                f"https://sentinel-s1-l1c.s3.eu-central-1.amazonaws.com/{path}/productInfo.json"
+            )
+            response.raise_for_status()
+            footprint = response.json()["footprint"]
+            if is_scene_relevant(
+                footprint, resolution, polarization, ocean_poly, region
+            ):
+                selected.append(scene_id)
+    return selected

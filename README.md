@@ -293,9 +293,17 @@ Historical-run owns discovery and orchestrator queue submission. Existing
 `start`/`end`/GeoJSON requests still use EODAG's PEPS catalog with `VV VH`
 polarization and the ocean intersection filter. New requests can instead supply
 `source: "s3"` with inclusive UTC acquisition dates and optional `modes` and
-`polarizations`, or an explicit `scene_ids` list. S3 discovery includes land
-scenes and rejects geographic filters; use EODAG for geographic/ocean selection.
-Explicit IDs bypass discovery. Duplicate IDs are queued once per request.
+`polarizations`, or an explicit `scene_ids` list. S3 discovery reads each supported
+scene's `productInfo.json` footprint and applies historical-only scene checks:
+H/M resolution, VV polarization (DV/SV), and ocean intersection
+using historical-run's existing ocean mask.
+An optional `geometry` GeoJSON FeatureCollection further restricts scenes to those
+intersecting the requested region. Filtering selects whole scenes; it does not clip
+inference to that region. Historical-run retains ownership of batch tracking and
+queue submission. Filtering lives entirely within historical-run; the live
+scene-relevancy function and its deployment code are unchanged.
+Explicit IDs bypass discovery and relevance filtering. Duplicate IDs are queued once
+per request.
 
 Every enqueue request records a `HISTORICAL_RUN` trigger with raw/selected counts
 and a log link, then submits to the stack's existing orchestrator queue. Tasks
@@ -319,10 +327,15 @@ python -m scripts.historical_run --stage test eodag \
   --date-start 2025-01-01 --date-end 2025-01-02 \
   --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson
 
-# Export an archive inventory locally, without credentials or a function timeout.
+# Export relevant ocean scenes locally, without credentials or a function timeout.
 python -m scripts.historical_run s3 --list-only \
   --date-start 2025-01-01 --date-end 2025-12-31 \
   --mode IW --mode EW --polarization DV > scene_inventory.json
+
+# Restrict S3 discovery to a region before queueing.
+python -m scripts.historical_run --stage test s3 \
+  --date-start 2025-01-01 --date-end 2025-01-02 \
+  --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson --dry-run
 
 # Submit a CSV with a scene_id column; request a dry run explicitly.
 python -m scripts.historical_run --stage test scenes \
@@ -333,8 +346,12 @@ python -m scripts.historical_run --stage test scenes \
 locally and sends selected IDs to historical-run for processing. Deploy the
 updated historical-run function before using the new selectors. Remote discovery
 and queue submission are subject to the function's execution timeout; use local
-inventory for long date ranges and submit manageable batches. A full archive
-inventory establishes archive availability, not ocean coverage or prior processing.
+inventory for long date ranges and submit manageable batches. The CLI's S3
+`--list-only` applies the same relevance/region filters locally. Footprint metadata
+requests add time proportional to scene count; failures abort discovery before any
+batch or tasks are created. The Python `list_sentinel1_scene_ids` helper still returns
+raw archive IDs; use `filter_sentinel1_scene_ids` before submitting them. Neither
+helper determines whether scenes were previously processed.
 
 ## Adding a new Pulumi Stack
 Don't forget to edit the following places:

@@ -116,6 +116,8 @@ def test_large_s3_inventory_can_run_locally_without_api_key_or_pulumi(
 ):
     listing = MagicMock(return_value=["first", "second"])
     monkeypatch.setattr(client, "list_sentinel1_scene_ids", listing)
+    filtering = MagicMock(return_value=["first"])
+    monkeypatch.setattr(client, "filter_sentinel1_scene_ids", filtering)
     pulumi = MagicMock(side_effect=AssertionError("must not invoke Pulumi"))
     monkeypatch.setattr(client.subprocess, "check_output", pulumi)
     monkeypatch.delenv("CERULEAN_API_KEY", raising=False)
@@ -126,7 +128,8 @@ def test_large_s3_inventory_can_run_locally_without_api_key_or_pulumi(
     assert result.exit_code == 0, result.output
     assert json.loads(result.output) == {
         "scene_count": 2,
-        "scene_ids": ["first", "second"],
+        "filtered_scene_count": 1,
+        "scene_ids": ["first"],
     }
     listing.assert_called_once_with(
         date(2025, 1, 1), date(2026, 1, 1), modes=None, polarizations=None
@@ -189,17 +192,24 @@ def test_remote_http_failure_is_not_reported_as_success(remote):
     assert isinstance(result.exception, httpx.HTTPStatusError)
 
 
-def test_cloud_function_source_imports_from_deployment_root():
-    source = (
-        Path(__file__).resolve().parents[2]
-        / "cerulean_cloud"
-        / "cloud_function_historical_run"
+def test_cloud_function_source_imports_from_deployment_root(tmp_path):
+    repo = Path(__file__).resolve().parents[2]
+    from stack.utils import create_zip
+    import zipfile
+
+    source = tmp_path / "deployment"
+    source.mkdir()
+    archive = create_zip(
+        str(repo / "cerulean_cloud/cloud_function_historical_run"),
+        str(tmp_path / "function.zip"),
     )
+    with zipfile.ZipFile(archive) as bundle:
+        bundle.extractall(source)
     result = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import main; assert main.list_sentinel1_scene_ids.__module__ == 'inventory'",
+            "import main; assert main.list_sentinel1_scene_ids.__module__ == 'inventory'; assert main.filter_sentinel1_scene_ids([]) == []",
         ],
         cwd=source,
         env={**os.environ, "PYTHONPATH": str(source)},
@@ -207,3 +217,31 @@ def test_cloud_function_source_imports_from_deployment_root():
         text=True,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("list_only", [False, True])
+def test_s3_cli_region_is_applied_locally_or_sent_to_service(
+    remote, monkeypatch, tmp_path, list_only
+):
+    geometry = {"type": "FeatureCollection", "features": []}
+    path = tmp_path / "region.geojson"
+    path.write_text(json.dumps(geometry))
+    monkeypatch.setattr(client, "list_sentinel1_scene_ids", lambda *a, **kw: ["scene"])
+    filtering = MagicMock(return_value=["scene"])
+    monkeypatch.setattr(client, "filter_sentinel1_scene_ids", filtering)
+    args = [
+        "s3",
+        "--date-start",
+        "2025-01-01",
+        "--date-end",
+        "2025-01-02",
+        "--geometry",
+        str(path),
+    ]
+    result = invoke(*args, *(["--list-only"] if list_only else []))
+    assert result.exit_code == 0, result.output
+    if list_only:
+        filtering.assert_called_once_with(["scene"], geometry=geometry)
+        remote.assert_not_called()
+    else:
+        assert remote.call_args.kwargs["json"]["geometry"] == geometry

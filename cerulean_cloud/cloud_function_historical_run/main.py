@@ -5,11 +5,9 @@ import json
 import os
 import urllib.parse as urlparse
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
 
 import asyncpg
 import geojson
-import shapely.geometry as sh  # https://docs.aws.amazon.com/lambda/latest/dg/python-package.html
 from flask import abort
 from google.cloud import tasks_v2
 from shapely.geometry import MultiPolygon, shape
@@ -18,25 +16,19 @@ from shapely.geometry import MultiPolygon, shape
 # Cloud Functions imports main.py at the root of the deployed source archive;
 # repository callers import it as part of cerulean_cloud.
 if __package__:
-    from .inventory import list_sentinel1_scene_ids
+    from .inventory import (
+        list_sentinel1_scene_ids,
+        filter_sentinel1_scene_ids,
+        load_ocean_poly,
+        region_from_geojson,
+    )
 else:
-    from inventory import list_sentinel1_scene_ids
-
-
-def load_ocean_poly(file_path: Optional[str] = None):
-    """load ocean boundary polygon"""
-
-    if not file_path:
-        file_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "OceanGeoJSON_lowres.geojson"
-        )
-
-    with open(file_path) as f:
-        ocean_features = json.load(f)["features"]
-    geom = sh.GeometryCollection(
-        [sh.shape(feature["geometry"]).buffer(0) for feature in ocean_features]
-    ).geoms[0]
-    return geom
+    from inventory import (
+        list_sentinel1_scene_ids,
+        filter_sentinel1_scene_ids,
+        load_ocean_poly,
+        region_from_geojson,
+    )
 
 
 def make_cloud_function_logs_url(
@@ -158,9 +150,7 @@ def validate_request(request_json):
             raise ValueError("modes and polarizations apply to S3 discovery only")
     else:
         if "geometry" in request_json:
-            raise ValueError(
-                "S3 inventory has no spatial filter; use EODAG for geographic/ocean filtering"
-            )
+            region_from_geojson(request_json["geometry"])
         for key in ("modes", "polarizations"):
             value = request_json.get(key)
             if value is not None and (
@@ -223,7 +213,9 @@ def handle_search(request_json, ocean_poly=None):
             modes=request_json.get("modes"),
             polarizations=request_json.get("polarizations"),
         )
-        return len(scenes), scenes
+        return len(scenes), filter_sentinel1_scene_ids(
+            scenes, geometry=request_json.get("geometry"), ocean_poly=ocean_poly
+        )
 
     # Catalog dependencies are only needed for the existing EODAG search path.
     from eodag import EODataAccessGateway, setup_logging
