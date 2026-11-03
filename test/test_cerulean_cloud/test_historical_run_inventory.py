@@ -208,7 +208,9 @@ def test_s3_inventory_routes_filters_without_batch_or_queue(endpoint, monkeypatc
         modes=["IW", "EW"],
         polarizations=["DV", "SV"],
     )
-    filtering.assert_called_once_with(["scene"], geometry=None, ocean_poly=None)
+    filtering.assert_called_once_with(
+        ["scene"], geometry=None, ocean_poly=None, apply_relevancy=True
+    )
     endpoint[1].assert_not_called()
     endpoint[2].create_task.assert_not_called()
 
@@ -465,5 +467,81 @@ def test_invalid_s3_region_fails_before_discovery(endpoint, monkeypatch, geometr
     )
     assert response.status_code == 400
     listing.assert_not_called()
+    endpoint[1].assert_not_called()
+    endpoint[2].create_task.assert_not_called()
+
+
+@pytest.mark.parametrize("action", ["list", "enqueue"])
+def test_s3_relevancy_bypass_keeps_all_ids_without_metadata(
+    endpoint, monkeypatch, action
+):
+    monkeypatch.setattr(
+        historical, "list_sentinel1_scene_ids", lambda *a, **kw: ["land", "hh", "land"]
+    )
+    monkeypatch.setattr(
+        inventory.httpx,
+        "Client",
+        MagicMock(side_effect=AssertionError("no metadata requests")),
+    )
+    response = post(
+        endpoint,
+        {
+            "source": "s3",
+            "start": "2025-01-01",
+            "end": "2025-01-02",
+            "apply_relevancy": False,
+            "action": action,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json["scene_count"] == 3
+    assert response.json["filtered_scene_count"] == 2
+    if action == "list":
+        assert response.json["scene_ids"] == ["land", "hh"]
+        endpoint[1].assert_not_called()
+        endpoint[2].create_task.assert_not_called()
+    else:
+        assert endpoint[1].call_args.args == (3, 2)
+        assert endpoint[2].create_task.call_count == 2
+
+
+def test_s3_region_still_applies_when_relevancy_is_disabled(monkeypatch):
+    ids = [
+        f"S1A_EW_GRDM_1SDH_20250101T000000_20250101T000025_000001_000001_{n}"
+        for n in range(2)
+    ]
+
+    def metadata(request):
+        footprint = box(0, 0, 1, 1) if ids[0] in request.url.path else box(5, 5, 6, 6)
+        return httpx.Response(200, json={"footprint": mapping(footprint)})
+
+    client = httpx.Client(transport=httpx.MockTransport(metadata))
+    monkeypatch.setattr(inventory.httpx, "Client", lambda **kw: client)
+    monkeypatch.setattr(
+        inventory,
+        "load_ocean_poly",
+        MagicMock(side_effect=AssertionError("no ocean filtering")),
+    )
+    region = {
+        "type": "FeatureCollection",
+        "features": [{"geometry": mapping(box(-1, -1, 2, 2))}],
+    }
+    assert inventory.filter_sentinel1_scene_ids(
+        ids, geometry=region, apply_relevancy=False
+    ) == [ids[0]]
+
+
+@pytest.mark.parametrize("value", ["false", 0, None])
+def test_s3_relevancy_option_requires_boolean(endpoint, value):
+    response = post(
+        endpoint,
+        {
+            "source": "s3",
+            "start": "2025-01-01",
+            "end": "2025-01-02",
+            "apply_relevancy": value,
+        },
+    )
+    assert response.status_code == 400
     endpoint[1].assert_not_called()
     endpoint[2].create_task.assert_not_called()

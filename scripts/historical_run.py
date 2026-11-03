@@ -122,9 +122,14 @@ def eodag(ctx, date_start, date_end, geometry, **options):
 @click.option(
     "--geometry", type=click.File(mode="r"), help="GeoJSON region FeatureCollection."
 )
+@click.option(
+    "--relevancy/--no-relevancy",
+    default=True,
+    help="Apply ocean, VV, and resolution checks (default: enabled). Region filtering is independent.",
+)
 @execution_options
 @click.pass_context
-def s3(ctx, date_start, date_end, mode, polarization, geometry, **options):
+def s3(ctx, date_start, date_end, mode, polarization, geometry, relevancy, **options):
     """Discover archive scenes and apply scene-relevancy before listing or queueing."""
     if date_end < date_start:
         raise click.UsageError("date-end must be on or after date-start")
@@ -136,7 +141,9 @@ def s3(ctx, date_start, date_end, mode, polarization, geometry, **options):
             modes=mode or None,
             polarizations=polarization or None,
         )
-        selected = filter_sentinel1_scene_ids(ids, geometry=geometry_json)
+        selected = filter_sentinel1_scene_ids(
+            ids, geometry=geometry_json, apply_relevancy=relevancy
+        )
         click.echo(
             json.dumps(
                 {
@@ -157,6 +164,7 @@ def s3(ctx, date_start, date_end, mode, polarization, geometry, **options):
             "modes": list(mode) or None,
             "polarizations": list(polarization) or None,
             **({"geometry": geometry_json} if geometry is not None else {}),
+            "apply_relevancy": relevancy,
         },
         **options,
     )

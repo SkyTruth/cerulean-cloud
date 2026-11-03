@@ -105,7 +105,7 @@ def validate_request(request_json):
         raise ValueError("Expected a JSON object")
     if request_json.get("action", "enqueue") not in ("list", "enqueue"):
         raise ValueError("action must be list or enqueue")
-    for key in ("dry_run", "manual_trigger"):
+    for key in ("dry_run", "manual_trigger", "apply_relevancy"):
         if key in request_json and not isinstance(request_json[key], bool):
             raise ValueError(f"{key} must be a boolean")
     if "scene_ids" in request_json:
@@ -116,7 +116,15 @@ def validate_request(request_json):
             raise ValueError("scene_ids must be a list of nonempty strings")
         if any(
             key in request_json
-            for key in ("source", "start", "end", "geometry", "modes", "polarizations")
+            for key in (
+                "source",
+                "start",
+                "end",
+                "geometry",
+                "modes",
+                "polarizations",
+                "apply_relevancy",
+            )
         ):
             raise ValueError("scene_ids cannot be combined with search options")
         return
@@ -142,6 +150,10 @@ def validate_request(request_json):
     if end < start:
         raise ValueError("end must be on or after start")
     if source == "eodag":
+        if "apply_relevancy" in request_json:
+            raise ValueError(
+                "apply_relevancy applies to S3 discovery only; explicit scene_ids bypass filtering"
+            )
         if not isinstance(request_json.get("geometry"), dict):
             raise ValueError(
                 "EODAG search requires a GeoJSON FeatureCollection geometry"
@@ -214,7 +226,10 @@ def handle_search(request_json, ocean_poly=None):
             polarizations=request_json.get("polarizations"),
         )
         return len(scenes), filter_sentinel1_scene_ids(
-            scenes, geometry=request_json.get("geometry"), ocean_poly=ocean_poly
+            scenes,
+            geometry=request_json.get("geometry"),
+            ocean_poly=ocean_poly,
+            apply_relevancy=request_json.get("apply_relevancy", True),
         )
 
     # Catalog dependencies are only needed for the existing EODAG search path.

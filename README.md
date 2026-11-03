@@ -297,7 +297,11 @@ polarization and the ocean intersection filter. New requests can instead supply
 scene's `productInfo.json` footprint and applies historical-only scene checks:
 H/M resolution, VV polarization (DV/SV), and ocean intersection
 using historical-run's existing ocean mask.
-An optional `geometry` GeoJSON FeatureCollection further restricts scenes to those
+S3 relevance filtering defaults to enabled; pass `apply_relevancy: false` (CLI:
+`--no-relevancy`) to bypass ocean, VV, and resolution checks. Without a region,
+this also skips footprint metadata requests. Explicit mode/polarization selectors
+still apply. EODAG retains its existing catalog and ocean filters.
+An optional `geometry` GeoJSON FeatureCollection independently restricts scenes to those
 intersecting the requested region. Filtering selects whole scenes; it does not clip
 inference to that region. Historical-run retains ownership of batch tracking and
 queue submission. Filtering lives entirely within historical-run; the live
@@ -346,9 +350,10 @@ python -m scripts.historical_run --stage test scenes \
 locally and sends selected IDs to historical-run for processing. Deploy the
 updated historical-run function before using the new selectors. Remote discovery
 and queue submission are subject to the function's execution timeout; use local
-inventory for long date ranges and submit manageable batches. The CLI's S3
-`--list-only` applies the same relevance/region filters locally. Footprint metadata
-requests add time proportional to scene count; failures abort discovery before any
+inventory for long date ranges and submit manageable batches. The notebook's
+upstream selection defaults to `APPLY_RELEVANCY = False`; set it to `True` to opt in.
+The CLI's S3 `--list-only` applies the selected relevance/region filters locally.
+Footprint metadata requests add time proportional to scene count; failures abort discovery before any
 batch or tasks are created. The Python `list_sentinel1_scene_ids` helper still returns
 raw archive IDs; use `filter_sentinel1_scene_ids` before submitting them. Neither
 helper determines whether scenes were previously processed.

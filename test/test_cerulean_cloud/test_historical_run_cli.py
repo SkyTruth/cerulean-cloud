@@ -105,6 +105,7 @@ def test_s3_queue_passes_filters_and_explicit_dry_run(remote):
         "end": "2025-01-02",
         "modes": ["IW", "EW"],
         "polarizations": ["DV"],
+        "apply_relevancy": True,
         "dry_run": True,
         "action": "enqueue",
         "manual_trigger": False,
@@ -241,7 +242,63 @@ def test_s3_cli_region_is_applied_locally_or_sent_to_service(
     result = invoke(*args, *(["--list-only"] if list_only else []))
     assert result.exit_code == 0, result.output
     if list_only:
-        filtering.assert_called_once_with(["scene"], geometry=geometry)
+        filtering.assert_called_once_with(
+            ["scene"], geometry=geometry, apply_relevancy=True
+        )
         remote.assert_not_called()
     else:
         assert remote.call_args.kwargs["json"]["geometry"] == geometry
+
+
+@pytest.mark.parametrize("list_only", [False, True])
+def test_s3_relevancy_bypass_cli(remote, monkeypatch, list_only):
+    monkeypatch.setattr(
+        client, "list_sentinel1_scene_ids", lambda *a, **kw: ["land", "hh"]
+    )
+    monkeypatch.setattr(
+        client.httpx,
+        "Client",
+        MagicMock(side_effect=AssertionError("no metadata requests")),
+    )
+    result = invoke(
+        "s3",
+        "--date-start",
+        "2025-01-01",
+        "--date-end",
+        "2025-01-02",
+        "--no-relevancy",
+        *(["--list-only"] if list_only else []),
+    )
+    assert result.exit_code == 0, result.output
+    if list_only:
+        assert json.loads(result.output)["scene_ids"] == ["land", "hh"]
+        remote.assert_not_called()
+    else:
+        assert remote.call_args.kwargs["json"]["apply_relevancy"] is False
+
+
+def test_notebook_upstream_defaults_to_bypassing_relevancy(monkeypatch):
+    import datetime
+
+    monkeypatch.setattr(
+        client.httpx,
+        "Client",
+        MagicMock(side_effect=AssertionError("no metadata requests")),
+    )
+    notebook = Path(__file__).resolve().parents[2] / "notebooks/TriggerOnDemand.ipynb"
+    cells = json.loads(notebook.read_text())["cells"]
+    source = next(
+        "".join(c["source"])
+        for c in cells
+        if "# FROM UPSTREAM DATE RANGE" in "".join(c.get("source", []))
+    )
+    pandas = MagicMock()
+    namespace = {
+        "datetime": datetime,
+        "pd": pandas,
+        "list_sentinel1_scene_ids": lambda *a, **kw: ["land", "hh"],
+        "filter_sentinel1_scene_ids": client.filter_sentinel1_scene_ids,
+    }
+    exec(source, namespace)
+    assert namespace["scenes"] == ["land", "hh"]
+    pandas.DataFrame.assert_called_once_with({"scene_id": ["land", "hh"]})
