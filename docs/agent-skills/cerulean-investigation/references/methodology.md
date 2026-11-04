@@ -25,15 +25,21 @@ Source matching is a second model. It compares each detection with AIS vessel tr
 
 The FAQ describes imagery arriving 6–12 hours after acquisition and vessel data up to about 72 hours later. Source matches can take longer: two examples were computed 10 and 28 days after their images. Recent detections without a source match are provisional. Keep them separate, record image and retrieval times, and recheck later. Never promise completion within 72 hours.
 
+## Coverage context
+
+Coverage is usually supporting context. For a small AOI or a period under one year, make it explicit in the main answer: how much of the requested area intersects inventoried scene footprints, on which dates, and with what gaps. Use the [API recipe](api.md#coverage-context). Even 100% intersected once is not continuous monitoring; sparse footprints or long gaps prevent extrapolating detection counts or absence of detections to the whole area and period.
+
+`sentinel1_grd` is Cerulean's scene inventory, not a complete catalogue of all satellite acquisitions or a processing-success record. Full scene footprints can include unprocessed or unsuitable areas. Describe zero matches as “no intersecting scenes in this inventory for this query,” not proof that no satellite observed the area. Keep inventory coverage distinct from confirmed processed and usable coverage.
+
 ## Before comparing areas, periods, vessels or companies
 
 1. **Population:** detection records, reviewed detections, candidate associations, or grouped events?
-2. **Coverage:** how often each area was imaged (`public.sentinel1_grd`). Over the 12 months to 2026-10-26, the inventory held 260 scenes over a point in the central North Sea and 0 over one in Brazil's Campos Basin.
+2. **Coverage:** footprint intersections and acquisition dates in `public.sentinel1_grd`, with the inventory limitations above. Over the 12 months to 2026-10-26, the inventory held 260 scenes over a point in the central North Sea and 0 over one in Brazil's Campos Basin.
 3. **Conditions:** wind, sea state, season, processing gaps.
 4. **Dependence:** repeated or overlapping detections of one event are not independent.
 5. **Selection:** the same filters, dates and review effort. Source matching favors AIS-broadcasting vessels and mapped infrastructure.
 6. **Method versions:** model and matching code (`git_tag` in `source_plus`) can differ between records.
-7. **Denominator:** detections per observed pass, not per calendar time.
+7. **Denominator:** comparable usable observations of the same area, where established; raw scene counts or calendar duration alone do not establish exposure.
 
 Without these, report a descriptive sample, not rates, trends or rankings of polluters.
 

@@ -16,7 +16,7 @@ Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encode
 | `public.source_plus` | One row per detection–candidate pair: `slick_id`, `source_type`, `mmsi_or_structure_id`, `source_rank`, `source_collated_score`, `create_time` (when the match was computed, not the image time), `source_url`. Its `slick_confidence` is the machine score. It has no review field and no class filter, so its rows include associations a reviewer rejected and detections that `slick_plus` omits. |
 | `public.cls`, `public.source_type`, `public.aoi_type` | Vocabularies, listed below. |
 | `public.aoi_eez`, `public.aoi_iho`, `public.aoi_mpa` | Area IDs: `aoi_id` with Marine Regions `mrgid` (EEZ, IHO), `sovereigns` (EEZ) or WDPA `wdpaid` (MPA). No geometry. |
-| `public.sentinel1_grd` | Sentinel-1 scene inventory. A listed scene was not necessarily processed. |
+| `public.sentinel1_grd` | Scene inventory with `scene_id`, acquisition `start_time`/`end_time`, `absolute_orbit_number` and footprint `geometry`; use for [coverage context](#coverage-context). A listed scene was not necessarily successfully processed throughout its footprint. |
 | `public.get_slicks_by_*` functions | Avoid. They omit `slick_confidence`, fail without every argument, and took 36–39 s for one EEZ. |
 
 - **Human review classes (`hitl_cls`):** 2 Anthropogenic, 3 Natural, 4 Infrastructure, 5 Vessel, 6 Vessel old, 7 Vessel recent and 8 Vessel coincident are human-classified apparent oil; 9 is Ambiguous; 1 Not Oil, 10 Land, 11 Sea Ice and 12 Artefact are not oil and are absent from `slick_plus`.
@@ -26,7 +26,7 @@ Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encode
 ## Query rules
 
 - **bbox:** `west,south,east,north` in degrees. It matches polygons that intersect the box, and polygons are not clipped. Split boxes that cross 180°.
-- **datetime:** `start/end` in UTC with times, inclusive, applied to `slick_timestamp`. Dates without times return HTTP 500.
+- **datetime:** `start/end` in UTC with times, inclusive, applied to `slick_timestamp` on `slick_plus`; specify `datetime-column=start_time` for `sentinel1_grd` acquisition dates. Dates without times return HTTP 500.
 - **filter:** CQL2 text. `=`, `>=`, `IN`, `AND`, `OR`, `IS NULL` and `S_INTERSECTS(geometry, POLYGON((lon lat, ...)))` work. `IS NOT NULL` returns the null rows; use a comparison such as `>= -1000` instead. Array columns cannot be filtered: filter the `*_ids` arrays after download.
 - **limit:** default 10, maximum 50,000. Compare `numberMatched` with `numberReturned`; if they differ, raise `limit` or page with `offset` and `sortby=id`.
 - **ids:** at most 900 IDs per `ids=`; 950 returned HTTP 500. For more, use `filter=id IN (...)`.
@@ -77,6 +77,14 @@ curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_sourc
 ```
 
 Query `slick_plus` for the period with the screen and `properties=id,aoi_type_1_ids`, adding a rough bbox around the area if you know one, to shrink the download. Keep the features whose `aoi_type_1_ids` (EEZ), `aoi_type_2_ids` (IHO) or `aoi_type_3_ids` (MPA) contains the `aoi_id`. Italy's EEZ, 1–8 May 2025: 6 detections, the same 6 the map shows with that EEZ selected. Membership is Cerulean's precomputed intersection.
+
+## Coverage context
+
+Use `curl` against `$API/public.sentinel1_grd/items` with the same bbox and UTC `datetime` interval, `datetime-column=start_time`, `f=geojson`, `sortby=id`, `limit=100`, and both UTM fields. This selects by acquisition start, not ingestion time. Fetch all pages, deduplicate `scene_id`, and retain `start_time`, `end_time`, `absolute_orbit_number` and full geometry. Include scenes with no detected slicks; apply no slick quality filters.
+
+Intersect footprints with the actual AOI, union the intersections, and divide their geodesic or equal-area projected area by AOI area: the **fraction intersected at least once**. Do not use `bbox-only=true` or sum overlapping scene areas. Report acquisition dates and gaps, including the period's ends; inspect intersections by date when timing matters. Overlapping slices from one pass are not separate visits.
+
+Label this **Cerulean inventory footprint coverage**, subject to the [processing and interpretation limits](methodology.md#coverage-context). Query syntax and full-geometry return verified on 2026-11-03.
 
 ## After retrieval
 

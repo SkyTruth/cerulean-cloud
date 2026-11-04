@@ -72,8 +72,9 @@ These rules apply to titles, table headers, legends, filenames, summaries and ex
 1. **Scope.** Area or identifier, period in UTC (default: the last 12 months), intended use. Ask only for missing scope that changes the result.
 2. **Retrieve** through one route, keeping the API quality screen or the map's default filters. A deliberate change needs a stated purpose and before/after counts, and its results stay separate from the default results. Never loosen filters just to get more results.
 3. **Check completeness.** `numberMatched` must equal the features received. A failed or capped request makes the result partial, never zero.
-4. **Inspect** consequential detections on the map: imagery, wind, candidate tracks.
-5. **Deliver** data, method, interpretation and next steps separately. Read [methodology.md](references/methodology.md) before comparing areas, periods, vessels or companies.
+4. **Highlight coverage for small AOIs or periods under one year**, even when the user did not ask about coverage. Use the [scene-footprint recipe](references/api.md#coverage-context) to put the AOI fraction intersected, acquisition dates and observation gaps alongside the main result, especially for few or no detections. Explain what this limits about extrapolation across the whole area or period; if coverage cannot be established, say so.
+5. **Inspect** consequential detections on the map: imagery, wind, candidate tracks.
+6. **Deliver** data, method, interpretation and next steps separately. Read [methodology.md](references/methodology.md) before comparing areas, periods, vessels or companies.
 
 ## Reproducibility
 
