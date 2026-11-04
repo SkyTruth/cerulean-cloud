@@ -70,6 +70,7 @@ fxn = cloudfunctionsv2.Function(
         },
     },
     service_config={
+        "available_memory": "512Mi",
         "environment_variables": config_values,
         "timeout_seconds": 500,
         "service_account_email": cloud_function_scene_relevancy.cloud_function_service_account.email,
