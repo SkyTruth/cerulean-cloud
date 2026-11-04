@@ -13,5 +13,10 @@ services:
       POSTGRES_USER: user
       POSTGRES_DB: db
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db18-data:/var/lib/postgresql
     command: postgres -c log_statement=all
+
+volumes:
+  db18-data:
