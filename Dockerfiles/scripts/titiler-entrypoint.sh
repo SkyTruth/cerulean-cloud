@@ -39,6 +39,10 @@ rm -rf /var/task/numpy/doc/ || true
 rm -rf /var/task/stack || true
 find /var/task -type d -name "*.dist-info" -print0 | xargs -0 -r rm -rf || true
 
-# shellcheck disable=SC2035
 echo "[INFO] Creating package.zip"
-zip -r9q /local/package.zip *
+# Build a fresh archive so libraries from previous builds cannot carry over.
+package_dir=$(mktemp -d /local/.titiler-package.XXXXXX)
+trap 'rm -rf "$package_dir"' EXIT
+# shellcheck disable=SC2035
+zip -r9q "$package_dir/package.zip" *
+mv -f "$package_dir/package.zip" /local/package.zip
