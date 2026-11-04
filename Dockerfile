@@ -1,8 +1,8 @@
-FROM postgres:14-bookworm
+FROM postgres:18-bookworm
 
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends postgresql-14-postgis-3 \
+    && apt-get install -y --no-install-recommends "postgresql-${PG_MAJOR}-postgis-3" \
     && rm -rf /var/lib/apt/lists/*
 
 
