@@ -10,7 +10,7 @@ config:
   cerulean-cloud:keyname: prod20240903-cerulean-cloud-api-key
   cerulean-cloud:titiler_keyname: prod20240903-titiler-api-key
   db:db-instance: db-custom-32-49152
-  db:postgres-version: POSTGRES_14
+  db:postgres-version: POSTGRES_18
   db:db-mem: "1048576"
   db:db-work-mem: "2559997"
   db:db-parallel-workers: "16"
