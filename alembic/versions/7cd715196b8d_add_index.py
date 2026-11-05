@@ -54,8 +54,6 @@ def upgrade() -> None:
     op.create_index("idx_slick_to_aoi_slick", "slick_to_aoi", ["slick"])
     op.create_index("idx_slick_to_aoi_aoi", "slick_to_aoi", ["aoi"])
 
-    op.create_index("idx_filter_hash", "filter", ["hash"])
-
     op.create_index("idx_slick_hitl", "slick", ["hitl_cls"])
     op.create_index("idx_slick_confidence", "slick", ["machine_confidence"])
     op.create_index(
@@ -135,8 +133,6 @@ def downgrade() -> None:
     op.drop_index("idx_source_ext_id_first_three_chars", "source")
 
     op.drop_index("idx_slick_to_source_collated_score", "slick_to_source")
-
-    op.drop_index("idx_filter_hash", "filter")
 
     op.drop_index("idx_slick_hitl", "slick")
     op.drop_index("idx_slick_confidence", "slick")
