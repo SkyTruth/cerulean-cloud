@@ -3,6 +3,7 @@ Inspired from
 https://github.com/mapbox/robosat/blob/master/robosat/tiles.py
 """
 
+from itertools import groupby
 from typing import List, Tuple
 
 import morecantile
@@ -30,7 +31,9 @@ def pixel_to_location(
     assert 0 <= dx <= 1, "x offset is in [0, 1]"
     assert 0 <= dy <= 1, "y offset is in [0, 1]"
 
-    west, south, east, north = TMS.bounds(tile)
+    # WorldCRS84Quad coordinates are already longitude/latitude. xy_bounds also
+    # allows extrapolating neighboring tiles at the edge of the grid.
+    west, south, east, north = TMS.xy_bounds(tile)
 
     def lerp(a, b, c):
         return a + c * (b - a)
@@ -56,6 +59,16 @@ def adjacent_tile(tile: morecantile.Tile, dx: int, dy: int) -> morecantile.Tile:
     return other
 
 
+def group_tiles_by_x(tiles: List[morecantile.Tile]) -> List[List[morecantile.Tile]]:
+    """Keep contiguous tile columns together, separating the dateline sides."""
+    columns = sorted({tile.x for tile in tiles})
+    groups = []
+    for _, group in groupby(enumerate(columns), key=lambda item: item[1] - item[0]):
+        group_columns = {x for _, x in group}
+        groups.append([tile for tile in tiles if tile.x in group_columns])
+    return groups
+
+
 def offset_bounds_from_base_tiles(
     tiles: List[morecantile.Tile],
     offset_amount: float = 0.5,
@@ -63,20 +76,23 @@ def offset_bounds_from_base_tiles(
     """from a set of base tiles, generate offset tiles"""
     out_offset_tile_bounds = []
 
-    tiles_np = np.array([(tile.x, tile.y, tile.z) for tile in tiles])
-    zoom = tiles_np[:, 2].max()
-    tilexmin, tilexmax, tileymin, tileymax = supermercado.super_utils.get_range(
-        tiles_np
-    )
+    for group in group_tiles_by_x(tiles):
+        tiles_np = np.array([(tile.x, tile.y, tile.z) for tile in group])
+        zoom = tiles_np[:, 2].max()
+        tilexmin, tilexmax, tileymin, tileymax = supermercado.super_utils.get_range(
+            tiles_np
+        )
 
-    for new_x in range(tilexmin, tilexmax + 2):
-        # +2 because tilexmax needs to be included (+1) and the new grid has one extra row/column (+1)
-        for new_y in range(tileymin, tileymax + 2):
-            # +2 because tileymax needs to be included (+1) and the new grid has one extra row/column (+1)
-            tile = morecantile.Tile(new_x, new_y, zoom)
-            adj_tile = adjacent_tile(tile, -1, -1)  # Negative dY is upwards!!!
-            minx, maxy = pixel_to_location(adj_tile, offset_amount, offset_amount)
-            maxx, miny = pixel_to_location(tile, offset_amount, offset_amount)
-            out_offset_tile_bounds += [(minx, miny, maxx, maxy)]
+        for new_x in range(tilexmin, tilexmax + 2):
+            # Include the last column and one extra offset column.
+            for new_y in range(tileymin, tileymax + 2):
+                tile = morecantile.Tile(new_x, new_y, zoom)
+                adj_tile = adjacent_tile(tile, -1, -1)  # Negative dY is upwards!!!
+                minx, maxy = pixel_to_location(adj_tile, offset_amount, offset_amount)
+                maxx, miny = pixel_to_location(tile, offset_amount, offset_amount)
+                # Move boundary windows inside the world without changing their
+                # width or the resolution seen by the model.
+                shift = max(-180.0 - minx, 0.0) - max(maxx - 180.0, 0.0)
+                out_offset_tile_bounds.append((minx + shift, miny, maxx + shift, maxy))
 
-    return out_offset_tile_bounds
+    return list(dict.fromkeys(out_offset_tile_bounds))
