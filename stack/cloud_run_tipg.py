@@ -68,16 +68,16 @@ default = gcp.cloudrun.Service(
                             name="TIPG_DB_TABLES",
                             value=json.dumps(
                                 [
-                                    "public.aoi",
                                     "public.aoi_eez",
                                     "public.aoi_iho",
                                     "public.aoi_mpa",
-                                    "public.aoi_type",
+                                    "public.aoi_type_public",
                                     "public.cls",
                                     "public.layer",
                                     "public.model",
                                     "public.sentinel1_grd",
                                     "public.slick_plus",
+                                    "public.slick_plus_2",
                                     "public.source_plus",
                                     "public.source_type",
                                 ]
@@ -107,7 +107,6 @@ default = gcp.cloudrun.Service(
                                 "sentinel1_grd",
                                 "orchestrator_run",
                                 "slick",
-                                "aoi",
                                 "slick_plus",
                                 "source_infra",
                                 "slick_to_source",
@@ -125,7 +124,7 @@ default = gcp.cloudrun.Service(
                                 "layer",
                                 "model",
                                 "subscription",
-                                "aoi_type",
+                                "aoi_type_public",
                                 "hitl_slick",
                             ]
                         ],
@@ -168,11 +167,6 @@ default = gcp.cloudrun.Service(
                 "run.googleapis.com/cloudsql-instances": instance.connection_name,
             },
         ),
-    ),
-    metadata=gcp.cloudrun.ServiceMetadataArgs(
-        annotations={
-            "run.googleapis.com/launch-stage": "BETA",
-        },
     ),
     traffics=[
         gcp.cloudrun.ServiceTrafficArgs(
