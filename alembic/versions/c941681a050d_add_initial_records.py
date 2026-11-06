@@ -628,6 +628,7 @@ def upgrade() -> None:
             {"short_name": "DAILY", "long_name": "Daily digest"},
             {"short_name": "WEEKLY", "long_name": "Weekly digest"},
             {"short_name": "MONTHLY", "long_name": "Monthly digest"},
+            {"short_name": "NONE", "long_name": "No alerts"},
         ],
     )
 
