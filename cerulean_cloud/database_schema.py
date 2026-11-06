@@ -91,8 +91,14 @@ class Filter(Base):
     __table_args__ = (PrimaryKeyConstraint("id", name="filter_pkey"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    json: Mapped[dict] = mapped_column(JSON, nullable=False)
-    hash: Mapped[Optional[str]] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(Text)
+    create_time: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime, server_default=text("now()")
+    )
+    update_time: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime, server_default=text("now()")
+    )
 
     subscription: Mapped[list["Subscription"]] = relationship(
         "Subscription", back_populates="filter_"
@@ -468,6 +474,8 @@ class Accounts(Base):
     updatedAt: Mapped[Optional[datetime.datetime]] = mapped_column(
         DateTime, server_default=text("now()")
     )
+    refreshTokenExpiresAt: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    password: Mapped[Optional[str]] = mapped_column(Text)
 
     users: Mapped["Users"] = relationship("Users", back_populates="accounts")
 

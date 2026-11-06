@@ -337,9 +337,10 @@ Exception: invoke of docker:index/getRegistryImage:getRegistryImage failed: invo
     error: an unhandled error occurred: Program exited with non-zero exit code: 1
 ```
 
-If you want to run tests on the database migrations locally, you can do the following steps:
+The local Compose database uses PostgreSQL 18 with PostGIS and stores its data
+in the `db18-data` volume. To run the database migrations locally:
 1. Launch Docker on your machine
-2. Run 'docker-compose up --build' in the folder where the alembic.ini is
+2. Run `docker compose up --build` in the folder where `alembic.ini` is
 3. Run 'DB_URL=postgresql://user:password@localhost:5432/db alembic upgrade head' (or downgrade base) in the folder where the alembic.ini is (you may have to activate an environment and install dependencies, like tempdbenv)
 4. To connect with pgAdmin, add a new server with these properties:
  - Name: local
@@ -347,6 +348,10 @@ If you want to run tests on the database migrations locally, you can do the foll
  - Port: 5432
  - Username: user
  - Password: password
+
+If you have a container from the old PostgreSQL 14 setup, run
+`docker compose rm --stop --force db` before starting PostgreSQL 18. This
+removes the container and keeps its old data volume.
 
 ## Human in the loop (HITL) workflows using SQL
 
