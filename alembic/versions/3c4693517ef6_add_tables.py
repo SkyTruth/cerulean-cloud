@@ -202,8 +202,10 @@ def upgrade() -> None:
     op.create_table(
         "filter",
         sa.Column("id", sa.BigInteger, primary_key=True),
-        sa.Column("json", sa.JSON, nullable=False),
-        sa.Column("hash", sa.Text),
+        sa.Column("url", sa.Text, nullable=False),
+        sa.Column("name", sa.Text),
+        sa.Column("create_time", sa.DateTime, server_default=sa.func.now()),
+        sa.Column("update_time", sa.DateTime, server_default=sa.func.now()),
     )
 
     op.create_table(
