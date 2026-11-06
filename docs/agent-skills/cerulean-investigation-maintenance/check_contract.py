@@ -3,9 +3,12 @@
 
 Run it before shipping a new zip and after deploys that change TiPG collections or the
 slick views. It prints one line per check and exits 1 on any difference; update the skill
-and expected_contract.json together. The map checks at the end are manual.
+and expected_contract.json together. The map checks at the end are manual. Every request
+carries the skill's two attribution parameters, which also checks that the API accepts them.
 """
 
+import csv
+import io
 import json
 import sys
 import time
@@ -23,6 +26,7 @@ HEADERS = {
     "Accept": "application/json",
     "User-Agent": "cerulean-investigation-contract-check",
 }
+UTM = {"utm_medium": "agentic", "utm_source": "skytruth-contract-check"}
 CHECKS = []
 
 
@@ -34,15 +38,18 @@ def check(name):
     return register
 
 
-def get(url, **params):
-    if params:
-        url += "?" + urllib.parse.urlencode(params)
+def fetch(url, **params):
+    url += "?" + urllib.parse.urlencode({**UTM, **params})
     request = urllib.request.Request(url, headers=HEADERS)
     try:
         with urllib.request.urlopen(request, timeout=90) as response:
-            return json.loads(response.read())
+            return response.read()
     finally:
         time.sleep(1)
+
+
+def get(url, **params):
+    return json.loads(fetch(url, **params))
 
 
 def status(url, **params):
@@ -139,12 +146,19 @@ def detail():
     aliased = {round(r["slick_confidence"], 9) for r in candidates} == {
         round(slick["machine_confidence"], 9)
     }
-    expected = (example["hitl_cls"], example["rank1_mmsi"], example["candidates"], True)
+    expected = (
+        example["hitl_cls"],
+        example["rank1_mmsi"],
+        example["candidates"],
+        True,
+        example["slick_url"],
+    )
     return expected, (
         slick["hitl_cls"],
         candidates[0]["mmsi_or_structure_id"],
         len(candidates),
         aliased,
+        slick["slick_url"],
     )
 
 
@@ -172,16 +186,75 @@ def polygon_example():
 def is_not_null():
     bbox = ",".join(map(str, EXPECTED["example"]["bbox"]))
 
-    def count(expression):
-        params = example_window(bbox=bbox, filter=expression, properties="id", limit=1)
-        return get(f"{API}/public.slick_plus/items", f="geojson", **params)[
-            "numberMatched"
-        ]
+    def ids(expression):
+        params = example_window(bbox=bbox, filter=expression, properties="id")
+        return {r["id"] for r in rows("public.slick_plus", **params)}
 
-    same = count("max_source_collated_score IS NULL") == count(
-        "max_source_collated_score IS NOT NULL"
+    null = ids("max_source_collated_score IS NULL")
+    not_null = ids("max_source_collated_score IS NOT NULL")
+    workaround = ids("max_source_collated_score >= -1000")
+    # Null rows exist, IS NOT NULL returns exactly them, and the documented
+    # workaround returns only scored rows.
+    return (True, True, True), (
+        bool(null),
+        not_null == null,
+        bool(workaround) and not workaround & null,
     )
-    return True, same
+
+
+@check("datetime without times returns HTTP 500")
+def date_only():
+    return 500, status(
+        f"{API}/public.slick_plus/items",
+        datetime="2025-05-01/2025-05-08",
+        properties="id",
+        limit=1,
+        **{"bbox-only": "true"},
+    )
+
+
+@check("CSV columns and EWKT geometry")
+def csv_geometry():
+    expected = EXPECTED["csv"]
+    text = fetch(
+        f"{API}/public.slick_plus/items",
+        ids=EXPECTED["detail"]["id"],
+        properties="id",
+        f="csv",
+    ).decode()
+    reader = csv.DictReader(io.StringIO(text))
+    geometry = next(reader)["geometry"]
+    return (expected["columns"], True), (
+        reader.fieldnames,
+        geometry.startswith(expected["geometry_prefix"]),
+    )
+
+
+@check("coverage scene query in the example box")
+def coverage():
+    example = EXPECTED["example"]
+    data = get(
+        f"{API}/public.sentinel1_grd/items",
+        bbox=",".join(map(str, example["bbox"])),
+        datetime=f"{example['start']}T00:00:00Z/{example['end']}T23:59:59Z",
+        f="geojson",
+        sortby="id",
+        limit=100,
+        **{"datetime-column": "start_time"},
+    )
+    features = data["features"]
+    return EXPECTED["coverage"], {
+        "matched": data["numberMatched"],
+        "scenes": len({f["properties"]["scene_id"] for f in features}),
+        "properties": sorted({key for f in features for key in f["properties"]}),
+        "geometry_types": sorted({f["geometry"]["type"] for f in features}),
+        # A bounding box has 5 ring vertices; full footprints have more.
+        "full_geometry": any(
+            len(f["geometry"]["coordinates"][0]) > 5
+            for f in features
+            if f["geometry"]["type"] == "Polygon"
+        ),
+    }
 
 
 @check("ids= fails at 950 IDs, works at 900")

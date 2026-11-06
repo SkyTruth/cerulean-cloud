@@ -1,10 +1,10 @@
 # Cerulean API with curl
 
-Follow [identity attribution](../SKILL.md#identify-agentic-use-and-the-user) before making requests. Add `utm_medium=agentic` and `utm_source=<user-organization-or-handle>` as separate URL parameters, never inside a CQL filter. Apply them to discovery, single-record, export, pagination, and retry requests as well as the initial search. Preserve next-link filters and offsets while restoring the two fields if absent or stale. Bare Cerulean URLs in this reference are endpoint templates: add the established attribution before opening or citing them. UTM fields do not replace authentication.
+Add the two [attribution parameters](../SKILL.md#identify-agentic-use-and-the-user) to every request, including discovery, detail, export, page and retry requests, as separate URL parameters, never inside a CQL filter. Bare Cerulean URLs below are templates: add the parameters before opening or citing them.
 
 `https://api.cerulean.skytruth.org` is a TiPG 1.0.1 (OGC API Features) service. Anonymous `GET` requests work, with no authentication and no published rate limit. If a request returns 401 or 403, stop and report it; do not look for keys.
 
-Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encoded correctly, save each response with `-o`, and print the status with `-w 'HTTP %{http_code}\n'`. Responses are GeoJSON by default; add `--data-urlencode 'f=csv'` for a spreadsheet with WKT geometry.
+Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encoded correctly, save each response with `-o`, and print the status with `-w 'HTTP %{http_code}\n'`. Responses are GeoJSON by default; add `--data-urlencode 'f=csv'` for a spreadsheet. Its geometry column is EWKT (`SRID=4326;MULTIPOLYGON(...)`); drop the `SRID=4326;` prefix for tools that expect WKT.
 
 ## Collections
 
@@ -16,6 +16,7 @@ Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encode
 | `public.source_plus` | One row per detection–candidate pair: `slick_id`, `source_type`, `mmsi_or_structure_id`, `source_rank`, `source_collated_score`, `create_time` (when the match was computed, not the image time), `source_url`. Its `slick_confidence` is the machine score. It has no review field and no class filter, so its rows include associations a reviewer rejected and detections that `slick_plus` omits. |
 | `public.cls`, `public.source_type`, `public.aoi_type` | Vocabularies, listed below. |
 | `public.aoi_eez`, `public.aoi_iho`, `public.aoi_mpa` | Area IDs: `aoi_id` with Marine Regions `mrgid` (EEZ, IHO), `sovereigns` (EEZ) or WDPA `wdpaid` (MPA). No geometry. |
+| `public.aoi` | Area outlines: `id` (the `aoi_id`), `type` (AOI type), `name` and full geometry. Fetch one with `$API/public.aoi/items/{aoi_id}`. |
 | `public.sentinel1_grd` | Scene inventory with `scene_id`, acquisition `start_time`/`end_time`, `absolute_orbit_number` and footprint `geometry`; use for [coverage context](#coverage-context). A listed scene was not necessarily successfully processed throughout its footprint. |
 | `public.get_slicks_by_*` functions | Avoid. They omit `slick_confidence`, fail without every argument, and took 36–39 s for one EEZ. |
 
@@ -26,9 +27,9 @@ Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encode
 ## Query rules
 
 - **bbox:** `west,south,east,north` in degrees. It matches polygons that intersect the box, and polygons are not clipped. Split boxes that cross 180°.
-- **datetime:** `start/end` in UTC with times, inclusive, applied to `slick_timestamp` on `slick_plus`; specify `datetime-column=start_time` for `sentinel1_grd` acquisition dates. Dates without times return HTTP 500.
+- **datetime:** `start/end` in UTC with times, inclusive, applied to `slick_timestamp` on `slick_plus` and to acquisition `start_time` on `sentinel1_grd`. Dates without times return HTTP 500.
 - **filter:** CQL2 text. `=`, `>=`, `IN`, `AND`, `OR`, `IS NULL` and `S_INTERSECTS(geometry, POLYGON((lon lat, ...)))` work. `IS NOT NULL` returns the null rows; use a comparison such as `>= -1000` instead. Array columns cannot be filtered: filter the `*_ids` arrays after download.
-- **limit:** default 10, maximum 50,000. Compare `numberMatched` with `numberReturned`; if they differ, raise `limit` or page with `offset` and `sortby=id`.
+- **limit:** default 10, maximum 50,000. If `numberReturned` is below `numberMatched`, raise `limit` or page with `offset` and `sortby=id` until the unique IDs received equal `numberMatched`.
 - **ids:** at most 900 IDs per `ids=`; 950 returned HTTP 500. For more, use `filter=id IN (...)`.
 - **Smaller responses:** `properties=id,slick_timestamp,...` keeps only the named fields, and `bbox-only=true` replaces each geometry with its bounding box.
 - **Scope every request** by time, bbox or IDs. Unfiltered requests took 20–60 s or timed out.
@@ -36,9 +37,9 @@ Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encode
 
 ## Quality screen
 
-`machine_confidence >= 0.7 AND max_source_collated_score >= 0` approximates the map's default filters: at least one candidate source with a collated score of 0 or more, plus the map's legacy 0.7 threshold. The API cannot see three map rules: the map counts only candidates ranked 1–3, admits reviewer-verified candidates at any rank or score, and drops reviewer-rejected ones. For 11–20°E 36–43°N, 1–8 May 2025 both returned the same 5 detections; worldwide for those dates the map showed 110 and the API 109. Use the map when results must match it exactly.
+`machine_confidence >= 0.7 AND max_source_collated_score >= 0` approximates the map's default filters: at least one candidate source with a collated score of 0 or more, plus the map's legacy 0.7 threshold. The API cannot see three map rules: the map counts only candidates ranked 1–3, admits reviewer-verified candidates at any rank or score, and, in vessel and structure searches, drops reviewer-rejected ones. For 11–20°E 36–43°N, 1–8 May 2025 both returned the same 5 detections; worldwide for those dates the map showed 110 and the API 109. Use the map when results must match it exactly.
 
-Recent detections can wait days for source matching. For a requested review of recent data, run a separate query with `max_source_collated_score IS NULL AND slick_confidence >= 0.8` (plus your bbox and dates) and label its results provisional.
+Recent detections can wait days for source matching. For a requested review of recent data, run a separate query with `machine_confidence >= 0.7 AND max_source_collated_score IS NULL AND (slick_confidence >= 0.8 OR slick_confidence IS NULL)` (plus your bbox and dates), which applies the map's rules for detections without a candidate, and label its results provisional.
 
 ## Recipes
 
@@ -54,7 +55,7 @@ curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_sourc
   --data-urlencode 'bbox-only=true' --data-urlencode 'limit=100' -o sources-4111397.geojson
 ```
 
-Detection 4111397 has latest human class 8 (Vessel, coincident) and best collated score 0.368. Its geometric score of 1.0 plays no part, because a collated score exists. Its 8 candidates are vessels: rank 1 is MMSI 215371000 at 0.368, and the other 7 score below 0. Its map page is `https://cerulean.skytruth.org/slicks/4111397`.
+Detection 4111397 has latest human class 8 (Vessel, coincident) and best collated score 0.368. Its geometric score of 1.0 plays no part, because a collated score exists. Its 8 candidates are vessels: rank 1 is MMSI 215371000 at 0.368, and the other 7 score below 0. Its `slick_url` is `https://cerulean.skytruth.org/slicks/4111397?ref=api&slick_id=4111397`.
 
 **Vessel or structure.**
 
@@ -64,7 +65,7 @@ curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_sourc
   --data-urlencode 'bbox-only=true' --data-urlencode 'limit=10000' -o vessel-215371000.geojson
 ```
 
-Keep rows with `source_rank <= 3` and `source_collated_score >= 0`. Then fetch those detections with `ids=` and `properties=id,slick_timestamp,hitl_cls_name` to get their image dates and to drop IDs missing from `slick_plus`.
+Keep rows with `source_rank <= 3` and `source_collated_score >= 0`. Then fetch those detections with `ids=`, `filter=machine_confidence >= 0.7` and `properties=id,slick_timestamp,hitl_cls_name` to get their image dates and to drop IDs that are missing from `slick_plus` or below the map's 0.7 threshold.
 
 - For MMSI 215371000 this gave 32 rows and 5 screened detections, 2 of them since 2024-01-01: 3517386 and 4111397.
 - The map's vessel view shows only 4111397 for that period, which is consistent with a reviewer rejecting the 3517386 association. The API cannot show rejections.
@@ -76,15 +77,15 @@ Keep rows with `source_rank <= 3` and `source_collated_score >= 0`. Then fetch t
 curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.aoi_eez/items" --data-urlencode 'mrgid=5682' -o aoi.geojson   # Italy: aoi_id 224
 ```
 
-Query `slick_plus` for the period with the screen and `properties=id,aoi_type_1_ids`, adding a rough bbox around the area if you know one, to shrink the download. Keep the features whose `aoi_type_1_ids` (EEZ), `aoi_type_2_ids` (IHO) or `aoi_type_3_ids` (MPA) contains the `aoi_id`. Italy's EEZ, 1–8 May 2025: 6 detections, the same 6 the map shows with that EEZ selected. Membership is Cerulean's precomputed intersection.
+Look up an IHO sea area in `public.aoi_iho` by `mrgid`, or an MPA in `public.aoi_mpa` by `wdpaid`. Query `slick_plus` for the period with the screen and `properties=id,aoi_type_N_ids`, where N is 1 for an EEZ, 2 for an IHO sea area or 3 for an MPA, adding a rough bbox around the area if you know one, to shrink the download. Keep the features whose `aoi_type_N_ids` contains the `aoi_id`. Italy's EEZ, 1–8 May 2025: 6 detections, the same 6 the map shows with that EEZ selected. Membership is Cerulean's precomputed intersection.
 
 ## Coverage context
 
-Use `curl` against `$API/public.sentinel1_grd/items` with the same bbox and UTC `datetime` interval, `datetime-column=start_time`, `f=geojson`, `sortby=id`, `limit=100`, and both UTM fields. This selects by acquisition start, not ingestion time. Fetch all pages, deduplicate `scene_id`, and retain `start_time`, `end_time`, `absolute_orbit_number` and full geometry. Include scenes with no detected slicks; apply no slick quality filters.
+Use `curl` against `$API/public.sentinel1_grd/items` with the same bbox (for a named area, the bounding box of its `public.aoi` outline) and UTC `datetime` interval, `datetime-column=start_time` (the collection's default, kept explicit), `f=geojson`, `sortby=id`, `limit=100`, and both UTM fields. This selects by acquisition start, not ingestion time. Fetch all pages, deduplicate `scene_id`, and retain `start_time`, `end_time`, `absolute_orbit_number` and full geometry. Include scenes with no detected slicks; apply no slick quality filters.
 
-Intersect footprints with the actual AOI, union the intersections, and divide their geodesic or equal-area projected area by AOI area: the **fraction intersected at least once**. Do not use `bbox-only=true` or sum overlapping scene areas. Report acquisition dates and gaps, including the period's ends; inspect intersections by date when timing matters. Overlapping slices from one pass are not separate visits.
+Intersect footprints with the AOI outline (the bbox, your polygon, or the `public.aoi` geometry), union the intersections, and divide their geodesic or equal-area projected area by AOI area, for example with shapely and pyproj: the **fraction intersected at least once**. Do not use `bbox-only=true` or sum overlapping scene areas. Without a geometry library, report the scenes, acquisition dates and gaps, and state that the fraction was not computed. Report acquisition dates and gaps, including the period's ends; inspect intersections by date when timing matters. Overlapping slices from one pass are not separate visits.
 
-Label this **Cerulean inventory footprint coverage**, subject to the [processing and interpretation limits](methodology.md#coverage-context). Query syntax and full-geometry return verified on 2026-11-03.
+Label this **Cerulean inventory footprint coverage**, subject to the [processing and interpretation limits](methodology.md#coverage-context). Query syntax and full-geometry return verified on 2026-11-06.
 
 ## After retrieval
 

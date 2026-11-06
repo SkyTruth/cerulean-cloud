@@ -7,26 +7,24 @@ description: Investigate potential marine oil slicks in SkyTruth's Cerulean data
 
 Answer environmental questions with Cerulean data that others can inspect and reproduce. You work for your own organization, not SkyTruth: keep Cerulean data separate from your analysis, and never imply that SkyTruth reviewed your conclusions. SkyTruth's terms limit Cerulean use to environmental conservation and license the data CC BY-SA 4.0; credit SkyTruth Cerulean and disclose your modifications ([citation format](references/methodology.md#terms-and-attribution)).
 
-Service details here match the live API and map as of 2026-10-26 UTC. Where the live service differs, follow it and record the difference.
+API details here match the live service as of 2026-11-06 UTC, and map details as of 2026-10-26 UTC. Where the live service differs, follow it and record the difference.
 
 ## Identify agentic use and the user
 
-Before contacting Cerulean, establish the organization or unique handle of the user you represent. Prefer the user's organization when it is known from their instructions or established context; otherwise use their supplied unique public handle. If neither is known, ask once: “Which organization or unique handle should identify your Cerulean requests?” Never guess an affiliation or substitute the model/provider name, `anonymous`, or a sample value for the user.
+Before contacting Cerulean, establish whom you represent: the user's organization if their instructions or context give it, otherwise their unique public handle. If neither is known, ask once: “Which organization or unique handle should identify your Cerulean requests?” Never guess an affiliation or substitute the model or provider name, `anonymous`, or a sample value. Use a stable lowercase identifier such as `ocean-watch`; never an email address, legal name, credential or confidential identifier, and never `skytruth` unless the user acts for SkyTruth. Tell the user which identifier you will send: UTM values are visible in URLs and may be logged.
 
-Use a stable lowercase identifier such as `ocean-watch` or `researcher-42`. Tell the user which identifier you will send; UTM values are visible in URLs and may be logged. Use an organization or public/pseudonymous handle, not an email address, legal name, credential, or confidential identifier. Do not label yourself `skytruth` unless the user is actually acting for SkyTruth.
-
-Include these two URL query parameters on every Cerulean API request you construct and every Cerulean map, slick, source, export, or evidence link you open or generate:
+Add these two URL query parameters to every Cerulean API request and to every map, slick, source, export or evidence link you open or generate:
 
 | Parameter | Value | Meaning |
 |---|---|---|
-| `utm_medium` | `agentic` | This interaction is performed by an agent. |
+| `utm_medium` | `agentic` | An agent performs this interaction. |
 | `utm_source` | The user's organization or unique handle | Whom the agent represents, not the AI provider or a candidate pollution source. |
 
-Example only: `https://cerulean.skytruth.org/?utm_medium=agentic&utm_source=ocean-watch`. Replace `ocean-watch` with the established user identifier before using examples. These fields declare attribution; they are not authentication, scientific filters, or proof that the service records analytics.
-
-URL-encode values and merge the fields into the existing query, preserving filters, IDs, pagination, other UTM fields, and fragments. Replace stale or duplicate values of these two fields with the current user's values. Reapply them to each API page, retry, metadata/detail request, and returned `slick_url`, `source_url`, or next link before use; keep raw responses unchanged. Use HTTPS and send these identifiers only to `api.cerulean.skytruth.org` and `cerulean.skytruth.org`, not linked third-party services. For browser use, tag entry/deep links and verify the fields after navigation or filter changes; restore them on navigable URLs if dropped. Browser-generated background requests may not inherit them: do not claim those requests are tagged or inject them into unrelated resource requests.
-
-Retain both UTM values in reproducibility records. If a Cerulean route rejects these fields, report that limitation and use a supported route; do not silently retry without identification.
+- URL-encode the values and merge them into the existing query, keeping filters, IDs, pagination, other UTM fields and fragments. Replace stale or duplicate values of these two fields.
+- Reapply them to every page, retry and detail request, and to each returned `slick_url`, `source_url` or next link before use. Keep raw responses unchanged.
+- Send them over HTTPS to `api.cerulean.skytruth.org` and `cerulean.skytruth.org` only, never to linked third-party services.
+- They declare attribution. They are not authentication or filters, and they do not show that the service records analytics.
+- If a Cerulean route rejects them, report it and use a supported route; never retry silently without them.
 
 ## Two routes
 
@@ -35,7 +33,7 @@ Retain both UTM values in reproducibility records. If a Cerulean route rejects t
 | `curl` against the public API, `https://api.cerulean.skytruth.org` | counts, tables, exports, anything that must be reproducible | [api.md](references/api.md) |
 | Computer use on the map, `https://cerulean.skytruth.org` | imagery, the map's exact default filters, selecting a named EEZ or MPA, what the map shows for a vessel | [computer-use.md](references/computer-use.md) |
 
-Run `curl` from a shell; web-fetch tools have failed to open the API's JSON endpoints. Use no other route: not the map application's internal `/api/...` endpoints, and not scripts that make their own network requests. Process saved responses locally with python3 or jq if needed.
+Run `curl` from a shell; web-fetch tools have failed to open the API's JSON endpoints. Use no other route: not the map application's internal `/api/...` endpoints, and not scripts that make their own network requests. Process saved responses locally with python3 or jq, plus shapely and pyproj for coverage geometry when they are installed.
 
 ## API quick start
 
@@ -52,7 +50,7 @@ curl -sS --get "$API/public.slick_plus/items" \
   -o slicks.geojson -w 'HTTP %{http_code}\n'
 ```
 
-The original query, before UTM attribution was added, returned 5 detections (3935019, 4110801, 4111397, 4112995, 4112997), the same 5 the map shows for that box and week. A result is complete only when `numberMatched` equals `numberReturned`. [api.md](references/api.md) has recipes for one detection, a vessel or structure, and an EEZ, IHO sea area or MPA.
+On 2026-11-06 this query returned 5 detections (3935019, 4110801, 4111397, 4112995, 4112997), the same 5 the map showed for that box and week on 2026-10-26. A result is complete only when the unique features received, across all pages, equal `numberMatched`. [api.md](references/api.md) has recipes for one detection, a vessel or structure, and an EEZ, IHO sea area or MPA.
 
 ## Evidence rules
 

@@ -23,4 +23,4 @@ cd docs/agent-skills && zip -r -X /tmp/cerulean-investigation.zip cerulean-inves
 python3 docs/agent-skills/cerulean-investigation-maintenance/check_contract.py
 ```
 
-It makes about 20 anonymous requests (under 30 s), prints PASS or DIFF for each of 12 API checks, then lists 3 map checks to do by hand. Run it before shipping a zip and after any deploy that changes the TiPG allowlist (`stack/cloud_run_tipg.py`) or the `slick_plus` and `source_plus` views. When a check fails, update the skill text and `expected_contract.json` together.
+It makes 22 anonymous requests (about 30 s), each tagged `utm_medium=agentic` and `utm_source=skytruth-contract-check`, prints PASS or DIFF for each of 15 API checks, then lists 3 map checks to do by hand. Run it before shipping a zip and after any deploy that changes the TiPG allowlist (`stack/cloud_run_tipg.py`) or the `slick_plus` and `source_plus` views. When a check fails, update the skill text and `expected_contract.json` together.

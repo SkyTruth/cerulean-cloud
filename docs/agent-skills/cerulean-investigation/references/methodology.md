@@ -34,7 +34,7 @@ Coverage is usually supporting context. For a small AOI or a period under one ye
 ## Before comparing areas, periods, vessels or companies
 
 1. **Population:** detection records, reviewed detections, candidate associations, or grouped events?
-2. **Coverage:** footprint intersections and acquisition dates in `public.sentinel1_grd`, with the inventory limitations above. Over the 12 months to 2026-10-26, the inventory held 260 scenes over a point in the central North Sea and 0 over one in Brazil's Campos Basin.
+2. **Coverage:** footprint intersections and acquisition dates in `public.sentinel1_grd`, with the inventory limitations above. From 2025-10-27 to 2026-10-26 (UTC), the inventory held 263 scenes intersecting 2.5°E 56.5°N in the central North Sea and 0 intersecting 40.3°W 22.5°S in Brazil's Campos Basin (`filter=S_INTERSECTS(geometry, POINT(lon lat))`).
 3. **Conditions:** wind, sea state, season, processing gaps.
 4. **Dependence:** repeated or overlapping detections of one event are not independent.
 5. **Selection:** the same filters, dates and review effort. Source matching favors AIS-broadcasting vessels and mapped infrastructure.

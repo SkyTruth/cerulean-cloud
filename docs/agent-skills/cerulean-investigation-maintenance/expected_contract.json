@@ -1,5 +1,5 @@
 {
-  "checked_at": "2026-10-26",
+  "checked_at": "2026-11-06",
   "collections": [
     "public.aoi",
     "public.aoi_eez",
@@ -179,7 +179,36 @@
     "id": 4111397,
     "hitl_cls": 8,
     "rank1_mmsi": "215371000",
-    "candidates": 8
+    "candidates": 8,
+    "slick_url": "https://cerulean.skytruth.org/slicks/4111397?ref=api&slick_id=4111397"
+  },
+  "csv": {
+    "columns": [
+      "collectionId",
+      "itemId",
+      "id",
+      "geometry"
+    ],
+    "geometry_prefix": "SRID=4326;"
+  },
+  "coverage": {
+    "matched": 91,
+    "scenes": 91,
+    "properties": [
+      "absolute_orbit_number",
+      "end_time",
+      "id",
+      "mode",
+      "polarization",
+      "scene_id",
+      "scihub_ingestion_time",
+      "start_time",
+      "url"
+    ],
+    "geometry_types": [
+      "Polygon"
+    ],
+    "full_geometry": true
   },
   "manual_map_checks": [
     "Open the example search in references/computer-use.md; the map shows '5 Slicks | 7 km²'.",
