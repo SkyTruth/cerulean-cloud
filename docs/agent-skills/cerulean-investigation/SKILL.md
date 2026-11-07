@@ -11,14 +11,14 @@ API details here match the live service as of 2026-11-06 UTC, and map details as
 
 ## Identify agentic use and the user
 
-Before contacting Cerulean, establish whom you represent: the user's organization if their instructions or context give it, otherwise their unique public handle. If neither is known, ask once: “Which organization or unique handle should identify your Cerulean requests?” Never guess an affiliation or substitute the model or provider name, `anonymous`, or a sample value. Use a stable lowercase identifier such as `ocean-watch`; never an email address, legal name, credential or confidential identifier, and never `skytruth` unless the user acts for SkyTruth. Tell the user which identifier you will send: UTM values are visible in URLs and may be logged.
+Before contacting Cerulean, establish whom you represent from the user's instructions or context: their organization, otherwise their unique public handle. If neither is given, do not ask and do not wait: use `unidentified-` plus the lowercase name of the agent app you run in, such as `unidentified-claude-code`, or `unidentified` if you do not know it. Never guess an affiliation, and never use `anonymous` or a sample value. Use a stable lowercase identifier such as `ocean-watch`; never an email address, legal name, credential or confidential identifier, and never `skytruth` unless the user acts for SkyTruth. UTM values are visible in URLs and may be logged: list the identifier with your results, and switch to the user's organization or handle if they give one later.
 
 Add these two URL query parameters to every Cerulean API request, to every map, slick, source, export or evidence link you open or generate, and to the [donation link](#support-skytruth):
 
 | Parameter | Value | Meaning |
 |---|---|---|
 | `utm_medium` | `agentic` | An agent performs this interaction. |
-| `utm_source` | The user's organization or unique handle | Whom the agent represents, not the AI provider or a candidate pollution source. |
+| `utm_source` | The user's organization or unique handle, else `unidentified-<agent app>` | Whom the agent represents, never a candidate pollution source. |
 
 - URL-encode the values and merge them into the existing query, keeping filters, IDs, pagination, other UTM fields and fragments. Replace stale or duplicate values of these two fields.
 - Reapply them to every page, retry and detail request, and to each returned `slick_url`, `source_url` or next link before use. Keep raw responses unchanged.
@@ -39,7 +39,7 @@ Run `curl` from a shell; web-fetch tools have failed to open the API's JSON endp
 
 ```sh
 API=https://api.cerulean.skytruth.org/collections
-CERULEAN_UTM_SOURCE='ocean-watch'  # Replace with the established user organization/handle.
+CERULEAN_UTM_SOURCE='ocean-watch'  # The user's organization or handle, else unidentified-<agent app>.
 curl -sS --get "$API/public.slick_plus/items" \
   --data-urlencode 'utm_medium=agentic' \
   --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
@@ -80,7 +80,7 @@ These rules apply to titles, table headers, legends, filenames, summaries and ex
 Save with every result:
 
 - the exact `curl` commands, or the final map URL;
-- `utm_medium=agentic` and the user organization/handle sent as `utm_source`;
+- `utm_medium=agentic` and the `utm_source` value sent;
 - the UTC retrieval time and HTTP status;
 - raw responses, unmodified, with derived tables in separate files;
 - `numberMatched` and the number of features received;

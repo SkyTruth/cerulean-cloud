@@ -43,7 +43,7 @@ Recent detections can wait days for source matching. For a requested review of r
 
 ## Recipes
 
-Set `API=https://api.cerulean.skytruth.org/collections` and `CERULEAN_UTM_SOURCE` to the established user organization/handle, as in the main skill quick start.
+Set `API=https://api.cerulean.skytruth.org/collections` and `CERULEAN_UTM_SOURCE` to the `utm_source` value chosen in the main skill, as in its quick start.
 
 **Area and period.** Use the quick start in SKILL.md. For a polygon, add `AND S_INTERSECTS(geometry, POLYGON((14 36, 15 36, 15 37, 14 37, 14 36)))` to the filter, as closed rings of `lon lat` pairs. For 1–8 May 2025 this polygon returned 4111397.
 
