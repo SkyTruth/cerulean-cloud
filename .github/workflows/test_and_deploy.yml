@@ -86,7 +86,7 @@ jobs:
       - uses: pulumi/actions@v5
         id: pulumi-images
         env:
-          PULUMI_CONFIG_PASSPHRASE: "test"
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE_TEST }}
         with:
           pulumi-version: '3.113.3'
           work-dir: images/
@@ -97,7 +97,7 @@ jobs:
 
       - uses: pulumi/actions@v5
         env:
-          PULUMI_CONFIG_PASSPHRASE: "test"
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE_TEST }}
           MODEL: ${{ steps.pulumi-images.outputs.model }}
         with:
           pulumi-version: '3.113.3'
@@ -128,7 +128,7 @@ jobs:
         with:
           environment: test
           pulumi-version: 3.121.0
-          pulumi-stack-passphrase: test
+          pulumi-stack-passphrase: ${{ secrets.PULUMI_CONFIG_PASSPHRASE_TEST }}
 
   deploy-staging:
     name: Deploy [STAGING]
@@ -151,7 +151,7 @@ jobs:
         with:
           environment: staging
           pulumi-version: 3.121.0
-          pulumi-stack-passphrase: staging
+          pulumi-stack-passphrase: ${{ secrets.PULUMI_CONFIG_PASSPHRASE_STAGING }}
 
   deploy-production:
     name: Deploy [PRODUCTION]
@@ -174,4 +174,4 @@ jobs:
         with:
           environment: prod20240903
           pulumi-version: 3.121.0
-          pulumi-stack-passphrase: prod20240903
+          pulumi-stack-passphrase: ${{ secrets.PULUMI_CONFIG_PASSPHRASE_PRODUCTION }}
