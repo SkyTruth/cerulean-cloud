@@ -56,7 +56,7 @@ def test_explicit_scene_ids_csv_and_authenticated_request(remote, tmp_path):
             "manual_trigger": True,
         },
         "headers": {"Authorization": "Bearer test-key"},
-        "timeout": 600,
+        "timeout": 1860,
     }
 
 

@@ -26,7 +26,7 @@ def post_historical_run(payload, url, api_key):
         url,
         json=payload,
         headers={"Authorization": f"Bearer {api_key}"},
-        timeout=600,
+        timeout=1860,
     )
     response.raise_for_status()
     return response.json()

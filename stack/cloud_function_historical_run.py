@@ -72,7 +72,7 @@ fxn = cloudfunctionsv2.Function(
     service_config={
         "available_memory": "512Mi",
         "environment_variables": config_values,
-        "timeout_seconds": 500,
+        "timeout_seconds": 1800,
         "service_account_email": cloud_function_scene_relevancy.cloud_function_service_account.email,
         "secret_environment_variables": [apikey],
         "vpc_connector": vpc_connector.id,
