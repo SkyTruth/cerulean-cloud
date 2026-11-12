@@ -85,6 +85,29 @@ async def add_trigger_row(n_scenes=1, n_filtered_scenes=1, logs_url=""):
         await conn.close()
 
 
+async def get_processed_scene_ids(scene_ids):
+    """Find scenes with any successful inference run in this stack's database."""
+    if not scene_ids:
+        return set()
+    conn = await asyncpg.connect(os.environ["DB_URL"], timeout=30, command_timeout=30)
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT s.scene_id
+            FROM sentinel1_grd s
+            WHERE s.scene_id = ANY($1::text[])
+              AND EXISTS (
+                  SELECT 1 FROM orchestrator_run r
+                  WHERE r.sentinel1_grd = s.id AND r.success IS TRUE
+              )
+            """,
+            scene_ids,
+        )
+        return {row["scene_id"] for row in rows}
+    finally:
+        await conn.close()
+
+
 def verify_api_key(request):
     """Function to verify API key"""
     expected_api_key = os.getenv("API_KEY")
@@ -195,10 +218,16 @@ def main(request):
     total_scenes, filtered_scenes = handle_search(request_json)
     # Submit each scene once, even when a catalog or supplied list repeats it.
     filtered_scenes = list(dict.fromkeys(filtered_scenes))
+    processed_scene_ids = asyncio.run(get_processed_scene_ids(filtered_scenes))
+    filtered_scenes = [
+        scene for scene in filtered_scenes if scene not in processed_scene_ids
+    ]
     summary = {
         "scene_count": total_scenes,
         "filtered_scene_count": len(filtered_scenes),
+        "already_processed_scene_count": len(processed_scene_ids),
     }
+    print(f"Historical scene selection: {summary}")
     if request_json.get("action") == "list":
         return {**summary, "scene_ids": filtered_scenes}
 

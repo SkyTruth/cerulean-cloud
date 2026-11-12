@@ -4,6 +4,7 @@ black
 isort
 pytest-httpx
 pytest-asyncio
-pytest-postgresql
+# The httpx 0.22 test stack requires pytest 6; newer DB plugins use pytest 7 internals.
+pytest-postgresql==4.1.1
 asyncpg
 google-cloud-tasks

@@ -306,8 +306,14 @@ intersecting the requested region. Filtering selects whole scenes; it does not c
 inference to that region. Historical-run retains ownership of batch tracking and
 queue submission. Filtering lives entirely within historical-run; the live
 scene-relevancy function and its deployment code are unchanged.
-Explicit IDs bypass discovery and relevance filtering. Duplicate IDs are queued once
-per request.
+Explicit IDs bypass discovery and relevance filtering. Duplicate IDs are selected
+once per request. After selection, every historical-run request checks the stack's
+database and excludes scenes with any `orchestrator_run.success IS TRUE`, regardless
+of model or whether any slicks were detected. Failed/unfinished runs and scene
+metadata alone do not count as completed processing. This check also applies to
+explicit IDs, dry runs, and remote `action: "list"` requests; disabling relevance
+filtering does not disable it. Lookup failures stop the request before a trigger or
+tasks are created.
 
 Historical-run configures GEODES through its bundled `geodes.yml`, compatible with
 the pinned EODAG version. Public metadata search requires no GEODES key; this path
@@ -327,7 +333,9 @@ deadline. Omitted `dry_run` uses `dryrun_historical`; an explicit JSON boolean
 overrides it for that request.
 Optional `manual_trigger: true` gives downstream source-association tasks
 run-specific names. The JSON response reports the trigger ID, counts, and dry-run
-setting; successful submission does not mean processing has completed.
+setting, plus `already_processed_scene_count` (unique selected scenes excluded by
+the database check). `filtered_scene_count` and the trigger's selected count reflect
+the remaining scenes; successful submission does not mean processing has completed.
 `action: "list"` returns scene IDs without creating a trigger or queueing tasks.
 Discovery and queue failures return errors rather than a successful partial result.
 A partial batch result also returns an error; logs identify the operation,
@@ -335,7 +343,9 @@ confirmed task count, batch offset, and failed request indices. Submission and
 polling share a 450-second budget starting at function entry, including discovery.
 This first pass does not automatically retry failed or unconfirmed submissions.
 A queue failure can leave a partially submitted batch; resubmission creates a new
-batch and may reprocess scenes already submitted.
+batch. Completed scenes are excluded on resubmission, but scenes still queued or
+running are not protected by this lookup. Overlapping requests can still submit the
+same unfinished scene; this is not an atomic reservation of work.
 
 Set `CERULEAN_API_KEY` in the environment for the CLI. The client discovers the
 endpoint from Pulumi's `historical_run_url` output for any `--stage` stack name;
@@ -377,7 +387,9 @@ The CLI's S3 `--list-only` applies the selected relevance/region filters locally
 Footprint metadata requests add time proportional to scene count; failures abort discovery before any
 batch or tasks are created. The Python `list_sentinel1_scene_ids` helper still returns
 raw archive IDs; use `filter_sentinel1_scene_ids` before submitting them. Neither
-helper determines whether scenes were previously processed.
+helper determines whether scenes were previously processed. Local S3 `--list-only`
+and notebook selection remain database-independent; the server checks completion
+when their IDs are submitted to historical-run.
 
 ## Adding a new Pulumi Stack
 Don't forget to edit the following places:

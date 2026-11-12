@@ -1,4 +1,4 @@
-"""Archive listing and endpoint behavior without contacting cloud services."""
+"""Historical selection and queueing with mocked cloud APIs and a local test DB."""
 
 import base64
 import json
@@ -186,6 +186,9 @@ def endpoint(monkeypatch):
         monkeypatch.setenv(key, value)
     batch = AsyncMock(return_value={"id": 42})
     monkeypatch.setattr(historical, "add_trigger_row", batch)
+    monkeypatch.setattr(
+        historical, "get_processed_scene_ids", AsyncMock(return_value=set())
+    )
     session = MagicMock(spec=historical.AuthorizedSession)
     session.__enter__.return_value = session
 
@@ -230,6 +233,7 @@ def test_explicit_inventory_deduplicates_without_batch_or_queue(endpoint):
     assert response.json == {
         "scene_count": 3,
         "filtered_scene_count": 2,
+        "already_processed_scene_count": 0,
         "scene_ids": ["first", "second"],
     }
     endpoint[1].assert_not_called()
@@ -282,6 +286,7 @@ def test_batch_tracking_queue_and_dry_run_defaults_or_overrides(
     assert response.json == {
         "scene_count": 3,
         "filtered_scene_count": 2,
+        "already_processed_scene_count": 0,
         "queued_count": 2,
         "trigger_id": 42,
         "dry_run": expected,
@@ -544,6 +549,129 @@ async def test_trigger_connection_is_closed_on_success_and_failure(monkeypatch, 
             "HISTORICAL_RUN",
         )
     connection.close.assert_awaited_once()
+
+
+@pytest.mark.parametrize("source", ["explicit", "s3", "eodag"])
+@pytest.mark.parametrize("action", ["list", "enqueue"])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_processed_scenes_are_excluded_from_every_request_path(
+    endpoint, monkeypatch, source, action, dry_run
+):
+    scenes = ["new", "completed", "failed", "completed", "unfinished"]
+    if source == "explicit":
+        payload = {"scene_ids": scenes}
+    else:
+        monkeypatch.setattr(historical, "handle_search", lambda _: (5, scenes))
+        payload = {"source": source, "start": "2025-01-01", "end": "2025-01-02"}
+        if source == "s3":
+            payload["apply_relevancy"] = False
+        else:
+            payload["geometry"] = {"type": "FeatureCollection", "features": []}
+    historical.get_processed_scene_ids.return_value = {"completed"}
+    response = post(endpoint, {**payload, "action": action, "dry_run": dry_run})
+    assert response.status_code == 200
+    assert response.json["scene_count"] == 5
+    assert response.json["already_processed_scene_count"] == 1
+    assert response.json["filtered_scene_count"] == 3
+    historical.get_processed_scene_ids.assert_awaited_once_with(
+        ["new", "completed", "failed", "unfinished"]
+    )
+    expected = ["new", "failed", "unfinished"]
+    if action == "list":
+        assert response.json["scene_ids"] == expected
+        endpoint[1].assert_not_called()
+        endpoint[2].post.assert_not_called()
+    else:
+        assert response.json["queued_count"] == 3
+        assert endpoint[1].call_args.args == (5, 3)
+        assert [
+            task_payload(request["task"])["scene_id"]
+            for request in queued_requests(endpoint)
+        ] == expected
+
+
+def test_all_scenes_already_processed_creates_no_tasks(endpoint):
+    historical.get_processed_scene_ids.return_value = {"completed"}
+    response = post(endpoint, {"scene_ids": ["completed", "completed"]})
+    assert response.status_code == 200
+    assert response.json["already_processed_scene_count"] == 1
+    assert response.json["filtered_scene_count"] == response.json["queued_count"] == 0
+    assert endpoint[1].call_args.args == (2, 0)
+    endpoint[2].post.assert_not_called()
+    historical.google.auth.default.assert_not_called()
+
+
+@pytest.mark.parametrize("action", ["list", "enqueue"])
+def test_processed_lookup_failure_stops_before_trigger_and_queue(endpoint, action):
+    historical.get_processed_scene_ids.side_effect = RuntimeError(
+        "database unavailable"
+    )
+    assert post(endpoint, {"scene_ids": ["scene"], "action": action}).status_code == 500
+    endpoint[1].assert_not_called()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_empty_processed_lookup_never_connects(monkeypatch):
+    connect = AsyncMock(side_effect=AssertionError("must not connect"))
+    monkeypatch.setattr(historical.asyncpg, "connect", connect)
+    assert await historical.get_processed_scene_ids([]) == set()
+    connect.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", [False, True])
+async def test_processed_lookup_closes_connection_on_success_and_failure(
+    monkeypatch, fail
+):
+    connection = AsyncMock()
+    connection.fetch.return_value = [{"scene_id": "completed"}]
+    if fail:
+        connection.fetch.side_effect = RuntimeError("lookup failed")
+    monkeypatch.setenv("DB_URL", "postgresql://test-db")
+    connect = AsyncMock(return_value=connection)
+    monkeypatch.setattr(historical.asyncpg, "connect", connect)
+    if fail:
+        with pytest.raises(RuntimeError, match="lookup failed"):
+            await historical.get_processed_scene_ids(["completed", "new"])
+    else:
+        assert await historical.get_processed_scene_ids(["completed", "new"]) == {
+            "completed"
+        }
+    connect.assert_awaited_once_with(
+        "postgresql://test-db", timeout=30, command_timeout=30
+    )
+    assert connection.fetch.call_args.args[1:] == (["completed", "new"],)
+    connection.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_processed_lookup_requires_any_successful_run(postgresql, monkeypatch):
+    # Exercise the real query on local PostgreSQL; inference output is not needed.
+    url = (
+        f"postgresql://{postgresql.info.user}@{postgresql.info.host}:"
+        f"{postgresql.info.port}/{postgresql.info.dbname}"
+    )
+    monkeypatch.setenv("DB_URL", url)
+    connection = await historical.asyncpg.connect(url)
+    try:
+        await connection.execute(
+            """
+            CREATE TABLE sentinel1_grd (id bigint PRIMARY KEY, scene_id text UNIQUE);
+            CREATE TABLE orchestrator_run (sentinel1_grd bigint, success boolean, model integer);
+            INSERT INTO sentinel1_grd VALUES
+                (1, 'completed'), (2, 'failed'), (3, 'unfinished'),
+                (4, 'metadata-only'), (5, 'unrequested');
+            INSERT INTO orchestrator_run VALUES
+                (1, TRUE, 1), (1, TRUE, 2), (1, FALSE, 2), (1, NULL, 2),
+                (2, FALSE, 1), (3, NULL, 1), (5, TRUE, 1);
+            """
+        )
+        assert await historical.get_processed_scene_ids(
+            ["new", "completed", "failed", "unfinished", "metadata-only", "completed"]
+        ) == {"completed"}
+    finally:
+        await connection.close()
 
 
 @pytest.mark.parametrize("action", ["list", "enqueue"])
