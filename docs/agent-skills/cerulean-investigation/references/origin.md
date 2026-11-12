@@ -62,7 +62,7 @@ Safe answer pattern (illustrative counts): "12 potential slick detections had DA
 
 ### Runnable example
 
-Run the two `curl` requests in the [API recipe](api.md#recipes), with `API` and `CERULEAN_UTM_SOURCE` set as in the quick start, and check both HTTP statuses. Then run the code below in the same directory. It uses only Python's standard library and saved responses; it makes no network requests. It writes derived labels and auditable DARK support groups to `origin-estimates.json`, leaving both raw files unchanged.
+Run the two `curl` requests in the [API recipe](api.md#recipes), with `API`, `CERULEAN_UTM_MEDIUM` and `CERULEAN_UTM_SOURCE` set as in the [API quick start](api.md#quick-start), and check both HTTP statuses. Then run the code below in the same directory. It uses only Python's standard library and saved responses; it makes no network requests. It writes derived labels and auditable DARK support groups to `origin-estimates.json`, leaving both raw files unchanged.
 
 This small-batch example requires a complete response in each input file and stops if a response is partial. For a larger area/period population, retrieve and reconcile every page and ID batch as described in the API guide before applying the same grouping logic. An API-only example cannot determine processing status, so it records status as unavailable. An integration can populate `analysis_status_by_slick` from an explicit processing signal: `pending` while AIS/dark analysis is pending, or `run` once it has run. A known pending status produces `Infrastructure (Pending)` for infrastructure-only support, or `Pending` for no positive support.
 

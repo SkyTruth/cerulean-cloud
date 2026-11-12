@@ -1,4 +1,4 @@
-"""Publish the checked-in investigation skill and advertise it across the API."""
+"""Render the API guide and publish its shared investigation skill resources."""
 
 import gzip
 import hashlib
@@ -9,9 +9,13 @@ import tarfile
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request, Response
+from markdown import Markdown
+from markdown.treeprocessors import Treeprocessor
+from markupsafe import Markup
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from tipg.middleware import CatalogUpdateMiddleware
@@ -21,11 +25,17 @@ SKILL_ROOT = Path(__file__).resolve().parents[2] / "docs" / "agent-skills" / SKI
 SKILL_URL = f"/skills/{SKILL_NAME}/SKILL.md"
 ARCHIVE_URL = f"/skills/{SKILL_NAME}.tar.gz"
 INDEX_URL = "/.well-known/agent-skills/index.json"
+GUIDE_URL = "/guide"
+NOTEBOOK_URL = "https://colab.research.google.com/github/SkyTruth/cerulean-cloud/blob/main/notebooks/Cerulean%20API%20Guide.ipynb"
 GUIDES = {
-    "api.md": "API queries, pagination and exports",
-    "origin.md": "Possible origins and counts by source type",
-    "methodology.md": "Evidence, coverage and comparisons",
-    "computer-use.md": "Using the Cerulean map",
+    "api.md": "Queries and downloads",
+    "origin.md": "Possible origins",
+    "methodology.md": "Interpreting the data",
+    "computer-use.md": "Using the map",
+}
+GUIDE_PATHS = {
+    filename: GUIDE_URL if filename == "api.md" else f"{GUIDE_URL}/{filename[:-3]}"
+    for filename in GUIDES
 }
 
 
@@ -116,6 +126,52 @@ def document_response(request: Request, path: str) -> Response:
 router = APIRouter()
 
 
+class GuideLinks(Treeprocessor):
+    """Keep links between shared Markdown references in the browser guide."""
+
+    def run(self, root):
+        targets = {"../SKILL.md": SKILL_URL, **GUIDE_PATHS}
+        for anchor in root.iter("a"):
+            target = urlsplit(anchor.get("href", ""))
+            if not target.scheme and not target.netloc and target.path in targets:
+                anchor.set(
+                    "href", urlunsplit(target._replace(path=targets[target.path]))
+                )
+
+
+@router.api_route(GUIDE_URL, methods=["GET", "HEAD"], include_in_schema=False)
+@router.api_route("/guide/{topic}", methods=["GET", "HEAD"], include_in_schema=False)
+def browser_guide(request: Request, topic: str = "api"):
+    filename = f"{topic}.md"
+    if filename not in GUIDES:
+        raise HTTPException(status_code=404, detail="Guide topic not found")
+    source_url = f"/skills/{SKILL_NAME}/references/{filename}"
+    source = publication()[source_url].content.decode()
+    renderer = Markdown(extensions=["tables", "fenced_code", "toc"])
+    renderer.treeprocessors.register(GuideLinks(renderer), "guide_links", 15)
+    # The page supplies its heading; the remaining text is the canonical reference.
+    content = renderer.convert(source.partition("\n")[2])
+    return request.app.state.guide_templates.TemplateResponse(
+        request=request,
+        name="guide.html",
+        context={
+            "template": {
+                "title": f"Cerulean API guide — {GUIDES[filename]}",
+                "api_root": str(request.base_url).rstrip("/"),
+            },
+            "topic_title": GUIDES[filename],
+            "guide_content": Markup(content),
+            "markdown_url": source_url,
+            "guide_topics": [
+                {"title": title, "url": GUIDE_PATHS[name], "active": name == filename}
+                for name, title in GUIDES.items()
+            ],
+            "notebook_url": NOTEBOOK_URL,
+        },
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 @router.api_route("/llms.txt", methods=["GET", "HEAD"], include_in_schema=False)
 def agent_guide(request: Request):
     return document_response(request, "/llms.txt")
@@ -144,7 +200,8 @@ class DocumentationCatalogMiddleware(CatalogUpdateMiddleware):
             "/api",
             "/api.html",
             "/robots.txt",
-        ) or path.startswith("/skills/"):
+            GUIDE_URL,
+        ) or path.startswith(("/skills/", "/guide/")):
             await self.app(scope, receive, send)
             return
         await super().__call__(scope, receive, send)
@@ -162,11 +219,18 @@ class AgentDiscoveryMiddleware:
             return
         request = Request(scope)
         guide_url = str(request.base_url) + "llms.txt"
+        browser_url = str(request.base_url) + "guide"
         link = {
             "href": guide_url,
             "rel": "describedby",
             "type": "text/markdown",
-            "title": "Cerulean investigation guide for agents",
+            "title": "Cerulean API guide (Markdown)",
+        }
+        browser_link = {
+            "href": browser_url,
+            "rel": "describedby",
+            "type": "text/html",
+            "title": "Cerulean API guide",
         }
         metadata_path = scope["path"] in ("/", "/api") or re.fullmatch(
             r"/collections(?:/[^/]+)?", scope["path"]
@@ -180,6 +244,9 @@ class AgentDiscoveryMiddleware:
                 headers = MutableHeaders(scope=message)
                 headers.append(
                     "Link", f'<{guide_url}>; rel="describedby"; type="text/markdown"'
+                )
+                headers.append(
+                    "Link", f'<{browser_url}>; rel="describedby"; type="text/html"'
                 )
                 if (
                     metadata_path
@@ -195,13 +262,13 @@ class AgentDiscoveryMiddleware:
                 data = json.loads(b"".join(chunks))
                 if scope["path"] == "/api":
                     data["externalDocs"] = {
-                        "description": link["title"],
-                        "url": guide_url,
+                        "description": browser_link["title"],
+                        "url": browser_url,
                     }
                 else:
-                    data.setdefault("links", []).append(link)
+                    data.setdefault("links", []).extend([browser_link, link])
                     for collection in data.get("collections", []):
-                        collection.setdefault("links", []).append(link)
+                        collection.setdefault("links", []).extend([browser_link, link])
                 body = json.dumps(data, separators=(",", ":")).encode()
                 MutableHeaders(scope=start)["content-length"] = str(len(body))
                 await send(start)

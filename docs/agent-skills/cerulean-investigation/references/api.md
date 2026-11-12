@@ -1,10 +1,32 @@
 # Cerulean API with curl
 
-Add the two [attribution parameters](../SKILL.md#identify-agentic-use-and-the-user) to every request, including discovery, detail, export, page and retry requests, as separate URL parameters, never inside a CQL filter. Bare Cerulean URLs below are templates: add the parameters before opening or citing them.
+This guide covers queries, downloads and interpretation for anyone using the API. Automated agents must also follow the [investigation skill](../SKILL.md), including its agentic attribution and evidence rules.
 
 `https://api.cerulean.skytruth.org` is a TiPG 1.0.1 (OGC API Features) service. Anonymous `GET` requests work, with no authentication and no published rate limit. If a request returns 401 or 403, stop and report it; do not look for keys.
 
 Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encoded correctly, save each response with `-o`, and print the status with `-w 'HTTP %{http_code}\n'`. Responses are GeoJSON by default; add `--data-urlencode 'f=csv'` for a spreadsheet. Its geometry column is EWKT (`SRID=4326;MULTIPOLYGON(...)`); drop the `SRID=4326;` prefix for tools that expect WKT.
+
+## Quick start
+
+Run this in a terminal to download potential slick detections in a Mediterranean bounding box for 1–8 May 2025. The filter approximates the map's default [quality screen](#quality-screen); it does not confirm oil or a source.
+
+```sh
+API=https://api.cerulean.skytruth.org/collections
+CERULEAN_UTM_MEDIUM='api-guide'
+CERULEAN_UTM_SOURCE='unidentified-api-user'  # Replace with your organization or handle.
+curl -sS --get "$API/public.slick_plus/items" \
+  --data-urlencode "utm_medium=$CERULEAN_UTM_MEDIUM" \
+  --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
+  --data-urlencode 'bbox=11,36,20,43' \
+  --data-urlencode 'datetime=2025-05-01T00:00:00Z/2025-05-08T23:59:59Z' \
+  --data-urlencode 'filter=machine_confidence >= 0.7 AND max_source_collated_score >= 0' \
+  --data-urlencode 'limit=10000' \
+  -o slicks.geojson -w 'HTTP %{http_code}\n'
+```
+
+For human use, the examples use `utm_medium=api-guide`. **Agents must set `CERULEAN_UTM_MEDIUM='agentic'` and choose `CERULEAN_UTM_SOURCE` under the [skill's attribution rules](../SKILL.md#identify-agentic-use-and-the-user).** Keep both fields as separate URL parameters on every request, page and retry, never inside a CQL filter. They identify usage, not authentication or candidate pollution sources. Bare API URLs below are templates; add the parameters when using them.
+
+Check the HTTP status before opening `slicks.geojson`. A download is complete only when the unique detections received across all pages equal `numberMatched`; see [query rules](#query-rules). On 2026-11-06 this example returned 5 detections, matching the map for the same area and period. Consult [interpretation guidance](methodology.md) before drawing conclusions from the results.
 
 ## Collections
 
@@ -45,15 +67,15 @@ This screen defines the retrieval population; [possible origin estimation](origi
 
 ## Recipes
 
-Set `API=https://api.cerulean.skytruth.org/collections` and `CERULEAN_UTM_SOURCE` to the `utm_source` value chosen in the main skill, as in its quick start.
+Set `API`, `CERULEAN_UTM_MEDIUM` and `CERULEAN_UTM_SOURCE` as in the [quick start](#quick-start).
 
-**Area and period.** Use the quick start in SKILL.md. For a polygon, add `AND S_INTERSECTS(geometry, POLYGON((14 36, 15 36, 15 37, 14 37, 14 36)))` to the filter, as closed rings of `lon lat` pairs. For 1–8 May 2025 this polygon returned 4111397.
+**Area and period.** Use the quick start above. For a polygon, add `AND S_INTERSECTS(geometry, POLYGON((14 36, 15 36, 15 37, 14 37, 14 36)))` to the filter, as closed rings of `lon lat` pairs. For 1–8 May 2025 this polygon returned 4111397.
 
 **One detection.**
 
 ```sh
-curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.slick_plus/items/4111397" -o slick-4111397.geojson
-curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.source_plus/items" --data-urlencode 'slick_id=4111397' \
+curl -sS --get --data-urlencode "utm_medium=$CERULEAN_UTM_MEDIUM" --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.slick_plus/items/4111397" -o slick-4111397.geojson
+curl -sS --get --data-urlencode "utm_medium=$CERULEAN_UTM_MEDIUM" --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.source_plus/items" --data-urlencode 'slick_id=4111397' \
   --data-urlencode 'bbox-only=true' --data-urlencode 'limit=100' -o sources-4111397.geojson
 ```
 
@@ -63,7 +85,7 @@ Detection 4111397 has latest human class 8 (Vessel, coincident) and best collate
 
 ```sh
 curl -sS --get "$API/public.slick_plus/items" \
-  --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
+  --data-urlencode "utm_medium=$CERULEAN_UTM_MEDIUM" --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
   --data-urlencode 'ids=4111397,5318254' \
   --data-urlencode 'properties=id,slick_timestamp,hitl_cls,hitl_cls_name' \
   --data-urlencode 'bbox-only=true' --data-urlencode 'limit=10000' \
@@ -71,7 +93,7 @@ curl -sS --get "$API/public.slick_plus/items" \
   -o origin-slicks.geojson -w 'HTTP %{http_code}\n'
 
 curl -sS --get "$API/public.source_plus/items" \
-  --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
+  --data-urlencode "utm_medium=$CERULEAN_UTM_MEDIUM" --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
   --data-urlencode 'filter=slick_id IN (4111397, 5318254) AND source_collated_score > 0' \
   --data-urlencode 'properties=slick_id,source_id,source_type,mmsi_or_structure_id,source_rank,source_collated_score,create_time' \
   --data-urlencode 'sortby=slick_id,source_id' \
@@ -85,7 +107,7 @@ Replace the example IDs with the retrieved IDs. Page each batch using the same f
 **Vessel or structure.**
 
 ```sh
-curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.source_plus/items" --data-urlencode 'mmsi_or_structure_id=215371000' \
+curl -sS --get --data-urlencode "utm_medium=$CERULEAN_UTM_MEDIUM" --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.source_plus/items" --data-urlencode 'mmsi_or_structure_id=215371000' \
   --data-urlencode 'properties=slick_id,source_type,source_rank,source_collated_score' \
   --data-urlencode 'bbox-only=true' --data-urlencode 'limit=10000' -o vessel-215371000.geojson
 ```
@@ -99,7 +121,7 @@ Keep rows with `source_rank <= 3` and `source_collated_score >= 0`. Then fetch t
 **EEZ, IHO sea area or MPA.**
 
 ```sh
-curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.aoi_eez/items" --data-urlencode 'mrgid=5682' -o aoi.geojson   # Italy: aoi_id 224
+curl -sS --get --data-urlencode "utm_medium=$CERULEAN_UTM_MEDIUM" --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" "$API/public.aoi_eez/items" --data-urlencode 'mrgid=5682' -o aoi.geojson   # Italy: aoi_id 224
 ```
 
 Look up an IHO sea area in `public.aoi_iho` by `mrgid`, or an MPA in `public.aoi_mpa` by `wdpaid`. Query `slick_plus` for the period with the screen and `properties=id,aoi_type_N_ids`, where N is 1 for an EEZ, 2 for an IHO sea area or 3 for an MPA, adding a rough bbox around the area if you know one, to shrink the download. Keep the features whose `aoi_type_N_ids` contains the `aoi_id`. Italy's EEZ, 1–8 May 2025: 6 detections, the same 6 the map shows with that EEZ selected. Membership is Cerulean's precomputed intersection.

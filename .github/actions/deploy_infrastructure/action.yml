@@ -121,6 +121,10 @@ runs:
         set -euo pipefail
         DOC_CHECK_DIR="$(mktemp -d)"
         curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 --max-time 20 \
+          --get "${TIPG_URL}/guide" \
+          --data-urlencode 'utm_medium=agentic' --data-urlencode 'utm_source=skytruth-deploy-check' \
+          -o "${DOC_CHECK_DIR}/guide.html"
+        curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 --max-time 20 \
           --get "${TIPG_URL}/llms.txt" \
           --data-urlencode 'utm_medium=agentic' --data-urlencode 'utm_source=skytruth-deploy-check' \
           -o "${DOC_CHECK_DIR}/llms.txt"

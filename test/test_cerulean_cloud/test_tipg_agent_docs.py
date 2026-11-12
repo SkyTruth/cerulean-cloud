@@ -8,6 +8,7 @@ import subprocess
 import tarfile
 from collections import defaultdict
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -80,8 +81,75 @@ async def test_published_skill_and_install_bundle():
         ).status_code == 404
         schema = await client.get("/api")
         assert schema.status_code == 200
-        assert schema.json()["externalDocs"]["url"].endswith("/llms.txt")
+        assert schema.json()["externalDocs"]["url"].endswith("/guide")
         assert (await client.get("/robots.txt")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_browser_guide_renders_shared_references_and_landing(monkeypatch):
+    from cerulean_cloud.cloud_run_tipg.handler import app
+
+    class Links(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.hrefs = []
+            self.ids = set()
+
+        def handle_starttag(self, tag, attrs):
+            values = dict(attrs)
+            if tag == "a":
+                self.hrefs.append(values.get("href", ""))
+            if "id" in values:
+                self.ids.add(values["id"])
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://test"
+    ) as client:
+        # Guide routes must render without a database catalog or connection.
+        pages = {}
+        for path in (
+            "/guide",
+            "/guide/origin",
+            "/guide/methodology",
+            "/guide/computer-use",
+        ):
+            response = await client.get(path)
+            assert response.status_code == 200
+            assert response.headers["content-type"].startswith("text/html")
+            links = Links()
+            links.feed(response.text)
+            pages[path] = links
+        assert (await client.get("/guide/missing")).status_code == 404
+        assert "Infrastructure (Pending)" in (await client.get("/guide/origin")).text
+        assert 'class="language-sh"' in (await client.get("/guide")).text
+        assert "<table>" in (await client.get("/guide")).text
+        # All cross-reference links and fragment targets stay usable in HTML.
+        for page in pages.values():
+            for href in page.hrefs:
+                if href.startswith("/guide"):
+                    target, _, fragment = href.partition("#")
+                    assert target in pages
+                    if fragment:
+                        assert fragment in pages[target].ids
+                assert not href.startswith(
+                    ("api.md", "origin.md", "methodology.md", "computer-use.md")
+                )
+
+        monkeypatch.setattr(
+            app.state,
+            "collection_catalog",
+            {"collections": {}, "last_updated": datetime.now()},
+            raising=False,
+        )
+        landing = await client.get("/?f=html")
+        assert landing.status_code == 200
+        assert 'aria-labelledby="get-started-title"' in landing.text
+        assert "Read the API guide" in landing.text
+        assert "Open the example notebook" in landing.text
+        assert "/guide/origin" in landing.text
+        collections = await client.get("/collections?f=html")
+        assert collections.status_code == 200
+        assert 'class="api-guide-hint"' in collections.text
 
 
 @pytest.mark.asyncio

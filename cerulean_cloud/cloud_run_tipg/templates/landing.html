@@ -1,0 +1,52 @@
+{% include "header.html" %}
+
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb bg-light">
+    <li class="breadcrumb-item active" aria-current="page">Home</li>
+    <li class="ml-auto json-link"><a href="{{ template.api_root }}/?f=json">JSON</a></li>
+  </ol>
+</nav>
+
+<h1>{{ response.title }}</h1>
+
+<section class="api-intro" aria-labelledby="get-started-title">
+  <p class="api-eyebrow">Get started</p>
+  <h2 id="get-started-title">Make sense of Cerulean data</h2>
+  <p class="lead">Query potential oil slick detections, explore candidate sources, and understand what the results can tell you.</p>
+  <p>The API guide brings together working queries, field definitions, and interpretation guidance for analysts, developers, and automated clients.</p>
+  <div class="api-actions">
+    <a class="btn api-primary btn-lg" href="{{ template.api_root }}/guide">Read the API guide</a>
+    <a class="btn api-secondary btn-lg" href="https://colab.research.google.com/github/SkyTruth/cerulean-cloud/blob/main/notebooks/Cerulean%20API%20Guide.ipynb">Open the example notebook</a>
+  </div>
+</section>
+
+<div class="row api-topic-cards">
+  <div class="col-md-4 mb-3">
+    <section class="card h-100"><div class="card-body">
+      <h2 class="h5"><a href="{{ template.api_root }}/guide#quick-start">Query and download</a></h2>
+      <p class="mb-0">Search an area or period, retrieve complete results, and export data.</p>
+    </div></section>
+  </div>
+  <div class="col-md-4 mb-3">
+    <section class="card h-100"><div class="card-body">
+      <h2 class="h5"><a href="{{ template.api_root }}/guide/methodology">Interpret the results</a></h2>
+      <p class="mb-0">Understand scores, human review, coverage, and the limits of the evidence.</p>
+    </div></section>
+  </div>
+  <div class="col-md-4 mb-3">
+    <section class="card h-100"><div class="card-body">
+      <h2 class="h5"><a href="{{ template.api_root }}/guide/origin">Estimate possible origins</a></h2>
+      <p class="mb-0">Distinguish human classifications, single-type support, and uncertain origins.</p>
+    </div></section>
+  </div>
+</div>
+
+<h2 class="h4 mt-4">API reference</h2>
+<p>Explore the available data collections and the API specification.</p>
+<ul>
+{% for link in response.links %}
+  <li><a href="{{ link.href }}">{{ link.title }}</a></li>
+{% endfor %}
+</ul>
+
+{% include "footer.html" %}

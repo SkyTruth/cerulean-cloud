@@ -97,7 +97,7 @@ app = FastAPI(
     version=tipg_version,
     openapi_url="/api",
     docs_url="/api.html",
-    description="Use the [Cerulean investigation guide](/llms.txt) for queries and interpretation.",
+    description="Read the [API guide](/guide) for query examples, data definitions and interpretation guidance.",
     lifespan=lifespan,
 )
 
@@ -110,6 +110,7 @@ templates_location: List[Any] = [
 
 templates = Jinja2Templates(directory="cerulean_cloud/cloud_run_tipg/templates/")
 templates.env.loader = jinja2.ChoiceLoader(templates_location)
+app.state.guide_templates = templates
 
 # Register endpoints.
 endpoints = Endpoints(title=settings.name, templates=templates)

@@ -58,7 +58,7 @@ Area is in m² in the API and km² on the map. A sum of polygon areas counts ove
 | The area is clean | No detections matched this query at retrieval time |
 | Worst polluters | Candidate associations prioritized for review |
 
-Useful next evidence: imagery from other sensors, field observations, operator or authority incident reports, expert review. You may draft a verification request; sending it, or contacting anyone, needs the user's authorization.
+Useful next evidence: imagery from other sensors, field observations, operator or authority incident reports, expert review. Agents may draft a verification request; sending it, or contacting anyone, needs the user's authorization.
 
 ## Terms and attribution
 

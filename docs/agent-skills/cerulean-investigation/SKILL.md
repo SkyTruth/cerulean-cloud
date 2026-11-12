@@ -39,9 +39,10 @@ Run `curl` from a shell; web-fetch tools have failed to open the API's JSON endp
 
 ```sh
 API=https://api.cerulean.skytruth.org/collections
+CERULEAN_UTM_MEDIUM='agentic'
 CERULEAN_UTM_SOURCE='ocean-watch'  # The user's organization or handle, else unidentified-<agent app>.
 curl -sS --get "$API/public.slick_plus/items" \
-  --data-urlencode 'utm_medium=agentic' \
+  --data-urlencode "utm_medium=$CERULEAN_UTM_MEDIUM" \
   --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
   --data-urlencode 'bbox=11,36,20,43' \
   --data-urlencode 'datetime=2025-05-01T00:00:00Z/2025-05-08T23:59:59Z' \
