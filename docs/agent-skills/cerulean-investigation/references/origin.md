@@ -28,16 +28,17 @@ Check completeness before assigning a set. A failed, capped or incomplete candid
 
 ### 3. Assign the automated label
 
-Use **Possible origin** as the field heading. Keep human review and source-analysis status separately so the one-word label retains its context.
+Use **Possible origin** as the field heading. Keep human review and source-analysis status alongside the label.
 
 | Candidate evidence, after the human override above | Label |
 |---|---|
-| One distinct type: `VESSEL`, `INFRA`, `DARK` or `NATURAL` | `Vessel`, `Infrastructure`, `Dark` or `Natural`, respectively |
+| Only `INFRA` has positive-scoring candidates, and AIS/dark analysis is known to be pending | `Infrastructure (Pending)` |
+| Otherwise, one distinct type: `VESSEL`, `INFRA`, `DARK` or `NATURAL` | `Vessel`, `Infrastructure`, `Dark` or `Natural`, respectively |
 | More than one distinct type | `Uncertain` |
 | No positive-scoring candidates, and source analysis is known to be pending | `Pending` |
 | No positive-scoring candidates after analysis has run, or processing status is unavailable | `Unknown` |
 
-An infrastructure-only positive match before AIS/dark analysis gives `Infrastructure`, with provisional status. With no positive match and analysis known to be pending, use `Pending`. Any candidate-based label can change as later analysis adds or changes candidates. A lower-scoring positive candidate of a different type is enough to change a sole-type estimate to `Uncertain`.
+An infrastructure-only positive match before AIS/dark analysis gives `Infrastructure (Pending)`. Once that analysis has run, use `Infrastructure` if infrastructure remains the only positive-scoring type. With no positive match and analysis known to be pending, use `Pending`. Any candidate-based label can change as later analysis adds or changes candidates. A lower-scoring positive candidate of a different type is enough to change a sole-type estimate to `Uncertain`.
 
 `Unreviewed` describes human review, not source-analysis progress. The public collections do not expose a reliable per-analyzer completion flag. Do not infer completion or pending status from age, missing candidates, or a 72-hour deadline. If status is unavailable, say so alongside the estimate; a known pending stage makes an existing type estimate provisional.
 
@@ -63,7 +64,7 @@ Safe answer pattern (illustrative counts): "12 potential slick detections had DA
 
 Run the two `curl` requests in the [API recipe](api.md#recipes), with `API` and `CERULEAN_UTM_SOURCE` set as in the quick start, and check both HTTP statuses. Then run the code below in the same directory. It uses only Python's standard library and saved responses; it makes no network requests. It writes derived labels and auditable DARK support groups to `origin-estimates.json`, leaving both raw files unchanged.
 
-This small-batch example requires a complete response in each input file and stops if a response is partial. For a larger area/period population, retrieve and reconcile every page and ID batch as described in the API guide before applying the same grouping logic. An API-only example cannot determine processing status, so it uses `Unknown` for no support and records status as unavailable; an integration with an explicit pending signal can use `Pending` instead.
+This small-batch example requires a complete response in each input file and stops if a response is partial. For a larger area/period population, retrieve and reconcile every page and ID batch as described in the API guide before applying the same grouping logic. An API-only example cannot determine processing status, so it records status as unavailable. An integration can populate `analysis_status_by_slick` from an explicit processing signal: `pending` while AIS/dark analysis is pending, or `run` once it has run. A known pending status produces `Infrastructure (Pending)` for infrastructure-only support, or `Pending` for no positive support.
 
 ```sh
 python3 - <<'PY'
@@ -97,23 +98,27 @@ groups = {name: [] for name in (
     "reviewed_vessel_dark_mixed", "conflicting_human_origin",
 )}
 origins = []
+analysis_status_by_slick = {}  # Populate only from an explicit processing signal.
 for slick in slicks:
     review = slick["hitl_cls"]
     if review in (1, 10, 11, 12):  # Current not-oil classes; excluded throughout.
         continue
     source_types = types[slick["id"]]
+    status = analysis_status_by_slick.get(slick["id"], "unavailable")
     human = human_origins.get(review)
     if human:
         origin, basis = human, "human_review"
+    elif source_types == {"INFRA"} and status == "pending":
+        origin, basis = "Infrastructure (Pending)", "source_candidates"
     elif len(source_types) == 1:
         origin, basis = type_labels[next(iter(source_types))], "source_candidates"
     else:
-        origin = "Uncertain" if source_types else "Unknown"
+        origin = "Uncertain" if source_types else ("Pending" if status == "pending" else "Unknown")
         basis = "source_candidates" if source_types else "no_support"
     origins.append({
         "slick_id": slick["id"], "possible_origin": origin, "basis": basis,
         "hitl_cls": review, "hitl_cls_name": slick["hitl_cls_name"],
-        "positive_source_types": sorted(source_types), "source_analysis_status": "unavailable",
+        "positive_source_types": sorted(source_types), "source_analysis_status": status,
     })
     if "DARK" in source_types:
         group = "dark_only" if source_types == {"DARK"} else "dark_mixed"
@@ -147,7 +152,7 @@ The examples below are hypothetical; all candidate-based rows have no specific h
 | Human Vessel | DARK 0.6; VESSEL 0.1 | `Vessel` | Reviewed-vessel subgroup with mixed-type DARK support |
 | Human Vessel | No positive candidates | `Vessel` | No DARK evidence |
 | Human Not Oil | DARK 0.8 | Excluded | Excluded |
-| AIS/dark analysis known pending | INFRA 0.4 | `Infrastructure` | Provisional infrastructure estimate |
+| AIS/dark analysis known pending | INFRA 0.4 | `Infrastructure (Pending)` | Provisional infrastructure estimate |
 | Source analysis known pending | No positive candidates | `Pending` | Excluded from DARK support groups |
 | Source analysis has run | No positive candidates | `Unknown` | Excluded from DARK support groups |
 | Processing status unavailable | No positive candidates | `Unknown` | Processing status unavailable |

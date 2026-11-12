@@ -69,7 +69,7 @@ These rules apply to titles, table headers, legends, filenames, summaries and ex
 
 For an origin field or questions such as "How many dark vessel slicks were in this area last year?", read [origin.md](references/origin.md). Use a specific latest human origin classification first. Otherwise, estimate from the distinct `source_type` values across **all** candidate rows whose own `source_collated_score > 0`: one type supports that possible origin; several types mean `Uncertain`. Several candidates of the same type still mean one type.
 
-Use the single-word labels `Vessel`, `Infrastructure`, `Dark`, `Natural`, `Uncertain`, `Unknown` and `Pending` under **Possible origin**, retaining the human or automated basis. For counts, distinguish sole-type support from mixed-type support and count unique detections. **Never filter to the requested source type before checking competing types**, and never treat these groups as confirmed sources or calibrated confidence levels. The guide covers human overrides, pending analysis, retrieval and counting examples.
+Use the labels `Vessel`, `Infrastructure`, `Dark`, `Natural`, `Uncertain`, `Unknown` and `Pending` under **Possible origin**, retaining the human or automated basis. Use `Infrastructure (Pending)` for an infrastructure-only automated estimate while AIS/dark analysis is known to be pending. For counts, distinguish sole-type support from mixed-type support and count unique detections. **Never filter to the requested source type before checking competing types**, and never treat these groups as confirmed sources or calibrated confidence levels. The guide covers human overrides, pending analysis, retrieval and counting examples.
 
 ## Workflow
 
