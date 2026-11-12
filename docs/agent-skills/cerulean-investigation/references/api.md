@@ -41,6 +41,8 @@ Use `curl -sS --get URL --data-urlencode 'name=value' ...` so filters are encode
 
 Recent detections can wait days for source matching. For a requested review of recent data, run a separate query with `machine_confidence >= 0.7 AND max_source_collated_score IS NULL AND (slick_confidence >= 0.8 OR slick_confidence IS NULL)` (plus your bbox and dates), which applies the map's rules for detections without a candidate, and label its results provisional.
 
+This screen defines the retrieval population; [possible origin estimation](origin.md) is a separate step. Its candidate threshold is strictly `source_collated_score > 0`, applied to each row, and it considers all available ranks and types. A screen match at score zero does not establish a possible origin. The default screen omits no-source detections: include the separate provisional population when the requested scope needs those detections, recording the filter change and counts.
+
 ## Recipes
 
 Set `API=https://api.cerulean.skytruth.org/collections` and `CERULEAN_UTM_SOURCE` to the `utm_source` value chosen in the main skill, as in its quick start.
@@ -56,6 +58,29 @@ curl -sS --get --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_sourc
 ```
 
 Detection 4111397 has latest human class 8 (Vessel, coincident) and best collated score 0.368. Its geometric score of 1.0 plays no part, because a collated score exists. Its 8 candidates are vessels: rank 1 is MMSI 215371000 at 0.368, and the other 7 score below 0. Its `slick_url` is `https://cerulean.skytruth.org/slicks/4111397?ref=api&slick_id=4111397`.
+
+**Possible origin or counts by source type.** Retrieve the detections for the area and acquisition period first, including `id`, `hitl_cls` and `hitl_cls_name`. The first request below is a worked lookup of two detections; for an area/period question, replace it with that population query. Then fetch positive-scoring candidates for batches of those IDs, without a source-type or rank filter:
+
+```sh
+curl -sS --get "$API/public.slick_plus/items" \
+  --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
+  --data-urlencode 'ids=4111397,5318254' \
+  --data-urlencode 'properties=id,slick_timestamp,hitl_cls,hitl_cls_name' \
+  --data-urlencode 'bbox-only=true' --data-urlencode 'limit=10000' \
+  --data-urlencode 'f=geojson' \
+  -o origin-slicks.geojson -w 'HTTP %{http_code}\n'
+
+curl -sS --get "$API/public.source_plus/items" \
+  --data-urlencode 'utm_medium=agentic' --data-urlencode "utm_source=$CERULEAN_UTM_SOURCE" \
+  --data-urlencode 'filter=slick_id IN (4111397, 5318254) AND source_collated_score > 0' \
+  --data-urlencode 'properties=slick_id,source_id,source_type,mmsi_or_structure_id,source_rank,source_collated_score,create_time' \
+  --data-urlencode 'sortby=slick_id,source_id' \
+  --data-urlencode 'bbox-only=true' --data-urlencode 'limit=10000' \
+  --data-urlencode 'f=geojson' \
+  -o origin-candidates.geojson -w 'HTTP %{http_code}\n'
+```
+
+Replace the example IDs with the retrieved IDs. Page each batch using the same filter and sort order until the unique `(slick_id, source_id)` pairs received equal `numberMatched`; source responses have no queryable `id` column. Group locally by `slick_id` and follow the [local processing example](origin.md#runnable-example) for human precedence, origin labels and separate DARK-only/mixed-type counts. The period comes from the slick's acquisition time, not source `create_time`. `bbox-only=true` returns bounding-box geometry, rather than removing geometry. Batch query and offset pagination verified on 2026-11-12 UTC.
 
 **Vessel or structure.**
 

@@ -21,6 +21,8 @@ Source matching is a second model. It compares each detection with AIS vessel tr
 | Reviewer-verified source | "Association judged likely by a reviewer" | Responsibility, intent, legality |
 | Independent evidence: other imagery, field sample, incident report | The specific claim it covers | Other claims |
 
+For a possible origin label or a search/count by source type, use [origin.md](origin.md). Distinct positive-scoring source types measure agreement among available candidates; they do not establish oil, a true source or a probability. Keep human classifications, sole-type candidate support and mixed-type candidate support distinguishable.
+
 ## Recent data
 
 The FAQ describes imagery arriving 6–12 hours after acquisition and vessel data up to about 72 hours later. Source matches can take longer: two examples were computed 10 and 28 days after their images. Recent detections without a source match are provisional. Keep them separate, record image and retrieval times, and recheck later. Never promise completion within 72 hours.

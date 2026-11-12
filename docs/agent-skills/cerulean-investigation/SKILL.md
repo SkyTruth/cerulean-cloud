@@ -1,6 +1,6 @@
 ---
 name: cerulean-investigation
-description: Investigate potential marine oil slicks in SkyTruth's Cerulean data with reproducible queries and evidence-limited conclusions, by running curl against the public Cerulean API (api.cerulean.skytruth.org) or by computer use on the Cerulean map (cerulean.skytruth.org). Use for slick searches by area, period, vessel or offshore structure, single-detection lookups, exports and comparisons.
+description: Investigate potential marine oil slicks in SkyTruth's Cerulean data with reproducible queries and evidence-limited conclusions, by running curl against the public Cerulean API (api.cerulean.skytruth.org) or by computer use on the Cerulean map (cerulean.skytruth.org). Use for slick searches by area, period, vessel or offshore structure, single-detection lookups, possible origin estimates, source-type counts, exports and comparisons.
 ---
 
 # Cerulean environmental investigation
@@ -64,6 +64,12 @@ On 2026-11-06 this query returned 5 detections (3935019, 4110801, 4111397, 41129
 - Detection counts are not spill counts, polygon area is not oil volume, and overlapping polygons cannot be summed as unique area. No detections does not show a clean area. Source rankings are not rankings of polluters.
 
 These rules apply to titles, table headers, legends, filenames, summaries and exports, not only to a closing disclaimer.
+
+## Possible origin and source-type questions
+
+For an origin field or questions such as "How many dark vessel slicks were in this area last year?", read [origin.md](references/origin.md). Use a specific latest human origin classification first. Otherwise, estimate from the distinct `source_type` values across **all** candidate rows whose own `source_collated_score > 0`: one type supports that possible origin; several types mean `Uncertain`. Several candidates of the same type still mean one type.
+
+Use the single-word labels `Vessel`, `Infrastructure`, `Dark`, `Natural`, `Uncertain`, `Unknown` and `Pending` under **Possible origin**, retaining the human or automated basis. For counts, distinguish sole-type support from mixed-type support and count unique detections. **Never filter to the requested source type before checking competing types**, and never treat these groups as confirmed sources or calibrated confidence levels. The guide covers human overrides, pending analysis, retrieval and counting examples.
 
 ## Workflow
 

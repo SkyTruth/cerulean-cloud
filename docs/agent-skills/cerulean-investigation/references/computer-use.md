@@ -47,4 +47,6 @@ The map reads URL bbox values as integers (`bbox=11_36_20_43`). `lat`, `lon` and
 
 For many records, use the API.
 
+For [possible origins or counts by source type](origin.md), the map's source-type filter shows matching candidates; it does not establish that their type is the only positive-scoring type. Retrieve all qualifying types through the API to separate sole-type and mixed-type support. If that retrieval is unavailable, describe the map result as matching candidates and state that the split was not established.
+
 Do not create accounts, sign in, request verification or submit anything unless the user asks, and do not look for staff-only controls. If the interface differs from this guide, record the difference and continue through the API where possible.
