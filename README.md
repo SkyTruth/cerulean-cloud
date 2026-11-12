@@ -2,9 +2,9 @@
 ## Introduction
 For most users, we recommend using the [Cerulean web application](https://cerulean.skytruth.org/), which provides a visual interface for exploring the complete set of Cerulean data layers.
 
-For users who want to directly access and download oil slick detection data, we provide programmatic free access to an [OGC compliant API](api.cerulean.skytruth.org). 
+For users who want to directly access and download potential oil slick detection data, we provide programmatic free access to an [OGC compliant API](https://api.cerulean.skytruth.org/).
 
-We strongly recommend interested users to look at our [developer’s guide](https://colab.research.google.com/drive/1SYWIzPH_2NeqvfqcVzY43y1hv1Ug-YoJ#scrollTo=NW_mI607d6Jq) for some examples of how to use the API.
+Start with the [API guide in Colab](https://colab.research.google.com/github/SkyTruth/cerulean-cloud/blob/main/notebooks/Cerulean%20API%20Guide.ipynb) for runnable examples, or the [Cerulean investigation skill](https://api.cerulean.skytruth.org/skills/cerulean-investigation/SKILL.md) for agent guidance. Both are maintained in this repository alongside the API.
 
 
 # cerulean-cloud

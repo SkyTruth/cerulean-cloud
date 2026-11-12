@@ -1,15 +1,14 @@
 # robots.txt
 
-# Block Google’s crawler
-User-agent: Googlebot
-Disallow: /
+# User-directed agents may retrieve API data and documentation.
+# Keep these separate from search indexing and model-training crawlers.
+User-agent: ChatGPT-User
+User-agent: Claude-User
+User-agent: Perplexity-User
+Allow: /
 
 # Block ByteDance’s crawler
 User-agent: Bytespider
-Disallow: /
-
-# Block OpenAI searchbot
-User-agent: OAI-SearchBot
 Disallow: /
 
 # Block SEO scanners
@@ -17,10 +16,6 @@ User-agent: SemrushBot
 Disallow: /
 
 User-agent: SemrushBot-BA
-Disallow: /
-
-# Block HTTP library clients
-User-agent: Go-http-client
 Disallow: /
 
 # Block Amazon’s crawler
@@ -37,10 +32,6 @@ Disallow: /
 
 # Block Facebook’s external hit tool
 User-agent: facebookexternalhit
-Disallow: /
-
-# Block Microsoft’s crawler
-User-agent: bingbot
 Disallow: /
 
 # Block Common Crawl
@@ -63,10 +54,6 @@ Disallow: /
 User-agent: MojeekBot
 Disallow: /
 
-# Block ChatGPT-User agent
-User-agent: ChatGPT-User
-Disallow: /
-
 # Block TikTok
 User-agent: TikTokSpider
 Disallow: /
@@ -87,6 +74,20 @@ Disallow: /
 User-agent: ParticleBot
 Disallow: /
 
-# Catch-all: block any other future or unknown bots
+# Search crawlers and other clients may discover documentation and metadata.
+# Agent documentation stays readable without enabling background feature crawling.
 User-agent: *
 Disallow: /
+Allow: /$
+Allow: /?
+Allow: /api
+Allow: /llms.txt
+Allow: /skills/
+Allow: /.well-known/agent-skills/
+Allow: /conformance
+Allow: /tileMatrixSets
+Allow: /collections
+
+# Keep bulk feature queries and tile requests out of background crawling.
+Disallow: /collections/*/items
+Disallow: /collections/*/tiles

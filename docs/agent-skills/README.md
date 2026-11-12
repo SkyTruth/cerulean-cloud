@@ -6,6 +6,28 @@ Skills here are packaged for organizations outside SkyTruth. Agents working in t
 
 The skill uses two routes only: `curl` against the public TiPG API, or computer use on the Cerulean map.
 
+### Hosted publication
+
+TiPG publishes this same directory at `/skills/cerulean-investigation/`. Start at
+`https://api.cerulean.skytruth.org/llms.txt` for the short entry guide and task links.
+The service derives its entry guide's evidence rules from `SKILL.md`, serves the
+Markdown references individually, and generates an installable `.tar.gz` archive
+and SHA-256 discovery index at `/.well-known/agent-skills/index.json`. Artifacts
+are cached per process and support ETags; no separately maintained documentation
+copy or manual packaging step is needed.
+
+The TiPG Docker build includes only this distributable skill directory from
+`docs/agent-skills`. HTTP `Link` headers advertise the guide across endpoints;
+HTML navigation, OGC collection metadata and OpenAPI also link to it. Feature,
+CSV and tile response bodies are not rewritten. The maintenance checks below
+are not published.
+
+The [API notebook](../../notebooks/Cerulean%20API%20Guide.ipynb) links to the hosted
+skill. The README opens that checked-in notebook through GitHub-backed Colab,
+so updates follow `main` rather than requiring a separate Drive copy. Existing
+CI builds and deploys staging after a merge to `main`; production still requires
+a release tag.
+
 | Path | Contents | Shipped |
 |---|---|---|
 | `cerulean-investigation/` | The skill: `SKILL.md` and `references/` (API, map, interpretation) | yes |

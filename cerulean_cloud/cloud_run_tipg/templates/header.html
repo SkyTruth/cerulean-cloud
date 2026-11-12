@@ -4,6 +4,7 @@
     <title>{{ template.title }}</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <link rel="describedby" type="text/markdown" href="{{ template.api_root }}/llms.txt" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/4.5.3/css/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.css" />
     <style>
@@ -28,6 +29,7 @@
       </button>
       <div class="collapse navbar-collapse" id="navbar">
         <ul class="navbar-nav mr-auto">
+          <li class="nav-item"><a class="nav-link" href="{{ template.api_root }}/llms.txt">Agent guide</a></li>
           <li class="nav-item dropdown">
             <a class="nav-link dropdown-toggle" href="{{ template.api_root }}" id="links" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Links</a>
             <div class="dropdown-menu" aria-labelledby="account">

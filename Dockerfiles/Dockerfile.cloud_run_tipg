@@ -27,6 +27,7 @@ RUN pip install \
       && rm requirements.txt
 
 COPY cerulean_cloud/ /app/cerulean_cloud/
+COPY docs/agent-skills/cerulean-investigation/ /app/docs/agent-skills/cerulean-investigation/
 
 FROM gcr.io/distroless/python3-debian12:debug-nonroot AS final
 
