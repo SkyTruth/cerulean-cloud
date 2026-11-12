@@ -2,3 +2,5 @@ pydantic-settings
 tipg~=1.0.0
 uvicorn[standard]
 mangum
+PyYAML
+Markdown>=3.7,<4
