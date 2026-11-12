@@ -1,6 +1,6 @@
 asyncpg
 shapely==2.0.1
-google-cloud-tasks
+google-auth[requests]
 eodag==2.5.2
 # EODAG 2.5 imports pkg_resources, removed in setuptools 81.
 setuptools<81

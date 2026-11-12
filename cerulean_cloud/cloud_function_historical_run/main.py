@@ -1,16 +1,25 @@
 """Discover Sentinel-1 scenes and submit tracked historical processing batches."""
 
 import asyncio
+import base64
 import json
 import os
+import time
 import urllib.parse as urlparse
+import uuid
 from datetime import date, datetime, timedelta, timezone
 
 import asyncpg
 import geojson
+import google.auth
 from flask import abort
-from google.cloud import tasks_v2
+from google.auth.transport.requests import AuthorizedSession
 from shapely.geometry import MultiPolygon, shape
+
+
+CLOUD_TASKS_API = "https://cloudtasks.googleapis.com/v2"
+# Leave headroom before the deployed function's 500-second timeout.
+ENQUEUE_TIMEOUT_SECONDS = 450
 
 
 # Cloud Functions imports main.py at the root of the deployed source archive;
@@ -175,6 +184,7 @@ def validate_request(request_json):
 def main(request):
     """List scenes or queue a tracked batch, preserving the stack dry-run default."""
     start_time = datetime.now()
+    enqueue_deadline = time.monotonic() + ENQUEUE_TIMEOUT_SECONDS
     verify_api_key(request)
     request_json = request.get_json(silent=True)
     try:
@@ -199,16 +209,17 @@ def main(request):
     row = asyncio.run(
         add_trigger_row(total_scenes, len(filtered_scenes), logs_url=logs_url)
     )
-    handler_queue(
+    queued_count = handler_queue(
         filtered_scenes,
         row["id"],
         dry_run=dry_run,
         manual_trigger=request_json.get("manual_trigger", False),
+        deadline=enqueue_deadline,
     )
     return {
         **summary,
         "trigger_id": row["id"],
-        "queued_count": len(filtered_scenes),
+        "queued_count": queued_count,
         "dry_run": dry_run,
     }
 
@@ -278,29 +289,100 @@ def handle_search(request_json, ocean_poly=None):
     return len_total_scenes, filtered_scenes
 
 
-def handler_queue(filtered_scenes, trigger_id, *, dry_run=None, manual_trigger=False):
-    """Queue scenes with their historical batch and the selected execution options."""
-    client = tasks_v2.CloudTasksClient()
-    parent = client.queue_path(
-        os.environ["GCPPROJECT"], os.environ["GCPREGION"], os.environ["QUEUE"]
+def batch_create_tasks(session, parent, task_requests, *, deadline):
+    """Call Google's batchCreate REST API and wait for its operation to finish."""
+    request_id = str(uuid.uuid4())
+
+    def request_timeout():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"Cloud Tasks batchCreate timed out (request_id={request_id})"
+            )
+        return min(30, remaining)
+
+    print(f"Submitting {len(task_requests)} tasks (request_id={request_id})")
+    timeout = request_timeout()
+    response = session.post(
+        f"{CLOUD_TASKS_API}/{parent}/tasks:batchCreate",
+        json={"requests": task_requests, "requestId": request_id},
+        timeout=timeout,
+        max_allowed_time=timeout,
+    )
+    response.raise_for_status()
+    operation = response.json()
+    print(f"Cloud Tasks batchCreate operation: {operation['name']}")
+    while not operation.get("done", False):
+        time.sleep(min(1, request_timeout()))
+        timeout = request_timeout()
+        response = session.get(
+            f"{CLOUD_TASKS_API}/{operation['name']}",
+            timeout=timeout,
+            max_allowed_time=timeout,
+        )
+        response.raise_for_status()
+        operation = response.json()
+    return operation
+
+
+def handler_queue(
+    filtered_scenes, trigger_id, *, dry_run=None, manual_trigger=False, deadline=None
+):
+    """Submit up to 100 scenes per batch, stopping on any unconfirmed creation."""
+    if not filtered_scenes:
+        return 0
+    if deadline is None:
+        deadline = time.monotonic() + ENQUEUE_TIMEOUT_SECONDS
+    parent = (
+        f"projects/{os.environ['GCPPROJECT']}/locations/{os.environ['GCPREGION']}"
+        f"/queues/{os.environ['QUEUE']}"
+    )
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )
     if dry_run is None:
         dry_run = os.getenv("IS_DRY_RUN", "").lower() == "true"
-    for scene in filtered_scenes:
-        payload = {"scene_id": scene, "trigger": trigger_id, "dry_run": dry_run}
-        if manual_trigger:
-            payload["manual_trigger"] = True
-        task = {
-            "dispatch_deadline": {"seconds": 1800},
-            "http_request": {
-                "http_method": tasks_v2.HttpMethod.POST,
-                "url": os.environ["ORCHESTRATOR_URL"].rstrip("/") + "/orchestrate",
-                "headers": {
-                    "Content-type": "application/json",
-                    "Authorization": f"Bearer {os.environ['API_KEY']}",
-                },
-                "body": json.dumps(payload).encode(),
-            },
-        }
-        response = client.create_task(request={"parent": parent, "task": task})
-        print(f"Created task {response.name}")
+    queued_count = 0
+    with AuthorizedSession(credentials) as session:
+        for start in range(0, len(filtered_scenes), 100):
+            task_requests = []
+            for scene in filtered_scenes[start : start + 100]:
+                payload = {"scene_id": scene, "trigger": trigger_id, "dry_run": dry_run}
+                if manual_trigger:
+                    payload["manual_trigger"] = True
+                task = {
+                    "dispatchDeadline": "1800s",
+                    "httpRequest": {
+                        "httpMethod": "POST",
+                        "url": os.environ["ORCHESTRATOR_URL"].rstrip("/")
+                        + "/orchestrate",
+                        "headers": {
+                            "Content-type": "application/json",
+                            "Authorization": f"Bearer {os.environ['API_KEY']}",
+                        },
+                        # REST represents protobuf bytes as a base64 string.
+                        "body": base64.b64encode(json.dumps(payload).encode()).decode(),
+                    },
+                }
+                task_requests.append({"parent": parent, "task": task})
+            operation = batch_create_tasks(
+                session, parent, task_requests, deadline=deadline
+            )
+            created = operation.get("response", {}).get("tasks", [])
+            queued_count += len(created)
+            failed_requests = operation.get("metadata", {}).get("failedRequests", {})
+            if (
+                "error" in operation
+                or failed_requests
+                or len(created) != len(task_requests)
+            ):
+                raise RuntimeError(
+                    f"Cloud Tasks batchCreate {operation['name']} incomplete: "
+                    f"{queued_count}/{len(filtered_scenes)} tasks confirmed; "
+                    f"batch_start={start}; error={operation.get('error')}; "
+                    f"failed_requests={failed_requests}"
+                )
+            print(
+                f"Created {len(created)} tasks; {queued_count} queued for trigger {trigger_id}"
+            )
+    return queued_count

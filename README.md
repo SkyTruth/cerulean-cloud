@@ -318,13 +318,22 @@ EODAG 2.5's `pkg_resources` import available; shared requirements are unchanged.
 
 Every enqueue request records a `HISTORICAL_RUN` trigger with raw/selected counts
 and a log link, then submits to the stack's existing orchestrator queue. Tasks
-carry the trigger ID and a 30-minute execution deadline. Omitted `dry_run` uses
-`dryrun_historical`; an explicit JSON boolean overrides it for that request.
+are submitted in groups of up to 100 through Cloud Tasks' `tasks:batchCreate`
+REST API using application default credentials. The function waits for each
+operation to finish and confirms all tasks were created before submitting the
+next group. This uses `google-auth[requests]` without requiring a newer Cloud
+Tasks Python client. Tasks carry the trigger ID and a 30-minute execution
+deadline. Omitted `dry_run` uses `dryrun_historical`; an explicit JSON boolean
+overrides it for that request.
 Optional `manual_trigger: true` gives downstream source-association tasks
 run-specific names. The JSON response reports the trigger ID, counts, and dry-run
 setting; successful submission does not mean processing has completed.
 `action: "list"` returns scene IDs without creating a trigger or queueing tasks.
 Discovery and queue failures return errors rather than a successful partial result.
+A partial batch result also returns an error; logs identify the operation,
+confirmed task count, batch offset, and failed request indices. Submission and
+polling share a 450-second budget starting at function entry, including discovery.
+This first pass does not automatically retry failed or unconfirmed submissions.
 A queue failure can leave a partially submitted batch; resubmission creates a new
 batch and may reprocess scenes already submitted.
 

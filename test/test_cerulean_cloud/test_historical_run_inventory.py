@@ -1,7 +1,9 @@
 """Archive listing and endpoint behavior without contacting cloud services."""
 
+import base64
 import json
 import sys
+import uuid
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -9,11 +11,35 @@ from xml.sax.saxutils import escape
 
 import httpx
 import pytest
+import requests
 from flask import Flask, request
 from shapely.geometry import box, mapping
 
 from cerulean_cloud.cloud_function_historical_run import main as historical
 from cerulean_cloud.cloud_function_historical_run import inventory
+
+
+QUEUE_PATH = "projects/project/locations/region/queues/orchestrator"
+OPERATION_NAME = "projects/project/locations/region/operations/batch"
+
+
+def operation_response(body, status=200):
+    response = requests.Response()
+    response.status_code = status
+    response._content = json.dumps(body).encode()
+    return response
+
+
+def queued_requests(endpoint):
+    return [
+        request
+        for call in endpoint[2].post.call_args_list
+        for request in call.kwargs["json"]["requests"]
+    ]
+
+
+def task_payload(task):
+    return json.loads(base64.b64decode(task["httpRequest"]["body"]))
 
 
 @pytest.fixture
@@ -160,11 +186,34 @@ def endpoint(monkeypatch):
         monkeypatch.setenv(key, value)
     batch = AsyncMock(return_value={"id": 42})
     monkeypatch.setattr(historical, "add_trigger_row", batch)
-    tasks = MagicMock()
-    monkeypatch.setattr(historical.tasks_v2, "CloudTasksClient", lambda: tasks)
+    session = MagicMock(spec=historical.AuthorizedSession)
+    session.__enter__.return_value = session
+
+    def create_batch(url, **kwargs):
+        return operation_response(
+            {
+                "name": OPERATION_NAME,
+                "done": True,
+                "response": {
+                    "tasks": [
+                        {"name": f"{QUEUE_PATH}/tasks/{index}"}
+                        for index, _ in enumerate(kwargs["json"]["requests"])
+                    ]
+                },
+            }
+        )
+
+    session.post.side_effect = create_batch
+    session.get.side_effect = AssertionError("unexpected operation polling")
+    monkeypatch.setattr(
+        historical.google.auth, "default", MagicMock(return_value=(object(), "project"))
+    )
+    monkeypatch.setattr(
+        historical, "AuthorizedSession", MagicMock(return_value=session)
+    )
     app = Flask(__name__)
     app.add_url_rule("/", view_func=lambda: historical.main(request), methods=["POST"])
-    return app.test_client(), batch, tasks
+    return app.test_client(), batch, session
 
 
 def post(endpoint, payload):
@@ -184,7 +233,7 @@ def test_explicit_inventory_deduplicates_without_batch_or_queue(endpoint):
         "scene_ids": ["first", "second"],
     }
     endpoint[1].assert_not_called()
-    endpoint[2].create_task.assert_not_called()
+    endpoint[2].post.assert_not_called()
 
 
 def test_s3_inventory_routes_filters_without_batch_or_queue(endpoint, monkeypatch):
@@ -214,7 +263,7 @@ def test_s3_inventory_routes_filters_without_batch_or_queue(endpoint, monkeypatc
         ["scene"], geometry=None, ocean_poly=None, apply_relevancy=True
     )
     endpoint[1].assert_not_called()
-    endpoint[2].create_task.assert_not_called()
+    endpoint[2].post.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -241,19 +290,30 @@ def test_batch_tracking_queue_and_dry_run_defaults_or_overrides(
     batch.assert_awaited_once()
     assert batch.call_args.args == (3, 2)
     assert "cloud_function" in batch.call_args.kwargs["logs_url"]
-    tasks = endpoint[2]
-    assert tasks.create_task.call_count == 2
-    for call, scene in zip(tasks.create_task.call_args_list, ["first", "second"]):
-        request = call.kwargs["request"]
-        assert request["parent"] == tasks.queue_path.return_value
-        task = request["task"]
-        assert task["dispatch_deadline"] == {"seconds": 1800}
+    session = endpoint[2]
+    session.post.assert_called_once()
+    call = session.post.call_args
+    assert call.args == (
+        f"{historical.CLOUD_TASKS_API}/{QUEUE_PATH}/tasks:batchCreate",
+    )
+    assert (
+        str(uuid.UUID(call.kwargs["json"]["requestId"]))
+        == call.kwargs["json"]["requestId"]
+    )
+    historical.google.auth.default.assert_called_once_with(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    for queued_request, scene in zip(queued_requests(endpoint), ["first", "second"]):
+        assert queued_request["parent"] == QUEUE_PATH
+        task = queued_request["task"]
+        assert task["dispatchDeadline"] == "1800s"
+        assert task["httpRequest"]["httpMethod"] == "POST"
         assert (
-            task["http_request"]["url"]
+            task["httpRequest"]["url"]
             == "https://orchestrator.example/base/orchestrate"
         )
-        assert task["http_request"]["headers"]["Authorization"] == "Bearer test-key"
-        assert json.loads(task["http_request"]["body"]) == {
+        assert task["httpRequest"]["headers"]["Authorization"] == "Bearer test-key"
+        assert task_payload(task) == {
             "scene_id": scene,
             "trigger": 42,
             "dry_run": expected,
@@ -263,8 +323,144 @@ def test_batch_tracking_queue_and_dry_run_defaults_or_overrides(
 
 def test_default_submission_does_not_force_manual_source_association_names(endpoint):
     assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 200
-    task = endpoint[2].create_task.call_args.kwargs["request"]["task"]
-    assert "manual_trigger" not in json.loads(task["http_request"]["body"])
+    task = queued_requests(endpoint)[0]["task"]
+    assert "manual_trigger" not in task_payload(task)
+
+
+@pytest.mark.parametrize("scene_count", [0, 1, 100, 101, 250])
+def test_submission_chunks_scenes_without_losing_or_repeating_them(
+    endpoint, scene_count
+):
+    scenes = [f"scene-{index}" for index in range(scene_count)]
+    response = post(endpoint, {"scene_ids": scenes})
+    assert response.status_code == 200
+    assert response.json["queued_count"] == scene_count
+    batches = [call.kwargs["json"] for call in endpoint[2].post.call_args_list]
+    assert [len(batch["requests"]) for batch in batches] == [
+        min(100, scene_count - start) for start in range(0, scene_count, 100)
+    ]
+    assert len({batch["requestId"] for batch in batches}) == len(batches)
+    assert [
+        task_payload(request["task"])["scene_id"]
+        for request in queued_requests(endpoint)
+    ] == scenes
+    if not scenes:
+        historical.google.auth.default.assert_not_called()
+        historical.AuthorizedSession.assert_not_called()
+
+
+def test_submission_waits_for_operation_without_resubmitting(endpoint, monkeypatch):
+    session = endpoint[2]
+    running = {"name": OPERATION_NAME}
+    session.post.side_effect = [operation_response(running)]
+    session.get.side_effect = [
+        operation_response(running),
+        operation_response(
+            {
+                "name": OPERATION_NAME,
+                "done": True,
+                "response": {"tasks": [{"name": "task"}]},
+            }
+        ),
+    ]
+    monkeypatch.setattr(historical.time, "sleep", MagicMock())
+    response = post(endpoint, {"scene_ids": ["scene"]})
+    assert response.status_code == 200
+    assert response.json["queued_count"] == 1
+    session.post.assert_called_once()
+    assert session.get.call_count == 2
+    for call in session.get.call_args_list:
+        assert call.args == (f"{historical.CLOUD_TASKS_API}/{OPERATION_NAME}",)
+        assert 0 < call.kwargs["timeout"] <= 30
+
+
+@pytest.mark.parametrize("failure", ["http", "operation", "unconfirmed"])
+def test_unsuccessful_batch_is_not_reported_as_queued(endpoint, failure):
+    body = {"name": OPERATION_NAME, "done": True}
+    if failure == "operation":
+        body["error"] = {"code": 13, "message": "Internal error"}
+    endpoint[2].post.side_effect = [
+        operation_response(body, 403 if failure == "http" else 200)
+    ]
+    response = post(endpoint, {"scene_ids": ["scene"]})
+    assert response.status_code == 500
+    endpoint[2].post.assert_called_once()
+
+
+def test_partial_batch_stops_later_batches_and_logs_confirmed_count(endpoint, caplog):
+    session = endpoint[2]
+    create_batch = session.post.side_effect
+
+    def partial_second_batch(url, **kwargs):
+        if session.post.call_count == 1:
+            return create_batch(url, **kwargs)
+        return operation_response(
+            {
+                "name": OPERATION_NAME,
+                "done": True,
+                "metadata": {
+                    "state": "PARTIALLY_SUCCEEDED",
+                    "failedRequests": {"0": {"code": 8, "message": "quota exhausted"}},
+                },
+                "response": {
+                    "tasks": [{"name": f"task-{index}"} for index in range(99)]
+                },
+            }
+        )
+
+    session.post.side_effect = partial_second_batch
+    response = post(endpoint, {"scene_ids": [f"scene-{index}" for index in range(201)]})
+    assert response.status_code == 500
+    assert session.post.call_count == 2
+    assert OPERATION_NAME in caplog.text
+    assert "199/201 tasks confirmed" in caplog.text
+    assert "batch_start=100" in caplog.text
+    assert "quota exhausted" in caplog.text
+    assert "test-key" not in caplog.text
+
+
+def test_operation_polling_http_failure_is_not_reported_as_success(
+    endpoint, monkeypatch
+):
+    endpoint[2].post.side_effect = [operation_response({"name": OPERATION_NAME})]
+    endpoint[2].get.side_effect = [operation_response({}, 503)]
+    monkeypatch.setattr(historical.time, "sleep", MagicMock())
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    endpoint[2].post.assert_called_once()
+    endpoint[2].get.assert_called_once()
+
+
+def test_operation_polling_stops_at_enqueue_deadline(endpoint, monkeypatch, caplog):
+    clock = SimpleNamespace(now=0)
+    monkeypatch.setattr(historical, "ENQUEUE_TIMEOUT_SECONDS", 2)
+    monkeypatch.setattr(historical.time, "monotonic", lambda: clock.now)
+    monkeypatch.setattr(
+        historical.time,
+        "sleep",
+        lambda seconds: setattr(clock, "now", clock.now + seconds),
+    )
+    endpoint[2].post.side_effect = [operation_response({"name": OPERATION_NAME})]
+    endpoint[2].get.side_effect = lambda *args, **kwargs: operation_response(
+        {"name": OPERATION_NAME}
+    )
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    assert clock.now == 2
+    endpoint[2].post.assert_called_once()
+    endpoint[2].get.assert_called_once()
+    assert "batchCreate timed out" in caplog.text
+
+
+def test_discovery_time_counts_toward_enqueue_deadline(endpoint, monkeypatch):
+    clock = SimpleNamespace(now=0)
+    monkeypatch.setattr(historical.time, "monotonic", lambda: clock.now)
+
+    def slow_search(payload):
+        clock.now = historical.ENQUEUE_TIMEOUT_SECONDS + 1
+        return 1, ["scene"]
+
+    monkeypatch.setattr(historical, "handle_search", slow_search)
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    endpoint[2].post.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -296,7 +492,7 @@ def test_invalid_requests_fail_before_discovery_or_side_effects(
     assert post(endpoint, payload).status_code == 400
     search.assert_not_called()
     endpoint[1].assert_not_called()
-    endpoint[2].create_task.assert_not_called()
+    endpoint[2].post.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -318,11 +514,11 @@ def test_discovery_failure_does_not_create_batch_or_tasks(endpoint, monkeypatch)
     )
     assert post(endpoint, {"scene_ids": []}).status_code == 500
     endpoint[1].assert_not_called()
-    endpoint[2].create_task.assert_not_called()
+    endpoint[2].post.assert_not_called()
 
 
 def test_queue_failure_is_not_reported_as_success(endpoint):
-    endpoint[2].create_task.side_effect = RuntimeError("queue failed")
+    endpoint[2].post.side_effect = RuntimeError("queue failed")
     assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
 
 
@@ -404,15 +600,12 @@ def test_s3_filters_footprints_before_batch_and_queue(
     if action == "list":
         assert response.json["scene_ids"] == expected
         endpoint[1].assert_not_called()
-        endpoint[2].create_task.assert_not_called()
+        endpoint[2].post.assert_not_called()
     else:
         assert endpoint[1].call_args.args == (5, len(expected))
-        tasks = endpoint[2].create_task.call_args_list
         assert [
-            json.loads(call.kwargs["request"]["task"]["http_request"]["body"])[
-                "scene_id"
-            ]
-            for call in tasks
+            task_payload(request["task"])["scene_id"]
+            for request in queued_requests(endpoint)
         ] == expected
 
 
@@ -439,7 +632,7 @@ def test_s3_metadata_failure_does_not_queue_partial_batch(
     )
     assert response.status_code == 500
     endpoint[1].assert_not_called()
-    endpoint[2].create_task.assert_not_called()
+    endpoint[2].post.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -470,7 +663,7 @@ def test_invalid_s3_region_fails_before_discovery(endpoint, monkeypatch, geometr
     assert response.status_code == 400
     listing.assert_not_called()
     endpoint[1].assert_not_called()
-    endpoint[2].create_task.assert_not_called()
+    endpoint[2].post.assert_not_called()
 
 
 @pytest.mark.parametrize("action", ["list", "enqueue"])
@@ -501,10 +694,10 @@ def test_s3_relevancy_bypass_keeps_all_ids_without_metadata(
     if action == "list":
         assert response.json["scene_ids"] == ["land", "hh"]
         endpoint[1].assert_not_called()
-        endpoint[2].create_task.assert_not_called()
+        endpoint[2].post.assert_not_called()
     else:
         assert endpoint[1].call_args.args == (3, 2)
-        assert endpoint[2].create_task.call_count == 2
+        assert len(queued_requests(endpoint)) == 2
 
 
 def test_s3_region_still_applies_when_relevancy_is_disabled(monkeypatch):
@@ -546,4 +739,4 @@ def test_s3_relevancy_option_requires_boolean(endpoint, value):
     )
     assert response.status_code == 400
     endpoint[1].assert_not_called()
-    endpoint[2].create_task.assert_not_called()
+    endpoint[2].post.assert_not_called()
