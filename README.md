@@ -322,8 +322,9 @@ scene names before queueing. The retired PEPS endpoint and SciHub credentials ar
 no longer used by discovery. The function-specific `setuptools<81` constraint keeps
 EODAG 2.5's `pkg_resources` import available; shared requirements are unchanged.
 
-Every enqueue request records a `HISTORICAL_RUN` trigger with raw/selected counts
-and a log link, then submits to the stack's existing orchestrator queue. Tasks
+Every enqueue records a `HISTORICAL_RUN` trigger with raw/selected counts, then
+submits to the stack's existing orchestrator queue. HTTP requests include a cloud
+function log link; local runs leave that link empty and print progress locally. Tasks
 are submitted in groups of up to 100 through Cloud Tasks' `tasks:batchCreate`
 REST API using application default credentials. The function waits for each
 operation to finish and confirms all tasks were created before submitting the
@@ -347,7 +348,8 @@ batch. Completed scenes are excluded on resubmission, but scenes still queued or
 running are not protected by this lookup. Overlapping requests can still submit the
 same unfinished scene; this is not an atomic reservation of work.
 
-Set `CERULEAN_API_KEY` in the environment for the CLI. The client discovers the
+The CLI uses the deployed service by default. Set `CERULEAN_API_KEY` in the
+environment for this mode. The client discovers the
 endpoint from Pulumi's `historical_run_url` output for any `--stage` stack name;
 `--url` or `HISTORICAL_RUN_URL` can supply it directly. Examples from the checkout:
 
@@ -372,24 +374,85 @@ python -m scripts.historical_run --stage test scenes \
   --csv notebooks/scene_ids.csv --dry-run --manual-trigger
 ```
 
-`notebooks/TriggerOnDemand.ipynb` uses the same archive inventory implementation
-locally and sends selected IDs to historical-run for processing. Deploy the
-updated historical-run function before using the new selectors. Remote discovery
-and queue submission are subject to the function's execution timeout; use local
-inventory for long date ranges and submit manageable batches. In the notebook,
+Use `--local` to run the same Python runner as the notebook, with direct database
+access and Cloud Tasks submission. All three selectors (`s3`, `eodag`, and `scenes`)
+are supported. Local discovery and the initial DB exclusion run once, then
+submission uses independent batches of 100 with another DB check before each
+batch. Each batch creates its own trigger and has its own queue-submission budget.
+Local enqueue requires an explicit `--dry-run` or `--no-dry-run`.
+
+```bash
+# Preview a month locally, including exclusion of already successful scenes.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env s3 \
+  --date-start 2025-01-01 --date-end 2025-01-31 \
+  --mode IW --polarization DV --list-only > selected_scenes.json
+
+# Queue dry-run tasks directly from a CSV.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env scenes \
+  --csv notebooks/scene_ids.csv --dry-run --manual-trigger > submission.json
+```
+
+`python scripts/historical_run.py` supports the same options. `--env-file` loads
+the notebook's `STACK_SECRETS` configuration; `--stage test`, `staging`, and
+`prod20240903` select its `TEST`, `STAGING`, and `PRODUCTION` entries respectively.
+With `STACK_SECRETS`, project/region default to `cerulean-338116`/`europe-west1`
+(override with `GCPPROJECT`/`GCPREGION`). The actual queue name, including Pulumi's
+generated suffix, is resolved by listing queues for that stack; a `QUEUE` field in
+the selected secrets entry can supply it explicitly instead.
+Alternatively, export `DB_URL`, `GCPPROJECT`, `GCPREGION`, `QUEUE`,
+`ORCHESTRATOR_URL`, and `API_KEY` directly; in that case these variables determine
+the target. `--api-key`/`CERULEAN_API_KEY` can override the orchestrator API key.
+`HISTORICAL_DB_URL` overrides the database URL for a local proxy. SQLAlchemy-style
+`postgresql+asyncpg://` URLs are normalized automatically. Local `--list-only`
+requires only database access, creates no trigger or tasks, and applies the DB
+exclusion to every selector. Queueing additionally requires Google application
+default credentials with Cloud Tasks permissions, including queue listing unless
+an exact queue name is supplied.
+
+Local CLI stdout contains the final JSON summary with counts and per-batch results.
+Progress and confirmed batch results are printed to stderr. Submission stops on
+the first failure, without automatically retrying earlier or partial batches;
+inspect the confirmed results before resubmitting because unfinished scenes are
+still eligible. The local mode uses no historical-run endpoint or Pulumi lookup.
+
+`notebooks/TriggerOnDemand.ipynb` now awaits the shared `run_historical` Python
+runner locally. It checks the database, creates triggers, and submits Cloud Tasks
+directly; inference still runs in the cloud. This path uses neither the
+historical-run HTTP endpoint nor the Pulumi CLI and needs no function deployment.
+The CLI uses the deployed endpoint for submissions unless `--local` is supplied.
+Remote discovery and queue submission are subject to the function's execution
+timeout; the notebook's local discovery has no overall function timeout. In the notebook,
 choose one scene source, then run the common selection options: optional processed
 CSV exclusion, `APPLY_RELEVANCY = False` (set `True` to opt in), and an optional
 region. CSV input/exclusion accepts either `scene_id` or legacy `s1_scene_id`.
-Orchestration sends batches of 100 through historical-run and defaults to
-`DRY_RUN = False`; set `True` for a dry run or `None` to inherit the stack setting.
-Each batch creates its own trigger. ASA and download utilities retain their own routes.
-The CLI's S3 `--list-only` applies the selected relevance/region filters locally.
+Orchestration sends batches of 100 through the local runner and defaults to
+`DRY_RUN = False`; set `True` for a dry run. Local notebook submission requires an
+explicit boolean; it does not inherit the deployed function's dry-run setting.
+Each batch creates its own trigger and gets a 450-second queue-submission budget.
+Keep the notebook running until all batches have been submitted; earlier confirmed
+results remain in `batch_results` if a later batch fails. Queued/unfinished scenes
+can still be submitted twice, so inspect partial failures before resubmitting.
+ASA and download utilities retain their own routes.
+
+For local submission, use Google application default credentials with Cloud Tasks
+creation permissions (`gcloud auth application-default login`), and a reachable
+PostgreSQL `DB_URL` in the selected `STACK_SECRETS` entry. Set `HISTORICAL_DB_URL`
+in the environment or notebook `.env` to override the database URL for a local
+proxy; it must point to the selected stack's database. The notebook converts
+`postgresql+asyncpg://` URLs for direct asyncpg use. Check `GCP_PROJECT` and
+`GCP_REGION` in the first cell; submission resolves the deployed orchestrator queue
+for the selected stack, and setup loads its orchestrator URL and API key from `STACK_SECRETS`.
+Rerun setup after changing stacks. Local submission does not require a deployed
+historical-run function, but does require the existing database, queue, and orchestrator.
+The CLI's S3 `--list-only` without `--local` applies the selected relevance/region
+filters locally without a database lookup.
 Footprint metadata requests add time proportional to scene count; failures abort discovery before any
 batch or tasks are created. The Python `list_sentinel1_scene_ids` helper still returns
 raw archive IDs; use `filter_sentinel1_scene_ids` before submitting them. Neither
-helper determines whether scenes were previously processed. Local S3 `--list-only`
-and notebook selection remain database-independent; the server checks completion
-when their IDs are submitted to historical-run.
+helper determines whether scenes were previously processed. S3 `--list-only`
+without `--local` and notebook selection remain database-independent; the shared
+runner checks completion for local CLI previews and before queueing through the
+CLI, notebook, or HTTP service.
 
 ## Adding a new Pulumi Stack
 Don't forget to edit the following places:

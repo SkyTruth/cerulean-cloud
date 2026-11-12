@@ -215,10 +215,26 @@ def main(request):
     except ValueError as exc:
         abort(400, description=str(exc))
 
+    logs_url = make_cloud_function_logs_url(
+        os.getenv("FUNCTIONNAME"), start_time, os.getenv("GCPPROJECT")
+    )
+    return asyncio.run(
+        run_historical(request_json, logs_url=logs_url, deadline=enqueue_deadline)
+    )
+
+
+async def run_historical(request_json, *, logs_url="", deadline=None):
+    """Run selection, DB exclusion, tracking, and queueing locally or over HTTP.
+
+    Notebook callers can await this directly. Without an HTTP deadline,
+    discovery has no overall time limit and queue submission gets its own budget.
+    Local runs leave trigger_logs empty unless the caller supplies a log URL.
+    """
+    validate_request(request_json)
     total_scenes, filtered_scenes = handle_search(request_json)
     # Submit each scene once, even when a catalog or supplied list repeats it.
     filtered_scenes = list(dict.fromkeys(filtered_scenes))
-    processed_scene_ids = asyncio.run(get_processed_scene_ids(filtered_scenes))
+    processed_scene_ids = await get_processed_scene_ids(filtered_scenes)
     filtered_scenes = [
         scene for scene in filtered_scenes if scene not in processed_scene_ids
     ]
@@ -232,18 +248,13 @@ def main(request):
         return {**summary, "scene_ids": filtered_scenes}
 
     dry_run = request_json.get("dry_run", os.getenv("IS_DRY_RUN", "").lower() == "true")
-    logs_url = make_cloud_function_logs_url(
-        os.getenv("FUNCTIONNAME"), start_time, os.getenv("GCPPROJECT")
-    )
-    row = asyncio.run(
-        add_trigger_row(total_scenes, len(filtered_scenes), logs_url=logs_url)
-    )
+    row = await add_trigger_row(total_scenes, len(filtered_scenes), logs_url=logs_url)
     queued_count = handler_queue(
         filtered_scenes,
         row["id"],
         dry_run=dry_run,
         manual_trigger=request_json.get("manual_trigger", False),
-        deadline=enqueue_deadline,
+        deadline=deadline,
     )
     return {
         **summary,

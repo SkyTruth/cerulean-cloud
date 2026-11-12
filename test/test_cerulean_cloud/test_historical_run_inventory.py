@@ -601,6 +601,83 @@ def test_all_scenes_already_processed_creates_no_tasks(endpoint):
     historical.google.auth.default.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_local_runner_uses_db_exclusion_tracking_and_queue_without_http(
+    endpoint, monkeypatch
+):
+    monkeypatch.setattr(
+        historical,
+        "verify_api_key",
+        MagicMock(side_effect=AssertionError("no HTTP request")),
+    )
+    monkeypatch.setattr(
+        historical,
+        "make_cloud_function_logs_url",
+        MagicMock(side_effect=AssertionError("no cloud function logs for local runs")),
+    )
+    historical.get_processed_scene_ids.return_value = {"completed"}
+    result = await historical.run_historical(
+        {
+            "scene_ids": ["new", "completed", "new"],
+            "dry_run": False,
+            "manual_trigger": True,
+        }
+    )
+    assert result == {
+        "scene_count": 3,
+        "filtered_scene_count": 1,
+        "already_processed_scene_count": 1,
+        "trigger_id": 42,
+        "queued_count": 1,
+        "dry_run": False,
+    }
+    endpoint[1].assert_awaited_once_with(3, 1, logs_url="")
+    assert task_payload(queued_requests(endpoint)[0]["task"]) == {
+        "scene_id": "new",
+        "trigger": 42,
+        "dry_run": False,
+        "manual_trigger": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_local_discovery_does_not_consume_queue_submission_budget(
+    endpoint, monkeypatch
+):
+    clock = SimpleNamespace(now=0)
+    monkeypatch.setattr(historical.time, "monotonic", lambda: clock.now)
+
+    def slow_search(payload):
+        clock.now = historical.ENQUEUE_TIMEOUT_SECONDS + 1
+        return 1, ["scene"]
+
+    monkeypatch.setattr(historical, "handle_search", slow_search)
+    result = await historical.run_historical({"scene_ids": ["scene"]})
+    assert result["queued_count"] == 1
+    endpoint[2].post.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_local_preview_checks_db_without_trigger_or_tasks(endpoint):
+    historical.get_processed_scene_ids.return_value = {"completed"}
+    result = await historical.run_historical(
+        {"action": "list", "scene_ids": ["new", "completed"]}
+    )
+    assert result["scene_ids"] == ["new"]
+    assert result["already_processed_scene_count"] == 1
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_local_invalid_request_stops_before_db_or_queue(endpoint):
+    with pytest.raises(ValueError, match="dry_run must be a boolean"):
+        await historical.run_historical({"scene_ids": ["scene"], "dry_run": "false"})
+    historical.get_processed_scene_ids.assert_not_awaited()
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+
+
 @pytest.mark.parametrize("action", ["list", "enqueue"])
 def test_processed_lookup_failure_stops_before_trigger_and_queue(endpoint, action):
     historical.get_processed_scene_ids.side_effect = RuntimeError(

@@ -6,13 +6,15 @@ import subprocess
 import sys
 from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 from click.testing import CliRunner
 
 from scripts import historical_run as client
+from cerulean_cloud.cloud_function_historical_run import main as historical
+from cerulean_cloud.cloud_function_historical_run import local as local_config
 
 
 @pytest.fixture
@@ -32,6 +34,311 @@ def invoke(*args):
         client.cli,
         ["--url", "https://historical.example", "--api-key", "test-key", *args],
     )
+
+
+@pytest.fixture
+def local_execution(monkeypatch, remote):
+    monkeypatch.setattr(
+        local_config,
+        "resolve_orchestrator_queue",
+        MagicMock(
+            side_effect=lambda project,
+            region,
+            stage: f"cerulean-cloud-{stage}-queue-cr-orchestrator-deployed"
+        ),
+    )
+    for key in ("STACK_SECRETS", "HISTORICAL_DB_URL", "CERULEAN_API_KEY"):
+        # Track variables that dotenv may create as well as existing values.
+        monkeypatch.setenv(key, "")
+        monkeypatch.delenv(key, raising=False)
+    for key, value in {
+        "DB_URL": "postgresql://localhost/test",
+        "GCPPROJECT": "project",
+        "GCPREGION": "region",
+        "QUEUE": "queue",
+        "ORCHESTRATOR_URL": "https://orchestrator.example",
+        "API_KEY": "test-key",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(
+        client.subprocess,
+        "check_output",
+        MagicMock(side_effect=AssertionError("no Pulumi")),
+    )
+    processed = AsyncMock(return_value=set())
+    trigger = AsyncMock(side_effect=[{"id": i} for i in range(1, 10)])
+    queue = MagicMock(side_effect=lambda scenes, *args, **kwargs: len(scenes))
+    monkeypatch.setattr(historical, "get_processed_scene_ids", processed)
+    monkeypatch.setattr(historical, "add_trigger_row", trigger)
+    monkeypatch.setattr(historical, "handler_queue", queue)
+    return processed, trigger, queue
+
+
+def test_local_preview_excludes_completed_scenes_without_queueing(
+    local_execution, remote
+):
+    processed, trigger, queue = local_execution
+    processed.return_value = {"completed"}
+    result = CliRunner().invoke(
+        client.cli,
+        [
+            "--local",
+            "scenes",
+            "--scene-id",
+            "new",
+            "--scene-id",
+            "completed",
+            "--list-only",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == {
+        "scene_count": 2,
+        "filtered_scene_count": 1,
+        "already_processed_scene_count": 1,
+        "scene_ids": ["new"],
+    }
+    trigger.assert_not_awaited()
+    queue.assert_not_called()
+    remote.assert_not_called()
+    client.subprocess.check_output.assert_not_called()
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_local_csv_batches_and_rechecks_db_before_each_batch(
+    local_execution, remote, tmp_path, dry_run
+):
+    processed, trigger, queue = local_execution
+    scenes = [f"scene-{i}" for i in range(205)]
+    path = tmp_path / "scenes.csv"
+    path.write_text("scene_id\n" + "\n".join([*scenes, "completed", scenes[0]]) + "\n")
+    processed.side_effect = [{"completed"}, set(), {"scene-100"}, set()]
+    result = CliRunner().invoke(
+        client.cli,
+        [
+            "--local",
+            "scenes",
+            "--csv",
+            str(path),
+            "--manual-trigger",
+            "--dry-run" if dry_run else "--no-dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    summary = json.loads(result.stdout)
+    assert summary["scene_count"] == 207
+    assert summary["already_processed_scene_count"] == 2
+    assert summary["filtered_scene_count"] == summary["queued_count"] == 204
+    assert summary["dry_run"] is dry_run
+    assert [batch["trigger_id"] for batch in summary["batches"]] == [1, 2, 3]
+    assert [len(call.args[0]) for call in queue.call_args_list] == [100, 99, 5]
+    assert [scene for call in queue.call_args_list for scene in call.args[0]] == [
+        scene for scene in scenes if scene != "scene-100"
+    ]
+    assert processed.await_count == 4
+    assert trigger.await_count == 3
+    assert all(call.kwargs["logs_url"] == "" for call in trigger.await_args_list)
+    assert all(call.kwargs["dry_run"] is dry_run for call in queue.call_args_list)
+    assert all(call.kwargs["manual_trigger"] is True for call in queue.call_args_list)
+    assert "Batch 3 confirmed:" in result.stderr
+    remote.assert_not_called()
+
+
+def test_local_submission_failure_stops_and_reports_confirmed_batches(local_execution):
+    _, trigger, queue = local_execution
+    queue.side_effect = [100, RuntimeError("queue failed")]
+    args = ["--local", "scenes", "--dry-run"]
+    for i in range(205):
+        args.extend(["--scene-id", f"scene-{i}"])
+    result = CliRunner().invoke(client.cli, args)
+    assert result.exit_code != 0
+    assert isinstance(result.exception, RuntimeError)
+    assert queue.call_count == trigger.await_count == 2
+    assert 'Batch 1 confirmed: {"scene_count": 100' in result.stderr
+    assert "Batch 2 confirmed:" not in result.stderr
+    assert not result.stdout
+
+
+def test_local_submission_requires_explicit_dry_run_before_discovery(local_execution):
+    processed, trigger, queue = local_execution
+    result = CliRunner().invoke(
+        client.cli, ["--local", "scenes", "--scene-id", "scene"]
+    )
+    assert result.exit_code != 0
+    assert "requires --dry-run or --no-dry-run" in result.output
+    processed.assert_not_awaited()
+    trigger.assert_not_awaited()
+    queue.assert_not_called()
+
+
+@pytest.mark.parametrize("list_only", [False, True])
+def test_local_s3_discovery_preserves_selectors_and_applies_db_filter(
+    local_execution, remote, monkeypatch, list_only
+):
+    processed, _, queue = local_execution
+    processed.side_effect = [{"completed"}, set()]
+    listing = MagicMock(return_value=["new", "completed"])
+    filtering = MagicMock(return_value=["new", "completed"])
+    monkeypatch.setattr(historical, "list_sentinel1_scene_ids", listing)
+    monkeypatch.setattr(historical, "filter_sentinel1_scene_ids", filtering)
+    result = CliRunner().invoke(
+        client.cli,
+        [
+            "--local",
+            "s3",
+            "--date-start",
+            "2025-01-01",
+            "--date-end",
+            "2025-01-31",
+            "--mode",
+            "IW",
+            "--polarization",
+            "DV",
+            "--no-relevancy",
+            "--dry-run",
+            *(["--list-only"] if list_only else []),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    listing.assert_called_once_with(
+        date(2025, 1, 1), date(2025, 1, 31), modes=["IW"], polarizations=["DV"]
+    )
+    filtering.assert_called_once_with(
+        ["new", "completed"], geometry=None, ocean_poly=None, apply_relevancy=False
+    )
+    if list_only:
+        assert json.loads(result.stdout)["scene_ids"] == ["new"]
+        queue.assert_not_called()
+    else:
+        assert queue.call_args.args[0] == ["new"]
+    assert json.loads(result.stdout)["already_processed_scene_count"] == 1
+    remote.assert_not_called()
+
+
+def test_local_eodag_preview_passes_geometry_and_dates(
+    local_execution, tmp_path, monkeypatch
+):
+    path = tmp_path / "region.geojson"
+    geometry = {"type": "FeatureCollection", "features": []}
+    path.write_text(json.dumps(geometry))
+    search = MagicMock(return_value=(1, ["scene"]))
+    monkeypatch.setattr(historical, "handle_search", search)
+    result = CliRunner().invoke(
+        client.cli,
+        [
+            "--local",
+            "eodag",
+            "--date-start",
+            "2025-01-01",
+            "--date-end",
+            "2025-01-02",
+            "--geometry",
+            str(path),
+            "--list-only",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    payload = search.call_args.args[0]
+    assert payload["geometry"] == geometry
+    assert payload["start"] == "2025-01-01"
+    assert payload["end"] == "2025-01-02"
+    assert json.loads(result.stdout)["scene_ids"] == ["scene"]
+
+
+@pytest.mark.parametrize(
+    "stage,stack_key",
+    [("test", "TEST"), ("staging", "STAGING"), ("prod20240903", "PRODUCTION")],
+)
+def test_local_env_file_uses_selected_notebook_stack(
+    local_execution, tmp_path, stage, stack_key
+):
+    path = tmp_path / ".env"
+    config = {
+        stack_key: {
+            "DB_URL": "postgresql+asyncpg://localhost/selected-stack",
+            "ORCHESTRATOR_URL": "https://selected.example",
+            "API_KEY": "selected-key",
+        }
+    }
+    path.write_text("STACK_SECRETS='" + json.dumps(config) + "'\n")
+    result = CliRunner().invoke(
+        client.cli,
+        [
+            "--local",
+            "--stage",
+            stage,
+            "--env-file",
+            str(path),
+            "scenes",
+            "--scene-id",
+            "scene",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert os.environ["DB_URL"] == "postgresql://localhost/selected-stack"
+    assert os.environ["ORCHESTRATOR_URL"] == "https://selected.example"
+    assert os.environ["API_KEY"] == "selected-key"
+    assert (
+        os.environ["QUEUE"] == f"cerulean-cloud-{stage}-queue-cr-orchestrator-deployed"
+    )
+    assert "selected-key" not in result.output
+
+
+def test_local_proxy_override_and_preview_need_only_database(
+    local_execution, monkeypatch
+):
+    for key in (
+        "DB_URL",
+        "GCPPROJECT",
+        "GCPREGION",
+        "QUEUE",
+        "ORCHESTRATOR_URL",
+        "API_KEY",
+    ):
+        monkeypatch.delenv(key)
+    monkeypatch.setenv("HISTORICAL_DB_URL", "postgresql+asyncpg://localhost/proxy-db")
+    result = CliRunner().invoke(
+        client.cli, ["--local", "scenes", "--scene-id", "scene", "--list-only"]
+    )
+    assert result.exit_code == 0, result.output
+    assert os.environ["DB_URL"] == "postgresql://localhost/proxy-db"
+
+
+def test_local_missing_configuration_fails_before_discovery(
+    local_execution, monkeypatch
+):
+    processed, _, queue = local_execution
+    monkeypatch.delenv("DB_URL")
+    result = CliRunner().invoke(
+        client.cli, ["--local", "scenes", "--scene-id", "scene", "--dry-run"]
+    )
+    assert result.exit_code != 0
+    assert "Local execution requires: DB_URL" in result.output
+    processed.assert_not_awaited()
+    queue.assert_not_called()
+
+
+def test_local_all_scenes_completed_submits_no_batches(local_execution):
+    processed, trigger, queue = local_execution
+    processed.return_value = {"completed"}
+    result = CliRunner().invoke(
+        client.cli,
+        [
+            "--local",
+            "scenes",
+            "--scene-id",
+            "completed",
+            "--no-dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    summary = json.loads(result.stdout)
+    assert summary["already_processed_scene_count"] == 1
+    assert summary["queued_count"] == 0
+    assert summary["batches"] == []
+    trigger.assert_not_awaited()
+    queue.assert_not_called()
 
 
 def test_explicit_scene_ids_csv_and_authenticated_request(remote, tmp_path):
