@@ -71,6 +71,13 @@ def local_execution(monkeypatch, remote):
     monkeypatch.setattr(historical, "get_processed_scene_ids", processed)
     monkeypatch.setattr(historical, "add_trigger_row", trigger)
     monkeypatch.setattr(historical, "handler_queue", queue)
+
+    async def save(record):
+        record.id, record.trigger = 123, 1
+        return record
+
+    monkeypatch.setattr(client, "history_metadata", MagicMock(return_value={}))
+    monkeypatch.setattr(client, "save_historical_run", AsyncMock(side_effect=save))
     return processed, trigger, queue
 
 
@@ -102,6 +109,7 @@ def test_local_preview_excludes_completed_scenes_without_queueing(
     queue.assert_not_called()
     remote.assert_not_called()
     client.subprocess.check_output.assert_not_called()
+    client.save_historical_run.assert_not_awaited()
 
 
 @pytest.mark.parametrize("dry_run", [False, True])
@@ -130,31 +138,49 @@ def test_local_csv_batches_and_rechecks_db_before_each_batch(
     assert summary["already_processed_scene_count"] == 2
     assert summary["filtered_scene_count"] == summary["queued_count"] == 204
     assert summary["dry_run"] is dry_run
-    assert [batch["trigger_id"] for batch in summary["batches"]] == [1, 2, 3]
+    assert [batch["trigger_id"] for batch in summary["batches"]] == [1, 1, 1]
+    record = client.save_historical_run.await_args.args[0]
+    assert (record.dry_run, record.queued_task_count) == (dry_run, 204)
+    assert (record.trigger_.scene_count, record.submission_success) == (207, True)
+    assert summary["historical_run_id"] == 123
     assert [len(call.args[0]) for call in queue.call_args_list] == [100, 99, 5]
     assert [scene for call in queue.call_args_list for scene in call.args[0]] == [
         scene for scene in scenes if scene != "scene-100"
     ]
     assert processed.await_count == 4
-    assert trigger.await_count == 3
-    assert all(call.kwargs["logs_url"] == "" for call in trigger.await_args_list)
+    trigger.assert_not_awaited()
     assert all(call.kwargs["dry_run"] is dry_run for call in queue.call_args_list)
     assert all(call.kwargs["manual_trigger"] is True for call in queue.call_args_list)
     assert "Batch 3 confirmed:" in result.stderr
     remote.assert_not_called()
 
 
-def test_local_submission_failure_stops_and_reports_confirmed_batches(local_execution):
+@pytest.mark.parametrize(
+    "completed,error",
+    [
+        (0, RuntimeError("17/100 tasks confirmed")),
+        (1, RuntimeError("17/100 tasks confirmed")),
+        (1, TimeoutError("queue response lost")),
+    ],
+)
+def test_local_submission_failure_stops_and_reports_confirmed_batches(
+    local_execution, completed, error
+):
     _, trigger, queue = local_execution
-    queue.side_effect = [100, RuntimeError("queue failed")]
+    queue.side_effect = [100] * completed + [error]
     args = ["--local", "scenes", "--dry-run"]
     for i in range(205):
         args.extend(["--scene-id", f"scene-{i}"])
     result = CliRunner().invoke(client.cli, args)
     assert result.exit_code != 0
-    assert isinstance(result.exception, RuntimeError)
-    assert queue.call_count == trigger.await_count == 2
-    assert 'Batch 1 confirmed: {"scene_count": 100' in result.stderr
+    assert result.exception is error
+    assert queue.call_count == completed + 1
+    record = client.save_historical_run.await_args.args[0]
+    assert record.queued_task_count is None
+    assert record.trigger_.filtered_scene_count is None
+    assert record.submission_success is False
+    assert record.submission_error == repr(error)
+    assert ("Batch 1 confirmed:" in result.stderr) is bool(completed)
     assert "Batch 2 confirmed:" not in result.stderr
     assert not result.stdout
 
@@ -610,3 +636,45 @@ def test_notebook_upstream_defaults_to_bypassing_relevancy(monkeypatch):
     exec(source, namespace)
     assert namespace["scenes"] == ["land", "hh"]
     pandas.DataFrame.assert_called_once_with({"scene_id": ["land", "hh"]})
+
+
+def test_history_insert_failure_queues_nothing(local_execution):
+    processed, _, queue = local_execution
+    client.save_historical_run.side_effect = RuntimeError("no historical_run table")
+    result = CliRunner().invoke(
+        client.cli, ["--local", "scenes", "--scene-id", "scene", "--dry-run"]
+    )
+    assert str(result.exception) == "no historical_run table"
+    processed.assert_not_awaited()
+    queue.assert_not_called()
+
+
+@pytest.mark.parametrize("queue_error", [False, True])
+def test_history_update_failure_never_hides_a_queue_error(local_execution, queue_error):
+    async def save(record):
+        if record.id:
+            raise RuntimeError("database failed")
+        record.id, record.trigger = 123, 1
+        return record
+
+    client.save_historical_run.side_effect = save
+    if queue_error:
+        local_execution[2].side_effect = RuntimeError("queue failed")
+    result = CliRunner().invoke(
+        client.cli, ["--local", "scenes", "--scene-id", "scene", "--dry-run"]
+    )
+    assert str(result.exception) == (
+        "queue failed" if queue_error else "database failed"
+    )
+
+
+def test_invalid_local_request_creates_no_history(local_execution, tmp_path):
+    geometry = tmp_path / "region.geojson"
+    geometry.write_text("{}")
+    result = CliRunner().invoke(
+        client.cli,
+        ["--local", "eodag", "--geometry", str(geometry), "--dry-run"]
+        + ["--date-start", "2025-01-02", "--date-end", "2025-01-01"],
+    )
+    assert "end must be on or after start" in result.output
+    client.save_historical_run.assert_not_awaited()

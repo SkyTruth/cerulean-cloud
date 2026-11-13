@@ -24,12 +24,12 @@ bucket = storage.Bucket(
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
 
-# Create the Queue for tasks
+# Keep combined dispatch concurrency at 40 with the historical queue's 30 slots.
 queue = cloudtasks.Queue(
     construct_name("queue-cr-orchestrator"),
     location=pulumi.Config("gcp").require("region"),
     rate_limits=cloudtasks.QueueRateLimitsArgs(
-        max_concurrent_dispatches=40,
+        max_concurrent_dispatches=10,
         max_dispatches_per_second=1,
     ),
     retry_config=cloudtasks.QueueRetryConfigArgs(

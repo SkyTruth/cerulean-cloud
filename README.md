@@ -323,7 +323,7 @@ no longer used by discovery. The function-specific `setuptools<81` constraint ke
 EODAG 2.5's `pkg_resources` import available; shared requirements are unchanged.
 
 Every enqueue records a `HISTORICAL_RUN` trigger with raw/selected counts, then
-submits to the stack's existing orchestrator queue. HTTP requests include a cloud
+submits to the stack's historical orchestrator queue. HTTP requests include a cloud
 function log link; local runs leave that link empty and print progress locally. Tasks
 are submitted in groups of up to 100 through Cloud Tasks' `tasks:batchCreate`
 REST API using application default credentials. The function waits for each
@@ -377,9 +377,14 @@ python -m scripts.historical_run --stage test scenes \
 Use `--local` to run the same Python runner as the notebook, with direct database
 access and Cloud Tasks submission. All three selectors (`s3`, `eodag`, and `scenes`)
 are supported. Local discovery and the initial DB exclusion run once, then
-submission uses independent batches of 100 with another DB check before each
-batch. Each batch creates its own trigger and has its own queue-submission budget.
-Local enqueue requires an explicit `--dry-run` or `--no-dry-run`.
+submission uses batches of 100 with another DB check before each batch. Each batch
+has its own queue-submission budget; all batches share one trigger. Local enqueue
+requires an explicit `--dry-run` or `--no-dry-run` and records the run in the
+`historical_run` table: selection, dry-run setting, redacted command, Git revision,
+start and end times, confirmed task count, success, and error. The row is inserted
+before discovery, so a killed run keeps a `NULL` end time and a missing table stops
+the run before anything is queued. Failed submissions leave the task total unknown
+(`NULL`). List-only runs create no row.
 
 ```bash
 # Preview a month locally, including exclusion of already successful scenes.
@@ -397,7 +402,7 @@ the notebook's `STACK_SECRETS` configuration; `--stage test`, `staging`, and
 `prod20240903` select its `TEST`, `STAGING`, and `PRODUCTION` entries respectively.
 With `STACK_SECRETS`, project/region default to `cerulean-338116`/`europe-west1`
 (override with `GCPPROJECT`/`GCPREGION`). The actual queue name, including Pulumi's
-generated suffix, is resolved by listing queues for that stack; a `QUEUE` field in
+generated suffix, is resolved by listing queues for that stack; a `HISTORICAL_QUEUE` field in
 the selected secrets entry can supply it explicitly instead.
 Alternatively, export `DB_URL`, `GCPPROJECT`, `GCPREGION`, `QUEUE`,
 `ORCHESTRATOR_URL`, and `API_KEY` directly; in that case these variables determine
