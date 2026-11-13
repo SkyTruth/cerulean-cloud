@@ -103,11 +103,6 @@ default = gcp.cloudrun.Service(
             },
         ),
     ),
-    metadata=gcp.cloudrun.ServiceMetadataArgs(
-        annotations={
-            "run.googleapis.com/launch-stage": "BETA",
-        }
-    ),
     traffics=[
         gcp.cloudrun.ServiceTrafficArgs(
             percent=100,

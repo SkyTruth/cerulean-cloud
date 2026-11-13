@@ -30,7 +30,7 @@ Use this skill for Cerulean-specific database changes. Focus on the repo follow-
 5. Resolve lookup rows by stable natural keys such as `short_name` or locale `code`.
 6. Review TiPG exposure explicitly for every new table or view.
 7. Keep `short_name` and other logic keys untranslated.
-8. When changing translatable vocabulary rows, update `docs/vocabulary_translations_es_fr_pt_id.csv` or state explicitly why no seed delta is needed.
+8. When changing translatable vocabulary rows, update `docs/vocabulary_translations.csv` or state explicitly why no seed delta is needed.
 
 ## Repo-specific checkpoints
 
@@ -39,7 +39,7 @@ Check these paths explicitly before closing a DB task:
 - `alembic/versions/`
 - `cerulean_cloud/database_schema.py`
 - `cerulean_cloud/database_client.py`
-- `docs/vocabulary_translations_es_fr_pt_id.csv`
+- `docs/vocabulary_translations.csv`
 - `stack/cloud_run_tipg.py`
 - any frontend SQL inventory or frontend query files if display fields are affected
 
@@ -59,7 +59,7 @@ Search for `# EditTheDatabase` and confirm whether each marker needs action for 
    - If environment-specific rows are optional, either skip them cleanly or add a separate follow-up data migration.
 
 3. Check translation-seed follow-through.
-   - If the change adds, renames, or rewrites rows in translatable vocabulary tables such as `cls`, `tag`, `aoi_type`, `source_type`, `frequency`, `permission`, or `layer`, update `docs/vocabulary_translations_es_fr_pt_id.csv` in the archetypal structure introduced by the translation branch.
+   - If the change adds, renames, or rewrites rows in translatable vocabulary tables such as `cls`, `tag`, `aoi_type`, `source_type`, `frequency`, `permission`, or `layer`, update `docs/vocabulary_translations.csv` in the archetypal structure introduced by the translation branch.
    - Use stable natural keys in `context_key` such as `short_name`; do not leave orphaned rows behind after renames.
    - Add one CSV row per translatable field and cover every seeded locale unless the canonical source field is intentionally empty.
    - Keep `source_checksum` aligned across all field rows for the same entity.
@@ -88,7 +88,7 @@ Search for `# EditTheDatabase` and confirm whether each marker needs action for 
 
 - A migration succeeds only on one database because it assumes exported IDs are portable.
 - A localization seed assumes reference rows exist in every stack.
-- A vocabulary row is added or renamed without updating `docs/vocabulary_translations_es_fr_pt_id.csv`.
+- A vocabulary row is added or renamed without updating `docs/vocabulary_translations.csv`.
 - A translation CSV row uses a stale `context_key`, so the seed loader silently skips it.
 - A new table is unintentionally exposed through TiPG.
 - A staged `database_schema.py` regeneration includes unrelated schema changes and slips through review.

@@ -6,14 +6,28 @@ from datetime import datetime
 import geojson
 import pytest
 import sqlalchemy as sa
-from geoalchemy2.shape import from_shape
-from shapely.geometry import MultiPolygon, box
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session, sessionmaker
+from shapely.geometry import box
+from sqlalchemy.orm import Session
 
 import cerulean_cloud.database_schema as database_schema
 from cerulean_cloud.database_client import DatabaseClient, get_engine
 from cerulean_cloud.titiler_client import TitilerClient
+
+
+def make_model(**overrides):
+    """Create a minimally valid model row for the current schema."""
+    model_kwargs = {
+        "type": "MASKRCNN",
+        "file_path": "model_path",
+        "layers": ["VV"],
+        "cls_map": {"OIL": 1},
+        "name": "model_path",
+        "tile_width_m": 256,
+        "tile_width_px": 256,
+        "thresholds": {"OIL": 0.5},
+    }
+    model_kwargs.update(overrides)
+    return database_schema.Model(**model_kwargs)
 
 
 def test_get_engine(postgresql):
@@ -22,36 +36,16 @@ def test_get_engine(postgresql):
     assert Session(engine)
 
 
-@pytest.fixture
-def engine(postgresql):
-    connection = f"postgresql+asyncpg://{postgresql.info.user}:@{postgresql.info.host}:{postgresql.info.port}/{postgresql.info.dbname}"
-    engine = get_engine(connection)
-    return engine
-
-
-@pytest.fixture
-async def setup_database(engine):
-    async with engine.begin() as conn:
-        await conn.execute(sa.text("CREATE EXTENSION postgis"))
-        await conn.run_sync(database_schema.Base.metadata.create_all)
-
-    yield
-
-    async with engine.begin() as conn:
-        await conn.run_sync(database_schema.Base.metadata.drop_all)
-
-
-@pytest.fixture
-async def db_session(setup_database, engine):
-    async_session = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
-    yield async_session
-
-
 @pytest.mark.asyncio
 async def test_create_model(db_session):
     async with db_session() as session:
         async with session.begin():
-            session.add(database_schema.Model(name="Jane Doe", file_path="true"))
+            session.add(
+                make_model(
+                    name="Jane Doe",
+                    file_path="true",
+                )
+            )
 
         model = await session.execute(
             sa.select(database_schema.Model).filter_by(name="Jane Doe")
@@ -93,12 +87,6 @@ async def test_create_slick(setup_database, engine):
             ]
         )
         async with db_client.session.begin():
-            geom = MultiPolygon([box(*[1, 2, 3, 4])])
-            eezs = [
-                database_schema.Eez(mrgid=1, geoname="test", geometry=from_shape(geom)),
-                database_schema.Eez(mrgid=1, geoname="test", geometry=from_shape(geom)),
-            ]
-            db_client.session.add_all(eezs)
             db_client.session.add_all(
                 [database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")]
             )
@@ -108,9 +96,7 @@ async def test_create_slick(setup_database, engine):
             db_client.session.add(
                 database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")
             )
-            db_client.session.add(
-                database_schema.Model(file_path="model_path", name="model_path")
-            )
+            db_client.session.add(make_model())
             sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
                 info["id"],
                 info,
@@ -142,6 +128,8 @@ async def test_create_slick(setup_database, engine):
                     dict(feat).get("geometry"),
                     dict(feat).get("properties").get("inf_idx"),
                     dict(feat).get("properties").get("machine_confidence"),
+                    None,
+                    None,
                 )
                 print(f"Added last eez for slick {slick}")
 
@@ -161,9 +149,7 @@ async def test_update_orchestrator(setup_database, engine):
             db_client.session.add(
                 database_schema.Trigger(trigger_logs="", trigger_type="MANUAL")
             )
-            db_client.session.add(
-                database_schema.Model(file_path="model_path", name="model_path")
-            )
+            db_client.session.add(make_model())
             sentinel1_grd = await db_client.get_or_insert_sentinel1_grd(
                 info["id"],
                 info,

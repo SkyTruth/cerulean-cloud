@@ -37,6 +37,7 @@ CERU_CI="$REPO_ROOT/.conda/ceru-ci"
 
 if [ ! -x "$CERU_CI/bin/python" ]; then
   conda create -y -p "$CERU_CI" python=3.11 pip
+  conda install -y -p "$CERU_CI" postgresql postgis
   conda run -p "$CERU_CI" python -m pip install --upgrade pip setuptools wheel
   conda run -p "$CERU_CI" python -m pip install -r "$REPO_ROOT/requirements.txt" -r "$REPO_ROOT/requirements-test.txt"
   conda run -p "$CERU_CI" python -m pip install -r "$REPO_ROOT/cerulean_cloud/cloud_run_orchestrator/requirements.txt" -r "$REPO_ROOT/cerulean_cloud/cloud_run_tipg/requirements.txt"
@@ -76,5 +77,7 @@ conda run -p "$CERU_CI" pytest test/test_cerulean_cloud/test_cloud_run_orchestra
 - Do not run repo tests with the default shell Python.
 - Keep the geospatial env vars in front of the test command, or rasterio/PROJ imports may fail during collection.
 - If PostgreSQL-backed tests fail because `pg_ctl` is missing from `ceru-ci`, report that as an environment limitation rather than a code regression.
+- If PostgreSQL-backed tests fail because `pg_ctl` is missing from `ceru-ci`, install `postgresql` into the env.
+- If geospatial DB tests fail because `CREATE EXTENSION postgis` cannot find `postgis.control`, install `postgis` into the env.
 - Do not add service-image-specific requirement files to the canonical test env unless a target test requires them; some service images intentionally pin conflicting rasterio stacks.
 - Never commit examples that reveal a maintainer's home directory, username, or machine-specific environment layout.
