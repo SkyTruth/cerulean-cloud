@@ -34,14 +34,14 @@ def page(names, **extra):
 def test_queue_resolution_follows_pagination_and_keeps_physical_suffix(session):
     session.get.side_effect = [
         page(
-            ["cerulean-cloud-staging-queue-cr-orchestrator-other"],
+            ["cerulean-cloud-test-queue-cr-orchestrator-d8ed51e"],
             nextPageToken="second",
         ),
-        page(["cerulean-cloud-test-queue-cr-orchestrator-670f5a2"]),
+        page(["cerulean-cloud-test-queue-cr-orchestrator-historical-670f5a2"]),
     ]
     assert (
         local.resolve_orchestrator_queue("project", "region", "test")
-        == "cerulean-cloud-test-queue-cr-orchestrator-670f5a2"
+        == "cerulean-cloud-test-queue-cr-orchestrator-historical-670f5a2"
     )
     assert session.get.call_count == 2
     assert session.get.call_args.kwargs["params"]["pageToken"] == "second"
@@ -53,8 +53,8 @@ def test_queue_resolution_follows_pagination_and_keeps_physical_suffix(session):
     [
         [],
         [
-            "cerulean-cloud-test-queue-cr-orchestrator-one",
-            "cerulean-cloud-test-queue-cr-orchestrator-two",
+            "cerulean-cloud-test-queue-cr-orchestrator-historical-one",
+            "cerulean-cloud-test-queue-cr-orchestrator-historical-two",
         ],
     ],
 )

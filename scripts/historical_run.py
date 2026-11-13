@@ -4,18 +4,24 @@ import asyncio
 import csv
 import json
 import os
+import shlex
 import subprocess
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime, timezone
 
 import click
 import httpx
+import shapely
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 # Support the existing `python scripts/historical_run.py` entry point too.
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from cerulean_cloud.database_schema import HistoricalRun, Trigger
+from cerulean_cloud.cloud_function_historical_run.relevance import region_from_geojson
 
 
 def post_historical_run(payload, url, api_key):
@@ -86,8 +92,9 @@ def configure_local(stage, api_key, *, list_only):
                 f"STACK_SECRETS must contain configuration for {stack_key}"
             ) from None
         if not list_only:
+            queue = config.get("HISTORICAL_QUEUE")
             try:
-                os.environ["QUEUE"] = config.get("QUEUE") or resolve_orchestrator_queue(
+                os.environ["QUEUE"] = queue or resolve_orchestrator_queue(
                     os.environ["GCPPROJECT"], os.environ["GCPREGION"], stage
                 )
             except ValueError as exc:
@@ -107,30 +114,129 @@ def configure_local(stage, api_key, *, list_only):
         raise click.ClickException(f"Local execution requires: {', '.join(missing)}")
 
 
+def history_metadata(payload):
+    """Describe the requested selection, redacted command, and local revision."""
+    if "scene_ids" in payload:
+        try:  # Sentinel-1 IDs hold acquisition start and end times in fields 4 and 5.
+            dates = [
+                datetime.strptime(time, "%Y%m%dT%H%M%S").date()
+                for scene in payload["scene_ids"]
+                for time in scene.strip().split("_")[4:6]
+            ]
+            date_start, date_end = min(dates), max(dates)
+        except ValueError:
+            raise ValueError("Cannot read dates from scene IDs") from None
+    else:
+        date_start = date.fromisoformat(payload["start"])
+        date_end = date.fromisoformat(payload["end"])
+    geometry = None
+    if payload.get("geometry") is not None:
+        region = region_from_geojson(payload["geometry"])
+        geometry = f"SRID=4326;{shapely.multipolygons(shapely.get_parts(region)).wkt}"
+    args = list(sys.argv)
+    for index, argument in enumerate(args):
+        if argument == "--api-key" and index + 1 < len(args):
+            args[index + 1] = "[REDACTED]"
+        elif argument.startswith("--api-key="):
+            args[index] = "--api-key=[REDACTED]"
+
+    def git(*arguments):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(["git", *arguments], cwd=root, capture_output=True)
+        return result.stdout.decode().strip() or None
+
+    return {
+        "cli_command": shlex.join([sys.executable, *args]),
+        "date_start": date_start,
+        "date_end": date_end,
+        "geometry": geometry,
+        "git_hash": git("rev-parse", "HEAD"),
+        "git_tag": git("describe", "--tags", "--exact-match", "HEAD"),
+    }
+
+
+async def save_historical_run(record):
+    """Insert or update a history row and its trigger in one transaction."""
+    url = os.environ["DB_URL"].replace("postgresql://", "postgresql+asyncpg://", 1)
+    engine = create_async_engine(url)
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            async with session.begin():
+                record = await session.merge(record)
+        return record
+    finally:
+        await engine.dispose()
+
+
 async def run_local(payload):
-    """Discover once, then submit independent batches with a fresh DB check each time."""
-    from cerulean_cloud.cloud_function_historical_run.main import run_historical
+    """Discover once, then submit rechecked batches under one trigger and history row."""
+    from cerulean_cloud.cloud_function_historical_run.main import (
+        run_historical,
+        validate_request,
+    )
 
     # Keep stdout as JSON for saving; runner progress and confirmed batches go to stderr.
     with redirect_stdout(sys.stderr):
-        selection = await run_historical({**payload, "action": "list"})
         if payload["action"] == "list":
-            return selection
-        scenes = selection["scene_ids"]
-        batches = []
-        for start in range(0, len(scenes), 100):
-            result = await run_historical(
-                {
-                    "scene_ids": scenes[start : start + 100],
-                    "dry_run": payload["dry_run"],
-                    "manual_trigger": payload["manual_trigger"],
-                }
+            return await run_historical(payload)
+        try:  # Reject bad requests before a trigger or history row exists.
+            validate_request(payload)
+            record = HistoricalRun(
+                **history_metadata(payload),
+                dry_run=payload["dry_run"],
+                submission_start_time=datetime.now(timezone.utc),
+                trigger_=Trigger(trigger_logs="", trigger_type="HISTORICAL_RUN"),
             )
-            batches.append(result)
-            click.echo(
-                f"Batch {len(batches)} confirmed: {json.dumps(result)}", err=True
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from None
+        # Insert first: a missing table stops the run, and a killed run keeps its row.
+        record = await save_historical_run(record)
+        selection, batches = {}, []
+        try:
+            selection = await run_historical({**payload, "action": "list"})
+            if "scene_ids" not in payload and payload.get("source", "eodag") == "eodag":
+                record.eodag_count = selection["scene_count"]
+            scenes = selection["scene_ids"]
+            for start in range(0, len(scenes), 100):
+                result = await run_historical(
+                    {
+                        "scene_ids": scenes[start : start + 100],
+                        "dry_run": payload["dry_run"],
+                        "manual_trigger": payload["manual_trigger"],
+                    },
+                    trigger_id=record.trigger,
+                )
+                batches.append(result)
+                click.echo(
+                    f"Batch {len(batches)} confirmed: {json.dumps(result)}", err=True
+                )
+        except BaseException as exc:
+            record.submission_error = repr(exc)
+            raise
+        finally:
+            # A failed batch may have accepted tasks, so its total is unknown.
+            record.submission_end_time = datetime.now(timezone.utc)
+            record.submission_success = record.submission_error is None
+            record.queued_task_count = (
+                sum(batch["queued_count"] for batch in batches)
+                if record.submission_success
+                else None
             )
+            record.trigger_.scene_count = selection.get("scene_count")
+            record.trigger_.filtered_scene_count = (
+                sum(batch["filtered_scene_count"] for batch in batches)
+                if record.submission_success
+                else None
+            )
+            try:
+                await save_historical_run(record)
+            except Exception as save_error:
+                if record.submission_error is None:
+                    raise
+                click.echo(f"Could not finalize historical_run: {save_error}", err=True)
     return {
+        "trigger_id": record.trigger,
+        "historical_run_id": record.id,
         "scene_count": selection["scene_count"],
         "filtered_scene_count": sum(batch["filtered_scene_count"] for batch in batches),
         "already_processed_scene_count": selection["already_processed_scene_count"]

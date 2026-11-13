@@ -9,6 +9,7 @@ import pulumi
 from pulumi_gcp import (
     cloudfunctionsv2,
     cloudrun,
+    cloudtasks,
     storage,
 )
 from utils import construct_name, pulumi_create_zip
@@ -16,12 +17,32 @@ from vpc_connector import vpc_connector
 
 stack = pulumi.get_stack()
 
+# Limit backfills separately so they leave orchestrator capacity for live scenes.
+queue = cloudtasks.Queue(
+    construct_name("queue-cr-orchestrator-historical"),
+    location=pulumi.Config("gcp").require("region"),
+    rate_limits=cloudtasks.QueueRateLimitsArgs(
+        max_concurrent_dispatches=30,
+        max_dispatches_per_second=1,
+    ),
+    retry_config=cloudtasks.QueueRetryConfigArgs(
+        max_attempts=3,
+        max_backoff="300s",
+        max_doublings=1,
+        max_retry_duration="4s",
+        min_backoff="60s",
+    ),
+    stackdriver_logging_config=cloudtasks.QueueStackdriverLoggingConfigArgs(
+        sampling_ratio=0.9,
+    ),
+)
+
 function_name = construct_name("cf-historical-run")
 config_values = {
     "DB_URL": database.sql_instance_url_with_ip,
     "GCPPROJECT": pulumi.Config("gcp").require("project"),
     "GCPREGION": pulumi.Config("gcp").require("region"),
-    "QUEUE": cloud_function_scene_relevancy.queue.name,
+    "QUEUE": queue.name,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
     "FUNCTIONNAME": function_name,
     "SCIHUB_USERNAME": pulumi.Config("scihub").require("username"),

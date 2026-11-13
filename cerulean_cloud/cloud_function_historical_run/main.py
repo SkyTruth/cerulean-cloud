@@ -192,12 +192,13 @@ def main(request):
     )
 
 
-async def run_historical(request_json, *, logs_url="", deadline=None):
+async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id=None):
     """Run selection, DB exclusion, tracking, and queueing locally or over HTTP.
 
     Notebook callers can await this directly. Without an HTTP deadline,
     discovery has no overall time limit and queue submission gets its own budget.
     Local runs leave trigger_logs empty unless the caller supplies a log URL.
+    A supplied trigger_id shares one trigger across a caller's batches.
     """
     validate_request(request_json)
     total_scenes, filtered_scenes = handle_search(request_json)
@@ -217,17 +218,21 @@ async def run_historical(request_json, *, logs_url="", deadline=None):
         return {**summary, "scene_ids": filtered_scenes}
 
     dry_run = request_json.get("dry_run", os.getenv("IS_DRY_RUN", "").lower() == "true")
-    row = await add_trigger_row(total_scenes, len(filtered_scenes), logs_url=logs_url)
+    if trigger_id is None:
+        row = await add_trigger_row(
+            total_scenes, len(filtered_scenes), logs_url=logs_url
+        )
+        trigger_id = row["id"]
     queued_count = handler_queue(
         filtered_scenes,
-        row["id"],
+        trigger_id,
         dry_run=dry_run,
         manual_trigger=request_json.get("manual_trigger", False),
         deadline=deadline,
     )
     return {
         **summary,
-        "trigger_id": row["id"],
+        "trigger_id": trigger_id,
         "queued_count": queued_count,
         "dry_run": dry_run,
     }

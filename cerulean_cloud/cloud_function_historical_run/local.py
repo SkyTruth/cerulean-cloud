@@ -5,8 +5,8 @@ from google.auth.transport.requests import AuthorizedSession
 
 
 def resolve_orchestrator_queue(project, region, stage):
-    """Find the unique deployed orchestrator queue for a stack."""
-    prefix = f"cerulean-cloud-{stage}-queue-cr-orchestrator"
+    """Find the stack's historical orchestrator queue, which backfills use."""
+    prefix = f"cerulean-cloud-{stage}-queue-cr-orchestrator-historical"
     credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )

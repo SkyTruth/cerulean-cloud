@@ -342,8 +342,8 @@ Local `--env-file` loads the notebook's `STACK_SECRETS` configuration.
 `--stage test`, `staging`, and `prod20240903` select its `TEST`, `STAGING`, and
 `PRODUCTION` entries. With `STACK_SECRETS`, project/region default to
 `cerulean-338116`/`europe-west1` (override with `GCPPROJECT`/`GCPREGION`). The actual
-orchestrator queue, including its Pulumi-generated suffix, is resolved by listing
-queues; the secrets entry can instead provide its exact `QUEUE` name.
+historical orchestrator queue, including its Pulumi-generated suffix, is resolved by listing
+queues; the secrets entry can instead provide its exact `HISTORICAL_QUEUE` name.
 Alternatively, export `DB_URL`, `GCPPROJECT`, `GCPREGION`, `QUEUE`,
 `ORCHESTRATOR_URL`, and `API_KEY` directly. `HISTORICAL_DB_URL` overrides the DB URL
 for a local proxy; `postgresql+asyncpg://` URLs are normalized for asyncpg.
@@ -353,14 +353,20 @@ automatic queue resolution). The local path uses no historical-run endpoint or
 Pulumi lookup and requires no function deployment.
 
 Local discovery runs once, followed by independent submissions of up to 100
-scenes, with a fresh DB check before each batch. Each enqueue records a
-`HISTORICAL_RUN` trigger and submits tasks through Cloud Tasks' `tasks:batchCreate`
+scenes, with a fresh DB check before each batch. All batches share one
+`HISTORICAL_RUN` trigger and submit tasks through Cloud Tasks' `tasks:batchCreate`
 REST API. The runner waits for creation to be confirmed before moving on; failed
 or partial submissions stop execution without automatic retries. Tasks carry the
 trigger ID and a 30-minute execution deadline. `manual_trigger: true` gives
 source-association tasks run-specific names. Queue submission success does not
 mean inference has completed. Local stdout is the final JSON summary; progress
 and confirmed batch results go to stderr.
+
+Local enqueue records the run in the `historical_run` table: selection, dry-run
+setting, redacted command, Git revision, start and end times, confirmed task count,
+success, and error. The row is inserted before discovery, so a killed run keeps a
+`NULL` end time and a missing table stops submission. Failed submissions leave the
+task total unknown (`NULL`). List-only runs create no history row.
 
 HTTP submission and discovery share a 450-second budget from function entry.
 Local batches have separate 450-second queue-submission budgets, with no overall
@@ -375,7 +381,7 @@ support an additional exclusion CSV and deduplication. CSV input/exclusion accep
 `scene_id` or legacy `s1_scene_id`. Setup uses `STACK_SECRETS`, `GCP_PROJECT`, and
 `GCP_REGION`; rerun it after changing stacks. The orchestration cell checks the DB
 and submits batches of 100 directly. `DRY_RUN` must be `True` or `False` (default:
-`False`). Each batch creates its own trigger. Keep the notebook running until
+`False`). All batches share one trigger. Keep the notebook running until
 submission finishes; `batch_results` retains confirmed earlier results if a later
 batch fails. The ASA and imagery download utilities have their own execution paths.
 
