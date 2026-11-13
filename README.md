@@ -289,170 +289,95 @@ The services deployed by cerulean-cloud that DO NOT require this API key are:
 
 ## Historical processing and scene inventory
 
-Historical-run owns discovery and orchestrator queue submission. Existing
-`start`/`end`/GeoJSON requests still use EODAG's GEODES catalog with `VV VH`
-polarization and the ocean intersection filter. New requests can instead supply
-`source: "s3"` with inclusive UTC acquisition dates and optional `modes` and
-`polarizations`, or an explicit `scene_ids` list. S3 discovery reads each supported
-scene's `productInfo.json` footprint and applies historical-only scene checks:
-H/M resolution, VV polarization (DV/SV), and ocean intersection
-using historical-run's existing ocean mask.
-S3 relevance filtering defaults to enabled; pass `apply_relevancy: false` (CLI:
-`--no-relevancy`) to bypass ocean, VV, and resolution checks. Without a region,
-this also skips footprint metadata requests. Explicit mode/polarization selectors
-still apply. EODAG retains its existing catalog and ocean filters.
-An optional `geometry` GeoJSON FeatureCollection independently restricts scenes to those
-intersecting the requested region. Filtering selects whole scenes; it does not clip
-inference to that region. Historical-run retains ownership of batch tracking and
-queue submission. Filtering lives entirely within historical-run; the live
-scene-relevancy function and its deployment code are unchanged.
-Explicit IDs bypass discovery and relevance filtering. Duplicate IDs are selected
-once per request. After selection, every historical-run request checks the stack's
-database and excludes scenes with any `orchestrator_run.success IS TRUE`, regardless
-of model or whether any slicks were detected. Failed/unfinished runs and scene
-metadata alone do not count as completed processing. This check also applies to
-explicit IDs, dry runs, and remote `action: "list"` requests; disabling relevance
-filtering does not disable it. Lookup failures stop the request before a trigger or
-tasks are created.
+Historical-run discovers Sentinel-1 scenes through **EODAG's GEODES catalog**.
+The `eodag` selector takes UTC start/end boundaries and a required GeoJSON
+FeatureCollection region, searches `S1_SAR_GRD` products with `VV VH`
+polarization, and retains scenes intersecting the ocean. Filtering selects whole
+scenes; it does not clip inference to the requested region. Explicit `scene_ids`
+or the CLI's `scenes` command accept already selected IDs, including CSV input.
+Discovery uses the bundled `geodes.yml`, compatible with the pinned EODAG version.
+Public metadata search requires no GEODES key and does not download imagery.
+Catalog URNs are mapped to Sentinel scene names before queueing.
 
-Historical-run configures GEODES through its bundled `geodes.yml`, compatible with
-the pinned EODAG version. Public metadata search requires no GEODES key; this path
-does not download imagery from GEODES. GEODES catalog URNs are mapped to Sentinel
-scene names before queueing. The retired PEPS endpoint and SciHub credentials are
-no longer used by discovery. The function-specific `setuptools<81` constraint keeps
-EODAG 2.5's `pkg_resources` import available; shared requirements are unchanged.
+Every path deduplicates IDs and excludes scenes with any
+`orchestrator_run.success IS TRUE` in the selected stack's database. Failed or
+unfinished runs and scene metadata alone remain eligible. This check applies to
+previews, dry runs, explicit IDs, and local execution. A DB lookup failure stops
+submission before creating triggers or tasks. The response includes
+`already_processed_scene_count`; `filtered_scene_count` reflects the remaining
+scenes. Already queued or running scenes are not atomically reserved, so inspect
+partial failures before resubmitting.
 
-Every enqueue records a `HISTORICAL_RUN` trigger with raw/selected counts, then
-submits to the stack's existing orchestrator queue. HTTP requests include a cloud
-function log link; local runs leave that link empty and print progress locally. Tasks
-are submitted in groups of up to 100 through Cloud Tasks' `tasks:batchCreate`
-REST API using application default credentials. The function waits for each
-operation to finish and confirms all tasks were created before submitting the
-next group. This uses `google-auth[requests]` without requiring a newer Cloud
-Tasks Python client. Tasks carry the trigger ID and a 30-minute execution
-deadline. Omitted `dry_run` uses `dryrun_historical`; an explicit JSON boolean
-overrides it for that request.
-Optional `manual_trigger: true` gives downstream source-association tasks
-run-specific names. The JSON response reports the trigger ID, counts, and dry-run
-setting, plus `already_processed_scene_count` (unique selected scenes excluded by
-the database check). `filtered_scene_count` and the trigger's selected count reflect
-the remaining scenes; successful submission does not mean processing has completed.
-`action: "list"` returns scene IDs without creating a trigger or queueing tasks.
-Discovery and queue failures return errors rather than a successful partial result.
-A partial batch result also returns an error; logs identify the operation,
-confirmed task count, batch offset, and failed request indices. Submission and
-polling share a 450-second budget starting at function entry, including discovery.
-This first pass does not automatically retry failed or unconfirmed submissions.
-A queue failure can leave a partially submitted batch; resubmission creates a new
-batch. Completed scenes are excluded on resubmission, but scenes still queued or
-running are not protected by this lookup. Overlapping requests can still submit the
-same unfinished scene; this is not an atomic reservation of work.
-
-The CLI uses the deployed service by default. Set `CERULEAN_API_KEY` in the
-environment for this mode. The client discovers the
-endpoint from Pulumi's `historical_run_url` output for any `--stage` stack name;
-`--url` or `HISTORICAL_RUN_URL` can supply it directly. Examples from the checkout:
+The CLI offers `eodag` and `scenes`. It uses the deployed historical-run endpoint
+by default, with `CERULEAN_API_KEY` and either `HISTORICAL_RUN_URL`/`--url` or
+Pulumi's `historical_run_url` output for the selected `--stage` stack. Use `--local`
+to run the same Python runner directly, with database access and Cloud Tasks
+credentials. Local enqueue requires an explicit `--dry-run` or `--no-dry-run`.
+`--list-only` checks the DB and returns IDs without creating triggers or tasks.
 
 ```bash
-# Existing geographic search, with the stack's dry-run default.
-python -m scripts.historical_run --stage test eodag \
+# Preview a full UTC day locally through EODAG/GEODES.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env eodag \
   --date-start 2025-01-01 --date-end 2025-01-02 \
-  --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson
+  --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson \
+  --list-only > selected_scenes.json
 
-# Export relevant ocean scenes locally, without credentials or a function timeout.
-python -m scripts.historical_run s3 --list-only \
-  --date-start 2025-01-01 --date-end 2025-12-31 \
-  --mode IW --mode EW --polarization DV > scene_inventory.json
-
-# Restrict S3 discovery to a region before queueing.
-python -m scripts.historical_run --stage test s3 \
+# Queue dry-run tasks for the same day.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env eodag \
   --date-start 2025-01-01 --date-end 2025-01-02 \
-  --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson --dry-run
+  --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson \
+  --dry-run --manual-trigger > submission.json
 
-# Submit a CSV with a scene_id column; request a dry run explicitly.
-python -m scripts.historical_run --stage test scenes \
+# Submit a CSV with a scene_id column.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env scenes \
   --csv notebooks/scene_ids.csv --dry-run --manual-trigger
 ```
 
-Use `--local` to run the same Python runner as the notebook, with direct database
-access and Cloud Tasks submission. All three selectors (`s3`, `eodag`, and `scenes`)
-are supported. Local discovery and the initial DB exclusion run once, then
-submission uses independent batches of 100 with another DB check before each
-batch. Each batch creates its own trigger and has its own queue-submission budget.
-Local enqueue requires an explicit `--dry-run` or `--no-dry-run`.
+`python scripts/historical_run.py` supports the same options. EODAG uses time
+boundaries: for a day-long search, pass that day's date and the following date.
+There are no mode/polarization switches or relevance bypass; EODAG's catalog
+selection and ocean filter apply to date-range discovery.
 
-```bash
-# Preview a month locally, including exclusion of already successful scenes.
-python -m scripts.historical_run --local --stage test --env-file notebooks/.env s3 \
-  --date-start 2025-01-01 --date-end 2025-01-31 \
-  --mode IW --polarization DV --list-only > selected_scenes.json
-
-# Queue dry-run tasks directly from a CSV.
-python -m scripts.historical_run --local --stage test --env-file notebooks/.env scenes \
-  --csv notebooks/scene_ids.csv --dry-run --manual-trigger > submission.json
-```
-
-`python scripts/historical_run.py` supports the same options. `--env-file` loads
-the notebook's `STACK_SECRETS` configuration; `--stage test`, `staging`, and
-`prod20240903` select its `TEST`, `STAGING`, and `PRODUCTION` entries respectively.
-With `STACK_SECRETS`, project/region default to `cerulean-338116`/`europe-west1`
-(override with `GCPPROJECT`/`GCPREGION`). The actual queue name, including Pulumi's
-generated suffix, is resolved by listing queues for that stack; a `QUEUE` field in
-the selected secrets entry can supply it explicitly instead.
+Local `--env-file` loads the notebook's `STACK_SECRETS` configuration.
+`--stage test`, `staging`, and `prod20240903` select its `TEST`, `STAGING`, and
+`PRODUCTION` entries. With `STACK_SECRETS`, project/region default to
+`cerulean-338116`/`europe-west1` (override with `GCPPROJECT`/`GCPREGION`). The actual
+orchestrator queue, including its Pulumi-generated suffix, is resolved by listing
+queues; the secrets entry can instead provide its exact `QUEUE` name.
 Alternatively, export `DB_URL`, `GCPPROJECT`, `GCPREGION`, `QUEUE`,
-`ORCHESTRATOR_URL`, and `API_KEY` directly; in that case these variables determine
-the target. `--api-key`/`CERULEAN_API_KEY` can override the orchestrator API key.
-`HISTORICAL_DB_URL` overrides the database URL for a local proxy. SQLAlchemy-style
-`postgresql+asyncpg://` URLs are normalized automatically. Local `--list-only`
-requires only database access, creates no trigger or tasks, and applies the DB
-exclusion to every selector. Queueing additionally requires Google application
-default credentials with Cloud Tasks permissions, including queue listing unless
-an exact queue name is supplied.
+`ORCHESTRATOR_URL`, and `API_KEY` directly. `HISTORICAL_DB_URL` overrides the DB URL
+for a local proxy; `postgresql+asyncpg://` URLs are normalized for asyncpg.
+Local previews need only DB access. Queueing also needs Google application
+default credentials with Cloud Tasks permissions (and queue-list permission for
+automatic queue resolution). The local path uses no historical-run endpoint or
+Pulumi lookup and requires no function deployment.
 
-Local CLI stdout contains the final JSON summary with counts and per-batch results.
-Progress and confirmed batch results are printed to stderr. Submission stops on
-the first failure, without automatically retrying earlier or partial batches;
-inspect the confirmed results before resubmitting because unfinished scenes are
-still eligible. The local mode uses no historical-run endpoint or Pulumi lookup.
+Local discovery runs once, followed by independent submissions of up to 100
+scenes, with a fresh DB check before each batch. Each enqueue records a
+`HISTORICAL_RUN` trigger and submits tasks through Cloud Tasks' `tasks:batchCreate`
+REST API. The runner waits for creation to be confirmed before moving on; failed
+or partial submissions stop execution without automatic retries. Tasks carry the
+trigger ID and a 30-minute execution deadline. `manual_trigger: true` gives
+source-association tasks run-specific names. Queue submission success does not
+mean inference has completed. Local stdout is the final JSON summary; progress
+and confirmed batch results go to stderr.
 
-`notebooks/TriggerOnDemand.ipynb` now awaits the shared `run_historical` Python
-runner locally. It checks the database, creates triggers, and submits Cloud Tasks
-directly; inference still runs in the cloud. This path uses neither the
-historical-run HTTP endpoint nor the Pulumi CLI and needs no function deployment.
-The CLI uses the deployed endpoint for submissions unless `--local` is supplied.
-Remote discovery and queue submission are subject to the function's execution
-timeout; the notebook's local discovery has no overall function timeout. In the notebook,
-choose one scene source, then run the common selection options: optional processed
-CSV exclusion, `APPLY_RELEVANCY = False` (set `True` to opt in), and an optional
-region. CSV input/exclusion accepts either `scene_id` or legacy `s1_scene_id`.
-Orchestration sends batches of 100 through the local runner and defaults to
-`DRY_RUN = False`; set `True` for a dry run. Local notebook submission requires an
-explicit boolean; it does not inherit the deployed function's dry-run setting.
-Each batch creates its own trigger and gets a 450-second queue-submission budget.
-Keep the notebook running until all batches have been submitted; earlier confirmed
-results remain in `batch_results` if a later batch fails. Queued/unfinished scenes
-can still be submitted twice, so inspect partial failures before resubmitting.
-ASA and download utilities retain their own routes.
+HTTP submission and discovery share a 450-second budget from function entry.
+Local batches have separate 450-second queue-submission budgets, with no overall
+function deadline on local discovery. HTTP requests use the stack's dry-run
+setting when omitted and record a cloud function log link. Local runs print
+progress locally and leave the trigger log link empty.
 
-For local submission, use Google application default credentials with Cloud Tasks
-creation permissions (`gcloud auth application-default login`), and a reachable
-PostgreSQL `DB_URL` in the selected `STACK_SECRETS` entry. Set `HISTORICAL_DB_URL`
-in the environment or notebook `.env` to override the database URL for a local
-proxy; it must point to the selected stack's database. The notebook converts
-`postgresql+asyncpg://` URLs for direct asyncpg use. Check `GCP_PROJECT` and
-`GCP_REGION` in the first cell; submission resolves the deployed orchestrator queue
-for the selected stack, and setup loads its orchestrator URL and API key from `STACK_SECRETS`.
-Rerun setup after changing stacks. Local submission does not require a deployed
-historical-run function, but does require the existing database, queue, and orchestrator.
-The CLI's S3 `--list-only` without `--local` applies the selected relevance/region
-filters locally without a database lookup.
-Footprint metadata requests add time proportional to scene count; failures abort discovery before any
-batch or tasks are created. The Python `list_sentinel1_scene_ids` helper still returns
-raw archive IDs; use `filter_sentinel1_scene_ids` before submitting them. Neither
-helper determines whether scenes were previously processed. S3 `--list-only`
-without `--local` and notebook selection remain database-independent; the shared
-runner checks completion for local CLI previews and before queueing through the
-CLI, notebook, or HTTP service.
+`notebooks/TriggerOnDemand.ipynb` uses the same local runner. Choose one scene
+source: EODAG date/region search, an explicit list, or a CSV. EODAG applies catalog
+and ocean filters; lists and CSVs provide already selected IDs. Common options
+support an additional exclusion CSV and deduplication. CSV input/exclusion accepts
+`scene_id` or legacy `s1_scene_id`. Setup uses `STACK_SECRETS`, `GCP_PROJECT`, and
+`GCP_REGION`; rerun it after changing stacks. The orchestration cell checks the DB
+and submits batches of 100 directly. `DRY_RUN` must be `True` or `False` (default:
+`False`). Each batch creates its own trigger. Keep the notebook running until
+submission finishes; `batch_results` retains confirmed earlier results if a later
+batch fails. The ASA and imagery download utilities have their own execution paths.
 
 ## Adding a new Pulumi Stack
 Don't forget to edit the following places:

@@ -17,11 +17,6 @@ import httpx
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from cerulean_cloud.cloud_function_historical_run.inventory import (
-    filter_sentinel1_scene_ids,
-    list_sentinel1_scene_ids,
-)
-
 
 def post_historical_run(payload, url, api_key):
     """Use the authenticated historical-run endpoint and surface HTTP failures."""
@@ -214,68 +209,6 @@ def eodag(ctx, date_start, date_end, geometry, **options):
             "start": date_start.strftime("%Y-%m-%d"),
             "end": date_end.strftime("%Y-%m-%d"),
             "geometry": geometry_json,
-        },
-        **options,
-    )
-
-
-@cli.command()
-@click.option("--date-start", type=click.DateTime(formats=["%Y-%m-%d"]), required=True)
-@click.option("--date-end", type=click.DateTime(formats=["%Y-%m-%d"]), required=True)
-@click.option(
-    "--mode", multiple=True, help="Repeat to select modes; omitted includes all."
-)
-@click.option(
-    "--polarization",
-    multiple=True,
-    help="Repeat to select polarizations; omitted includes all.",
-)
-@click.option(
-    "--geometry", type=click.File(mode="r"), help="GeoJSON region FeatureCollection."
-)
-@click.option(
-    "--relevancy/--no-relevancy",
-    default=True,
-    help="Apply ocean, VV, and resolution checks (default: enabled). Region filtering is independent.",
-)
-@execution_options
-@click.pass_context
-def s3(ctx, date_start, date_end, mode, polarization, geometry, relevancy, **options):
-    """Discover archive scenes and apply scene-relevancy before listing or queueing."""
-    if date_end < date_start:
-        raise click.UsageError("date-end must be on or after date-start")
-    geometry_json = json.load(geometry) if geometry is not None else None
-    if options["list_only"] and not ctx.obj["local"]:
-        ids = list_sentinel1_scene_ids(
-            date_start.date(),
-            date_end.date(),
-            modes=mode or None,
-            polarizations=polarization or None,
-        )
-        selected = filter_sentinel1_scene_ids(
-            ids, geometry=geometry_json, apply_relevancy=relevancy
-        )
-        click.echo(
-            json.dumps(
-                {
-                    "scene_count": len(ids),
-                    "filtered_scene_count": len(selected),
-                    "scene_ids": selected,
-                },
-                indent=2,
-            )
-        )
-        return
-    submit(
-        ctx,
-        {
-            "source": "s3",
-            "start": date_start.strftime("%Y-%m-%d"),
-            "end": date_end.strftime("%Y-%m-%d"),
-            "modes": list(mode) or None,
-            "polarizations": list(polarization) or None,
-            **({"geometry": geometry_json} if geometry is not None else {}),
-            "apply_relevancy": relevancy,
         },
         **options,
     )

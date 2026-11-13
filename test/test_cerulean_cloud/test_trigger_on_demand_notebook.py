@@ -1,6 +1,7 @@
 """Execute the notebook's selection and submission cells without cloud access."""
 
 import ast
+import datetime
 import json
 import os
 import sys
@@ -11,8 +12,59 @@ from unittest.mock import AsyncMock, MagicMock
 import pandas as pd
 import pytest
 
-from cerulean_cloud.cloud_function_historical_run import inventory
 from cerulean_cloud.cloud_function_historical_run import main as historical
+
+
+def test_notebook_date_range_uses_eodag(notebook_cells, tmp_path):
+    source = next(
+        source
+        for source in notebook_cells
+        if source.startswith("# FROM EODAG DATE RANGE")
+    )
+    geometry = {"type": "FeatureCollection", "features": []}
+    path = tmp_path / "test/test_cerulean_cloud/fixtures/whole_world.geojson"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(geometry))
+    search = MagicMock(return_value=(3, ["ocean"]))
+    frame = MagicMock()
+    namespace = {
+        "datetime": datetime,
+        "json": json,
+        "repo_root": tmp_path,
+        "handle_search": search,
+        "pd": frame,
+    }
+    exec(source, namespace)
+    search.assert_called_once_with(
+        {
+            "source": "eodag",
+            "start": "2025-01-01",
+            "end": "2025-01-02",
+            "geometry": geometry,
+        }
+    )
+    assert namespace["scenes"] == ["ocean"]
+    frame.DataFrame.assert_called_once_with({"scene_id": ["ocean"]})
+
+
+@pytest.mark.parametrize("column", ["scene_id", "s1_scene_id"])
+def test_notebook_common_options_exclude_csv_and_deduplicate(
+    notebook_cells, read_csv, tmp_path, column
+):
+    path = tmp_path / "processed.csv"
+    path.write_text(f"{column}\nalready-done\n")
+    source = next(
+        source
+        for source in notebook_cells
+        if source.startswith("# COMMON SELECTION OPTIONS")
+    )
+    source = source.replace("PROCESSED_CSV = None", f"PROCESSED_CSV = {str(path)!r}")
+    namespace = {
+        "scenes": ["first", "already-done", "first", "second"],
+        "read_scene_ids_csv": read_csv,
+    }
+    exec(source, namespace)
+    assert namespace["scenes"] == ["first", "second"]
 
 
 @pytest.fixture
@@ -72,56 +124,6 @@ def test_notebook_reports_missing_csv_id_column(read_csv, tmp_path):
     path.write_text("unrecognized\nscene\n")
     with pytest.raises(ValueError, match="scene_id or s1_scene_id"):
         read_csv(path)
-
-
-@pytest.mark.parametrize("column", ["scene_id", "s1_scene_id"])
-def test_notebook_common_options_exclude_processed_and_bypass_relevance(
-    notebook_cells, read_csv, tmp_path, monkeypatch, column
-):
-    path = tmp_path / "processed.csv"
-    path.write_text(f"{column}\nalready-done\n")
-    monkeypatch.setattr(
-        inventory.httpx,
-        "Client",
-        MagicMock(side_effect=AssertionError("no metadata requests")),
-    )
-    source = next(
-        source
-        for source in notebook_cells
-        if source.startswith("# COMMON SELECTION OPTIONS")
-    )
-    source = source.replace("PROCESSED_CSV = None", f"PROCESSED_CSV = {str(path)!r}")
-    namespace = {
-        "scenes": ["land", "already-done", "hh", "land"],
-        "read_scene_ids_csv": read_csv,
-        "filter_sentinel1_scene_ids": inventory.filter_sentinel1_scene_ids,
-    }
-    exec(source, namespace)
-    assert namespace["scenes"] == ["land", "hh"]
-
-
-def test_notebook_common_options_can_filter_any_selected_ids(notebook_cells, tmp_path):
-    region = {"type": "FeatureCollection", "features": []}
-    path = tmp_path / "region.geojson"
-    path.write_text(json.dumps(region))
-    source = next(
-        source
-        for source in notebook_cells
-        if source.startswith("# COMMON SELECTION OPTIONS")
-    )
-    source = source.replace("APPLY_RELEVANCY = False", "APPLY_RELEVANCY = True")
-    source = source.replace("GEOMETRY_FILE = None", f"GEOMETRY_FILE = {str(path)!r}")
-    filtering = MagicMock(return_value=["inside-ocean"])
-    namespace = {
-        "scenes": ["inside-ocean", "outside"],
-        "json": json,
-        "filter_sentinel1_scene_ids": filtering,
-    }
-    exec(source, namespace)
-    filtering.assert_called_once_with(
-        ["inside-ocean", "outside"], geometry=region, apply_relevancy=True
-    )
-    assert namespace["scenes"] == ["inside-ocean"]
 
 
 @pytest.mark.parametrize(

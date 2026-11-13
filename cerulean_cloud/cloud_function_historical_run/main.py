@@ -7,7 +7,7 @@ import os
 import time
 import urllib.parse as urlparse
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import asyncpg
 import geojson
@@ -25,19 +25,9 @@ ENQUEUE_TIMEOUT_SECONDS = 450
 # Cloud Functions imports main.py at the root of the deployed source archive;
 # repository callers import it as part of cerulean_cloud.
 if __package__:
-    from .inventory import (
-        list_sentinel1_scene_ids,
-        filter_sentinel1_scene_ids,
-        load_ocean_poly,
-        region_from_geojson,
-    )
+    from .relevance import load_ocean_poly
 else:
-    from inventory import (
-        list_sentinel1_scene_ids,
-        filter_sentinel1_scene_ids,
-        load_ocean_poly,
-        region_from_geojson,
-    )
+    from relevance import load_ocean_poly
 
 
 def make_cloud_function_logs_url(
@@ -137,9 +127,12 @@ def validate_request(request_json):
         raise ValueError("Expected a JSON object")
     if request_json.get("action", "enqueue") not in ("list", "enqueue"):
         raise ValueError("action must be list or enqueue")
-    for key in ("dry_run", "manual_trigger", "apply_relevancy"):
+    for key in ("dry_run", "manual_trigger"):
         if key in request_json and not isinstance(request_json[key], bool):
             raise ValueError(f"{key} must be a boolean")
+    for key in ("modes", "polarizations", "apply_relevancy"):
+        if key in request_json:
+            raise ValueError(f"{key} is not supported")
     if "scene_ids" in request_json:
         scenes = request_json["scene_ids"]
         if not isinstance(scenes, list) or any(
@@ -161,47 +154,23 @@ def validate_request(request_json):
             raise ValueError("scene_ids cannot be combined with search options")
         return
     source = request_json.get("source", "eodag")
-    if source not in ("eodag", "s3"):
-        raise ValueError("source must be eodag or s3")
+    if source != "eodag":
+        raise ValueError("source must be eodag")
     try:
-        if source == "s3":
-            start = date.fromisoformat(request_json["start"])
-            end = date.fromisoformat(request_json["end"])
-        else:
-            # Existing EODAG callers may supply full ISO timestamps, not just dates.
-            start = datetime.fromisoformat(request_json["start"])
-            end = datetime.fromisoformat(request_json["end"])
-            if start.tzinfo is None:
-                start = start.replace(tzinfo=timezone.utc)
-            if end.tzinfo is None:
-                end = end.replace(tzinfo=timezone.utc)
+        start = datetime.fromisoformat(request_json["start"])
+        end = datetime.fromisoformat(request_json["end"])
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(
             "start and end must be ISO dates (or EODAG timestamps)"
         ) from exc
     if end < start:
         raise ValueError("end must be on or after start")
-    if source == "eodag":
-        if "apply_relevancy" in request_json:
-            raise ValueError(
-                "apply_relevancy applies to S3 discovery only; explicit scene_ids bypass filtering"
-            )
-        if not isinstance(request_json.get("geometry"), dict):
-            raise ValueError(
-                "EODAG search requires a GeoJSON FeatureCollection geometry"
-            )
-        if any(key in request_json for key in ("modes", "polarizations")):
-            raise ValueError("modes and polarizations apply to S3 discovery only")
-    else:
-        if "geometry" in request_json:
-            region_from_geojson(request_json["geometry"])
-        for key in ("modes", "polarizations"):
-            value = request_json.get(key)
-            if value is not None and (
-                not isinstance(value, list)
-                or any(not isinstance(item, str) or not item for item in value)
-            ):
-                raise ValueError(f"{key} must be a list of strings or null")
+    if not isinstance(request_json.get("geometry"), dict):
+        raise ValueError("EODAG search requires a GeoJSON FeatureCollection geometry")
 
 
 def main(request):
@@ -265,25 +234,11 @@ async def run_historical(request_json, *, logs_url="", deadline=None):
 
 
 def handle_search(request_json, ocean_poly=None):
-    """Select explicit IDs, archive folders, or the existing spatial catalog search."""
+    """Select explicit IDs or discover scenes through EODAG's GEODES catalog."""
     if "scene_ids" in request_json:
         scenes = [scene.strip() for scene in request_json["scene_ids"]]
         return len(scenes), list(dict.fromkeys(scenes))
-    if request_json.get("source", "eodag") == "s3":
-        scenes = list_sentinel1_scene_ids(
-            date.fromisoformat(request_json["start"]),
-            date.fromisoformat(request_json["end"]),
-            modes=request_json.get("modes"),
-            polarizations=request_json.get("polarizations"),
-        )
-        return len(scenes), filter_sentinel1_scene_ids(
-            scenes,
-            geometry=request_json.get("geometry"),
-            ocean_poly=ocean_poly,
-            apply_relevancy=request_json.get("apply_relevancy", True),
-        )
-
-    # Catalog dependencies are only needed for the existing EODAG search path.
+    # Explicit IDs do not require the catalog dependencies.
     from eodag import EODataAccessGateway, setup_logging
 
     setup_logging(2)
