@@ -112,3 +112,24 @@ runs:
         DB_URL: ${{ steps.pulumi.outputs.database_url_alembic }}
       run: |
         pip install -r requirements.txt && alembic upgrade head
+
+    - name: Verify deployed TiPG guidance
+      shell: bash
+      env:
+        TIPG_URL: ${{ steps.pulumi.outputs.cloud_run_tipg_url }}
+      run: |
+        set -euo pipefail
+        DOC_CHECK_DIR="$(mktemp -d)"
+        curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 --max-time 20 \
+          --get "${TIPG_URL}/guide" \
+          --data-urlencode 'utm_medium=agentic' --data-urlencode 'utm_source=skytruth-deploy-check' \
+          -o "${DOC_CHECK_DIR}/guide.html"
+        curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 --max-time 20 \
+          --get "${TIPG_URL}/llms.txt" \
+          --data-urlencode 'utm_medium=agentic' --data-urlencode 'utm_source=skytruth-deploy-check' \
+          -o "${DOC_CHECK_DIR}/llms.txt"
+        curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 --max-time 20 \
+          --get "${TIPG_URL}/skills/cerulean-investigation/SKILL.md" \
+          --data-urlencode 'utm_medium=agentic' --data-urlencode 'utm_source=skytruth-deploy-check' \
+          -o "${DOC_CHECK_DIR}/SKILL.md"
+        cmp docs/agent-skills/cerulean-investigation/SKILL.md "${DOC_CHECK_DIR}/SKILL.md"

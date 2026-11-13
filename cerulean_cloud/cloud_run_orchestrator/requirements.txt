@@ -24,9 +24,9 @@ pygeos
 networkx
 google-cloud-tasks
 protobuf
--f https://download.pytorch.org/whl/cpu/torch_stable.html
-torch==2.0.1+cpu
-torchvision==0.15.2+cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.10.0
+torchvision==0.25.0
 scipy
 scikit-image
 pydantic~=2.0

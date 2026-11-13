@@ -19,6 +19,10 @@ Current repo-local skills:
 - `.claude/skills/cerulean-vocabulary-translation-seed/SKILL.md`
 - `.claude/skills/skytruth-intent-engineering/SKILL.md`
 
+## Distributable skills
+
+`docs/agent-skills/` holds skills packaged for organizations outside SkyTruth, such as `cerulean-investigation`. They are not repo-local skills: do not copy them into `.claude/skills`. `docs/agent-skills/README.md` explains how to build and check them.
+
 ## Required behavior
 
 - Treat skills under `.claude/skills` as repo-local, not global.

@@ -1,2 +1,8 @@
 *
 !cerulean_cloud
+!docs/
+docs/*
+!docs/agent-skills/
+docs/agent-skills/*
+!docs/agent-skills/cerulean-investigation/
+!docs/agent-skills/cerulean-investigation/**
