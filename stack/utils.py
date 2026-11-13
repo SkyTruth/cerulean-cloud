@@ -61,11 +61,16 @@ def create_package(code_dir: str) -> str:
     print("Checking Docker is available...")
     client.ping()
 
+    # Match the TiTiler Lambda's x86_64 runtime on ARM development machines.
+    platform = "linux/amd64"
     print("Building container image...")
     image, _ = client.images.build(
         path=code_dir,
         dockerfile="Dockerfiles/Dockerfile.titiler",
         tag="titiler-lambda:latest",
+        platform=platform,
+        # The same base tag may already be cached for the host architecture.
+        pull=True,
         nocache=True,
         rm=True,
     )
@@ -73,7 +78,8 @@ def create_package(code_dir: str) -> str:
 
     print("Creating installation package.zip ...")
     _ = client.containers.run(
-        image="titiler-lambda:latest",
+        image=image.id,
+        platform=platform,
         remove=True,
         volumes={
             code_dir: {

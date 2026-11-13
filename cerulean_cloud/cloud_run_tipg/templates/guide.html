@@ -1,0 +1,36 @@
+{% include "header.html" %}
+
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb bg-light">
+    <li class="breadcrumb-item"><a href="{{ template.api_root }}/">Home</a></li>
+    <li class="breadcrumb-item active" aria-current="page">API guide</li>
+  </ol>
+</nav>
+
+<h1>API guide</h1>
+<p class="lead mb-4">Examples and interpretation guidance for anyone using Cerulean data.</p>
+
+<div class="row">
+  <aside class="col-lg-3 mb-4">
+    <nav aria-label="Guide topics" class="list-group guide-topics">
+    {% for topic in guide_topics %}
+      <a class="list-group-item list-group-item-action{% if topic.active %} active{% endif %}" href="{{ topic.url }}"{% if topic.active %} aria-current="page"{% endif %}>{{ topic.title }}</a>
+    {% endfor %}
+    </nav>
+    <p class="mt-3"><a href="{{ notebook_url }}">Run the example notebook</a></p>
+    <details class="guide-formats">
+      <summary>Markdown and agent resources</summary>
+      <ul class="pl-3 mt-2">
+        <li><a href="{{ markdown_url }}">This page as Markdown</a></li>
+        <li><a href="{{ template.api_root }}/llms.txt">Agent entry guide</a></li>
+        <li><a href="{{ template.api_root }}/skills/cerulean-investigation.tar.gz">Installable skill</a></li>
+      </ul>
+    </details>
+  </aside>
+  <article class="col-lg-9 guide-article">
+    <h2 class="mt-0">{{ topic_title }}</h2>
+    {{ guide_content }}
+  </article>
+</div>
+
+{% include "footer.html" %}

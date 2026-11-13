@@ -41,7 +41,8 @@ default = gcp.cloudrun.Service(
             service_account_name=cloud_function_service_account.email,
             containers=[
                 gcp.cloudrun.ServiceTemplateSpecContainerArgs(
-                    image=cloud_run_images.cloud_run_tipg_image.name,
+                    # Pin the revision to content: updating :latest alone creates no diff.
+                    image=cloud_run_images.cloud_run_tipg_image.repo_digest,
                     envs=[
                         gcp.cloudrun.ServiceTemplateSpecContainerEnvArgs(
                             name="UVICORN_PORT",

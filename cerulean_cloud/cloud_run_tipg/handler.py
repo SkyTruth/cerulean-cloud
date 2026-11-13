@@ -12,6 +12,7 @@ Make sure to set in your environment:
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, List, Optional
 
 import jinja2
@@ -28,8 +29,14 @@ from tipg.collections import register_collection_catalog
 from tipg.database import close_db_connection, connect_to_db
 from tipg.errors import DEFAULT_STATUS_CODES, add_exception_handlers
 from tipg.factory import Endpoints
-from tipg.middleware import CacheControlMiddleware, CatalogUpdateMiddleware
+from tipg.middleware import CacheControlMiddleware
 from tipg.settings import APISettings, DatabaseSettings
+
+from cerulean_cloud.cloud_run_tipg.agent_docs import (
+    AgentDiscoveryMiddleware,
+    DocumentationCatalogMiddleware,
+    router as agent_docs_router,
+)
 
 settings = APISettings()
 db_settings = DatabaseSettings()
@@ -90,6 +97,7 @@ app = FastAPI(
     version=tipg_version,
     openapi_url="/api",
     docs_url="/api.html",
+    description="Read the [API guide](/guide) for query examples, data definitions and interpretation guidance.",
     lifespan=lifespan,
 )
 
@@ -102,10 +110,13 @@ templates_location: List[Any] = [
 
 templates = Jinja2Templates(directory="cerulean_cloud/cloud_run_tipg/templates/")
 templates.env.loader = jinja2.ChoiceLoader(templates_location)
+app.state.guide_templates = templates
 
 # Register endpoints.
 endpoints = Endpoints(title=settings.name, templates=templates)
 app.include_router(endpoints.router)
+app.include_router(agent_docs_router)
+app.add_middleware(AgentDiscoveryMiddleware)
 
 
 # Set all CORS enabled origins
@@ -114,14 +125,15 @@ if settings.cors_origins:
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=["GET"],
+        allow_methods=["GET", "HEAD"],
         allow_headers=["*"],
+        expose_headers=["Link", "ETag"],
     )
 
 app.add_middleware(CacheControlMiddleware, cachecontrol=settings.cachecontrol)
 app.add_middleware(CompressionMiddleware)
 app.add_middleware(
-    CatalogUpdateMiddleware,
+    DocumentationCatalogMiddleware,
     func=register_collection_catalog,
     ttl=300,  # 5 minutes, or adjust as needed
     db_settings=db_settings,  # passed as **kwargs
@@ -166,7 +178,7 @@ def get_robots_txt():
     Returns:
         FileResponse: The robots.txt file content
     """
-    return FileResponse("robots.txt")
+    return FileResponse(Path(__file__).resolve().parents[1] / "robots.txt")
 
 
 logging.getLogger("mangum.lifespan").setLevel(logging.ERROR)
