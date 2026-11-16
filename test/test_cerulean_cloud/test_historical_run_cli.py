@@ -15,7 +15,6 @@ from shapely.geometry import box, mapping
 
 from scripts import historical_run as client
 from cerulean_cloud.cloud_function_historical_run import main as historical
-from cerulean_cloud.cloud_function_historical_run import local as local_config
 
 
 def test_s3_command_is_removed(remote):
@@ -124,15 +123,6 @@ def invoke(*args):
 
 @pytest.fixture
 def local_execution(monkeypatch, remote):
-    monkeypatch.setattr(
-        local_config,
-        "resolve_orchestrator_queue",
-        MagicMock(
-            side_effect=lambda project,
-            region,
-            stage: f"cerulean-cloud-{stage}-queue-cr-orchestrator-deployed"
-        ),
-    )
     for key in ("STACK_SECRETS", "HISTORICAL_DB_URL", "CERULEAN_API_KEY"):
         # Track variables that dotenv may create as well as existing values.
         monkeypatch.setenv(key, "")
@@ -366,8 +356,11 @@ def test_local_eodag_preview_passes_geometry_and_dates(
     "stage,stack_key",
     [("test", "TEST"), ("staging", "STAGING"), ("prod20240903", "PRODUCTION")],
 )
+@pytest.mark.parametrize(
+    "legacy_queue", [None, "cerulean-cloud-test-queue-cr-orchestrator-live"]
+)
 def test_local_env_file_uses_selected_notebook_stack(
-    local_execution, tmp_path, stage, stack_key
+    local_execution, tmp_path, stage, stack_key, legacy_queue
 ):
     path = tmp_path / ".env"
     config = {
@@ -377,6 +370,8 @@ def test_local_env_file_uses_selected_notebook_stack(
             "API_KEY": "selected-key",
         }
     }
+    if legacy_queue is not None:
+        config[stack_key].update(QUEUE=legacy_queue, HISTORICAL_QUEUE=legacy_queue)
     path.write_text("STACK_SECRETS='" + json.dumps(config) + "'\n")
     result = CliRunner().invoke(
         client.cli,
@@ -396,10 +391,18 @@ def test_local_env_file_uses_selected_notebook_stack(
     assert os.environ["DB_URL"] == "postgresql://localhost/selected-stack"
     assert os.environ["ORCHESTRATOR_URL"] == "https://selected.example"
     assert os.environ["API_KEY"] == "selected-key"
-    assert (
-        os.environ["QUEUE"] == f"cerulean-cloud-{stage}-queue-cr-orchestrator-deployed"
-    )
+    assert os.environ["QUEUE"] == "queue"  # Legacy routing settings are ignored.
     assert "selected-key" not in result.output
+
+
+def test_local_submission_needs_no_queue_configuration(local_execution, monkeypatch):
+    monkeypatch.delenv("QUEUE")
+    monkeypatch.delenv("HISTORICAL_QUEUE", raising=False)
+    result = CliRunner().invoke(
+        client.cli, ["--local", "scenes", "--scene-id", "scene"]
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["queued_count"] == 1
 
 
 def test_local_proxy_override_and_preview_need_only_database(

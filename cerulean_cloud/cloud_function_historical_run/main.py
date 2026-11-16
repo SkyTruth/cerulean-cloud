@@ -19,6 +19,7 @@ from shapely.geometry import MultiPolygon, shape
 
 
 CLOUD_TASKS_API = "https://cloudtasks.googleapis.com/v2"
+ORCHESTRATOR_BACKLOG_QUEUE = "orchestrator-backlog"
 # Leave headroom before the deployed function's 500-second timeout.
 ENQUEUE_TIMEOUT_SECONDS = 450
 CATALOG_PAGE_SIZE = 80
@@ -387,7 +388,7 @@ def handler_queue(
         deadline = time.monotonic() + ENQUEUE_TIMEOUT_SECONDS
     parent = (
         f"projects/{os.environ['GCPPROJECT']}/locations/{os.environ['GCPREGION']}"
-        f"/queues/{os.environ['QUEUE']}"
+        f"/queues/{ORCHESTRATOR_BACKLOG_QUEUE}"
     )
     credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"]

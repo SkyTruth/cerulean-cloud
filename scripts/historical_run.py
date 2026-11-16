@@ -84,10 +84,6 @@ def cli(ctx, stage, url, api_key, local, env_file):
 def configure_local(stage, api_key, *, list_only):
     """Use the notebook's stack secrets or explicit service environment variables."""
     if os.getenv("STACK_SECRETS"):
-        from cerulean_cloud.cloud_function_historical_run.local import (
-            resolve_orchestrator_queue,
-        )
-
         stack_key = {
             "test": "TEST",
             "staging": "STAGING",
@@ -109,14 +105,6 @@ def configure_local(stage, api_key, *, list_only):
             raise click.ClickException(
                 f"STACK_SECRETS must contain configuration for {stack_key}"
             ) from None
-        if not list_only:
-            queue = config.get("HISTORICAL_QUEUE")
-            try:
-                os.environ["QUEUE"] = queue or resolve_orchestrator_queue(
-                    os.environ["GCPPROJECT"], os.environ["GCPREGION"], stage
-                )
-            except ValueError as exc:
-                raise click.ClickException(str(exc)) from None
     db_url = os.getenv("HISTORICAL_DB_URL") or os.getenv("DB_URL")
     if db_url:
         os.environ["DB_URL"] = db_url.replace(
@@ -126,7 +114,7 @@ def configure_local(stage, api_key, *, list_only):
         os.environ["API_KEY"] = api_key
     required = ["DB_URL"]
     if not list_only:
-        required += ["GCPPROJECT", "GCPREGION", "QUEUE", "ORCHESTRATOR_URL", "API_KEY"]
+        required += ["GCPPROJECT", "GCPREGION", "ORCHESTRATOR_URL", "API_KEY"]
     missing = [key for key in required if not os.getenv(key)]
     if missing:
         raise click.ClickException(f"Local execution requires: {', '.join(missing)}")

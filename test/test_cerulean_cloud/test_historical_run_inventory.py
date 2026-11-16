@@ -1,6 +1,7 @@
 """Historical selection and queueing with mocked cloud APIs and a local test DB."""
 
 import base64
+import asyncio
 import json
 import sys
 import uuid
@@ -15,7 +16,7 @@ from shapely.geometry import box, mapping
 from cerulean_cloud.cloud_function_historical_run import main as historical
 
 
-QUEUE_PATH = "projects/project/locations/region/queues/orchestrator"
+QUEUE_PATH = "projects/project/locations/region/queues/orchestrator-backlog"
 OPERATION_NAME = "projects/project/locations/region/operations/batch"
 
 
@@ -258,6 +259,47 @@ def test_queue_defaults_to_dry_run_even_when_legacy_setting_is_false(
     monkeypatch.setenv("IS_DRY_RUN", "false")
     assert historical.handler_queue(["scene"], 42) == 1
     assert task_payload(queued_requests(endpoint)[0]["task"])["dry_run"] is True
+
+
+@pytest.mark.parametrize("entrypoint", ["http", "local"])
+@pytest.mark.parametrize(
+    "legacy_queue",
+    [None, "cerulean-cloud-test-queue-cr-orchestrator-live", "some-other-queue"],
+)
+def test_historical_submissions_only_use_backlog(
+    endpoint, monkeypatch, entrypoint, legacy_queue
+):
+    payload = {"scene_ids": ["scene"], "dry_run": True}
+    for key in ("QUEUE", "HISTORICAL_QUEUE"):
+        if legacy_queue is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, legacy_queue)
+            payload[key] = legacy_queue
+    payload["queue"] = legacy_queue
+    if entrypoint == "http":
+        response = post(endpoint, payload)
+        assert response.status_code == 200
+        summary = response.json
+    else:
+        summary = asyncio.run(historical.run_historical(payload))
+    assert summary["queued_count"] == 1
+    endpoint[2].post.assert_called_once()
+    assert endpoint[2].post.call_args.args == (
+        f"{historical.CLOUD_TASKS_API}/{QUEUE_PATH}/tasks:batchCreate",
+    )
+    assert queued_requests(endpoint)[0]["parent"] == QUEUE_PATH
+
+
+def test_missing_backlog_does_not_fall_back_to_live_queue(endpoint, monkeypatch):
+    monkeypatch.setenv("QUEUE", "cerulean-cloud-test-queue-cr-orchestrator-live")
+    endpoint[2].post.side_effect = None
+    endpoint[2].post.return_value = operation_response(
+        {"error": "queue not found"}, status=404
+    )
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    endpoint[2].post.assert_called_once()
+    assert queued_requests(endpoint)[0]["parent"] == QUEUE_PATH
 
 
 @pytest.mark.parametrize("scene_count", [0, 1, 100, 101, 250])

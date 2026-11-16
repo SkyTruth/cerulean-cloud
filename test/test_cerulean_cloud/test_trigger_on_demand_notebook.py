@@ -80,7 +80,7 @@ def notebook_target():
         "GCP_PROJECT": "project",
         "GCP_REGION": "region",
         "pulumi_stack": "test",
-        "resolve_orchestrator_queue": MagicMock(return_value="deployed-queue"),
+        "ORCHESTRATOR_BACKLOG_QUEUE": historical.ORCHESTRATOR_BACKLOG_QUEUE,
     }
 
 
@@ -190,7 +190,7 @@ def test_notebook_configures_local_runner_for_selected_stack(
     assert os.environ["GCPREGION"] == "region"
     assert (
         os.environ["QUEUE"] == "old-value"
-    )  # Resolved at submission time, not selection.
+    )  # Historical submissions ignore the legacy queue setting.
     assert os.environ["ORCHESTRATOR_URL"] == "https://orchestrator.example"
     assert os.environ["API_KEY"] == "test-key"
 
@@ -217,10 +217,7 @@ async def test_notebook_batches_selected_scenes_through_local_historical_run(
     for payload in payloads:
         assert payload["dry_run"] is dry_run
     assert namespace["batch_results"] == [{"trigger_id": i} for i in range(3)]
-    notebook_target["resolve_orchestrator_queue"].assert_called_once_with(
-        "project", "region", "test"
-    )
-    assert notebook_target["os"].environ["QUEUE"] == "deployed-queue"
+    assert "QUEUE" not in notebook_target["os"].environ
 
 
 @pytest.mark.asyncio

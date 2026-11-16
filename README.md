@@ -365,16 +365,18 @@ catalog selection and ocean filter always apply to date-range discovery.
 Local `--env-file` loads the notebook's `STACK_SECRETS` configuration.
 `--stage test`, `staging`, and `prod20240903` select its `TEST`, `STAGING`, and
 `PRODUCTION` entries. With `STACK_SECRETS`, project/region default to
-`cerulean-338116`/`europe-west1` (override with `GCPPROJECT`/`GCPREGION`). The actual
-historical orchestrator queue, including its Pulumi-generated suffix, is resolved by listing
-queues; the secrets entry can instead provide its exact `HISTORICAL_QUEUE` name.
-Alternatively, export `DB_URL`, `GCPPROJECT`, `GCPREGION`, `QUEUE`,
+`cerulean-338116`/`europe-west1` (override with `GCPPROJECT`/`GCPREGION`). Historical
+submissions always enqueue to **`orchestrator-backlog`** in that project/region.
+CLI, notebook, and HTTP execution use the same fixed destination; legacy `QUEUE`
+and `HISTORICAL_QUEUE` settings cannot redirect tasks to live queues. The backlog
+queue must already exist; missing or inaccessible queues stop submission.
+Alternatively, export `DB_URL`, `GCPPROJECT`, `GCPREGION`,
 `ORCHESTRATOR_URL`, and `API_KEY` directly. `HISTORICAL_DB_URL` overrides the DB URL
 for a local proxy; `postgresql+asyncpg://` URLs are normalized for asyncpg.
 Local previews need only DB access. Queueing also needs Google application
-default credentials with Cloud Tasks permissions (and queue-list permission for
-automatic queue resolution). The local path uses no historical-run endpoint or
-Pulumi lookup and requires no function deployment.
+default credentials with permission to create tasks in `orchestrator-backlog`.
+No queue-list permission or queue-name secret is needed. The local path uses no
+historical-run endpoint or Pulumi lookup and requires no function deployment.
 
 Local discovery runs once, followed by independent submissions of up to 100
 scenes, with a fresh DB check before each batch. All batches share one
