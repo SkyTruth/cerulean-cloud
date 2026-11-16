@@ -415,7 +415,7 @@ def test_discovery_time_counts_toward_enqueue_deadline(endpoint, monkeypatch):
         {"source": "s3", "start": "2025-01-02", "end": "2025-01-01"},
         {"source": "s3", "start": "2025-01-01", "end": "2025-01-02", "geometry": {}},
         {"source": "s3", "start": "2025-01-01", "end": "2025-01-02", "modes": "IW"},
-        {"start": "2025-01-01", "end": "2025-01-02"},
+        {"start": "2025-01-01", "end": "2025-01-02", "geometry": []},
     ],
 )
 def test_invalid_requests_fail_before_discovery_or_side_effects(
@@ -426,6 +426,28 @@ def test_invalid_requests_fail_before_discovery_or_side_effects(
     assert post(endpoint, payload).status_code == 400
     search.assert_not_called()
     endpoint[1].assert_not_called()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.parametrize("geometry", [{}, {"geometry": None}])
+def test_global_preview_accepts_missing_or_null_geometry(
+    endpoint, monkeypatch, geometry
+):
+    search = MagicMock(return_value=(0, []))
+    monkeypatch.setattr(historical, "handle_search", search)
+    response = post(
+        endpoint,
+        {
+            "start": "2025-01-01",
+            "end": "2025-01-02",
+            "action": "list",
+            **geometry,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json["scene_ids"] == []
+    search.assert_called_once()
+    endpoint[1].assert_not_awaited()
     endpoint[2].post.assert_not_called()
 
 

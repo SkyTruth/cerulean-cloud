@@ -53,6 +53,22 @@ def test_scene_ids_supply_acquisition_dates():
     assert metadata["geometry"] is None
 
 
+@pytest.mark.parametrize("geometry", [{}, {"geometry": None}])
+def test_global_history_records_no_geometry(geometry):
+    metadata = client.history_metadata(
+        {
+            "start": "2025-01-01",
+            "end": "2025-01-02",
+            **geometry,
+        }
+    )
+    assert metadata["geometry"] is None
+    assert (metadata["date_start"], metadata["date_end"]) == (
+        date(2025, 1, 1),
+        date(2025, 1, 2),
+    )
+
+
 @pytest.mark.parametrize(
     "payload",
     [

@@ -331,7 +331,11 @@ def submit(ctx, payload, dry_run, manual_trigger, list_only, no_dry_run=False):
 @click.option(
     "--date-end", type=click.DateTime(formats=["%Y-%m-%d"]), default=str(date.today())
 )
-@click.option("--geometry", type=click.File(mode="r"), required=True)
+@click.option(
+    "--geometry",
+    type=click.File(mode="r"),
+    help="GeoJSON FeatureCollection file. Omit for a global search.",
+)
 @click.option(
     "--mode",
     "modes",
@@ -342,14 +346,14 @@ def submit(ctx, payload, dry_run, manual_trigger, list_only, no_dry_run=False):
 @execution_options
 @click.pass_context
 def eodag(ctx, date_start, date_end, geometry, modes, **options):
-    """Search a geographic area and retain scenes intersecting the ocean."""
-    with geometry as src:
-        geometry_json = json.load(src)
+    """Search globally or within a region and retain scenes intersecting the ocean."""
     payload = {
         "start": date_start.strftime("%Y-%m-%d"),
         "end": date_end.strftime("%Y-%m-%d"),
-        "geometry": geometry_json,
     }
+    if geometry is not None:
+        with geometry as src:
+            payload["geometry"] = json.load(src)
     if modes:
         payload["modes"] = list(dict.fromkeys(modes))
     submit(ctx, payload, **options)

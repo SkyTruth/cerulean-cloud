@@ -290,11 +290,15 @@ The services deployed by cerulean-cloud that DO NOT require this API key are:
 ## Historical processing and scene inventory
 
 Historical-run discovers Sentinel-1 scenes through **EODAG's GEODES catalog**.
-The `eodag` selector takes UTC start/end boundaries and a required GeoJSON
+The `eodag` selector takes UTC start/end boundaries and an optional GeoJSON
 FeatureCollection region, searches `S1_SAR_GRD` products with `VV VH`
 polarization, and retains scenes intersecting the ocean. Filtering selects whole
 scenes; it does not clip inference to the requested region. Explicit `scene_ids`
 or the CLI's `scenes` command accept already selected IDs, including CSV input.
+Omit `--geometry` for a global search, or pass `--geometry region.geojson` to
+restrict the region. HTTP requests may omit `geometry` or set it to `null`.
+Global runs store `NULL` in the backfill record's geometry column. Ocean filtering
+and the completed-scene DB exclusion still apply to global searches.
 Use `--mode EW --mode IW --mode SM` to select multiple acquisition modes, or
 repeat any subset of those choices. Mode values are case-insensitive in the CLI.
 Omitting `--mode` leaves acquisition mode unrestricted. HTTP requests accept a
@@ -341,13 +345,11 @@ default to `dry_run: true`; explicitly pass the JSON boolean `false` to process.
 # Preview a full UTC day locally through EODAG/GEODES.
 python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
   --date-start 2025-01-01 --date-end 2025-01-02 \
-  --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson \
   --list-only
 
 # Queue a month of dry-run tasks for the selected modes (the default is dry-run).
 python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
   --date-start 2025-01-01 --date-end 2025-02-01 \
-  --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson \
   --mode EW --mode IW --mode SM
 
 # Enable inference explicitly for a CSV with a scene_id column.

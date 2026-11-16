@@ -27,8 +27,9 @@ def test_s3_command_is_removed(remote):
 
 
 @pytest.mark.parametrize("selector", [[], ["eodag"]])
+@pytest.mark.parametrize("with_geometry", [False, True])
 def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
-    local_execution, remote, monkeypatch, tmp_path, selector
+    local_execution, remote, monkeypatch, tmp_path, selector, with_geometry
 ):
     processed, trigger, queue = local_execution
     processed.side_effect = [{"completed"}, set()]
@@ -71,8 +72,7 @@ def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
             "2025-01-01",
             "--date-end",
             "2025-01-02",
-            "--geometry",
-            str(path),
+            *(["--geometry", str(path)] if with_geometry else []),
             "--mode",
             "EW",
             "--mode",
@@ -99,6 +99,7 @@ def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
         "SM",
     ]
     assert queue.call_args.kwargs["dry_run"] is True
+    assert ("geom" in dag._do_search.call_args.kwargs) is with_geometry
     remote.assert_not_called()
 
 
@@ -484,8 +485,9 @@ def test_explicit_scene_ids_csv_and_authenticated_request(remote, tmp_path):
 
 
 @pytest.mark.parametrize("selector", [[], ["eodag"]])
+@pytest.mark.parametrize("with_geometry", [False, True])
 def test_eodag_is_default_and_explicit_selector_is_preserved(
-    remote, tmp_path, selector
+    remote, tmp_path, selector, with_geometry
 ):
     path = tmp_path / "area.geojson"
     geometry = {"type": "FeatureCollection", "features": []}
@@ -496,14 +498,13 @@ def test_eodag_is_default_and_explicit_selector_is_preserved(
         "2025-01-01",
         "--date-end",
         "2025-01-02",
-        "--geometry",
-        str(path),
+        *(["--geometry", str(path)] if with_geometry else []),
     )
     assert result.exit_code == 0, result.output
     assert remote.call_args.kwargs["json"] == {
         "start": "2025-01-01",
         "end": "2025-01-02",
-        "geometry": geometry,
+        **({"geometry": geometry} if with_geometry else {}),
         "action": "enqueue",
         "manual_trigger": False,
         "dry_run": True,
@@ -604,8 +605,8 @@ def test_arbitrary_stack_uses_exported_endpoint(remote, monkeypatch):
     "arguments",
     [
         ["scenes"],
-        ["eodag"],
-        ["--date-start", "2025-01-01"],
+        ["eodag", "--date-end", "invalid-date"],
+        ["--date-start", "invalid-date"],
         ["s3", "--date-start", "2025-01-02", "--date-end", "2025-01-01"],
     ],
 )

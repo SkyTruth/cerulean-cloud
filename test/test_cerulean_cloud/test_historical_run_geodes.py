@@ -67,22 +67,20 @@ def feature(number, footprint=None):
     }
 
 
-def search(modes=None):
-    return historical.handle_search(
-        {
-            "source": "eodag",
-            "start": "2025-01-01T00:00:00Z",
-            "end": "2025-01-02",
-            **({"modes": modes} if modes is not None else {}),
-            "geometry": {
-                "type": "FeatureCollection",
-                "features": [
-                    {"type": "Feature", "geometry": mapping(box(-1, -1, 20, 20))}
-                ],
-            },
+def search(modes=None, with_geometry=True):
+    payload = {
+        "source": "eodag",
+        "start": "2025-01-01T00:00:00Z",
+        "end": "2025-01-02",
+        **({"modes": modes} if modes is not None else {}),
+        "geometry": {
+            "type": "FeatureCollection",
+            "features": [{"type": "Feature", "geometry": mapping(box(-1, -1, 20, 20))}],
         },
-        ocean_poly=box(-1, -1, 2, 2),
-    )
+    }
+    if not with_geometry:
+        del payload["geometry"]
+    return historical.handle_search(payload, ocean_poly=box(-1, -1, 2, 2))
 
 
 @pytest.mark.parametrize("modes", [None, ["IW"], ["EW", "IW", "SM"]])
@@ -125,6 +123,25 @@ def test_geodes_empty_search_is_valid(geodes):
     pages[1] = (200, {"features": [], "context": {"matched": 0}})
     assert search() == (0, [])
     assert len(calls) == 1
+
+
+def test_geodes_global_search_omits_spatial_filter_on_every_page(geodes):
+    pages, calls = geodes
+    pages[1] = (
+        200,
+        {"features": [feature(i) for i in range(80)], "context": {"matched": 81}},
+    )
+    pages[2] = (
+        200,
+        {"features": [feature(80, box(10, 10, 11, 11))], "context": {"matched": 81}},
+    )
+    assert search(["IW"], with_geometry=False) == (
+        81,
+        [feature(i)["properties"]["identifier"] for i in range(80)],
+    )
+    assert [body["page"] for body in calls] == [1, 2]
+    assert all("intersects" not in body for body in calls)
+    assert all(body["query"]["sar:instrument_mode"] == {"in": ["IW"]} for body in calls)
 
 
 def test_geodes_failure_after_first_page_does_not_return_partial_results(

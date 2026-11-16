@@ -179,8 +179,10 @@ def validate_request(request_json):
         ) from exc
     if end < start:
         raise ValueError("end must be on or after start")
-    if not isinstance(request_json.get("geometry"), dict):
-        raise ValueError("EODAG search requires a GeoJSON FeatureCollection geometry")
+    if request_json.get("geometry") is not None and not isinstance(
+        request_json["geometry"], dict
+    ):
+        raise ValueError("geometry must be a GeoJSON FeatureCollection when provided")
 
 
 def main(request):
@@ -264,17 +266,16 @@ def handle_search(request_json, ocean_poly=None):
     )
     dag.set_preferred_provider("geodes")
 
-    fc = geojson.FeatureCollection(**request_json["geometry"])
-
-    overall_geom = MultiPolygon([shape(f.get("geometry")) for f in fc.features])
-
     default_search_criteria = {
         "productType": "S1_SAR_GRD",
         "polarizationMode": "VV VH",
         "start": request_json["start"],
         "end": request_json["end"],
-        "geom": overall_geom.wkt,
     }
+    if request_json.get("geometry") is not None:
+        fc = geojson.FeatureCollection(**request_json["geometry"])
+        overall_geom = MultiPolygon([shape(f.get("geometry")) for f in fc.features])
+        default_search_criteria["geom"] = overall_geom.wkt
     if request_json.get("modes"):
         # EODAG 2.5 interpolates strings into the provider's JSON query template.
         default_search_criteria["sensorMode"] = json.dumps(
