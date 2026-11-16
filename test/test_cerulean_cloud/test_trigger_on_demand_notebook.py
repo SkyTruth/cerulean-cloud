@@ -201,7 +201,8 @@ async def test_notebook_batches_selected_scenes_through_local_historical_run(
     notebook_cells, notebook_target, dry_run
 ):
     source = next(source for source in notebook_cells if source.startswith("DRY_RUN ="))
-    source = source.replace("DRY_RUN = False", f"DRY_RUN = {dry_run!r}")
+    assert "DRY_RUN = True" in source
+    source = source.replace("DRY_RUN = True", f"DRY_RUN = {dry_run!r}")
     scenes = [f"scene-{i}" for i in range(205)]
     submission = AsyncMock(side_effect=[{"trigger_id": i} for i in range(3)])
     namespace = {**notebook_target, "scenes": scenes, "historical_run": submission}
@@ -249,7 +250,7 @@ async def test_notebook_stops_on_submission_failure_and_retains_completed_result
 @pytest.mark.parametrize("dry_run", [None, "false", 0])
 async def test_notebook_requires_explicit_boolean_dry_run(notebook_cells, dry_run):
     source = next(source for source in notebook_cells if source.startswith("DRY_RUN ="))
-    source = source.replace("DRY_RUN = False", f"DRY_RUN = {dry_run!r}")
+    source = source.replace("DRY_RUN = True", f"DRY_RUN = {dry_run!r}")
     submission = AsyncMock()
     with pytest.raises(ValueError, match="DRY_RUN must be True or False"):
         await eval(

@@ -23,7 +23,6 @@ OPERATION_NAME = "projects/project/locations/region/operations/batch"
     "option",
     [
         {"source": "s3"},
-        {"modes": ["IW"]},
         {"polarizations": ["DV"]},
         {"apply_relevancy": False},
     ],
@@ -62,15 +61,21 @@ def task_payload(task):
     return json.loads(base64.b64decode(task["httpRequest"]["body"]))
 
 
-def test_eodag_uses_geodes_and_keeps_spatial_dates_and_ocean_filter(
+@pytest.mark.parametrize("modes", [None, ["IW"], ["EW", "IW", "SM", "IW"]])
+def test_eodag_uses_geodes_and_keeps_spatial_dates_modes_and_ocean_filter(
     monkeypatch,
+    modes,
 ):
     dag = MagicMock()
     ocean_result = SimpleNamespace(geometry=box(0, 0, 2, 2), properties={"id": "ocean"})
     land_result = SimpleNamespace(
         geometry=box(10, 10, 11, 11), properties={"id": "land"}
     )
-    dag.search_iter_page.return_value = [[land_result], [ocean_result]]
+    dag._prepare_search.side_effect = lambda **criteria: {
+        **criteria,
+        "search_plugin": MagicMock(),
+    }
+    dag._do_search.return_value = ([land_result, ocean_result], None)
     gateway = MagicMock(return_value=dag)
     eodag = SimpleNamespace(EODataAccessGateway=gateway, setup_logging=MagicMock())
     monkeypatch.setitem(sys.modules, "eodag", eodag)
@@ -89,6 +94,8 @@ def test_eodag_uses_geodes_and_keeps_spatial_dates_and_ocean_filter(
         "end": "2022-01-02",
         "geometry": geometry,
     }
+    if modes is not None:
+        request["modes"] = modes
     historical.validate_request(request)
     assert historical.handle_search(request, ocean_poly=box(-1, -1, 3, 3)) == (
         2,
@@ -96,13 +103,17 @@ def test_eodag_uses_geodes_and_keeps_spatial_dates_and_ocean_filter(
     )
     dag.set_preferred_provider.assert_called_once_with("geodes")
     assert gateway.call_args.kwargs["user_conf_file_path"].endswith("geodes.yml")
-    criteria = dag.search_iter_page.call_args.kwargs
+    criteria = dag._do_search.call_args.kwargs
     assert criteria["start"] == request["start"]
     assert criteria["end"] == request["end"]
     assert criteria["productType"] == "S1_SAR_GRD"
     assert criteria["polarizationMode"] == "VV VH"
-    assert criteria["items_per_page"] == 25
+    assert criteria["items_per_page"] == 80
     assert criteria["geom"].startswith("MULTIPOLYGON")
+    if modes is None:
+        assert "sensorMode" not in criteria
+    else:
+        assert json.loads(criteria["sensorMode"]) == list(dict.fromkeys(modes))
 
 
 @pytest.fixture
@@ -175,7 +186,13 @@ def test_explicit_inventory_deduplicates_without_batch_or_queue(endpoint):
 
 @pytest.mark.parametrize(
     "setting,override,expected",
-    [("true", None, True), ("", None, False), ("true", False, False), ("", True, True)],
+    [
+        ("true", None, True),
+        ("false", None, True),
+        ("", None, True),
+        ("true", False, False),
+        ("", True, True),
+    ],
 )
 def test_batch_tracking_queue_and_dry_run_defaults_or_overrides(
     endpoint, monkeypatch, setting, override, expected
@@ -233,6 +250,14 @@ def test_default_submission_does_not_force_manual_source_association_names(endpo
     assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 200
     task = queued_requests(endpoint)[0]["task"]
     assert "manual_trigger" not in task_payload(task)
+
+
+def test_queue_defaults_to_dry_run_even_when_legacy_setting_is_false(
+    endpoint, monkeypatch
+):
+    monkeypatch.setenv("IS_DRY_RUN", "false")
+    assert historical.handler_queue(["scene"], 42) == 1
+    assert task_payload(queued_requests(endpoint)[0]["task"])["dry_run"] is True
 
 
 @pytest.mark.parametrize("scene_count", [0, 1, 100, 101, 250])
@@ -382,6 +407,7 @@ def test_discovery_time_counts_toward_enqueue_deadline(endpoint, monkeypatch):
         {"scene_ids": [None]},
         {"scene_ids": [], "start": "2025-01-01"},
         {"scene_ids": [], "source": "s3"},
+        {"scene_ids": [], "modes": ["IW"]},
         {"scene_ids": [], "dry_run": "false"},
         {"scene_ids": [], "manual_trigger": 1},
         {"scene_ids": [], "action": []},
@@ -400,6 +426,28 @@ def test_invalid_requests_fail_before_discovery_or_side_effects(
     assert post(endpoint, payload).status_code == 400
     search.assert_not_called()
     endpoint[1].assert_not_called()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.parametrize("modes", [[], "IW", None, ["WV"], ["iw"], [None], [{}]])
+def test_invalid_modes_fail_before_discovery_or_side_effects(
+    endpoint, monkeypatch, modes
+):
+    search = MagicMock(side_effect=AssertionError("must not discover"))
+    monkeypatch.setattr(historical, "handle_search", search)
+    response = post(
+        endpoint,
+        {
+            "start": "2025-01-01",
+            "end": "2025-01-02",
+            "geometry": {},
+            "modes": modes,
+        },
+    )
+    assert response.status_code == 400
+    assert "modes must be a nonempty list" in response.get_data(as_text=True)
+    search.assert_not_called()
+    endpoint[1].assert_not_awaited()
     endpoint[2].post.assert_not_called()
 
 

@@ -27,8 +27,14 @@ def geodes(monkeypatch, tmp_path):
     def post(url, json, **kwargs):
         assert url == "https://geodes-portal.cnes.fr/api/stac/items"
         assert "auth" not in kwargs
-        calls.append(json)
-        status, data = pages.pop(json["page"])
+        calls.append(jsonlib.loads(jsonlib.dumps(json)))
+        queued = pages[json["page"]]
+        if isinstance(queued, list):
+            status, data = queued.pop(0)
+            if not queued:
+                del pages[json["page"]]
+        else:
+            status, data = pages.pop(json["page"])
         response = requests.Response()
         response.status_code = status
         response.url = url
@@ -52,6 +58,7 @@ def feature(number, footprint=None):
             "dataset": "PEPS_S1_L1",
             "product:type": "GRD",
             "sar:polarizations": "VV VH",
+            "sar:instrument_mode": "IW",
             "start_datetime": "2025-01-01T11:44:35.035Z",
             "end_datetime": "2025-01-01T11:45:04.052Z",
         },
@@ -60,12 +67,13 @@ def feature(number, footprint=None):
     }
 
 
-def search():
+def search(modes=None):
     return historical.handle_search(
         {
             "source": "eodag",
             "start": "2025-01-01T00:00:00Z",
             "end": "2025-01-02",
+            **({"modes": modes} if modes is not None else {}),
             "geometry": {
                 "type": "FeatureCollection",
                 "features": [
@@ -77,30 +85,35 @@ def search():
     )
 
 
-def test_geodes_pagination_filters_and_sentinel_id_mapping(geodes):
+@pytest.mark.parametrize("modes", [None, ["IW"], ["EW", "IW", "SM"]])
+def test_geodes_pagination_filters_and_sentinel_id_mapping(geodes, modes):
     pages, calls = geodes
     pages[1] = (
         200,
         {
-            "features": [feature(i) for i in range(25)],
-            "context": {"matched": 26},
+            "features": [feature(i) for i in range(80)],
+            "context": {"matched": 81},
             "links": [{"rel": "next", "href": "https://unused.invalid/next"}],
         },
     )
     pages[2] = (
         200,
-        {"features": [feature(25, box(10, 10, 11, 11))], "context": {"matched": 26}},
+        {"features": [feature(80, box(10, 10, 11, 11))], "context": {"matched": 81}},
     )
-    total, selected = search()
-    assert total == 26
-    assert selected == [feature(i)["properties"]["identifier"] for i in range(25)]
+    total, selected = search(modes)
+    assert total == 81
+    assert selected == [feature(i)["properties"]["identifier"] for i in range(80)]
     assert not pages
     assert [body["page"] for body in calls] == [1, 2]
     for body in calls:
-        assert body["limit"] == 25
+        assert body["limit"] == 80
         assert body["query"]["dataset"] == {"in": ["PEPS_S1_L1"]}
         assert body["query"]["product:type"] == {"in": ["GRD"]}
         assert body["query"]["sar:polarizations"] == {"in": ["VV VH"]}
+        if modes is None:
+            assert "sar:instrument_mode" not in body["query"]
+        else:
+            assert body["query"]["sar:instrument_mode"] == {"in": modes}
         assert body["query"]["start_datetime"]["gte"].startswith("2025-01-01T00:00:00")
         assert body["query"]["start_datetime"]["lte"].startswith("2025-01-02T00:00:00")
         assert body["intersects"]["type"] == "MultiPolygon"
@@ -114,14 +127,48 @@ def test_geodes_empty_search_is_valid(geodes):
     assert len(calls) == 1
 
 
-def test_geodes_failure_after_first_page_does_not_return_partial_results(geodes):
-    pages, _ = geodes
+def test_geodes_failure_after_first_page_does_not_return_partial_results(
+    geodes, monkeypatch
+):
+    pages, calls = geodes
+    monkeypatch.setattr(historical.time, "sleep", lambda _: None)
     pages[1] = (
         200,
-        {"features": [feature(i) for i in range(25)], "context": {"matched": 26}},
+        {"features": [feature(i) for i in range(80)], "context": {"matched": 81}},
     )
-    pages[2] = (503, {"error": "unavailable"})
+    pages[2] = [(503, {"error": "unavailable"})] * 3
     # EODAG 2.5 surfaces a failed HTTP page as a None-results TypeError.
     # The batch must fail rather than accepting the already-read first page.
-    with pytest.raises(TypeError, match="NoneType"):
+    with pytest.raises(RuntimeError, match="page 2 failed after 3 attempts"):
+        search()
+    assert [body["page"] for body in calls] == [1, 2, 2, 2]
+
+
+def test_geodes_transient_page_failure_retries_without_duplicates(geodes, monkeypatch):
+    pages, calls = geodes
+    monkeypatch.setattr(historical.time, "sleep", lambda _: None)
+    pages[1] = (
+        200,
+        {"features": [feature(i) for i in range(80)], "context": {"matched": 81}},
+    )
+    pages[2] = [
+        (503, {"error": "unavailable"}),
+        (200, {"features": [feature(80)], "context": {"matched": 81}}),
+    ]
+    total, selected = search(["IW"])
+    assert total == 81
+    assert selected == [feature(i)["properties"]["identifier"] for i in range(81)]
+    assert [body["page"] for body in calls] == [1, 2, 2]
+    assert calls[1] == calls[2]
+
+
+def test_geodes_repeated_page_is_an_error(geodes):
+    pages, _ = geodes
+    full_page = {
+        "features": [feature(i) for i in range(80)],
+        "context": {"matched": 160},
+    }
+    pages[1] = (200, full_page)
+    pages[2] = (200, full_page)
+    with pytest.raises(RuntimeError, match="page 2 repeated the previous page"):
         search()

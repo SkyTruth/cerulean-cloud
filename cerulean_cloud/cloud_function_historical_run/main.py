@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 import geojson
 import google.auth
+import requests
 from flask import abort
 from google.auth.transport.requests import AuthorizedSession
 from shapely.geometry import MultiPolygon, shape
@@ -20,6 +21,7 @@ from shapely.geometry import MultiPolygon, shape
 CLOUD_TASKS_API = "https://cloudtasks.googleapis.com/v2"
 # Leave headroom before the deployed function's 500-second timeout.
 ENQUEUE_TIMEOUT_SECONDS = 450
+CATALOG_PAGE_SIZE = 80
 
 
 # Cloud Functions imports main.py at the root of the deployed source archive;
@@ -130,9 +132,17 @@ def validate_request(request_json):
     for key in ("dry_run", "manual_trigger"):
         if key in request_json and not isinstance(request_json[key], bool):
             raise ValueError(f"{key} must be a boolean")
-    for key in ("modes", "polarizations", "apply_relevancy"):
+    for key in ("polarizations", "apply_relevancy"):
         if key in request_json:
             raise ValueError(f"{key} is not supported")
+    if "modes" in request_json:
+        modes = request_json["modes"]
+        if (
+            not isinstance(modes, list)
+            or not modes
+            or any(mode not in ("EW", "IW", "SM") for mode in modes)
+        ):
+            raise ValueError("modes must be a nonempty list containing EW, IW, or SM")
     if "scene_ids" in request_json:
         scenes = request_json["scene_ids"]
         if not isinstance(scenes, list) or any(
@@ -174,7 +184,7 @@ def validate_request(request_json):
 
 
 def main(request):
-    """List scenes or queue a tracked batch, preserving the stack dry-run default."""
+    """List scenes or queue a tracked batch, defaulting to dry-run processing."""
     start_time = datetime.now()
     enqueue_deadline = time.monotonic() + ENQUEUE_TIMEOUT_SECONDS
     verify_api_key(request)
@@ -217,7 +227,7 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
     if request_json.get("action") == "list":
         return {**summary, "scene_ids": filtered_scenes}
 
-    dry_run = request_json.get("dry_run", os.getenv("IS_DRY_RUN", "").lower() == "true")
+    dry_run = request_json.get("dry_run", True)
     if trigger_id is None:
         row = await add_trigger_row(
             total_scenes, len(filtered_scenes), logs_url=logs_url
@@ -265,13 +275,54 @@ def handle_search(request_json, ocean_poly=None):
         "end": request_json["end"],
         "geom": overall_geom.wkt,
     }
+    if request_json.get("modes"):
+        # EODAG 2.5 interpolates strings into the provider's JSON query template.
+        default_search_criteria["sensorMode"] = json.dumps(
+            list(dict.fromkeys(request_json["modes"]))
+        )
 
+    # Use the pinned iterator's page API: public search() also counts on every page.
+    search_kwargs = dag._prepare_search(**default_search_criteria)
+    search_plugin = search_kwargs.pop("search_plugin")
     all_results = []
-    for i, page_results in enumerate(
-        dag.search_iter_page(**default_search_criteria, items_per_page=25)
-    ):
-        print(f"Got a hand on {len(page_results)} products on page {i + 1}")
+    page = 1
+    previous_first_id = None
+    while True:
+        for attempt in range(3):
+            try:
+                search_plugin.clear()
+                page_results, _ = dag._do_search(
+                    search_plugin,
+                    **search_kwargs,
+                    page=page,
+                    items_per_page=CATALOG_PAGE_SIZE,
+                    count=False,
+                    raise_errors=True,
+                )
+                break
+            except (requests.RequestException, TypeError) as exc:
+                # EODAG 2.5 masks failed HTTP pages as a NoneType TypeError.
+                if isinstance(exc, TypeError) and "NoneType" not in str(exc):
+                    raise
+                if attempt == 2:
+                    raise RuntimeError(
+                        f"GEODES catalog page {page} failed after 3 attempts"
+                    ) from exc
+                delay = 2 ** (attempt + 1)
+                print(f"Retrying GEODES page {page} in {delay}s: {exc}")
+                time.sleep(delay)
+        print(f"Got a hand on {len(page_results)} products on page {page}")
+        if page_results:
+            first_id = page_results[0].properties["id"]
+            if page > 1 and first_id == previous_first_id:
+                raise RuntimeError(
+                    f"GEODES catalog page {page} repeated the previous page"
+                )
+            previous_first_id = first_id
         all_results.extend(page_results)
+        if len(page_results) < CATALOG_PAGE_SIZE:
+            break
+        page += 1
 
     search_results = all_results
 
@@ -326,7 +377,7 @@ def batch_create_tasks(session, parent, task_requests, *, deadline):
 
 
 def handler_queue(
-    filtered_scenes, trigger_id, *, dry_run=None, manual_trigger=False, deadline=None
+    filtered_scenes, trigger_id, *, dry_run=True, manual_trigger=False, deadline=None
 ):
     """Submit up to 100 scenes per batch, stopping on any unconfirmed creation."""
     if not filtered_scenes:
@@ -340,8 +391,6 @@ def handler_queue(
     credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )
-    if dry_run is None:
-        dry_run = os.getenv("IS_DRY_RUN", "").lower() == "true"
     queued_count = 0
     with AuthorizedSession(credentials) as session:
         for start in range(0, len(filtered_scenes), 100):

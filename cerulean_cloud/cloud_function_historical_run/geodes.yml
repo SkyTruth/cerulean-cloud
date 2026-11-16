@@ -23,6 +23,9 @@ geodes:
       polarizationMode:
         - '{{"query":{{"sar:polarizations":{{"in":["{polarizationMode}"]}}}}}}'
         - '$.properties."sar:polarizations"'
+      sensorMode:
+        - '{{"query":{{"sar:instrument_mode":{{"in":{sensorMode}}}}}}}'
+        - '$.properties."sar:instrument_mode"'
       startTimeFromAscendingNode:
         - '{{"query":{{"start_datetime":{{"gte":"{startTimeFromAscendingNode#to_iso_utc_datetime}"}}}}}}'
         - '$.properties.start_datetime'

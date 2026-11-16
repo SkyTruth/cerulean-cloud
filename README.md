@@ -295,9 +295,16 @@ FeatureCollection region, searches `S1_SAR_GRD` products with `VV VH`
 polarization, and retains scenes intersecting the ocean. Filtering selects whole
 scenes; it does not clip inference to the requested region. Explicit `scene_ids`
 or the CLI's `scenes` command accept already selected IDs, including CSV input.
+Use `--mode EW --mode IW --mode SM` to select multiple acquisition modes, or
+repeat any subset of those choices. Mode values are case-insensitive in the CLI.
+Omitting `--mode` leaves acquisition mode unrestricted. HTTP requests accept a
+nonempty `modes` list, such as `["EW", "IW", "SM"]`, for EODAG discovery.
 Discovery uses the bundled `geodes.yml`, compatible with the pinned EODAG version.
 Public metadata search requires no GEODES key and does not download imagery.
 Catalog URNs are mapped to Sentinel scene names before queueing.
+Discovery requests 80 scenes per page and retries failed catalog reads up to
+three attempts per page. If a page still fails or pagination repeats a page,
+discovery stops before any tasks are submitted; partial inventories are rejected.
 
 Every path deduplicates IDs and excludes scenes with any
 `orchestrator_run.success IS TRUE` in the selected stack's database. Failed or
@@ -308,35 +315,50 @@ submission before creating triggers or tasks. The response includes
 scenes. Already queued or running scenes are not atomically reserved, so inspect
 partial failures before resubmitting.
 
-The CLI offers `eodag` and `scenes`. It uses the deployed historical-run endpoint
+The CLI defaults to EODAG discovery, so the `eodag` selector can be omitted.
+Use `scenes` for explicit IDs or a CSV; the explicit `eodag` selector also works.
+Run `python -m scripts.historical_run eodag --help` for discovery options.
+The CLI uses the deployed historical-run endpoint
 by default, with `CERULEAN_API_KEY` and either `HISTORICAL_RUN_URL`/`--url` or
 Pulumi's `historical_run_url` output for the selected `--stage` stack. Use `--local`
 to run the same Python runner directly, with database access and Cloud Tasks
-credentials. Local enqueue requires an explicit `--dry-run` or `--no-dry-run`.
+credentials. All historical submissions default to dry-run processing:
+
+| CLI option | Processing behavior |
+| --- | --- |
+| Omitted | Dry-run |
+| `--dry-run` or `--dry-run=true` | Dry-run |
+| `--dry-run=false` | Inference enabled |
+
+`--dry-run True` and `--dry-run False` also work. The previous `--no-dry-run`
+flag remains an alias for `--dry-run=false`; supplying both options is rejected.
+Dry-run submissions still create backfill records and queue tasks; the
+orchestrator stops before inference. HTTP requests and direct runner calls also
+default to `dry_run: true`; explicitly pass the JSON boolean `false` to process.
 `--list-only` checks the DB and returns IDs without creating triggers or tasks.
 
 ```bash
 # Preview a full UTC day locally through EODAG/GEODES.
-python -m scripts.historical_run --local --stage test --env-file notebooks/.env eodag \
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
   --date-start 2025-01-01 --date-end 2025-01-02 \
   --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson \
-  --list-only > selected_scenes.json
+  --list-only
 
-# Queue dry-run tasks for the same day.
-python -m scripts.historical_run --local --stage test --env-file notebooks/.env eodag \
-  --date-start 2025-01-01 --date-end 2025-01-02 \
+# Queue a month of dry-run tasks for the selected modes (the default is dry-run).
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
+  --date-start 2025-01-01 --date-end 2025-02-01 \
   --geometry test/test_cerulean_cloud/fixtures/whole_world.geojson \
-  --dry-run --manual-trigger > submission.json
+  --mode EW --mode IW --mode SM
 
-# Submit a CSV with a scene_id column.
+# Enable inference explicitly for a CSV with a scene_id column.
 python -m scripts.historical_run --local --stage test --env-file notebooks/.env scenes \
-  --csv notebooks/scene_ids.csv --dry-run --manual-trigger
+  --csv notebooks/scene_ids.csv --dry-run=false --manual-trigger
 ```
 
 `python scripts/historical_run.py` supports the same options. EODAG uses time
 boundaries: for a day-long search, pass that day's date and the following date.
-There are no mode/polarization switches or relevance bypass; EODAG's catalog
-selection and ocean filter apply to date-range discovery.
+Polarization is fixed to DV (`VV VH`), independently of mode selection. EODAG's
+catalog selection and ocean filter always apply to date-range discovery.
 
 Local `--env-file` loads the notebook's `STACK_SECRETS` configuration.
 `--stage test`, `staging`, and `prod20240903` select its `TEST`, `STAGING`, and
@@ -370,8 +392,8 @@ task total unknown (`NULL`). List-only runs create no history row.
 
 HTTP submission and discovery share a 450-second budget from function entry.
 Local batches have separate 450-second queue-submission budgets, with no overall
-function deadline on local discovery. HTTP requests use the stack's dry-run
-setting when omitted and record a cloud function log link. Local runs print
+function deadline on local discovery. HTTP requests default to dry-run
+when omitted and record a cloud function log link. Local runs print
 progress locally and leave the trigger log link empty.
 
 `notebooks/TriggerOnDemand.ipynb` uses the same local runner. Choose one scene
@@ -381,7 +403,7 @@ support an additional exclusion CSV and deduplication. CSV input/exclusion accep
 `scene_id` or legacy `s1_scene_id`. Setup uses `STACK_SECRETS`, `GCP_PROJECT`, and
 `GCP_REGION`; rerun it after changing stacks. The orchestration cell checks the DB
 and submits batches of 100 directly. `DRY_RUN` must be `True` or `False` (default:
-`False`). All batches share one trigger. Keep the notebook running until
+`True`). All batches share one trigger. Keep the notebook running until
 submission finishes; `batch_results` retains confirmed earlier results if a later
 batch fails. The ASA and imagery download utilities have their own execution paths.
 

@@ -26,18 +26,24 @@ def test_s3_command_is_removed(remote):
     remote.assert_not_called()
 
 
+@pytest.mark.parametrize("selector", [[], ["eodag"]])
 def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
-    local_execution, remote, monkeypatch, tmp_path
+    local_execution, remote, monkeypatch, tmp_path, selector
 ):
     processed, trigger, queue = local_execution
     processed.side_effect = [{"completed"}, set()]
     dag = MagicMock()
-    dag.search_iter_page.return_value = [
+    dag._prepare_search.side_effect = lambda **criteria: {
+        **criteria,
+        "search_plugin": MagicMock(),
+    }
+    dag._do_search.return_value = (
         [
             SimpleNamespace(geometry=box(0, 0, 1, 1), properties={"id": scene})
             for scene in ("new", "completed")
-        ]
-    ]
+        ],
+        None,
+    )
     gateway = MagicMock(return_value=dag)
     monkeypatch.setitem(
         sys.modules,
@@ -60,13 +66,19 @@ def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
         client.cli,
         [
             "--local",
-            "eodag",
+            *selector,
             "--date-start",
             "2025-01-01",
             "--date-end",
             "2025-01-02",
             "--geometry",
             str(path),
+            "--mode",
+            "EW",
+            "--mode",
+            "IW",
+            "--mode",
+            "SM",
             "--dry-run",
         ],
     )
@@ -76,9 +88,17 @@ def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
     assert summary["already_processed_scene_count"] == 1
     assert summary["queued_count"] == 1
     assert queue.call_args.args[0] == ["new"]
-    trigger.assert_awaited_once_with(1, 1, logs_url="")
+    trigger.assert_not_awaited()  # Local batches reuse the history record's trigger.
+    assert queue.call_args.args[1] == summary["trigger_id"]
+    assert client.save_historical_run.await_count == 2
     dag.set_preferred_provider.assert_called_once_with("geodes")
-    assert dag.search_iter_page.call_args.kwargs["polarizationMode"] == "VV VH"
+    assert dag._do_search.call_args.kwargs["polarizationMode"] == "VV VH"
+    assert json.loads(dag._do_search.call_args.kwargs["sensorMode"]) == [
+        "EW",
+        "IW",
+        "SM",
+    ]
+    assert queue.call_args.kwargs["dry_run"] is True
     remote.assert_not_called()
 
 
@@ -250,20 +270,69 @@ def test_local_submission_failure_stops_and_reports_confirmed_batches(
     assert not result.stdout
 
 
-def test_local_submission_requires_explicit_dry_run_before_discovery(local_execution):
-    processed, trigger, queue = local_execution
+@pytest.mark.parametrize(
+    "flags,expected",
+    [
+        ([], True),
+        (["--dry-run"], True),
+        (["--dry-run=true"], True),
+        (["--dry-run", "True"], True),
+        (["--dry-run=false"], False),
+        (["--dry-run", "False"], False),
+        (["--no-dry-run"], False),
+    ],
+)
+def test_local_dry_run_flags_control_history_and_queued_tasks(
+    local_execution, flags, expected
+):
+    queue = local_execution[2]
     result = CliRunner().invoke(
-        client.cli, ["--local", "scenes", "--scene-id", "scene"]
+        client.cli, ["--local", "scenes", "--scene-id", "scene", *flags]
     )
-    assert result.exit_code != 0
-    assert "requires --dry-run or --no-dry-run" in result.output
-    processed.assert_not_awaited()
-    trigger.assert_not_awaited()
-    queue.assert_not_called()
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["dry_run"] is expected
+    assert queue.call_args.kwargs["dry_run"] is expected
+    assert client.save_historical_run.await_args.args[0].dry_run is expected
 
 
+@pytest.mark.parametrize(
+    "flags,expected",
+    [
+        ([], True),
+        (["--dry-run"], True),
+        (["--dry-run=True"], True),
+        (["--dry-run=false"], False),
+        (["--no-dry-run"], False),
+    ],
+)
+def test_remote_dry_run_flags_are_sent_explicitly(remote, flags, expected):
+    result = invoke("scenes", "--scene-id", "scene", *flags)
+    assert result.exit_code == 0, result.output
+    assert remote.call_args.kwargs["json"]["dry_run"] is expected
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--dry-run=invalid"],
+        ["--dry-run="],
+        ["--dry-run=false", "--no-dry-run"],
+        ["--no-dry-run", "--dry-run"],
+    ],
+)
+def test_invalid_dry_run_flags_stop_before_local_side_effects(local_execution, flags):
+    result = CliRunner().invoke(
+        client.cli, ["--local", "scenes", "--scene-id", "scene", *flags]
+    )
+    assert result.exit_code == 2
+    client.save_historical_run.assert_not_awaited()
+    local_execution[0].assert_not_awaited()
+    local_execution[2].assert_not_called()
+
+
+@pytest.mark.parametrize("selector", [[], ["eodag"]])
 def test_local_eodag_preview_passes_geometry_and_dates(
-    local_execution, tmp_path, monkeypatch
+    local_execution, tmp_path, monkeypatch, selector
 ):
     path = tmp_path / "region.geojson"
     geometry = {"type": "FeatureCollection", "features": []}
@@ -274,7 +343,7 @@ def test_local_eodag_preview_passes_geometry_and_dates(
         client.cli,
         [
             "--local",
-            "eodag",
+            *selector,
             "--date-start",
             "2025-01-01",
             "--date-end",
@@ -414,12 +483,15 @@ def test_explicit_scene_ids_csv_and_authenticated_request(remote, tmp_path):
     }
 
 
-def test_existing_eodag_cli_selector_is_preserved(remote, tmp_path):
+@pytest.mark.parametrize("selector", [[], ["eodag"]])
+def test_eodag_is_default_and_explicit_selector_is_preserved(
+    remote, tmp_path, selector
+):
     path = tmp_path / "area.geojson"
     geometry = {"type": "FeatureCollection", "features": []}
     path.write_text(json.dumps(geometry))
     result = invoke(
-        "eodag",
+        *selector,
         "--date-start",
         "2025-01-01",
         "--date-end",
@@ -434,7 +506,74 @@ def test_existing_eodag_cli_selector_is_preserved(remote, tmp_path):
         "geometry": geometry,
         "action": "enqueue",
         "manual_trigger": False,
+        "dry_run": True,
     }
+
+
+@pytest.mark.parametrize(
+    "flags,dry_run", [(["--dry-run"], True), (["--dry-run=false"], False)]
+)
+def test_default_eodag_accepts_inline_search_options(remote, tmp_path, flags, dry_run):
+    path = tmp_path / "region.geojson"
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+    result = invoke(
+        f"--geometry={path}",
+        "--date-start=2025-01-01",
+        "--date-end=2025-02-01",
+        "--mode=EW",
+        "--mode=IW",
+        "--mode=SM",
+        *flags,
+    )
+    assert result.exit_code == 0, result.output
+    payload = remote.call_args.kwargs["json"]
+    assert (payload["start"], payload["end"]) == ("2025-01-01", "2025-02-01")
+    assert payload["modes"] == ["EW", "IW", "SM"]
+    assert payload["dry_run"] is dry_run
+
+
+@pytest.mark.parametrize("option", ["--date-strat", "--unknown"])
+def test_default_eodag_rejects_unknown_options_before_submission(
+    local_execution, option
+):
+    result = CliRunner().invoke(client.cli, ["--local", option, "2025-01-01"])
+    assert result.exit_code == 2
+    assert f"No such option: {option}" in result.output
+    client.save_historical_run.assert_not_awaited()
+    local_execution[0].assert_not_awaited()
+    local_execution[2].assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "modes,expected",
+    [
+        (["IW"], ["IW"]),
+        (["EW", "IW", "SM"], ["EW", "IW", "SM"]),
+        (["iw", "ew", "iw"], ["IW", "EW"]),
+    ],
+)
+def test_eodag_mode_flags_are_normalized_and_sent_as_a_list(
+    remote, tmp_path, modes, expected
+):
+    path = tmp_path / "area.geojson"
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+    flags = [flag for mode in modes for flag in ("--mode", mode)]
+    result = invoke("eodag", "--geometry", str(path), *flags)
+    assert result.exit_code == 0, result.output
+    assert remote.call_args.kwargs["json"]["modes"] == expected
+
+
+def test_invalid_mode_stops_before_local_side_effects(local_execution, tmp_path):
+    path = tmp_path / "area.geojson"
+    path.write_text("{}")
+    result = CliRunner().invoke(
+        client.cli, ["--local", "eodag", "--geometry", str(path), "--mode", "WV"]
+    )
+    assert result.exit_code == 2
+    assert "Invalid value for '--mode'" in result.output
+    client.save_historical_run.assert_not_awaited()
+    local_execution[0].assert_not_awaited()
+    local_execution[2].assert_not_called()
 
 
 def test_arbitrary_stack_uses_exported_endpoint(remote, monkeypatch):
@@ -466,6 +605,7 @@ def test_arbitrary_stack_uses_exported_endpoint(remote, monkeypatch):
     [
         ["scenes"],
         ["eodag"],
+        ["--date-start", "2025-01-01"],
         ["s3", "--date-start", "2025-01-02", "--date-end", "2025-01-01"],
     ],
 )

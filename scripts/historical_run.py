@@ -12,6 +12,7 @@ from pathlib import Path
 from datetime import date, datetime, timezone
 
 import click
+from click.core import ParameterSource
 import httpx
 import shapely
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -36,7 +37,20 @@ def post_historical_run(payload, url, api_key):
     return response.json()
 
 
-@click.group()
+class HistoricalRunGroup(click.Group):
+    """Route search options to EODAG when no selector is supplied."""
+
+    def resolve_command(self, ctx, args):
+        if args and args[0].startswith("-"):
+            return "eodag", self.get_command(ctx, "eodag"), args
+        return super().resolve_command(ctx, args)
+
+
+@click.group(
+    cls=HistoricalRunGroup,
+    context_settings={"ignore_unknown_options": True},
+    subcommand_metavar="[COMMAND] [ARGS]...",
+)
 @click.option("--stage", default="staging", help="Pulumi stack name.")
 @click.option(
     "--url", envvar="HISTORICAL_RUN_URL", help="Override the deployed endpoint URL."
@@ -52,7 +66,11 @@ def post_historical_run(payload, url, api_key):
 )
 @click.pass_context
 def cli(ctx, stage, url, api_key, local, env_file):
-    """List scenes or queue inference locally (--local) or through historical-run."""
+    """List scenes or queue inference locally (--local) or through historical-run.
+
+    EODAG discovery is the default; the eodag selector is optional. Use
+    eodag --help for search options, or scenes to supply explicit IDs or a CSV.
+    """
     if env_file:
         if not local:
             raise click.UsageError("--env-file requires --local")
@@ -248,7 +266,7 @@ async def run_local(payload):
 
 
 def execution_options(command):
-    """Options shared by every selector; local enqueue requires an explicit dry-run flag."""
+    """Options shared by every selector; processing is dry-run by default."""
     command = click.option(
         "--list-only",
         is_flag=True,
@@ -259,19 +277,30 @@ def execution_options(command):
         is_flag=True,
         help="Use run-specific downstream source-association task names.",
     )(command)
-    return click.option("--dry-run/--no-dry-run", default=None)(command)
+    command = click.option(
+        "--no-dry-run", is_flag=True, help="Alias for --dry-run=false."
+    )(command)
+    return click.option(
+        "--dry-run",
+        type=click.Choice(["true", "false"], case_sensitive=False),
+        is_flag=False,
+        flag_value="true",
+        default="true",
+        show_default=True,
+        help="Skip inference. Use --dry-run=false to enable processing.",
+    )(command)
 
 
-def submit(ctx, payload, dry_run, manual_trigger, list_only):
+def submit(ctx, payload, dry_run, manual_trigger, list_only, no_dry_run=False):
+    dry_run = dry_run == "true"
+    if no_dry_run:
+        if ctx.get_parameter_source("dry_run") == ParameterSource.COMMANDLINE:
+            raise click.UsageError("Use either --dry-run or --no-dry-run, not both")
+        dry_run = False
     payload["action"] = "list" if list_only else "enqueue"
     payload["manual_trigger"] = manual_trigger
-    if dry_run is not None:
-        payload["dry_run"] = dry_run
+    payload["dry_run"] = dry_run
     if ctx.obj["local"]:
-        if not list_only and dry_run is None:
-            raise click.UsageError(
-                "Local submission requires --dry-run or --no-dry-run"
-            )
         configure_local(ctx.obj["stage"], ctx.obj["api_key"], list_only=list_only)
         result = asyncio.run(run_local(payload))
         click.echo(json.dumps(result, indent=2))
@@ -303,21 +332,27 @@ def submit(ctx, payload, dry_run, manual_trigger, list_only):
     "--date-end", type=click.DateTime(formats=["%Y-%m-%d"]), default=str(date.today())
 )
 @click.option("--geometry", type=click.File(mode="r"), required=True)
+@click.option(
+    "--mode",
+    "modes",
+    type=click.Choice(["EW", "IW", "SM"], case_sensitive=False),
+    multiple=True,
+    help="Acquisition mode; repeat for multiple modes. Omit to search all modes.",
+)
 @execution_options
 @click.pass_context
-def eodag(ctx, date_start, date_end, geometry, **options):
+def eodag(ctx, date_start, date_end, geometry, modes, **options):
     """Search a geographic area and retain scenes intersecting the ocean."""
     with geometry as src:
         geometry_json = json.load(src)
-    submit(
-        ctx,
-        {
-            "start": date_start.strftime("%Y-%m-%d"),
-            "end": date_end.strftime("%Y-%m-%d"),
-            "geometry": geometry_json,
-        },
-        **options,
-    )
+    payload = {
+        "start": date_start.strftime("%Y-%m-%d"),
+        "end": date_end.strftime("%Y-%m-%d"),
+        "geometry": geometry_json,
+    }
+    if modes:
+        payload["modes"] = list(dict.fromkeys(modes))
+    submit(ctx, payload, **options)
 
 
 @cli.command()
