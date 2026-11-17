@@ -665,7 +665,8 @@ def test_default_eodag_rejects_unknown_options_before_submission(
 ):
     result = CliRunner().invoke(client.cli, ["--local", option, "2025-01-01"])
     assert result.exit_code == 2
-    assert f"No such option: {option}" in result.output
+    assert "No such option" in result.output
+    assert option in result.output
     client.save_historical_run.assert_not_awaited()
     local_execution[0].assert_not_awaited()
     local_execution[2].assert_not_called()
