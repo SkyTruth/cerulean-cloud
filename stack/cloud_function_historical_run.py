@@ -1,6 +1,8 @@
-"""Historical scene discovery and submission to the existing orchestrator backlog."""
+"""Historical scene discovery and the stack's dedicated Cloud Tasks queue."""
 
+import sys
 import time
+from pathlib import Path
 
 import cloud_function_scene_relevancy
 import cloud_run_orchestrator
@@ -9,17 +11,47 @@ import pulumi
 from pulumi_gcp import (
     cloudfunctionsv2,
     cloudrun,
+    cloudtasks,
     storage,
 )
 from utils import construct_name, pulumi_create_zip
 from vpc_connector import vpc_connector
 
-# The shared runner uses orchestrator-backlog; this stack does not create a queue.
+# Pulumi starts this program in stack/, while the queue name is shared with the runner.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from cerulean_cloud.cloud_function_historical_run.queues import (  # noqa: E402
+    historical_queue_name,
+)
+
+stack = pulumi.get_stack()
+gcp_config = pulumi.Config("gcp")
+queue = cloudtasks.Queue(
+    construct_name("queue-cr-orchestrator-historical"),
+    name=historical_queue_name(stack),
+    project=gcp_config.require("project"),
+    location=gcp_config.require("region"),
+    rate_limits=cloudtasks.QueueRateLimitsArgs(
+        max_concurrent_dispatches=30,
+        max_dispatches_per_second=1,
+    ),
+    retry_config=cloudtasks.QueueRetryConfigArgs(
+        max_attempts=3,
+        max_backoff="300s",
+        max_doublings=1,
+        max_retry_duration="4s",
+        min_backoff="60s",
+    ),
+    stackdriver_logging_config=cloudtasks.QueueStackdriverLoggingConfigArgs(
+        sampling_ratio=0.9,
+    ),
+)
+
 function_name = construct_name("cf-historical-run")
 config_values = {
     "DB_URL": database.sql_instance_url_with_ip,
-    "GCPPROJECT": pulumi.Config("gcp").require("project"),
-    "GCPREGION": pulumi.Config("gcp").require("region"),
+    "GCPPROJECT": gcp_config.require("project"),
+    "GCPREGION": gcp_config.require("region"),
+    "HISTORICAL_RUN_STAGE": stack,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
     "FUNCTIONNAME": function_name,
     "SCIHUB_USERNAME": pulumi.Config("scihub").require("username"),
@@ -75,7 +107,10 @@ fxn = cloudfunctionsv2.Function(
         "vpc_connector": vpc_connector.id,
     },
     opts=pulumi.ResourceOptions(
-        depends_on=[cloud_function_scene_relevancy.cloud_function_service_account_iam],
+        depends_on=[
+            queue,
+            cloud_function_scene_relevancy.cloud_function_service_account_iam,
+        ],
     ),
 )
 

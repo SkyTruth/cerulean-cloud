@@ -12,6 +12,7 @@ import httpx
 import pytest
 from click.testing import CliRunner
 from shapely.geometry import box, mapping
+from sqlalchemy.engine import make_url
 
 from scripts import historical_run as client
 from cerulean_cloud.cloud_function_historical_run import main as historical
@@ -123,7 +124,12 @@ def invoke(*args):
 
 @pytest.fixture
 def local_execution(monkeypatch, remote):
-    for key in ("STACK_SECRETS", "HISTORICAL_DB_URL", "CERULEAN_API_KEY"):
+    for key in (
+        "STACK_SECRETS",
+        "HISTORICAL_DB_URL",
+        "CERULEAN_API_KEY",
+        "HISTORICAL_RUN_STAGE",
+    ):
         # Track variables that dotenv may create as well as existing values.
         monkeypatch.setenv(key, "")
         monkeypatch.delenv(key, raising=False)
@@ -391,6 +397,10 @@ def test_local_env_file_uses_selected_notebook_stack(
     assert os.environ["DB_URL"] == "postgresql://localhost/selected-stack"
     assert os.environ["ORCHESTRATOR_URL"] == "https://selected.example"
     assert os.environ["API_KEY"] == "selected-key"
+    assert (
+        local_execution[2].call_args.kwargs["queue_name"]
+        == f"orchestrator-backlog-{stage}"
+    )
     assert os.environ["QUEUE"] == "queue"  # Legacy routing settings are ignored.
     assert "selected-key" not in result.output
 
@@ -425,13 +435,126 @@ def test_local_proxy_override_and_preview_need_only_database(
     assert os.environ["DB_URL"] == "postgresql://localhost/proxy-db"
 
 
-def test_local_missing_configuration_fails_before_discovery(
+@pytest.mark.parametrize("source", ["STACK_SECRETS", "DB_URL", "HISTORICAL_DB_URL"])
+@pytest.mark.parametrize("selector", [[], ["scenes"]])
+@pytest.mark.parametrize("use_proxy", [False, True])
+def test_local_proxy_flags_preserve_database_configuration(
+    local_execution, monkeypatch, source, selector, use_proxy
+):
+    db_url = (
+        "postgresql+asyncpg://reader:p%40ss%3Aword@/selected-stack"
+        "?host=%2Fcloudsql%2Fproject%3Aregion%3Ainstance&port=5432"
+        "&application_name=historical-cli"
+    )
+    if source in ("STACK_SECRETS", "HISTORICAL_DB_URL"):
+        monkeypatch.setenv(
+            "STACK_SECRETS",
+            json.dumps(
+                {
+                    "TEST": {
+                        "DB_URL": db_url
+                        if source == "STACK_SECRETS"
+                        else "postgresql://other:password@other-host/other-db",
+                    }
+                }
+            ),
+        )
+    if source != "STACK_SECRETS":
+        monkeypatch.setenv(source, db_url)
+    monkeypatch.setattr(
+        historical, "handle_search", MagicMock(return_value=(1, ["scene"]))
+    )
+    flags = ["--db-host", "127.0.0.1", "--db-port", "5434"] if use_proxy else []
+    selection = (
+        ["scenes", "--scene-id", "scene"]
+        if selector
+        else ["--date-start", "2025-01-01", "--date-end", "2025-01-02"]
+    )
+    result = CliRunner().invoke(
+        client.cli, ["--local", "--stage", "test", *flags, *selection, "--list-only"]
+    )
+    assert result.exit_code == 0, result.output
+    if use_proxy:
+        url = make_url(os.environ["DB_URL"])
+        assert (url.host, url.port) == ("127.0.0.1", 5434)
+        assert (url.username, url.password, url.database) == (
+            "reader",
+            "p@ss:word",
+            "selected-stack",
+        )
+        assert dict(url.query) == {"application_name": "historical-cli"}
+    else:
+        assert os.environ["DB_URL"] == db_url.replace(
+            "postgresql+asyncpg://", "postgresql://", 1
+        )
+    assert "p@ss:word" not in result.output
+    local_execution[2].assert_not_called()
+    client.save_historical_run.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "flags,expected_host,expected_port",
+    [
+        (["--db-host", "127.0.0.1"], "127.0.0.1", 5432),
+        (["--db-port", "5434"], "existing-host", 5434),
+    ],
+)
+def test_local_database_flags_can_override_one_component(
+    local_execution, monkeypatch, flags, expected_host, expected_port
+):
+    monkeypatch.setenv("DB_URL", "postgresql://reader:password@existing-host:5432/db")
+    result = CliRunner().invoke(
+        client.cli, ["--local", *flags, "scenes", "--scene-id", "scene"]
+    )
+    assert result.exit_code == 0, result.output
+    url = make_url(os.environ["DB_URL"])
+    assert (url.host, url.port) == (expected_host, expected_port)
+    assert json.loads(result.stdout)["queued_count"] == 1
+
+
+@pytest.mark.parametrize("flags", [["--db-host", "127.0.0.1"], ["--db-port", "5434"]])
+def test_database_flags_require_local_execution(remote, flags):
+    result = invoke(*flags, "scenes", "--scene-id", "scene")
+    assert result.exit_code == 2
+    assert "--db-host and --db-port require --local" in result.output
+    remote.assert_not_called()
+
+
+@pytest.mark.parametrize("port", ["0", "65536", "not-a-port"])
+def test_invalid_database_port_stops_before_local_side_effects(local_execution, port):
+    result = CliRunner().invoke(
+        client.cli, ["--local", "--db-port", port, "scenes", "--scene-id", "scene"]
+    )
+    assert result.exit_code == 2
+    client.save_historical_run.assert_not_awaited()
+    local_execution[0].assert_not_awaited()
+    local_execution[2].assert_not_called()
+
+
+def test_invalid_database_url_override_does_not_expose_credentials(
     local_execution, monkeypatch
+):
+    monkeypatch.setenv("DB_URL", "postgresql://reader:secret@host:invalid/db")
+    result = CliRunner().invoke(
+        client.cli,
+        ["--local", "--db-host", "127.0.0.1", "scenes", "--scene-id", "scene"],
+    )
+    assert result.exit_code == 1
+    assert "Invalid local database URL" in result.output
+    assert "secret" not in result.output
+    client.save_historical_run.assert_not_awaited()
+    local_execution[0].assert_not_awaited()
+    local_execution[2].assert_not_called()
+
+
+@pytest.mark.parametrize("flags", [[], ["--db-host", "127.0.0.1", "--db-port", "5434"]])
+def test_local_missing_configuration_fails_before_discovery(
+    local_execution, monkeypatch, flags
 ):
     processed, _, queue = local_execution
     monkeypatch.delenv("DB_URL")
     result = CliRunner().invoke(
-        client.cli, ["--local", "scenes", "--scene-id", "scene", "--dry-run"]
+        client.cli, ["--local", *flags, "scenes", "--scene-id", "scene", "--dry-run"]
     )
     assert result.exit_code != 0
     assert "Local execution requires: DB_URL" in result.output
@@ -649,6 +772,7 @@ def test_cloud_function_source_imports_from_deployment_root(tmp_path):
     with zipfile.ZipFile(archive) as bundle:
         bundle.extractall(source)
     assert (source / "geodes.yml").is_file()
+    assert (source / "queues.py").is_file()
     result = subprocess.run(
         [
             sys.executable,

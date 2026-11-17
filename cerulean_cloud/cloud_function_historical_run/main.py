@@ -19,7 +19,6 @@ from shapely.geometry import MultiPolygon, shape
 
 
 CLOUD_TASKS_API = "https://cloudtasks.googleapis.com/v2"
-ORCHESTRATOR_BACKLOG_QUEUE = "orchestrator-backlog"
 # Leave headroom before the deployed function's 500-second timeout.
 ENQUEUE_TIMEOUT_SECONDS = 450
 CATALOG_PAGE_SIZE = 80
@@ -28,8 +27,10 @@ CATALOG_PAGE_SIZE = 80
 # Cloud Functions imports main.py at the root of the deployed source archive;
 # repository callers import it as part of cerulean_cloud.
 if __package__:
+    from .queues import historical_queue_name
     from .relevance import load_ocean_poly
 else:
+    from queues import historical_queue_name
     from relevance import load_ocean_poly
 
 
@@ -214,6 +215,9 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
     A supplied trigger_id shares one trigger across a caller's batches.
     """
     validate_request(request_json)
+    list_only = request_json.get("action") == "list"
+    if not list_only:
+        queue_name = historical_queue_name(os.getenv("HISTORICAL_RUN_STAGE"))
     total_scenes, filtered_scenes = handle_search(request_json)
     # Submit each scene once, even when a catalog or supplied list repeats it.
     filtered_scenes = list(dict.fromkeys(filtered_scenes))
@@ -227,7 +231,7 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
         "already_processed_scene_count": len(processed_scene_ids),
     }
     print(f"Historical scene selection: {summary}")
-    if request_json.get("action") == "list":
+    if list_only:
         return {**summary, "scene_ids": filtered_scenes}
 
     dry_run = request_json.get("dry_run", True)
@@ -239,6 +243,7 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
     queued_count = handler_queue(
         filtered_scenes,
         trigger_id,
+        queue_name=queue_name,
         dry_run=dry_run,
         manual_trigger=request_json.get("manual_trigger", False),
         deadline=deadline,
@@ -379,7 +384,13 @@ def batch_create_tasks(session, parent, task_requests, *, deadline):
 
 
 def handler_queue(
-    filtered_scenes, trigger_id, *, dry_run=True, manual_trigger=False, deadline=None
+    filtered_scenes,
+    trigger_id,
+    *,
+    queue_name,
+    dry_run=True,
+    manual_trigger=False,
+    deadline=None,
 ):
     """Submit up to 100 scenes per batch, stopping on any unconfirmed creation."""
     if not filtered_scenes:
@@ -388,7 +399,7 @@ def handler_queue(
         deadline = time.monotonic() + ENQUEUE_TIMEOUT_SECONDS
     parent = (
         f"projects/{os.environ['GCPPROJECT']}/locations/{os.environ['GCPREGION']}"
-        f"/queues/{ORCHESTRATOR_BACKLOG_QUEUE}"
+        f"/queues/{queue_name}"
     )
     credentials, _ = google.auth.default(
         scopes=["https://www.googleapis.com/auth/cloud-platform"]

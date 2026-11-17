@@ -15,6 +15,8 @@ import click
 from click.core import ParameterSource
 import httpx
 import shapely
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 # Support the existing `python scripts/historical_run.py` entry point too.
@@ -22,6 +24,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from cerulean_cloud.database_schema import HistoricalRun, Trigger
+from cerulean_cloud.cloud_function_historical_run.queues import historical_queue_name
 from cerulean_cloud.cloud_function_historical_run.relevance import region_from_geojson
 
 
@@ -64,13 +67,23 @@ class HistoricalRunGroup(click.Group):
     type=click.Path(exists=True, dir_okay=False),
     help="Local mode: load environment variables, including STACK_SECRETS, from this file.",
 )
+@click.option(
+    "--db-host", help="Local mode: override the database host, e.g. 127.0.0.1."
+)
+@click.option(
+    "--db-port",
+    type=click.IntRange(1, 65535),
+    help="Local mode: override the database port.",
+)
 @click.pass_context
-def cli(ctx, stage, url, api_key, local, env_file):
+def cli(ctx, stage, url, api_key, local, env_file, db_host, db_port):
     """List scenes or queue inference locally (--local) or through historical-run.
 
     EODAG discovery is the default; the eodag selector is optional. Use
     eodag --help for search options, or scenes to supply explicit IDs or a CSV.
     """
+    if not local and (db_host is not None or db_port is not None):
+        raise click.UsageError("--db-host and --db-port require --local")
     if env_file:
         if not local:
             raise click.UsageError("--env-file requires --local")
@@ -78,11 +91,24 @@ def cli(ctx, stage, url, api_key, local, env_file):
 
         load_dotenv(env_file)
         api_key = api_key or os.getenv("CERULEAN_API_KEY")
-    ctx.obj = {"url": url, "api_key": api_key, "stage": stage, "local": local}
+    ctx.obj = {
+        "url": url,
+        "api_key": api_key,
+        "stage": stage,
+        "local": local,
+        "db_host": db_host,
+        "db_port": db_port,
+    }
 
 
-def configure_local(stage, api_key, *, list_only):
+def configure_local(stage, api_key, *, list_only, db_host=None, db_port=None):
     """Use the notebook's stack secrets or explicit service environment variables."""
+    if not list_only:
+        try:
+            historical_queue_name(stage)
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from None
+        os.environ["HISTORICAL_RUN_STAGE"] = stage
     if os.getenv("STACK_SECRETS"):
         stack_key = {
             "test": "TEST",
@@ -107,6 +133,18 @@ def configure_local(stage, api_key, *, list_only):
             ) from None
     db_url = os.getenv("HISTORICAL_DB_URL") or os.getenv("DB_URL")
     if db_url:
+        overrides = {
+            key: value
+            for key, value in (("host", db_host), ("port", db_port))
+            if value is not None
+        }
+        if overrides:
+            try:
+                # Query-string host/port settings otherwise override URL components.
+                url = make_url(db_url).difference_update_query(overrides)
+                db_url = url.set(**overrides).render_as_string(hide_password=False)
+            except (ArgumentError, ValueError):
+                raise click.ClickException("Invalid local database URL") from None
         os.environ["DB_URL"] = db_url.replace(
             "postgresql+asyncpg://", "postgresql://", 1
         )
@@ -289,7 +327,13 @@ def submit(ctx, payload, dry_run, manual_trigger, list_only, no_dry_run=False):
     payload["manual_trigger"] = manual_trigger
     payload["dry_run"] = dry_run
     if ctx.obj["local"]:
-        configure_local(ctx.obj["stage"], ctx.obj["api_key"], list_only=list_only)
+        configure_local(
+            ctx.obj["stage"],
+            ctx.obj["api_key"],
+            list_only=list_only,
+            db_host=ctx.obj["db_host"],
+            db_port=ctx.obj["db_port"],
+        )
         result = asyncio.run(run_local(payload))
         click.echo(json.dumps(result, indent=2))
         return

@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from cerulean_cloud.cloud_function_historical_run import main as historical
+from cerulean_cloud.cloud_function_historical_run.queues import historical_queue_name
 
 
 def test_notebook_date_range_uses_eodag(notebook_cells, tmp_path):
@@ -76,11 +77,11 @@ def notebook_cells():
 @pytest.fixture
 def notebook_target():
     return {
-        "os": SimpleNamespace(environ={}),
+        "os": SimpleNamespace(environ={"HISTORICAL_RUN_STAGE": "test"}),
         "GCP_PROJECT": "project",
         "GCP_REGION": "region",
         "pulumi_stack": "test",
-        "ORCHESTRATOR_BACKLOG_QUEUE": historical.ORCHESTRATOR_BACKLOG_QUEUE,
+        "historical_queue_name": historical_queue_name,
     }
 
 
@@ -188,6 +189,7 @@ def test_notebook_configures_local_runner_for_selected_stack(
     )
     assert os.environ["GCPPROJECT"] == "project"
     assert os.environ["GCPREGION"] == "region"
+    assert os.environ["HISTORICAL_RUN_STAGE"] == pulumi_stack
     assert (
         os.environ["QUEUE"] == "old-value"
     )  # Historical submissions ignore the legacy queue setting.

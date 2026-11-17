@@ -2,12 +2,34 @@
 
 import json
 from datetime import date, datetime, timedelta, timezone
+from unittest.mock import MagicMock
 
 import pytest
+from click.testing import CliRunner
 
 from scripts import historical_run_diagnostics as diag
 
 NOW = datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize("override", [None, "orchestrator-backlog"])
+def test_cli_defaults_to_stage_queue_and_can_inspect_the_shared_queue(
+    monkeypatch, override
+):
+    monkeypatch.setattr(diag, "connect", MagicMock())
+    monkeypatch.setattr(diag, "select_run", MagicMock(return_value=[{}]))
+    monkeypatch.setattr(diag, "Gcp", MagicMock())
+    monkeypatch.setattr(diag, "render", MagicMock(return_value="report"))
+    report = MagicMock()
+    monkeypatch.setattr(diag, "build_report", report)
+    args = ["--stage", "prod20240903", "--db-url", "postgresql://example/db"]
+    if override:
+        args.extend(["--queue", override])
+    result = CliRunner().invoke(diag.cli, args)
+    assert result.exit_code == 0, result.output
+    assert report.call_args.args[4]["queue"] == (
+        override or "orchestrator-backlog-prod20240903"
+    )
 
 
 def scene(attempts=1, succeeded=False, failed=False, in_progress=False):

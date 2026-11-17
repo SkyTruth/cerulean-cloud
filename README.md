@@ -126,10 +126,8 @@ pytest test/test_cerulean_cloud/test_tiling.py # run only tests in a specific mo
 pytest test/test_cerulean_cloud/test_tiling.py::test_from_base_tiles_create_infer # run only a specific test
 ```
 
-If you get an error while running tests mentioning that `psycopg` is not installed run:
-```sh
-pip install "psycopg[binary]"
-```
+The PostgreSQL fixtures use Psycopg 3, which is included in `requirements-test.txt`.
+
 ### Pulumi
 #### Check available stages
 ```
@@ -347,6 +345,12 @@ python -m scripts.historical_run --local --stage test --env-file notebooks/.env 
   --date-start 2025-01-01 --date-end 2025-01-02 \
   --list-only
 
+# Use a local Cloud SQL proxy on port 5434 with the selected stack's credentials.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
+  --db-host 127.0.0.1 --db-port 5434 \
+  --date-start 2025-01-01 --date-end 2025-01-02 \
+  --list-only
+
 # Queue a month of dry-run tasks for the selected modes (the default is dry-run).
 python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
   --date-start 2025-01-01 --date-end 2025-02-01 \
@@ -365,18 +369,38 @@ catalog selection and ocean filter always apply to date-range discovery.
 Local `--env-file` loads the notebook's `STACK_SECRETS` configuration.
 `--stage test`, `staging`, and `prod20240903` select its `TEST`, `STAGING`, and
 `PRODUCTION` entries. With `STACK_SECRETS`, project/region default to
-`cerulean-338116`/`europe-west1` (override with `GCPPROJECT`/`GCPREGION`). Historical
-submissions always enqueue to **`orchestrator-backlog`** in that project/region.
-CLI, notebook, and HTTP execution use the same fixed destination; legacy `QUEUE`
-and `HISTORICAL_QUEUE` settings cannot redirect tasks to live queues. The backlog
-queue must already exist; missing or inaccessible queues stop submission.
+`cerulean-338116`/`europe-west1` (override with `GCPPROJECT`/`GCPREGION`). Pulumi
+creates one historical queue per stack and exports its name as `historical_run_queue`.
+The CLI, notebook, and deployed endpoint select the queue for their stack:
+
+| Stage | Historical queue |
+| --- | --- |
+| TEST | `orchestrator-backlog-test` |
+| STAGING | `orchestrator-backlog-staging` |
+| PROD | `orchestrator-backlog-prod20240903` |
+
+Each queue has its own dispatch limits and can be purged independently. A
+[purge](https://docs.cloud.google.com/tasks/docs/reference/rest/v2/projects.locations.queues/purge)
+applies to all historical runs in that stage's queue and can take up to a minute.
+The earlier shared `orchestrator-backlog` queue can drain tasks submitted before
+this change.
+Missing or inaccessible queues stop submission. Legacy `QUEUE` and
+`HISTORICAL_QUEUE` settings cannot redirect submissions.
+
 Alternatively, export `DB_URL`, `GCPPROJECT`, `GCPREGION`,
 `ORCHESTRATOR_URL`, and `API_KEY` directly. `HISTORICAL_DB_URL` overrides the DB URL
 for a local proxy; `postgresql+asyncpg://` URLs are normalized for asyncpg.
+With `--local`, `--db-host` and `--db-port` override only the corresponding
+connection settings, preserving the selected URL's credentials, database name,
+and other query parameters. Pass these options before the selector or search
+options. They apply after `HISTORICAL_DB_URL` (when set), replacing matching
+`host`/`port` query parameters so a Cloud SQL socket cannot override the explicit
+TCP destination. Without these flags, existing socket and TCP connections keep
+their current behavior. These options are rejected without `--local`.
 Local previews need only DB access. Queueing also needs Google application
-default credentials with permission to create tasks in `orchestrator-backlog`.
+default credentials with permission to create tasks in the selected stage's queue.
 No queue-list permission or queue-name secret is needed. The local path uses no
-historical-run endpoint or Pulumi lookup and requires no function deployment.
+historical-run endpoint or Pulumi lookup once the stage's queue exists.
 
 Local discovery runs once, followed by independent submissions of up to 100
 scenes, with a fresh DB check before each batch. All batches share one
@@ -433,7 +457,9 @@ The database URL comes from `--db-url`, then `STACK_SECRETS` (same stage keys as
 application default credentials and `GCPPROJECT`/`GCPREGION` (defaults
 `cerulean-338116`/`europe-west1`). A run is selected by `--historical-run-id` or
 `--trigger-id` (both repeatable); with neither, the latest non-dry-run
-`historical_run` row is used.
+`historical_run` row is used. Queue lookups default to the selected stage's
+historical queue. Use `--queue orchestrator-backlog` to inspect a run submitted
+to the earlier shared queue.
 
 The report covers:
 
@@ -459,9 +485,8 @@ The report covers:
    and peak backlog depth, each with the time of the peak. Cloud Monitoring keeps
    these metrics for about six weeks, so save `--json` output for the record.
 
-The backlog and ASA queues are shared, so their depths can include other work; ASA
-tasks are narrowed to the run by the scene date in the task name when the queue
-holds 5,000 tasks or fewer.
+Queue depths can include other runs in the same stage. ASA tasks are narrowed to
+the run by the scene date in the task name when the queue holds 5,000 tasks or fewer.
 
 ## Adding a new Pulumi Stack
 Don't forget to edit the following places:

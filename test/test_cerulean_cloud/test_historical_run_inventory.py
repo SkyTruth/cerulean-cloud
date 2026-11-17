@@ -16,7 +16,7 @@ from shapely.geometry import box, mapping
 from cerulean_cloud.cloud_function_historical_run import main as historical
 
 
-QUEUE_PATH = "projects/project/locations/region/queues/orchestrator-backlog"
+QUEUE_PATH = "projects/project/locations/region/queues/orchestrator-backlog-test"
 OPERATION_NAME = "projects/project/locations/region/operations/batch"
 
 
@@ -123,6 +123,7 @@ def endpoint(monkeypatch):
         "API_KEY": "test-key",
         "GCPPROJECT": "project",
         "GCPREGION": "region",
+        "HISTORICAL_RUN_STAGE": "test",
         "QUEUE": "orchestrator",
         "FUNCTIONNAME": "historical",
         "ORCHESTRATOR_URL": "https://orchestrator.example/base/",
@@ -144,8 +145,8 @@ def endpoint(monkeypatch):
                 "done": True,
                 "response": {
                     "tasks": [
-                        {"name": f"{QUEUE_PATH}/tasks/{index}"}
-                        for index, _ in enumerate(kwargs["json"]["requests"])
+                        {"name": f"{request['parent']}/tasks/{index}"}
+                        for index, request in enumerate(kwargs["json"]["requests"])
                     ]
                 },
             }
@@ -257,26 +258,29 @@ def test_queue_defaults_to_dry_run_even_when_legacy_setting_is_false(
     endpoint, monkeypatch
 ):
     monkeypatch.setenv("IS_DRY_RUN", "false")
-    assert historical.handler_queue(["scene"], 42) == 1
+    assert (
+        historical.handler_queue(["scene"], 42, queue_name="orchestrator-backlog-test")
+        == 1
+    )
     assert task_payload(queued_requests(endpoint)[0]["task"])["dry_run"] is True
 
 
 @pytest.mark.parametrize("entrypoint", ["http", "local"])
-@pytest.mark.parametrize(
-    "legacy_queue",
-    [None, "cerulean-cloud-test-queue-cr-orchestrator-live", "some-other-queue"],
-)
-def test_historical_submissions_only_use_backlog(
-    endpoint, monkeypatch, entrypoint, legacy_queue
+@pytest.mark.parametrize("stage", ["test", "staging", "prod20240903"])
+def test_historical_submissions_only_use_the_stage_queue(
+    endpoint, monkeypatch, entrypoint, stage
 ):
-    payload = {"scene_ids": ["scene"], "dry_run": True}
+    monkeypatch.setenv("HISTORICAL_RUN_STAGE", stage)
+    monkeypatch.setenv("ORCHESTRATOR_URL", f"https://{stage}.example")
+    payload = {
+        "scene_ids": ["scene"],
+        "dry_run": True,
+        "stage": "other-stage",
+        "queue": "live-queue",
+    }
     for key in ("QUEUE", "HISTORICAL_QUEUE"):
-        if legacy_queue is None:
-            monkeypatch.delenv(key, raising=False)
-        else:
-            monkeypatch.setenv(key, legacy_queue)
-            payload[key] = legacy_queue
-    payload["queue"] = legacy_queue
+        monkeypatch.setenv(key, "live-queue")
+        payload[key] = "live-queue"
     if entrypoint == "http":
         response = post(endpoint, payload)
         assert response.status_code == 200
@@ -285,13 +289,20 @@ def test_historical_submissions_only_use_backlog(
         summary = asyncio.run(historical.run_historical(payload))
     assert summary["queued_count"] == 1
     endpoint[2].post.assert_called_once()
-    assert endpoint[2].post.call_args.args == (
-        f"{historical.CLOUD_TASKS_API}/{QUEUE_PATH}/tasks:batchCreate",
+    queue_path = (
+        f"projects/project/locations/region/queues/orchestrator-backlog-{stage}"
     )
-    assert queued_requests(endpoint)[0]["parent"] == QUEUE_PATH
+    assert endpoint[2].post.call_args.args == (
+        f"{historical.CLOUD_TASKS_API}/{queue_path}/tasks:batchCreate",
+    )
+    queued = queued_requests(endpoint)[0]
+    assert queued["parent"] == queue_path
+    assert (
+        queued["task"]["httpRequest"]["url"] == f"https://{stage}.example/orchestrate"
+    )
 
 
-def test_missing_backlog_does_not_fall_back_to_live_queue(endpoint, monkeypatch):
+def test_missing_stage_queue_does_not_fall_back(endpoint, monkeypatch):
     monkeypatch.setenv("QUEUE", "cerulean-cloud-test-queue-cr-orchestrator-live")
     endpoint[2].post.side_effect = None
     endpoint[2].post.return_value = operation_response(
@@ -300,6 +311,16 @@ def test_missing_backlog_does_not_fall_back_to_live_queue(endpoint, monkeypatch)
     assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
     endpoint[2].post.assert_called_once()
     assert queued_requests(endpoint)[0]["parent"] == QUEUE_PATH
+
+
+def test_missing_stage_configuration_stops_before_trigger_or_queue(
+    endpoint, monkeypatch
+):
+    monkeypatch.delenv("HISTORICAL_RUN_STAGE")
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+    assert post(endpoint, {"action": "list", "scene_ids": ["scene"]}).status_code == 200
 
 
 @pytest.mark.parametrize("scene_count", [0, 1, 100, 101, 250])

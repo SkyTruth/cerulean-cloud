@@ -10,14 +10,20 @@ using Google application default credentials.
 import json
 import os
 import re
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import click
 import psycopg2
 import psycopg2.extras
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from cerulean_cloud.cloud_function_historical_run.queues import historical_queue_name
+
 STACK_SECRET_KEYS = {"test": "TEST", "staging": "STAGING", "prod20240903": "PRODUCTION"}
-BACKLOG_QUEUE = "orchestrator-backlog"
 SOURCE_TYPES = ("VESSEL", "INFRA", "DARK", "NATURAL")
 
 # An attempt with no result after the orchestrator's 59-minute timeout has died.
@@ -895,9 +901,7 @@ def resolve_db_url(stage, db_url):
 @click.option("--trigger-id", type=int, multiple=True, help="trigger.id; repeatable.")
 @click.option(
     "--queue",
-    default=BACKLOG_QUEUE,
-    show_default=True,
-    help="Orchestrator queue of the run.",
+    help="Orchestrator queue of the run. Defaults to the selected stage's historical queue.",
 )
 @click.option("--asa-queue", help="ASA queue ID; found by stack prefix when omitted.")
 @click.option(
@@ -955,6 +959,11 @@ def cli(
 
     gcp = None
     if not skip_gcp:
+        if not options["queue"]:
+            try:
+                options["queue"] = historical_queue_name(stage)
+            except ValueError as exc:
+                raise click.UsageError(str(exc)) from None
         try:
             gcp = Gcp(
                 os.getenv("GCPPROJECT", "cerulean-338116"),
