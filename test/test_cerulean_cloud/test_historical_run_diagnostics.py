@@ -10,22 +10,22 @@ from scripts import historical_run_diagnostics as diag
 NOW = datetime(2026, 11, 2, 12, 0, tzinfo=timezone.utc)
 
 
-def scene(attempts=1, succeeded=False, failed=False, in_flight=False):
+def scene(attempts=1, succeeded=False, failed=False, in_progress=False):
     return {
         "attempts": attempts,
         "succeeded": succeeded,
         "failed": failed,
-        "in_flight": in_flight,
+        "in_progress": in_progress,
     }
 
 
 @pytest.mark.parametrize(
     "flags, outcome",
     [
-        ({"succeeded": True, "failed": True, "in_flight": True}, "succeeded"),
-        ({"succeeded": False, "failed": True, "in_flight": True}, "in_flight"),
-        ({"succeeded": False, "failed": True, "in_flight": False}, "failed"),
-        ({"succeeded": False, "failed": False, "in_flight": False}, "crashed"),
+        ({"succeeded": True, "failed": True, "in_progress": True}, "succeeded"),
+        ({"succeeded": False, "failed": True, "in_progress": True}, "in_progress"),
+        ({"succeeded": False, "failed": True, "in_progress": False}, "failed"),
+        ({"succeeded": False, "failed": False, "in_progress": False}, "crashed"),
     ],
 )
 def test_scene_outcome_prefers_success_then_live_attempts(flags, outcome):
@@ -38,13 +38,13 @@ def test_summarize_scenes_counts_scenes_not_retry_rows():
         scene(succeeded=True),
         scene(attempts=3, failed=True),
         scene(),  # died without recording a result
-        scene(in_flight=True),
+        scene(in_progress=True),
     ]
     summary = diag.summarize_scenes(rows, queued=10, queue_depth=2)
     assert summary["succeeded"] == 2
     assert summary["failed"] == 1
     assert summary["crashed"] == 1
-    assert summary["in_flight"] == 1
+    assert summary["in_progress"] == 1
     assert summary["attempts"] == 9
     assert summary["retried"] == 2
     assert summary["unaccounted"] == 3  # 10 queued - 5 seen - 2 still queued
@@ -62,11 +62,11 @@ def test_summarize_scenes_without_a_queued_total():
 
 
 @pytest.mark.parametrize(
-    "depth, in_flight, verdict",
+    "depth, in_progress, verdict",
     [(5, 0, "RUNNING"), (0, 2, "RUNNING"), (0, 0, "COMPLETE"), (None, 0, "IDLE")],
 )
-def test_orchestrator_verdict(depth, in_flight, verdict):
-    assert diag.orchestrator_verdict(depth, in_flight) == verdict
+def test_orchestrator_verdict(depth, in_progress, verdict):
+    assert diag.orchestrator_verdict(depth, in_progress) == verdict
 
 
 @pytest.mark.parametrize(
@@ -384,7 +384,7 @@ FROM (VALUES
     -- scene 1 failed once, then passed on retry
     (1, 1, 1, false, interval '10 hours', interval '9 hours'),
     (2, 1, 1, true, interval '8 hours', interval '7 hours'),
-    -- scene 2 died long ago without a result; scene 3 is still in flight
+    -- scene 2 died long ago without a result; scene 3 is still in progress
     (3, 2, 1, NULL, interval '5 hours', interval '5 hours'),
     (4, 3, 1, NULL, interval '5 minutes', interval '5 minutes'),
     (5, 4, 1, false, interval '4 hours', interval '3 hours'),
@@ -447,7 +447,7 @@ def test_queries_against_the_real_schema(seeded):
     assert summary["succeeded"] == 1
     assert summary["failed"] == 1
     assert summary["crashed"] == 1
-    assert summary["in_flight"] == 1
+    assert summary["in_progress"] == 1
     assert summary["attempts"] == 5 and summary["retried"] == 1
     assert summary["unaccounted"] == 1
 

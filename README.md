@@ -439,7 +439,7 @@ The report covers:
 
 1. **Run**: IDs, scene dates, scenes found by EODAG, tasks queued, the git hash the
    run was submitted from, submission start.
-2. **Orchestrator**: scenes succeeded, failed, crashed, and in flight, counted per
+2. **Orchestrator**: scenes succeeded, failed, crashed, and in progress, counted per
    scene because each retry adds an `orchestrator_run` row; queued scenes that never
    reached the database (antimeridian, no ocean tiles, dry run); backlog queue depth;
    earliest start and latest end time. Verdict `RUNNING`, `COMPLETE`, or `IDLE` when

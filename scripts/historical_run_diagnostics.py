@@ -60,12 +60,12 @@ def ratio(part, whole):
     return part / whole
 
 
-def scene_outcome(succeeded, in_flight, failed):
+def scene_outcome(succeeded, in_progress, failed):
     """One outcome per scene; retries add attempts, so rows are not scenes."""
     if succeeded:
         return "succeeded"
-    if in_flight:
-        return "in_flight"
+    if in_progress:
+        return "in_progress"
     if failed:
         return "failed"
     return "crashed"  # every attempt ended without recording a result
@@ -73,10 +73,10 @@ def scene_outcome(succeeded, in_flight, failed):
 
 def summarize_scenes(rows, queued, queue_depth):
     """Count scene outcomes and what the queued total leaves unexplained."""
-    counts = {"succeeded": 0, "in_flight": 0, "failed": 0, "crashed": 0}
+    counts = {"succeeded": 0, "in_progress": 0, "failed": 0, "crashed": 0}
     attempts = retried = 0
     for row in rows:
-        counts[scene_outcome(row["succeeded"], row["in_flight"], row["failed"])] += 1
+        counts[scene_outcome(row["succeeded"], row["in_progress"], row["failed"])] += 1
         attempts += row["attempts"]
         retried += row["attempts"] > 1
     seen = len(rows)
@@ -97,9 +97,9 @@ def summarize_scenes(rows, queued, queue_depth):
     }
 
 
-def orchestrator_verdict(queue_depth, in_flight):
-    """RUNNING while work is queued or in flight; IDLE when the queue is unknown."""
-    if in_flight or queue_depth:
+def orchestrator_verdict(queue_depth, in_progress):
+    """RUNNING while work is queued or in progress; IDLE when the queue is unknown."""
+    if in_progress or queue_depth:
         return "RUNNING"
     return "IDLE" if queue_depth is None else "COMPLETE"
 
@@ -258,7 +258,7 @@ def scene_rows(conn, triggers, now):
                bool_or(o.success IS TRUE) AS succeeded,
                bool_or(o.success IS FALSE) AS failed,
                bool_or(o.success IS NULL AND o.inference_start_time >= %(cutoff)s)
-                   AS in_flight
+                   AS in_progress
         FROM orchestrator_run o
         WHERE o.trigger = ANY(%(triggers)s)
         GROUP BY o.sentinel1_grd
@@ -562,7 +562,7 @@ def build_report(conn, gcp, stage, runs, options, baseline_conn=None):
     depth = backlog["depth"] if backlog else None
     scenes = summarize_scenes(scene_rows(conn, triggers, now), queued, depth)
     times = orchestrator_times(conn, triggers)
-    verdict = orchestrator_verdict(depth, scenes["in_flight"])
+    verdict = orchestrator_verdict(depth, scenes["in_progress"])
     report["orchestrator"] = {**scenes, **times, "queue": backlog, "verdict": verdict}
     failed_pct = scenes["failed_pct"] or 0
     if failed_pct > options["failed_warn_pct"]:
@@ -773,7 +773,7 @@ def render(report):
     row("scenes failed", orch["failed"])
     row("scenes crashed (no result)", orch["crashed"])
     row("failed or crashed", percent(orch["failed_pct"]) or None)
-    row("scenes in flight", orch["in_flight"])
+    row("scenes in progress", orch["in_progress"])
     row("queued but never in database", orch["unaccounted"])
     row("attempts / scenes retried", f"{orch['attempts']} / {orch['retried']}")
     queue = orch["queue"] or {}
