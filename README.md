@@ -411,6 +411,58 @@ and submits batches of 100 directly. `DRY_RUN` must be `True` or `False` (defaul
 submission finishes; `batch_results` retains confirmed earlier results if a later
 batch fails. The ASA and imagery download utilities have their own execution paths.
 
+### Historical run diagnostics
+
+`scripts/historical_run_diagnostics.py` reports how a historical run is going. It
+only reads: the database session is opened read-only, and the GCP calls are lookups.
+
+```sh
+# Latest non-dry-run historical run on the test stack.
+python scripts/historical_run_diagnostics.py --stage test --env-file notebooks/.env
+
+# A specific run, saved as JSON, with the baseline taken from another database.
+python scripts/historical_run_diagnostics.py --stage test --historical-run-id 12 \
+  --baseline-db-url "$PROD_DB_URL" --json run12.json
+
+# Database sections only (no Google credentials needed).
+python scripts/historical_run_diagnostics.py --stage test --skip-gcp
+```
+
+The database URL comes from `--db-url`, then `STACK_SECRETS` (same stage keys as
+`historical_run.py`), then `HISTORICAL_DB_URL` or `DB_URL`. GCP lookups use Google
+application default credentials and `GCPPROJECT`/`GCPREGION` (defaults
+`cerulean-338116`/`europe-west1`). A run is selected by `--historical-run-id` or
+`--trigger-id` (both repeatable); with neither, the latest non-dry-run
+`historical_run` row is used.
+
+The report covers:
+
+1. **Run**: IDs, scene dates, scenes found by EODAG, tasks queued, the git hash the
+   run was submitted from, submission start.
+2. **Orchestrator**: scenes succeeded, failed, crashed, and in flight, counted per
+   scene because each retry adds an `orchestrator_run` row; queued scenes that never
+   reached the database (antimeridian, no ocean tiles, dry run); backlog queue depth;
+   earliest start and latest end time. Verdict `RUNNING`, `COMPLETE`, or `IDLE` when
+   the queue was not checked.
+3. **ASA**: queue depth, slicks reached and pending, source associations by type,
+   and slicks reached with no source. ASA records no run of its own, so a slick
+   counts as reached once its `geometric_slick_potential` is set or it has a source.
+   `STALLED` means the queue is empty while slicks are still pending.
+4. **Runtime**: submission start to the last slick, orchestrator end, or source
+   association; provisional until both verdicts are `COMPLETE`.
+5. **Benchmarks**: slicks per scene and sources per slick against live
+   (`SNS_TOPIC`) scenes from the past year (`--baseline-start`/`--baseline-end`),
+   flagged beyond `--tolerance-pct` (default 50). Baselines under 100 scenes are
+   shown but not graded.
+6. **Bottlenecks**: peak orchestrator, inference, and ASA instance counts against
+   their configured limits, peak database connections against `max_connections`,
+   and peak backlog depth, each with the time of the peak. Cloud Monitoring keeps
+   these metrics for about six weeks, so save `--json` output for the record.
+
+The backlog and ASA queues are shared, so their depths can include other work; ASA
+tasks are narrowed to the run by the scene date in the task name when the queue
+holds 5,000 tasks or fewer.
+
 ## Adding a new Pulumi Stack
 Don't forget to edit the following places:
 - Historical-run discovers its URL from the selected stack’s `historical_run_url` output.
