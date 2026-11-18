@@ -32,7 +32,7 @@ def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
     local_execution, remote, monkeypatch, tmp_path, selector, with_geometry
 ):
     processed, trigger, queue = local_execution
-    processed.side_effect = [{"completed"}, set()]
+    processed.side_effect = [{"S1A_IW_GRDM_completed"}, set()]
     dag = MagicMock()
     dag._prepare_search.side_effect = lambda **criteria: {
         **criteria,
@@ -41,7 +41,11 @@ def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
     dag._do_search.return_value = (
         [
             SimpleNamespace(geometry=box(0, 0, 1, 1), properties={"id": scene})
-            for scene in ("new", "completed")
+            for scene in (
+                "S1A_IW_GRDH_new",
+                "S1A_IW_GRDM_completed",
+                "S1A_S3_GRDF_full",
+            )
         ],
         None,
     )
@@ -84,15 +88,18 @@ def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
     )
     assert result.exit_code == 0, result.output
     summary = json.loads(result.stdout)
-    assert summary["scene_count"] == 2
+    assert summary["scene_count"] == 3
     assert summary["already_processed_scene_count"] == 1
     assert summary["queued_count"] == 1
-    assert queue.call_args.args[0] == ["new"]
+    assert queue.call_args.args[0] == ["S1A_IW_GRDH_new"]
     trigger.assert_not_awaited()  # Local batches reuse the history record's trigger.
     assert queue.call_args.args[1] == summary["trigger_id"]
     assert client.save_historical_run.await_count == 2
     dag.set_preferred_provider.assert_called_once_with("geodes")
-    assert dag._do_search.call_args.kwargs["polarizationMode"] == "VV VH"
+    assert json.loads(dag._do_search.call_args.kwargs["polarizationMode"]) == [
+        "VV",
+        "VV VH",
+    ]
     assert json.loads(dag._do_search.call_args.kwargs["sensorMode"]) == [
         "EW",
         "IW",

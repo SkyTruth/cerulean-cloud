@@ -277,7 +277,8 @@ def handle_search(request_json, ocean_poly=None):
 
     default_search_criteria = {
         "productType": "S1_SAR_GRD",
-        "polarizationMode": "VV VH",
+        # Accept VV in either single (SV) or dual (DV) polarization products.
+        "polarizationMode": json.dumps(["VV", "VV VH"]),
         "start": request_json["start"],
         "end": request_json["end"],
     }
@@ -342,10 +343,14 @@ def handle_search(request_json, ocean_poly=None):
 
     filtered_scenes = []
     for result in search_results:
+        scene_id = result.properties["id"]
+        # Sentinel scene names encode the resolution class in the GRD field.
+        if scene_id.split("_")[2] not in ("GRDH", "GRDM"):
+            continue
         print(f"Adding {result}...")
         is_oceanic = result.geometry.intersects(ocean_poly)
         if is_oceanic:
-            filtered_scenes.append(result.properties.get("id"))
+            filtered_scenes.append(scene_id)
 
     return len_total_scenes, filtered_scenes
 

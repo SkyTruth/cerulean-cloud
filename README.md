@@ -289,10 +289,11 @@ The services deployed by cerulean-cloud that DO NOT require this API key are:
 
 Historical-run discovers Sentinel-1 scenes through **EODAG's GEODES catalog**.
 The `eodag` selector takes UTC start/end boundaries and an optional GeoJSON
-FeatureCollection region, searches `S1_SAR_GRD` products with `VV VH`
-polarization, and retains scenes intersecting the ocean. Filtering selects whole
-scenes; it does not clip inference to the requested region. Explicit `scene_ids`
-or the CLI's `scenes` command accept already selected IDs, including CSV input.
+FeatureCollection region, searches `S1_SAR_GRD` products containing VV
+(SV `VV` or DV `VV VH`), and retains H/M-resolution scenes intersecting the ocean.
+Filtering selects whole scenes; it does not clip inference to the requested region.
+Explicit `scene_ids` or the CLI's `scenes` command accept already selected IDs,
+including CSV input.
 Omit `--geometry` for a global search, or pass `--geometry region.geojson` to
 restrict the region. HTTP requests may omit `geometry` or set it to `null`.
 Global runs store `NULL` in the backfill record's geometry column and use the
@@ -366,8 +367,10 @@ python -m scripts.historical_run --local --stage test --env-file notebooks/.env 
 
 `python scripts/historical_run.py` supports the same options. EODAG uses time
 boundaries: for a day-long search, pass that day's date and the following date.
-Polarization is fixed to DV (`VV VH`), independently of mode selection. EODAG's
-catalog selection and ocean filter always apply to date-range discovery.
+Polarization must include VV (SV `VV` or DV `VV VH`), independently of mode
+selection. Only high (`GRDH`) and medium (`GRDM`) resolution scenes are selected;
+full resolution (`GRDF`) is excluded. These resolution, polarization, and ocean
+filters always apply to date-range discovery.
 
 Local `--env-file` loads the notebook's `STACK_SECRETS` configuration.
 `--stage test`, `staging`, and `prod20240903` select its `TEST`, `STAGING`, and
@@ -429,9 +432,9 @@ when omitted and record a cloud function log link. Local runs print
 progress locally and leave the trigger log link empty.
 
 `notebooks/TriggerOnDemand.ipynb` uses the same local runner. Choose one scene
-source: EODAG date/region search, an explicit list, or a CSV. EODAG applies catalog
-and ocean filters; lists and CSVs provide already selected IDs. Common options
-support an additional exclusion CSV and deduplication. CSV input/exclusion accepts
+source: EODAG date/region search, an explicit list, or a CSV. EODAG applies catalog,
+H/M resolution, and ocean filters; lists and CSVs provide already selected IDs.
+Common options support an additional exclusion CSV and deduplication. CSV input/exclusion accepts
 `scene_id` or legacy `s1_scene_id`. Setup uses `STACK_SECRETS`, `GCP_PROJECT`, and
 `GCP_REGION`; rerun it after changing stacks. The orchestration cell checks the DB
 and submits batches of 100 directly. Set `OVERWRITE = True` to skip the scene

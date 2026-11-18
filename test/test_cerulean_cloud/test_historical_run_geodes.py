@@ -45,9 +45,12 @@ def geodes(monkeypatch, tmp_path):
     return pages, calls
 
 
-def feature(number, footprint=None):
+def feature(number, footprint=None, polarization="VV VH", resolution="H"):
+    polarization_code = "SV" if polarization == "VV" else "DV"
+    beam = "S3" if resolution == "F" else "IW"
     scene_id = (
-        f"S1A_IW_GRDH_1SDV_20250101T114435_20250101T114504_057250_070AE5_{number:04X}"
+        f"S1A_{beam}_GRD{resolution}_1S{polarization_code}_20250101T114435_20250101T114504_"
+        f"057250_070AE5_{number:04X}"
     )
     return {
         "type": "Feature",
@@ -57,8 +60,8 @@ def feature(number, footprint=None):
             "identifier": scene_id,
             "dataset": "PEPS_S1_L1",
             "product:type": "GRD",
-            "sar:polarizations": "VV VH",
-            "sar:instrument_mode": "IW",
+            "sar:polarizations": polarization,
+            "sar:instrument_mode": "SM" if resolution == "F" else "IW",
             "start_datetime": "2025-01-01T11:44:35.035Z",
             "end_datetime": "2025-01-01T11:45:04.052Z",
         },
@@ -84,30 +87,37 @@ def search(modes=None, with_geometry=True):
 
 
 @pytest.mark.parametrize("modes", [None, ["IW"], ["EW", "IW", "SM"]])
-def test_geodes_pagination_filters_and_sentinel_id_mapping(geodes, modes):
+@pytest.mark.parametrize("polarization", ["VV", "VV VH"])
+def test_geodes_pagination_filters_and_sentinel_id_mapping(geodes, modes, polarization):
     pages, calls = geodes
     pages[1] = (
         200,
         {
-            "features": [feature(i) for i in range(80)],
+            "features": [feature(i, polarization=polarization) for i in range(80)],
             "context": {"matched": 81},
             "links": [{"rel": "next", "href": "https://unused.invalid/next"}],
         },
     )
     pages[2] = (
         200,
-        {"features": [feature(80, box(10, 10, 11, 11))], "context": {"matched": 81}},
+        {
+            "features": [feature(80, box(10, 10, 11, 11), polarization)],
+            "context": {"matched": 81},
+        },
     )
     total, selected = search(modes)
     assert total == 81
-    assert selected == [feature(i)["properties"]["identifier"] for i in range(80)]
+    assert selected == [
+        feature(i, polarization=polarization)["properties"]["identifier"]
+        for i in range(80)
+    ]
     assert not pages
     assert [body["page"] for body in calls] == [1, 2]
     for body in calls:
         assert body["limit"] == 80
         assert body["query"]["dataset"] == {"in": ["PEPS_S1_L1"]}
         assert body["query"]["product:type"] == {"in": ["GRD"]}
-        assert body["query"]["sar:polarizations"] == {"in": ["VV VH"]}
+        assert body["query"]["sar:polarizations"] == {"in": ["VV", "VV VH"]}
         if modes is None:
             assert "sar:instrument_mode" not in body["query"]
         else:
@@ -116,6 +126,20 @@ def test_geodes_pagination_filters_and_sentinel_id_mapping(geodes, modes):
         assert body["query"]["start_datetime"]["lte"].startswith("2025-01-02T00:00:00")
         assert body["intersects"]["type"] == "MultiPolygon"
         assert body["sortBy"] == [{"field": "start_datetime", "direction": "asc"}]
+
+
+def test_geodes_keeps_only_high_and_medium_resolution(geodes):
+    pages, _ = geodes
+    products = [
+        feature(i, resolution=resolution)
+        for i, resolution in enumerate(["H", "M", "F", "_"])
+    ]
+    pages[1] = (200, {"features": products, "context": {"matched": 4}})
+
+    assert search() == (
+        4,
+        [product["properties"]["identifier"] for product in products[:2]],
+    )
 
 
 def test_geodes_empty_search_is_valid(geodes):

@@ -21,7 +21,7 @@ geodes:
         - '{{"query":{{"dataset":{{"in":["PEPS_S1_L1"]}},"product:type":{{"in":["{productType}"]}}}}}}'
         - '$.properties."product:type"'
       polarizationMode:
-        - '{{"query":{{"sar:polarizations":{{"in":["{polarizationMode}"]}}}}}}'
+        - '{{"query":{{"sar:polarizations":{{"in":{polarizationMode}}}}}}}'
         - '$.properties."sar:polarizations"'
       sensorMode:
         - '{{"query":{{"sar:instrument_mode":{{"in":{sensorMode}}}}}}}'

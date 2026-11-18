@@ -68,9 +68,11 @@ def test_eodag_uses_geodes_and_keeps_spatial_dates_modes_and_ocean_filter(
     modes,
 ):
     dag = MagicMock()
-    ocean_result = SimpleNamespace(geometry=box(0, 0, 2, 2), properties={"id": "ocean"})
+    ocean_result = SimpleNamespace(
+        geometry=box(0, 0, 2, 2), properties={"id": "S1A_IW_GRDH_ocean"}
+    )
     land_result = SimpleNamespace(
-        geometry=box(10, 10, 11, 11), properties={"id": "land"}
+        geometry=box(10, 10, 11, 11), properties={"id": "S1A_IW_GRDM_land"}
     )
     dag._prepare_search.side_effect = lambda **criteria: {
         **criteria,
@@ -100,7 +102,7 @@ def test_eodag_uses_geodes_and_keeps_spatial_dates_modes_and_ocean_filter(
     historical.validate_request(request)
     assert historical.handle_search(request, ocean_poly=box(-1, -1, 3, 3)) == (
         2,
-        ["ocean"],
+        ["S1A_IW_GRDH_ocean"],
     )
     dag.set_preferred_provider.assert_called_once_with("geodes")
     assert gateway.call_args.kwargs["user_conf_file_path"].endswith("geodes.yml")
@@ -108,7 +110,7 @@ def test_eodag_uses_geodes_and_keeps_spatial_dates_modes_and_ocean_filter(
     assert criteria["start"] == request["start"]
     assert criteria["end"] == request["end"]
     assert criteria["productType"] == "S1_SAR_GRD"
-    assert criteria["polarizationMode"] == "VV VH"
+    assert json.loads(criteria["polarizationMode"]) == ["VV", "VV VH"]
     assert criteria["items_per_page"] == 80
     assert criteria["geom"].startswith("MULTIPOLYGON")
     if modes is None:
