@@ -291,6 +291,8 @@ Historical-run discovers Sentinel-1 scenes through **EODAG's GEODES catalog**.
 The `eodag` selector takes UTC start/end boundaries and an optional GeoJSON
 FeatureCollection region, searches `S1_SAR_GRD` products containing VV
 (SV `VV` or DV `VV VH`), and retains H/M-resolution scenes intersecting the ocean.
+Discovery uses the same low-resolution ocean mask as live scene relevancy, which
+excludes the Caspian Sea.
 Filtering selects whole scenes; it does not clip inference to the requested region.
 Explicit `scene_ids` or the CLI's `scenes` command accept already selected IDs,
 including CSV input.

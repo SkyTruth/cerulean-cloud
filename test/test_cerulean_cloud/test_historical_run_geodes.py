@@ -156,6 +156,22 @@ def test_geodes_keeps_only_high_and_medium_resolution(geodes):
     )
 
 
+def test_geodes_bundled_ocean_mask_keeps_ocean_and_coastal_scenes(geodes):
+    pages, _ = geodes
+    products = [
+        feature(0, box(2, 55, 3, 56)),  # North Sea
+        feature(1, box(-1, 54.3, 0, 54.6)),  # English coast
+        feature(2, box(-100, 38, -99, 39)),  # Kansas
+        feature(3, box(51.2, 42.2, 51.3, 42.3)),  # Caspian Sea
+    ]
+    pages[1] = (200, {"features": products, "context": {"matched": 4}})
+
+    assert historical.handle_search({"start": "2025-01-01", "end": "2025-01-02"}) == (
+        4,
+        [product["properties"]["identifier"] for product in products[:2]],
+    )
+
+
 def test_geodes_empty_search_is_valid(geodes):
     pages, calls = geodes
     pages[1] = (200, {"features": [], "context": {"matched": 0}})
