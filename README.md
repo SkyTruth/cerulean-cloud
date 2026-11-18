@@ -295,8 +295,8 @@ scenes; it does not clip inference to the requested region. Explicit `scene_ids`
 or the CLI's `scenes` command accept already selected IDs, including CSV input.
 Omit `--geometry` for a global search, or pass `--geometry region.geojson` to
 restrict the region. HTTP requests may omit `geometry` or set it to `null`.
-Global runs store `NULL` in the backfill record's geometry column. Ocean filtering
-and the completed-scene DB exclusion still apply to global searches.
+Global runs store `NULL` in the backfill record's geometry column and use the
+same ocean and scene history filters as regional searches.
 Use `--mode EW --mode IW --mode SM` to select multiple acquisition modes, or
 repeat any subset of those choices. Mode values are case-insensitive in the CLI.
 Omitting `--mode` leaves acquisition mode unrestricted. HTTP requests accept a
@@ -308,14 +308,15 @@ Discovery requests 80 scenes per page and retries failed catalog reads up to
 three attempts per page. If a page still fails or pagination repeats a page,
 discovery stops before any tasks are submitted; partial inventories are rejected.
 
-Every path deduplicates IDs and excludes scenes with any
-`orchestrator_run.success IS TRUE` in the selected stack's database. Failed or
-unfinished runs and scene metadata alone remain eligible. This check applies to
-previews, dry runs, explicit IDs, and local execution. A DB lookup failure stops
-submission before creating triggers or tasks. The response includes
-`already_processed_scene_count`; `filtered_scene_count` reflects the remaining
-scenes. Already queued or running scenes are not atomically reserved, so inspect
-partial failures before resubmitting.
+Every path deduplicates IDs. By default, historical runs exclude scenes with any
+`orchestrator_run.success IS TRUE` in the selected stack's database, including in
+previews and dry runs. Failed or unfinished runs and scene metadata alone remain
+eligible. Use `--overwrite` to skip that lookup and include previously processed
+scenes for either date-range discovery or `scenes`. HTTP requests and direct runner
+calls use `"overwrite": true`. The response's `already_processed_scene_count`
+counts excluded scenes and is zero with `--overwrite` because the lookup is skipped.
+Already queued or running scenes are not atomically reserved, so inspect partial
+failures before resubmitting.
 
 The CLI defaults to EODAG discovery, so the `eodag` selector can be omitted.
 Use `scenes` for explicit IDs or a CSV; the explicit `eodag` selector also works.
@@ -337,7 +338,9 @@ flag remains an alias for `--dry-run=false`; supplying both options is rejected.
 Dry-run submissions still create backfill records and queue tasks; the
 orchestrator stops before inference. HTTP requests and direct runner calls also
 default to `dry_run: true`; explicitly pass the JSON boolean `false` to process.
-`--list-only` checks the DB and returns IDs without creating triggers or tasks.
+`--list-only` returns IDs without creating triggers or tasks. Combine it with
+`--overwrite` to preview the selection without a database connection. To rerun
+inference, use `--overwrite --dry-run=false`.
 
 ```bash
 # Preview a full UTC day locally through EODAG/GEODES.
@@ -397,15 +400,16 @@ options. They apply after `HISTORICAL_DB_URL` (when set), replacing matching
 `host`/`port` query parameters so a Cloud SQL socket cannot override the explicit
 TCP destination. Without these flags, existing socket and TCP connections keep
 their current behavior. These options are rejected without `--local`.
-Local previews need only DB access. Queueing also needs Google application
-default credentials with permission to create tasks in the selected stage's queue.
+Local previews need DB access unless using `--overwrite`. Queueing needs DB
+access for run tracking and Google application default credentials with permission
+to create tasks in the selected stage's queue.
 No queue-list permission or queue-name secret is needed. The local path uses no
 historical-run endpoint or Pulumi lookup once the stage's queue exists.
 
 Local discovery runs once, followed by independent submissions of up to 100
-scenes, with a fresh DB check before each batch. All batches share one
-`HISTORICAL_RUN` trigger and submit tasks through Cloud Tasks' `tasks:batchCreate`
-REST API. The runner waits for creation to be confirmed before moving on; failed
+scenes. By default, the runner rechecks scene history before each batch. All
+batches share one `HISTORICAL_RUN` trigger and submit tasks through Cloud Tasks'
+`tasks:batchCreate` REST API. The runner waits for confirmation before moving on. Failed
 or partial submissions stop execution without automatic retries. Tasks carry the
 trigger ID and a 30-minute execution deadline. `manual_trigger: true` gives
 source-association tasks run-specific names. Queue submission success does not
@@ -430,7 +434,8 @@ and ocean filters; lists and CSVs provide already selected IDs. Common options
 support an additional exclusion CSV and deduplication. CSV input/exclusion accepts
 `scene_id` or legacy `s1_scene_id`. Setup uses `STACK_SECRETS`, `GCP_PROJECT`, and
 `GCP_REGION`; rerun it after changing stacks. The orchestration cell checks the DB
-and submits batches of 100 directly. `DRY_RUN` must be `True` or `False` (default:
+and submits batches of 100 directly. Set `OVERWRITE = True` to skip the scene
+history lookup. `DRY_RUN` must be `True` or `False` (default:
 `True`). All batches share one trigger. Keep the notebook running until
 submission finishes; `batch_results` retains confirmed earlier results if a later
 batch fails. The ASA and imagery download utilities have their own execution paths.

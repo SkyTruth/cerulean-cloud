@@ -131,7 +131,7 @@ def validate_request(request_json):
         raise ValueError("Expected a JSON object")
     if request_json.get("action", "enqueue") not in ("list", "enqueue"):
         raise ValueError("action must be list or enqueue")
-    for key in ("dry_run", "manual_trigger"):
+    for key in ("dry_run", "manual_trigger", "overwrite"):
         if key in request_json and not isinstance(request_json[key], bool):
             raise ValueError(f"{key} must be a boolean")
     for key in ("polarizations", "apply_relevancy"):
@@ -221,14 +221,17 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
     total_scenes, filtered_scenes = handle_search(request_json)
     # Submit each scene once, even when a catalog or supplied list repeats it.
     filtered_scenes = list(dict.fromkeys(filtered_scenes))
-    processed_scene_ids = await get_processed_scene_ids(filtered_scenes)
-    filtered_scenes = [
-        scene for scene in filtered_scenes if scene not in processed_scene_ids
-    ]
+    already_processed_scene_count = 0
+    if not request_json.get("overwrite", False):
+        processed_scene_ids = await get_processed_scene_ids(filtered_scenes)
+        filtered_scenes = [
+            scene for scene in filtered_scenes if scene not in processed_scene_ids
+        ]
+        already_processed_scene_count = len(processed_scene_ids)
     summary = {
         "scene_count": total_scenes,
         "filtered_scene_count": len(filtered_scenes),
-        "already_processed_scene_count": len(processed_scene_ids),
+        "already_processed_scene_count": already_processed_scene_count,
     }
     print(f"Historical scene selection: {summary}")
     if list_only:

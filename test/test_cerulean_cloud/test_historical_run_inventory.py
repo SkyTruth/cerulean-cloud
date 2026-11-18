@@ -634,6 +634,44 @@ def test_all_scenes_already_processed_creates_no_tasks(endpoint):
     historical.google.auth.default.assert_not_called()
 
 
+@pytest.mark.parametrize("action", ["list", "enqueue"])
+def test_overwrite_bypasses_history_and_still_deduplicates(endpoint, action):
+    lookup = historical.get_processed_scene_ids
+    lookup.side_effect = AssertionError("overwrite must skip the history lookup")
+    response = post(
+        endpoint,
+        {
+            "scene_ids": ["completed", "new", "completed"],
+            "action": action,
+            "overwrite": True,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json["already_processed_scene_count"] == 0
+    assert response.json["filtered_scene_count"] == 2
+    lookup.assert_not_awaited()
+    if action == "list":
+        assert response.json["scene_ids"] == ["completed", "new"]
+        endpoint[1].assert_not_awaited()
+        endpoint[2].post.assert_not_called()
+    else:
+        assert response.json["queued_count"] == 2
+        endpoint[1].assert_awaited_once()
+        assert [
+            task_payload(request["task"])["scene_id"]
+            for request in queued_requests(endpoint)
+        ] == ["completed", "new"]
+
+
+def test_overwrite_requires_json_boolean(endpoint):
+    response = post(endpoint, {"scene_ids": ["scene"], "overwrite": "true"})
+    assert response.status_code == 400
+    assert b"overwrite must be a boolean" in response.data
+    historical.get_processed_scene_ids.assert_not_awaited()
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_local_runner_uses_db_exclusion_tracking_and_queue_without_http(
     endpoint, monkeypatch

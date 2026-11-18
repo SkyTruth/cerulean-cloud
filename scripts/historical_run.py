@@ -213,7 +213,7 @@ async def save_historical_run(record):
 
 
 async def run_local(payload):
-    """Discover once, then submit rechecked batches under one trigger and history row."""
+    """Discover once, then submit batches under one trigger and history row."""
     from cerulean_cloud.cloud_function_historical_run.main import (
         run_historical,
         validate_request,
@@ -247,6 +247,7 @@ async def run_local(payload):
                         "scene_ids": scenes[start : start + 100],
                         "dry_run": payload["dry_run"],
                         "manual_trigger": payload["manual_trigger"],
+                        "overwrite": payload.get("overwrite", False),
                     },
                     trigger_id=record.trigger,
                 )
@@ -304,6 +305,11 @@ def execution_options(command):
         help="Use run-specific downstream source-association task names.",
     )(command)
     command = click.option(
+        "--overwrite",
+        is_flag=True,
+        help="Include previously processed scenes without checking their run history.",
+    )(command)
+    command = click.option(
         "--no-dry-run", is_flag=True, help="Alias for --dry-run=false."
     )(command)
     return click.option(
@@ -317,7 +323,9 @@ def execution_options(command):
     )(command)
 
 
-def submit(ctx, payload, dry_run, manual_trigger, list_only, no_dry_run=False):
+def submit(
+    ctx, payload, dry_run, manual_trigger, list_only, overwrite, no_dry_run=False
+):
     dry_run = dry_run == "true"
     if no_dry_run:
         if ctx.get_parameter_source("dry_run") == ParameterSource.COMMANDLINE:
@@ -326,14 +334,17 @@ def submit(ctx, payload, dry_run, manual_trigger, list_only, no_dry_run=False):
     payload["action"] = "list" if list_only else "enqueue"
     payload["manual_trigger"] = manual_trigger
     payload["dry_run"] = dry_run
+    if overwrite:
+        payload["overwrite"] = True
     if ctx.obj["local"]:
-        configure_local(
-            ctx.obj["stage"],
-            ctx.obj["api_key"],
-            list_only=list_only,
-            db_host=ctx.obj["db_host"],
-            db_port=ctx.obj["db_port"],
-        )
+        if not (list_only and overwrite):
+            configure_local(
+                ctx.obj["stage"],
+                ctx.obj["api_key"],
+                list_only=list_only,
+                db_host=ctx.obj["db_host"],
+                db_port=ctx.obj["db_port"],
+            )
         result = asyncio.run(run_local(payload))
         click.echo(json.dumps(result, indent=2))
         return

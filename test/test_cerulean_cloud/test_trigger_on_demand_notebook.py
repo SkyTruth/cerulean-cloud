@@ -198,13 +198,14 @@ def test_notebook_configures_local_runner_for_selected_stack(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("dry_run,overwrite", [(False, True), (True, False)])
 async def test_notebook_batches_selected_scenes_through_local_historical_run(
-    notebook_cells, notebook_target, dry_run
+    notebook_cells, notebook_target, dry_run, overwrite
 ):
     source = next(source for source in notebook_cells if source.startswith("DRY_RUN ="))
     assert "DRY_RUN = True" in source
     source = source.replace("DRY_RUN = True", f"DRY_RUN = {dry_run!r}")
+    source = source.replace("OVERWRITE = False", f"OVERWRITE = {overwrite!r}")
     scenes = [f"scene-{i}" for i in range(205)]
     submission = AsyncMock(side_effect=[{"trigger_id": i} for i in range(3)])
     namespace = {**notebook_target, "scenes": scenes, "historical_run": submission}
@@ -218,6 +219,7 @@ async def test_notebook_batches_selected_scenes_through_local_historical_run(
     assert all(payload["manual_trigger"] is True for payload in payloads)
     for payload in payloads:
         assert payload["dry_run"] is dry_run
+        assert payload["overwrite"] is overwrite
     assert namespace["batch_results"] == [{"trigger_id": i} for i in range(3)]
     assert "QUEUE" not in notebook_target["os"].environ
 

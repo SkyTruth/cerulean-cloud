@@ -584,6 +584,55 @@ def test_local_all_scenes_completed_submits_no_batches(local_execution):
     queue.assert_not_called()
 
 
+def test_local_overwrite_skips_history_in_discovery_and_every_batch(
+    local_execution, monkeypatch
+):
+    processed, _, queue = local_execution
+    processed.side_effect = AssertionError("overwrite must skip the history lookup")
+    scenes = ["completed", *[f"scene-{i}" for i in range(100)]]
+    handle_search = historical.handle_search
+
+    def discover(payload):
+        if "scene_ids" in payload:
+            return handle_search(payload)
+        return len(scenes), scenes
+
+    monkeypatch.setattr(historical, "handle_search", discover)
+    result = CliRunner().invoke(
+        client.cli, ["--local", "--overwrite", "--dry-run=false"]
+    )
+    assert result.exit_code == 0, result.output
+    summary = json.loads(result.stdout)
+    assert summary["already_processed_scene_count"] == 0
+    assert summary["queued_count"] == 101
+    assert [call.args[0] for call in queue.call_args_list] == [
+        scenes[:100],
+        scenes[100:],
+    ]
+    assert all(call.kwargs["dry_run"] is False for call in queue.call_args_list)
+    processed.assert_not_awaited()
+    assert client.save_historical_run.await_count == 2
+
+
+def test_local_overwrite_preview_needs_no_database(local_execution, monkeypatch):
+    monkeypatch.delenv("DB_URL")
+    result = CliRunner().invoke(
+        client.cli,
+        ["--local", "scenes", "--scene-id", "completed", "--overwrite", "--list-only"],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["scene_ids"] == ["completed"]
+    local_execution[0].assert_not_awaited()
+    local_execution[2].assert_not_called()
+    client.save_historical_run.assert_not_awaited()
+
+
+def test_remote_overwrite_sends_boolean(remote):
+    result = invoke("scenes", "--scene-id", "completed", "--overwrite")
+    assert result.exit_code == 0, result.output
+    assert remote.call_args.kwargs["json"]["overwrite"] is True
+
+
 def test_explicit_scene_ids_csv_and_authenticated_request(remote, tmp_path):
     csv = tmp_path / "scenes.csv"
     csv.write_text("scene_id\nsecond\nfirst\n")
