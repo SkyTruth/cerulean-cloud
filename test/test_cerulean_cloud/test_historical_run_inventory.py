@@ -1,0 +1,907 @@
+"""Historical selection and queueing with mocked cloud APIs and a local test DB."""
+
+import base64
+import asyncio
+import json
+import uuid
+from types import SimpleNamespace
+from threading import Barrier, Event
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+import requests
+from flask import Flask, request
+from shapely.geometry import box, mapping
+
+from cerulean_cloud.cloud_function_historical_run import geodes_catalog
+from cerulean_cloud.cloud_function_historical_run import main as historical
+
+
+QUEUE_PATH = "projects/project/locations/region/queues/orchestrator-backlog-test"
+OPERATION_NAME = "projects/project/locations/region/operations/batch"
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        {"source": "s3"},
+        {"polarizations": ["DV"]},
+        {"apply_relevancy": False},
+    ],
+)
+def test_removed_crawler_options_fail_before_discovery(endpoint, monkeypatch, option):
+    search = MagicMock(side_effect=AssertionError("must not discover"))
+    monkeypatch.setattr(historical, "handle_search", search)
+    payload = {
+        "start": "2025-01-01",
+        "end": "2025-01-02",
+        "geometry": {"type": "FeatureCollection", "features": []},
+        **option,
+    }
+    assert post(endpoint, payload).status_code == 400
+    search.assert_not_called()
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+
+
+def operation_response(body, status=200):
+    response = requests.Response()
+    response.status_code = status
+    response._content = json.dumps(body).encode()
+    return response
+
+
+def queued_requests(endpoint):
+    return [
+        request
+        for call in endpoint[2].post.call_args_list
+        for request in call.kwargs["json"]["requests"]
+    ]
+
+
+def task_payload(task):
+    return json.loads(base64.b64decode(task["httpRequest"]["body"]))
+
+
+@pytest.mark.parametrize("modes", [None, ["IW"], ["EW", "IW", "SM", "IW"]])
+def test_eodag_passes_spatial_dates_and_modes_to_geodes(
+    monkeypatch,
+    modes,
+):
+    search = MagicMock(return_value=(2, ["S1A_IW_GRDH_ocean"]))
+    monkeypatch.setattr(geodes_catalog, "search_catalog", search)
+    geometry = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": mapping(box(-20, -20, 20, 20)),
+                "properties": {},
+            }
+        ],
+    }
+    request = {
+        "start": "2022-01-01T00:00:00Z",
+        "end": "2022-01-02",
+        "geometry": geometry,
+    }
+    if modes is not None:
+        request["modes"] = modes
+    historical.validate_request(request)
+    assert historical.handle_search(request, ocean_poly=box(-1, -1, 3, 3)) == (
+        2,
+        ["S1A_IW_GRDH_ocean"],
+    )
+    criteria = search.call_args.args[0]
+    assert criteria["start"] == request["start"]
+    assert criteria["end"] == request["end"]
+    assert criteria["productType"] == "S1_SAR_GRD"
+    assert json.loads(criteria["polarizationMode"]) == ["VV", "VV VH"]
+    assert criteria["geom"].startswith("MULTIPOLYGON")
+    if modes is None:
+        assert "sensorMode" not in criteria
+    else:
+        assert json.loads(criteria["sensorMode"]) == list(dict.fromkeys(modes))
+
+
+@pytest.fixture
+def endpoint(monkeypatch):
+    monkeypatch.delenv("HISTORICAL_BATCH_WORKERS", raising=False)
+    for key, value in {
+        "API_KEY": "test-key",
+        "GCPPROJECT": "project",
+        "GCPREGION": "region",
+        "HISTORICAL_RUN_STAGE": "test",
+        "QUEUE": "orchestrator",
+        "FUNCTIONNAME": "historical",
+        "ORCHESTRATOR_URL": "https://orchestrator.example/base/",
+        "IS_DRY_RUN": "true",
+    }.items():
+        monkeypatch.setenv(key, value)
+    batch = AsyncMock(return_value={"id": 42})
+    monkeypatch.setattr(historical, "add_trigger_row", batch)
+    monkeypatch.setattr(
+        historical, "get_processed_scene_ids", AsyncMock(return_value=set())
+    )
+    session = MagicMock(spec=historical.AuthorizedSession)
+    session.__enter__.return_value = session
+
+    def create_batch(url, **kwargs):
+        return operation_response(
+            {
+                "name": OPERATION_NAME,
+                "done": True,
+                "response": {
+                    "tasks": [
+                        {"name": f"{request['parent']}/tasks/{index}"}
+                        for index, request in enumerate(kwargs["json"]["requests"])
+                    ]
+                },
+            }
+        )
+
+    session.post.side_effect = create_batch
+    session.get.side_effect = AssertionError("unexpected operation polling")
+    monkeypatch.setattr(
+        historical.google.auth, "default", MagicMock(return_value=(object(), "project"))
+    )
+    monkeypatch.setattr(
+        historical, "AuthorizedSession", MagicMock(return_value=session)
+    )
+    app = Flask(__name__)
+    app.add_url_rule("/", view_func=lambda: historical.main(request), methods=["POST"])
+    return app.test_client(), batch, session
+
+
+def post(endpoint, payload):
+    return endpoint[0].post(
+        "/", json=payload, headers={"Authorization": "Bearer test-key"}
+    )
+
+
+def test_explicit_inventory_deduplicates_without_batch_or_queue(endpoint):
+    response = post(
+        endpoint, {"action": "list", "scene_ids": ["first", " first ", "second"]}
+    )
+    assert response.status_code == 200
+    assert response.json == {
+        "scene_count": 3,
+        "filtered_scene_count": 2,
+        "already_processed_scene_count": 0,
+        "scene_ids": ["first", "second"],
+    }
+    endpoint[1].assert_not_called()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "setting,override,expected",
+    [
+        ("true", None, True),
+        ("false", None, True),
+        ("", None, True),
+        ("true", False, False),
+        ("", True, True),
+    ],
+)
+def test_batch_tracking_queue_and_dry_run_defaults_or_overrides(
+    endpoint, monkeypatch, setting, override, expected
+):
+    monkeypatch.setenv("IS_DRY_RUN", setting)
+    payload = {"scene_ids": ["first", "first", "second"], "manual_trigger": True}
+    if override is not None:
+        payload["dry_run"] = override
+    response = post(endpoint, payload)
+    assert response.status_code == 200
+    assert response.json == {
+        "scene_count": 3,
+        "filtered_scene_count": 2,
+        "already_processed_scene_count": 0,
+        "queued_count": 2,
+        "trigger_id": 42,
+        "dry_run": expected,
+    }
+    batch = endpoint[1]
+    batch.assert_awaited_once()
+    assert batch.call_args.args == (3, 2)
+    assert "cloud_function" in batch.call_args.kwargs["logs_url"]
+    session = endpoint[2]
+    session.post.assert_called_once()
+    call = session.post.call_args
+    assert call.args == (
+        f"{historical.CLOUD_TASKS_API}/{QUEUE_PATH}/tasks:batchCreate",
+    )
+    assert (
+        str(uuid.UUID(call.kwargs["json"]["requestId"]))
+        == call.kwargs["json"]["requestId"]
+    )
+    historical.google.auth.default.assert_called_once_with(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    for queued_request, scene in zip(queued_requests(endpoint), ["first", "second"]):
+        assert queued_request["parent"] == QUEUE_PATH
+        task = queued_request["task"]
+        assert task["dispatchDeadline"] == "1800s"
+        assert task["httpRequest"]["httpMethod"] == "POST"
+        assert (
+            task["httpRequest"]["url"]
+            == "https://orchestrator.example/base/orchestrate"
+        )
+        assert task["httpRequest"]["headers"]["Authorization"] == "Bearer test-key"
+        assert task_payload(task) == {
+            "scene_id": scene,
+            "trigger": 42,
+            "dry_run": expected,
+            "manual_trigger": True,
+        }
+
+
+def test_default_submission_does_not_force_manual_source_association_names(endpoint):
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 200
+    task = queued_requests(endpoint)[0]["task"]
+    assert "manual_trigger" not in task_payload(task)
+
+
+def test_queue_defaults_to_dry_run_even_when_legacy_setting_is_false(
+    endpoint, monkeypatch
+):
+    monkeypatch.setenv("IS_DRY_RUN", "false")
+    assert (
+        historical.handler_queue(
+            ["scene"],
+            42,
+            session=endpoint[2],
+            queue_name="orchestrator-backlog-test",
+            batch_number=1,
+        )
+        == 1
+    )
+    assert task_payload(queued_requests(endpoint)[0]["task"])["dry_run"] is True
+
+
+@pytest.mark.parametrize("entrypoint", ["http", "local"])
+@pytest.mark.parametrize("stage", ["test", "staging", "prod20240903"])
+def test_historical_submissions_only_use_the_stage_queue(
+    endpoint, monkeypatch, entrypoint, stage
+):
+    monkeypatch.setenv("HISTORICAL_RUN_STAGE", stage)
+    monkeypatch.setenv("ORCHESTRATOR_URL", f"https://{stage}.example")
+    payload = {
+        "scene_ids": ["scene"],
+        "dry_run": True,
+        "stage": "other-stage",
+        "queue": "live-queue",
+    }
+    for key in ("QUEUE", "HISTORICAL_QUEUE"):
+        monkeypatch.setenv(key, "live-queue")
+        payload[key] = "live-queue"
+    if entrypoint == "http":
+        response = post(endpoint, payload)
+        assert response.status_code == 200
+        summary = response.json
+    else:
+        summary = asyncio.run(historical.run_historical(payload))
+    assert summary["queued_count"] == 1
+    endpoint[2].post.assert_called_once()
+    queue_path = (
+        f"projects/project/locations/region/queues/orchestrator-backlog-{stage}"
+    )
+    assert endpoint[2].post.call_args.args == (
+        f"{historical.CLOUD_TASKS_API}/{queue_path}/tasks:batchCreate",
+    )
+    queued = queued_requests(endpoint)[0]
+    assert queued["parent"] == queue_path
+    assert (
+        queued["task"]["httpRequest"]["url"] == f"https://{stage}.example/orchestrate"
+    )
+
+
+def test_missing_stage_queue_does_not_fall_back(endpoint, monkeypatch):
+    monkeypatch.setenv("QUEUE", "cerulean-cloud-test-queue-cr-orchestrator-live")
+    endpoint[2].post.side_effect = None
+    endpoint[2].post.return_value = operation_response(
+        {"error": "queue not found"}, status=404
+    )
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    endpoint[2].post.assert_called_once()
+    assert queued_requests(endpoint)[0]["parent"] == QUEUE_PATH
+
+
+def test_missing_stage_configuration_stops_before_trigger_or_queue(
+    endpoint, monkeypatch
+):
+    monkeypatch.delenv("HISTORICAL_RUN_STAGE")
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+    assert post(endpoint, {"action": "list", "scene_ids": ["scene"]}).status_code == 200
+
+
+@pytest.mark.parametrize("scene_count", [0, 1, 100, 101, 250])
+def test_submission_chunks_scenes_without_losing_or_repeating_them(
+    endpoint, scene_count
+):
+    scenes = [f"scene-{index}" for index in range(scene_count)]
+    response = post(endpoint, {"scene_ids": scenes})
+    assert response.status_code == 200
+    assert response.json["queued_count"] == scene_count
+    batches = [call.kwargs["json"] for call in endpoint[2].post.call_args_list]
+    batches.sort(
+        key=lambda batch: int(
+            task_payload(batch["requests"][0]["task"])["scene_id"].split("-")[1]
+        )
+    )
+    assert [len(batch["requests"]) for batch in batches] == [
+        min(100, scene_count - start) for start in range(0, scene_count, 100)
+    ]
+    assert len({batch["requestId"] for batch in batches}) == len(batches)
+    assert [
+        task_payload(request["task"])["scene_id"]
+        for batch in batches
+        for request in batch["requests"]
+    ] == scenes
+    if not scenes:
+        historical.google.auth.default.assert_not_called()
+        historical.AuthorizedSession.assert_not_called()
+
+
+def test_submission_waits_for_operation_without_resubmitting(endpoint, monkeypatch):
+    session = endpoint[2]
+    running = {"name": OPERATION_NAME}
+    session.post.side_effect = [operation_response(running)]
+    session.get.side_effect = [
+        operation_response(running),
+        operation_response(
+            {
+                "name": OPERATION_NAME,
+                "done": True,
+                "response": {"tasks": [{"name": "task"}]},
+            }
+        ),
+    ]
+    monkeypatch.setattr(historical.time, "sleep", MagicMock())
+    response = post(endpoint, {"scene_ids": ["scene"]})
+    assert response.status_code == 200
+    assert response.json["queued_count"] == 1
+    session.post.assert_called_once()
+    assert session.get.call_count == 2
+    for call in session.get.call_args_list:
+        assert call.args == (f"{historical.CLOUD_TASKS_API}/{OPERATION_NAME}",)
+        assert 0 < call.kwargs["timeout"] <= 30
+
+
+@pytest.mark.parametrize("failure", ["http", "operation", "unconfirmed"])
+def test_unsuccessful_batch_is_not_reported_as_queued(endpoint, failure):
+    body = {"name": OPERATION_NAME, "done": True}
+    if failure == "operation":
+        body["error"] = {"code": 13, "message": "Internal error"}
+    endpoint[2].post.side_effect = [
+        operation_response(body, 403 if failure == "http" else 200)
+    ]
+    response = post(endpoint, {"scene_ids": ["scene"]})
+    assert response.status_code == 500
+    endpoint[2].post.assert_called_once()
+
+
+def test_partial_batch_stops_later_batches_and_logs_confirmed_count(
+    endpoint, caplog, monkeypatch
+):
+    monkeypatch.setenv("HISTORICAL_BATCH_WORKERS", "1")
+    session = endpoint[2]
+    create_batch = session.post.side_effect
+
+    def partial_second_batch(url, **kwargs):
+        if session.post.call_count == 1:
+            return create_batch(url, **kwargs)
+        return operation_response(
+            {
+                "name": OPERATION_NAME,
+                "done": True,
+                "metadata": {
+                    "state": "PARTIALLY_SUCCEEDED",
+                    "failedRequests": {"0": {"code": 8, "message": "quota exhausted"}},
+                },
+                "response": {
+                    "tasks": [{"name": f"task-{index}"} for index in range(99)]
+                },
+            }
+        )
+
+    session.post.side_effect = partial_second_batch
+    response = post(endpoint, {"scene_ids": [f"scene-{index}" for index in range(201)]})
+    assert response.status_code == 500
+    assert session.post.call_count == 2
+    assert OPERATION_NAME in caplog.text
+    assert "99/100 tasks confirmed in this batch" in caplog.text
+    assert "batch 2" in caplog.text
+    assert "quota exhausted" in caplog.text
+    assert "test-key" not in caplog.text
+
+
+def test_batchcreate_opens_32_operations_concurrently_and_reuses_workers(endpoint):
+    session = endpoint[2]
+    create_batch = session.post.side_effect
+    barrier = Barrier(32, timeout=10)
+
+    def start_operation(url, **kwargs):
+        requests = kwargs["json"]["requests"]
+        if len(requests) == 100:
+            barrier.wait()
+        return create_batch(url, **kwargs)
+
+    session.post.side_effect = start_operation
+    scenes = [f"scene-{i}" for i in range(3201)]
+    response = post(endpoint, {"scene_ids": scenes})
+    assert response.status_code == 200
+    assert response.json["queued_count"] == len(scenes)
+    assert session.post.call_count == 33
+    assert historical.AuthorizedSession.call_count == 32
+    assert sorted(
+        task_payload(request["task"])["scene_id"]
+        for request in queued_requests(endpoint)
+    ) == sorted(scenes)
+
+
+@pytest.mark.asyncio
+async def test_parallel_submission_limits_history_checks_to_four(endpoint):
+    active = peak = 0
+
+    async def processed(scenes):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return set(scenes)
+
+    historical.get_processed_scene_ids.side_effect = processed
+    results = await historical.enqueue_batches(
+        [f"scene-{i}" for i in range(600)],
+        42,
+        queue_name="orchestrator-backlog-test",
+        recheck_history=True,
+    )
+    assert peak == 4
+    assert sum(batch["already_processed_scene_count"] for batch in results) == 600
+    historical.AuthorizedSession.assert_not_called()
+
+
+def test_parallel_batch_failure_drains_inflight_without_launching_more(
+    endpoint, monkeypatch, capsys
+):
+    monkeypatch.setenv("HISTORICAL_BATCH_WORKERS", "2")
+    session = endpoint[2]
+    create_batch = session.post.side_effect
+    started = Barrier(2, timeout=5)
+    failed = Event()
+
+    def log(message, **kwargs):
+        print(message, **kwargs)
+        if message.startswith("Batch 2 failed"):
+            failed.set()
+
+    def submit(url, **kwargs):
+        scene = task_payload(kwargs["json"]["requests"][0]["task"])["scene_id"]
+        assert scene in ("scene-0", "scene-100")
+        started.wait()
+        if scene == "scene-100":
+            return operation_response({}, status=503)
+        assert failed.wait(timeout=5)
+        return create_batch(url, **kwargs)
+
+    monkeypatch.setattr(historical, "print", log, raising=False)
+    session.post.side_effect = submit
+    response = post(endpoint, {"scene_ids": [f"scene-{i}" for i in range(301)]})
+    assert response.status_code == 500
+    assert session.post.call_count == 2
+    output = capsys.readouterr().out
+    assert "Batch 1 confirmed:" in output
+    assert "Batch 2 failed" in output
+    assert "Batch 3 confirmed:" not in output
+
+
+def test_operation_polling_http_failure_is_not_reported_as_success(
+    endpoint, monkeypatch
+):
+    endpoint[2].post.side_effect = [operation_response({"name": OPERATION_NAME})]
+    endpoint[2].get.side_effect = [operation_response({}, 503)]
+    monkeypatch.setattr(historical.time, "sleep", MagicMock())
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    endpoint[2].post.assert_called_once()
+    endpoint[2].get.assert_called_once()
+
+
+def test_operation_polling_stops_at_enqueue_deadline(endpoint, monkeypatch, caplog):
+    clock = SimpleNamespace(now=0)
+    monkeypatch.setattr(historical, "ENQUEUE_TIMEOUT_SECONDS", 2)
+    monkeypatch.setattr(historical.time, "monotonic", lambda: clock.now)
+    monkeypatch.setattr(
+        historical.time,
+        "sleep",
+        lambda seconds: setattr(clock, "now", clock.now + seconds),
+    )
+    endpoint[2].post.side_effect = [operation_response({"name": OPERATION_NAME})]
+    endpoint[2].get.side_effect = lambda *args, **kwargs: operation_response(
+        {"name": OPERATION_NAME}
+    )
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    assert clock.now == 2
+    endpoint[2].post.assert_called_once()
+    endpoint[2].get.assert_called_once()
+    assert "batchCreate timed out" in caplog.text
+
+
+def test_discovery_time_counts_toward_enqueue_deadline(endpoint, monkeypatch):
+    clock = SimpleNamespace(now=0)
+    monkeypatch.setattr(historical.time, "monotonic", lambda: clock.now)
+
+    def slow_search(payload):
+        clock.now = historical.ENQUEUE_TIMEOUT_SECONDS + 1
+        return 1, ["scene"]
+
+    monkeypatch.setattr(historical, "handle_search", slow_search)
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        [],
+        {},
+        {"scene_ids": "scene"},
+        {"scene_ids": [""]},
+        {"scene_ids": [None]},
+        {"scene_ids": [], "start": "2025-01-01"},
+        {"scene_ids": [], "source": "s3"},
+        {"scene_ids": [], "modes": ["IW"]},
+        {"scene_ids": [], "dry_run": "false"},
+        {"scene_ids": [], "manual_trigger": 1},
+        {"scene_ids": [], "action": []},
+        {"source": []},
+        {"source": "s3", "start": "2025-01-02", "end": "2025-01-01"},
+        {"source": "s3", "start": "2025-01-01", "end": "2025-01-02", "geometry": {}},
+        {"source": "s3", "start": "2025-01-01", "end": "2025-01-02", "modes": "IW"},
+        {"start": "2025-01-01", "end": "2025-01-02", "geometry": []},
+    ],
+)
+def test_invalid_requests_fail_before_discovery_or_side_effects(
+    endpoint, monkeypatch, payload
+):
+    search = MagicMock(side_effect=AssertionError("must not search"))
+    monkeypatch.setattr(historical, "handle_search", search)
+    assert post(endpoint, payload).status_code == 400
+    search.assert_not_called()
+    endpoint[1].assert_not_called()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.parametrize("geometry", [{}, {"geometry": None}])
+def test_global_preview_accepts_missing_or_null_geometry(
+    endpoint, monkeypatch, geometry
+):
+    search = MagicMock(return_value=(0, []))
+    monkeypatch.setattr(historical, "handle_search", search)
+    response = post(
+        endpoint,
+        {
+            "start": "2025-01-01",
+            "end": "2025-01-02",
+            "action": "list",
+            **geometry,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json["scene_ids"] == []
+    search.assert_called_once()
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.parametrize("modes", [[], "IW", None, ["WV"], ["iw"], [None], [{}]])
+def test_invalid_modes_fail_before_discovery_or_side_effects(
+    endpoint, monkeypatch, modes
+):
+    search = MagicMock(side_effect=AssertionError("must not discover"))
+    monkeypatch.setattr(historical, "handle_search", search)
+    response = post(
+        endpoint,
+        {
+            "start": "2025-01-01",
+            "end": "2025-01-02",
+            "geometry": {},
+            "modes": modes,
+        },
+    )
+    assert response.status_code == 400
+    assert "modes must be a nonempty list" in response.get_data(as_text=True)
+    search.assert_not_called()
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "authorization", ["", " ", "Bearer", "Bearer wrong", "Basic test-key"]
+)
+def test_bad_authentication_returns_401(endpoint, authorization):
+    response = endpoint[0].post(
+        "/", json={"scene_ids": []}, headers={"Authorization": authorization}
+    )
+    assert response.status_code == 401
+    endpoint[1].assert_not_called()
+
+
+def test_discovery_failure_does_not_create_batch_or_tasks(endpoint, monkeypatch):
+    monkeypatch.setattr(
+        historical,
+        "handle_search",
+        MagicMock(side_effect=RuntimeError("listing failed")),
+    )
+    assert post(endpoint, {"scene_ids": []}).status_code == 500
+    endpoint[1].assert_not_called()
+    endpoint[2].post.assert_not_called()
+
+
+def test_queue_failure_is_not_reported_as_success(endpoint):
+    endpoint[2].post.side_effect = RuntimeError("queue failed")
+    assert post(endpoint, {"scene_ids": ["scene"]}).status_code == 500
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", [False, True])
+async def test_trigger_connection_is_closed_on_success_and_failure(monkeypatch, fail):
+    connection = AsyncMock()
+    connection.fetchrow.return_value = {"id": 42}
+    if fail:
+        connection.fetchrow.side_effect = RuntimeError("insert failed")
+    monkeypatch.setattr(
+        historical.asyncpg, "connect", AsyncMock(return_value=connection)
+    )
+    if fail:
+        with pytest.raises(RuntimeError, match="insert failed"):
+            await historical.add_trigger_row(3, 2, "logs")
+    else:
+        assert await historical.add_trigger_row(3, 2, "logs") == {"id": 42}
+        assert connection.fetchrow.call_args.args[1:] == (
+            3,
+            2,
+            "logs",
+            "HISTORICAL_RUN",
+        )
+    connection.close.assert_awaited_once()
+
+
+@pytest.mark.parametrize("source", ["explicit", "eodag"])
+@pytest.mark.parametrize("action", ["list", "enqueue"])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_processed_scenes_are_excluded_from_every_request_path(
+    endpoint, monkeypatch, source, action, dry_run
+):
+    scenes = ["new", "completed", "failed", "completed", "unfinished"]
+    if source == "explicit":
+        payload = {"scene_ids": scenes}
+    else:
+        monkeypatch.setattr(historical, "handle_search", lambda _: (5, scenes))
+        payload = {"source": source, "start": "2025-01-01", "end": "2025-01-02"}
+        payload["geometry"] = {"type": "FeatureCollection", "features": []}
+    historical.get_processed_scene_ids.return_value = {"completed"}
+    response = post(endpoint, {**payload, "action": action, "dry_run": dry_run})
+    assert response.status_code == 200
+    assert response.json["scene_count"] == 5
+    assert response.json["already_processed_scene_count"] == 1
+    assert response.json["filtered_scene_count"] == 3
+    historical.get_processed_scene_ids.assert_awaited_once_with(
+        ["new", "completed", "failed", "unfinished"]
+    )
+    expected = ["new", "failed", "unfinished"]
+    if action == "list":
+        assert response.json["scene_ids"] == expected
+        endpoint[1].assert_not_called()
+        endpoint[2].post.assert_not_called()
+    else:
+        assert response.json["queued_count"] == 3
+        assert endpoint[1].call_args.args == (5, 3)
+        assert [
+            task_payload(request["task"])["scene_id"]
+            for request in queued_requests(endpoint)
+        ] == expected
+
+
+def test_all_scenes_already_processed_creates_no_tasks(endpoint):
+    historical.get_processed_scene_ids.return_value = {"completed"}
+    response = post(endpoint, {"scene_ids": ["completed", "completed"]})
+    assert response.status_code == 200
+    assert response.json["already_processed_scene_count"] == 1
+    assert response.json["filtered_scene_count"] == response.json["queued_count"] == 0
+    assert endpoint[1].call_args.args == (2, 0)
+    endpoint[2].post.assert_not_called()
+    historical.google.auth.default.assert_not_called()
+
+
+@pytest.mark.parametrize("action", ["list", "enqueue"])
+def test_overwrite_bypasses_history_and_still_deduplicates(endpoint, action):
+    lookup = historical.get_processed_scene_ids
+    lookup.side_effect = AssertionError("overwrite must skip the history lookup")
+    response = post(
+        endpoint,
+        {
+            "scene_ids": ["completed", "new", "completed"],
+            "action": action,
+            "overwrite": True,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json["already_processed_scene_count"] == 0
+    assert response.json["filtered_scene_count"] == 2
+    lookup.assert_not_awaited()
+    if action == "list":
+        assert response.json["scene_ids"] == ["completed", "new"]
+        endpoint[1].assert_not_awaited()
+        endpoint[2].post.assert_not_called()
+    else:
+        assert response.json["queued_count"] == 2
+        endpoint[1].assert_awaited_once()
+        assert [
+            task_payload(request["task"])["scene_id"]
+            for request in queued_requests(endpoint)
+        ] == ["completed", "new"]
+
+
+def test_overwrite_requires_json_boolean(endpoint):
+    response = post(endpoint, {"scene_ids": ["scene"], "overwrite": "true"})
+    assert response.status_code == 400
+    assert b"overwrite must be a boolean" in response.data
+    historical.get_processed_scene_ids.assert_not_awaited()
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_local_runner_uses_db_exclusion_tracking_and_queue_without_http(
+    endpoint, monkeypatch
+):
+    monkeypatch.setattr(
+        historical,
+        "verify_api_key",
+        MagicMock(side_effect=AssertionError("no HTTP request")),
+    )
+    monkeypatch.setattr(
+        historical,
+        "make_cloud_function_logs_url",
+        MagicMock(side_effect=AssertionError("no cloud function logs for local runs")),
+    )
+    historical.get_processed_scene_ids.return_value = {"completed"}
+    result = await historical.run_historical(
+        {
+            "scene_ids": ["new", "completed", "new"],
+            "dry_run": False,
+            "manual_trigger": True,
+        }
+    )
+    assert result == {
+        "scene_count": 3,
+        "filtered_scene_count": 1,
+        "already_processed_scene_count": 1,
+        "trigger_id": 42,
+        "queued_count": 1,
+        "dry_run": False,
+    }
+    endpoint[1].assert_awaited_once_with(3, 1, logs_url="")
+    assert task_payload(queued_requests(endpoint)[0]["task"]) == {
+        "scene_id": "new",
+        "trigger": 42,
+        "dry_run": False,
+        "manual_trigger": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_local_discovery_does_not_consume_queue_submission_budget(
+    endpoint, monkeypatch
+):
+    clock = SimpleNamespace(now=0)
+    monkeypatch.setattr(historical.time, "monotonic", lambda: clock.now)
+
+    def slow_search(payload):
+        clock.now = historical.ENQUEUE_TIMEOUT_SECONDS + 1
+        return 1, ["scene"]
+
+    monkeypatch.setattr(historical, "handle_search", slow_search)
+    result = await historical.run_historical({"scene_ids": ["scene"]})
+    assert result["queued_count"] == 1
+    endpoint[2].post.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_local_preview_checks_db_without_trigger_or_tasks(endpoint):
+    historical.get_processed_scene_ids.return_value = {"completed"}
+    result = await historical.run_historical(
+        {"action": "list", "scene_ids": ["new", "completed"]}
+    )
+    assert result["scene_ids"] == ["new"]
+    assert result["already_processed_scene_count"] == 1
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_local_invalid_request_stops_before_db_or_queue(endpoint):
+    with pytest.raises(ValueError, match="dry_run must be a boolean"):
+        await historical.run_historical({"scene_ids": ["scene"], "dry_run": "false"})
+    historical.get_processed_scene_ids.assert_not_awaited()
+    endpoint[1].assert_not_awaited()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.parametrize("action", ["list", "enqueue"])
+def test_processed_lookup_failure_stops_before_trigger_and_queue(endpoint, action):
+    historical.get_processed_scene_ids.side_effect = RuntimeError(
+        "database unavailable"
+    )
+    assert post(endpoint, {"scene_ids": ["scene"], "action": action}).status_code == 500
+    endpoint[1].assert_not_called()
+    endpoint[2].post.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_empty_processed_lookup_never_connects(monkeypatch):
+    connect = AsyncMock(side_effect=AssertionError("must not connect"))
+    monkeypatch.setattr(historical.asyncpg, "connect", connect)
+    assert await historical.get_processed_scene_ids([]) == set()
+    connect.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", [False, True])
+async def test_processed_lookup_closes_connection_on_success_and_failure(
+    monkeypatch, fail
+):
+    connection = AsyncMock()
+    connection.fetch.return_value = [{"scene_id": "completed"}]
+    if fail:
+        connection.fetch.side_effect = RuntimeError("lookup failed")
+    monkeypatch.setenv("DB_URL", "postgresql://test-db")
+    connect = AsyncMock(return_value=connection)
+    monkeypatch.setattr(historical.asyncpg, "connect", connect)
+    if fail:
+        with pytest.raises(RuntimeError, match="lookup failed"):
+            await historical.get_processed_scene_ids(["completed", "new"])
+    else:
+        assert await historical.get_processed_scene_ids(["completed", "new"]) == {
+            "completed"
+        }
+    connect.assert_awaited_once_with(
+        "postgresql://test-db", timeout=30, command_timeout=30
+    )
+    assert connection.fetch.call_args.args[1:] == (["completed", "new"],)
+    connection.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_processed_lookup_requires_any_successful_run(postgresql, monkeypatch):
+    # Exercise the real query on local PostgreSQL; inference output is not needed.
+    url = (
+        f"postgresql://{postgresql.info.user}@{postgresql.info.host}:"
+        f"{postgresql.info.port}/{postgresql.info.dbname}"
+    )
+    monkeypatch.setenv("DB_URL", url)
+    connection = await historical.asyncpg.connect(url)
+    try:
+        await connection.execute(
+            """
+            CREATE TABLE sentinel1_grd (id bigint PRIMARY KEY, scene_id text UNIQUE);
+            CREATE TABLE orchestrator_run (sentinel1_grd bigint, success boolean, model integer);
+            INSERT INTO sentinel1_grd VALUES
+                (1, 'completed'), (2, 'failed'), (3, 'unfinished'),
+                (4, 'metadata-only'), (5, 'unrequested');
+            INSERT INTO orchestrator_run VALUES
+                (1, TRUE, 1), (1, TRUE, 2), (1, FALSE, 2), (1, NULL, 2),
+                (2, FALSE, 1), (3, NULL, 1), (5, TRUE, 1);
+            """
+        )
+        assert await historical.get_processed_scene_ids(
+            ["new", "completed", "failed", "unfinished", "metadata-only", "completed"]
+        ) == {"completed"}
+    finally:
+        await connection.close()

@@ -1,6 +1,8 @@
-"""cloud function to select appropriate scenes (over water and IW) from SNS notification"""
+"""Historical scene discovery and the stack's dedicated Cloud Tasks queue."""
 
+import sys
 import time
+from pathlib import Path
 
 import cloud_function_scene_relevancy
 import cloud_run_orchestrator
@@ -9,24 +11,51 @@ import pulumi
 from pulumi_gcp import (
     cloudfunctionsv2,
     cloudrun,
+    cloudtasks,
     storage,
 )
 from utils import construct_name, pulumi_create_zip
 from vpc_connector import vpc_connector
 
+# Pulumi starts this program in stack/, while the queue name is shared with the runner.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from cerulean_cloud.cloud_function_historical_run.queues import (  # noqa: E402
+    historical_queue_name,
+)
+
 stack = pulumi.get_stack()
+gcp_config = pulumi.Config("gcp")
+queue = cloudtasks.Queue(
+    construct_name("queue-cr-orchestrator-historical"),
+    name=historical_queue_name(stack),
+    project=gcp_config.require("project"),
+    location=gcp_config.require("region"),
+    rate_limits=cloudtasks.QueueRateLimitsArgs(
+        max_concurrent_dispatches=30,
+        max_dispatches_per_second=1,
+    ),
+    retry_config=cloudtasks.QueueRetryConfigArgs(
+        max_attempts=3,
+        max_backoff="300s",
+        max_doublings=1,
+        max_retry_duration="4s",
+        min_backoff="60s",
+    ),
+    stackdriver_logging_config=cloudtasks.QueueStackdriverLoggingConfigArgs(
+        sampling_ratio=0.9,
+    ),
+)
 
 function_name = construct_name("cf-historical-run")
 config_values = {
     "DB_URL": database.sql_instance_url_with_ip,
-    "GCPPROJECT": pulumi.Config("gcp").require("project"),
-    "GCPREGION": pulumi.Config("gcp").require("region"),
-    "QUEUE": cloud_function_scene_relevancy.queue.name,
+    "GCPPROJECT": gcp_config.require("project"),
+    "GCPREGION": gcp_config.require("region"),
+    "HISTORICAL_RUN_STAGE": stack,
     "ORCHESTRATOR_URL": cloud_run_orchestrator.default.statuses[0].url,
     "FUNCTIONNAME": function_name,
     "SCIHUB_USERNAME": pulumi.Config("scihub").require("username"),
     "SCIHUB_PASSWORD": pulumi.Config("scihub").require("password"),
-    "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_historical"),
 }
 
 # The Cloud Function source code itself needs to be zipped up into an
@@ -70,14 +99,18 @@ fxn = cloudfunctionsv2.Function(
         },
     },
     service_config={
+        "available_memory": "512Mi",
         "environment_variables": config_values,
-        "timeout_seconds": 500,
+        "timeout_seconds": 1800,
         "service_account_email": cloud_function_scene_relevancy.cloud_function_service_account.email,
         "secret_environment_variables": [apikey],
         "vpc_connector": vpc_connector.id,
     },
     opts=pulumi.ResourceOptions(
-        depends_on=[cloud_function_scene_relevancy.cloud_function_service_account_iam],
+        depends_on=[
+            queue,
+            cloud_function_scene_relevancy.cloud_function_service_account_iam,
+        ],
     ),
 )
 

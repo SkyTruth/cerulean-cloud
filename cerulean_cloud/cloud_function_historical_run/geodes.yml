@@ -1,0 +1,40 @@
+# Metadata-only GEODES integration using EODAG 2.5 to format STAC requests.
+# API: https://geodes.cnes.fr/support/api/
+geodes:
+  priority: 2
+  url: https://geodes.cnes.fr
+  search:
+    type: GeodesPageSearch
+    api_endpoint: https://geodes-portal.cnes.fr/api/stac/items
+    need_auth: false
+    pagination:
+      max_items_per_page: 80
+      next_page_query_obj: '{{"limit":{items_per_page},"page":{page},"sortBy":[{{"field":"start_datetime","direction":"asc"}},{{"field":"identifier","direction":"asc"}}]}}'
+      # GEODES next links use a separate pagination endpoint; repeat the query
+      # with an explicit page instead so each page retains the original filters.
+      next_page_url_key_path: null
+      next_page_query_obj_key_path: null
+      next_page_merge_key_path: null
+    metadata_mapping:
+      productType:
+        - '{{"query":{{"dataset":{{"in":["PEPS_S1_L1"]}},"product:type":{{"in":["{productType}"]}}}}}}'
+        - '$.properties."product:type"'
+      polarizationMode:
+        - '{{"query":{{"sar:polarizations":{{"in":{polarizationMode}}}}}}}'
+        - '$.properties."sar:polarizations"'
+      sensorMode:
+        - '{{"query":{{"sar:instrument_mode":{{"in":{sensorMode}}}}}}}'
+        - '$.properties."sar:instrument_mode"'
+      startTimeFromAscendingNode:
+        - '{{"query":{{"start_datetime":{{"gte":"{startTimeFromAscendingNode#to_iso_utc_datetime}"}}}}}}'
+        - '$.properties.start_datetime'
+      completionTimeFromAscendingNode:
+        - '{{"query":{{"start_datetime":{{"lte":"{completionTimeFromAscendingNode#to_iso_utc_datetime}"}}}}}}'
+        - '$.properties.end_datetime'
+  # EODAG expects a download plugin in the provider configuration.
+  download:
+    type: HTTPDownload
+    base_uri: https://geodes-portal.cnes.fr
+  products:
+    S1_SAR_GRD:
+      productType: GRD

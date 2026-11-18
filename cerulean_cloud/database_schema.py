@@ -362,6 +362,9 @@ class Trigger(Base):
     scene_count: Mapped[Optional[int]] = mapped_column(Integer)
     filtered_scene_count: Mapped[Optional[int]] = mapped_column(Integer)
 
+    historical_run: Mapped[list["HistoricalRun"]] = relationship(
+        "HistoricalRun", back_populates="trigger_"
+    )
     orchestrator_run: Mapped[list["OrchestratorRun"]] = relationship(
         "OrchestratorRun", back_populates="trigger_"
     )
@@ -686,6 +689,44 @@ class FrequencyI18n(Base):
     )
     users: Mapped[Optional["Users"]] = relationship(
         "Users", back_populates="frequency_i18n"
+    )
+
+
+class HistoricalRun(Base):
+    __tablename__ = "historical_run"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["trigger"], ["trigger.id"], name="historical_run_trigger_fkey"
+        ),
+        PrimaryKeyConstraint("id", name="historical_run_pkey"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    trigger: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    cli_command: Mapped[str] = mapped_column(Text, nullable=False)
+    date_start: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    date_end: Mapped[datetime.date] = mapped_column(Date, nullable=False)
+    dry_run: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    submission_start_time: Mapped[datetime.datetime] = mapped_column(
+        DateTime(True), nullable=False
+    )
+    geometry: Mapped[Optional[Any]] = mapped_column(
+        Geography(
+            "MULTIPOLYGON", 4326, 2, from_text="ST_GeogFromText", name="geography"
+        )
+    )
+    eodag_count: Mapped[Optional[int]] = mapped_column(Integer)
+    queued_task_count: Mapped[Optional[int]] = mapped_column(Integer)
+    submission_end_time: Mapped[Optional[datetime.datetime]] = mapped_column(
+        DateTime(True)
+    )
+    git_hash: Mapped[Optional[str]] = mapped_column(Text)
+    git_tag: Mapped[Optional[str]] = mapped_column(Text)
+    submission_success: Mapped[Optional[bool]] = mapped_column(Boolean)
+    submission_error: Mapped[Optional[str]] = mapped_column(Text)
+
+    trigger_: Mapped["Trigger"] = relationship(
+        "Trigger", back_populates="historical_run"
     )
 
 

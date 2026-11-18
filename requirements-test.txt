@@ -4,6 +4,8 @@ black
 isort
 pytest-httpx
 pytest-asyncio
-pytest-postgresql
+# Version 4.1.1 fails to initialize PostgreSQL fixtures with pytest 9.
+pytest-postgresql==9.1.0
+psycopg[binary]>=3,<4
 asyncpg
 google-cloud-tasks

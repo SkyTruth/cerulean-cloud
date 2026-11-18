@@ -499,9 +499,32 @@ def upgrade() -> None:
         "uq_hitl_request_slick_user", "hitl_request", ["slick", "user"]
     )
 
+    op.create_table(
+        "historical_run",
+        sa.Column("id", sa.BigInteger, primary_key=True),
+        sa.Column(
+            "trigger", sa.BigInteger, sa.ForeignKey("trigger.id"), nullable=False
+        ),
+        sa.Column("cli_command", sa.Text, nullable=False),
+        sa.Column("date_start", sa.Date, nullable=False),
+        sa.Column("date_end", sa.Date, nullable=False),
+        sa.Column("geometry", Geography("MULTIPOLYGON")),
+        sa.Column("dry_run", sa.Boolean, nullable=False),
+        sa.Column("eodag_count", sa.Integer),
+        sa.Column("queued_task_count", sa.Integer),
+        sa.Column("submission_start_time", sa.DateTime(timezone=True), nullable=False),
+        # NULL until the submission attempt ends, so an interrupted run stays visible.
+        sa.Column("submission_end_time", sa.DateTime(timezone=True)),
+        sa.Column("git_hash", sa.Text),
+        sa.Column("git_tag", sa.Text),
+        sa.Column("submission_success", sa.Boolean),
+        sa.Column("submission_error", sa.Text),
+    )
+
 
 def downgrade() -> None:
     """drop tables"""
+    op.drop_table("historical_run")
     op.drop_constraint("uq_hitl_request_slick_user", "hitl_request", type_="unique")
     op.drop_table("hitl_request")
     op.drop_table("hitl_slick")

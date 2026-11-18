@@ -44,10 +44,20 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-test.txt
           python -m pip install -r requirements.txt
+          python -m pip install -r cerulean_cloud/cloud_function_historical_run/requirements.txt
           python -m pip install -r cerulean_cloud/cloud_run_infer/requirements.txt
           python -m pip install -r cerulean_cloud/cloud_run_orchestrator/requirements.txt
           python -m pip install -r cerulean_cloud/cloud_run_tipg/requirements.txt
           python -m pip install -r cerulean_cloud/titiler_sentinel/requirements.txt
+
+      - name: Install PostGIS for PostgreSQL tests
+        run: |
+          postgres_version="$(pg_config --version)"
+          postgres_version="${postgres_version#PostgreSQL }"
+          postgres_major="${postgres_version%%.*}"
+          sudo apt-get update
+          sudo apt-get install -y "postgresql-${postgres_major}-postgis-3"
+          test -f "$(pg_config --sharedir)/extension/postgis.control"
 
       - name: Run pytest
         run: python -m pytest --disable-pytest-warnings --deselect test/test_cerulean_cloud/test_database_client.py

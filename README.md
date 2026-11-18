@@ -126,10 +126,8 @@ pytest test/test_cerulean_cloud/test_tiling.py # run only tests in a specific mo
 pytest test/test_cerulean_cloud/test_tiling.py::test_from_base_tiles_create_infer # run only a specific test
 ```
 
-If you get an error while running tests mentioning that `psycopg` is not installed run:
-```sh
-pip install "psycopg[binary]"
-```
+The PostgreSQL fixtures use Psycopg 3, which is included in `requirements-test.txt`.
+
 ### Pulumi
 #### Check available stages
 ```
@@ -284,13 +282,234 @@ for scene_id in SCENES:
 
 The services deployed by cerulean-cloud that DO NOT require this API key are:
 - tipg Cloud Run
-- Historical run Cloud Function
 - Scene relevancy Cloud Function
 
 
+## Historical processing and scene inventory
+
+Historical-run discovers Sentinel-1 scenes through **EODAG's GEODES catalog**.
+The `eodag` selector takes UTC start/end boundaries and an optional GeoJSON
+FeatureCollection region, searches `S1_SAR_GRD` products containing VV
+(SV `VV` or DV `VV VH`), and retains H/M-resolution scenes intersecting the ocean.
+Discovery uses the same low-resolution ocean mask as live scene relevancy, which
+excludes the Caspian Sea.
+Filtering selects whole scenes; it does not clip inference to the requested region.
+Explicit `scene_ids` or the CLI's `scenes` command accept already selected IDs,
+including CSV input.
+Omit `--geometry` for a global search, or pass `--geometry region.geojson` to
+restrict the region. HTTP requests may omit `geometry` or set it to `null`.
+Global runs store `NULL` in the backfill record's geometry column and use the
+same ocean and scene history filters as regional searches.
+Use `--mode EW --mode IW --mode SM` to select multiple acquisition modes, or
+repeat any subset of those choices. Mode values are case-insensitive in the CLI.
+Omitting `--mode` leaves acquisition mode unrestricted. HTTP requests accept a
+nonempty `modes` list, such as `["EW", "IW", "SM"]`, for EODAG discovery.
+Discovery uses the bundled `geodes.yml`, compatible with the pinned EODAG version.
+Public metadata search requires no GEODES key and does not download imagery.
+Catalog URNs are mapped to Sentinel scene names before queueing.
+Discovery splits date-range searches into seven-day windows and starts up to **32
+GEODES requests at once** across windows and pages. The first page gives the total
+for its window. The runner requests 80 products per page and reuses each worker's
+HTTP connection. Set `GEODES_PAGE_WORKERS` to an integer from 1 to 32 to lower
+concurrency when needed.
+
+The runner retries transient errors up to three attempts per page. It validates
+page sizes, consistent totals, and unique catalog records within each window before
+submitting tasks. A record on a shared date boundary is counted once. A missing
+or repeated page stops submission.
+
+Every path deduplicates IDs. By default, historical runs exclude scenes with any
+`orchestrator_run.success IS TRUE` in the selected stack's database, including in
+previews and dry runs. Failed or unfinished runs and scene metadata alone remain
+eligible. Use `--overwrite` to skip that lookup and include previously processed
+scenes for either date-range discovery or `scenes`. HTTP requests and direct runner
+calls use `"overwrite": true`. The response's `already_processed_scene_count`
+counts excluded scenes and is zero with `--overwrite` because the lookup is skipped.
+Already queued or running scenes are not atomically reserved, so inspect partial
+failures before resubmitting.
+
+The CLI defaults to EODAG discovery, so the `eodag` selector can be omitted.
+Use `scenes` for explicit IDs or a CSV; the explicit `eodag` selector also works.
+Run `python -m scripts.historical_run eodag --help` for discovery options.
+The CLI uses the deployed historical-run endpoint
+by default, with `CERULEAN_API_KEY` and either `HISTORICAL_RUN_URL`/`--url` or
+Pulumi's `historical_run_url` output for the selected `--stage` stack. Use `--local`
+to run the same Python runner directly, with database access and Cloud Tasks
+credentials. All historical submissions default to dry-run processing:
+
+| CLI option | Processing behavior |
+| --- | --- |
+| Omitted | Dry-run |
+| `--dry-run` or `--dry-run=true` | Dry-run |
+| `--dry-run=false` | Inference enabled |
+
+`--dry-run True` and `--dry-run False` also work. The previous `--no-dry-run`
+flag remains an alias for `--dry-run=false`; supplying both options is rejected.
+Dry-run submissions still create backfill records and queue tasks; the
+orchestrator stops before inference. HTTP requests and direct runner calls also
+default to `dry_run: true`; explicitly pass the JSON boolean `false` to process.
+`--list-only` returns IDs without creating triggers or tasks. Combine it with
+`--overwrite` to preview the selection without a database connection. To rerun
+inference, use `--overwrite --dry-run=false`.
+
+```bash
+# Preview a full UTC day locally through EODAG/GEODES.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
+  --date-start 2025-01-01 --date-end 2025-01-02 \
+  --list-only
+
+# Use a local Cloud SQL proxy on port 5434 with the selected stack's credentials.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
+  --db-host 127.0.0.1 --db-port 5434 \
+  --date-start 2025-01-01 --date-end 2025-01-02 \
+  --list-only
+
+# Queue a month of dry-run tasks for the selected modes (the default is dry-run).
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
+  --date-start 2025-01-01 --date-end 2025-02-01 \
+  --mode EW --mode IW --mode SM
+
+# Enable inference explicitly for a CSV with a scene_id column.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env scenes \
+  --csv notebooks/scene_ids.csv --dry-run=false --manual-trigger
+```
+
+`python scripts/historical_run.py` supports the same options. EODAG uses time
+boundaries: for a day-long search, pass that day's date and the following date.
+Polarization must include VV (SV `VV` or DV `VV VH`), independently of mode
+selection. Only high (`GRDH`) and medium (`GRDM`) resolution scenes are selected;
+full resolution (`GRDF`) is excluded. These resolution, polarization, and ocean
+filters always apply to date-range discovery.
+
+Local `--env-file` loads the notebook's `STACK_SECRETS` configuration.
+`--stage test`, `staging`, and `prod20240903` select its `TEST`, `STAGING`, and
+`PRODUCTION` entries. With `STACK_SECRETS`, project/region default to
+`cerulean-338116`/`europe-west1` (override with `GCPPROJECT`/`GCPREGION`). Pulumi
+creates one historical queue per stack and exports its name as `historical_run_queue`.
+The CLI, notebook, and deployed endpoint select the queue for their stack:
+
+| Stage | Historical queue |
+| --- | --- |
+| TEST | `orchestrator-backlog-test` |
+| STAGING | `orchestrator-backlog-staging` |
+| PROD | `orchestrator-backlog-prod20240903` |
+
+Each queue has its own dispatch limits and can be purged independently. A
+[purge](https://docs.cloud.google.com/tasks/docs/reference/rest/v2/projects.locations.queues/purge)
+applies to all historical runs in that stage's queue and can take up to a minute.
+The earlier shared `orchestrator-backlog` queue can drain tasks submitted before
+this change.
+Missing or inaccessible queues stop submission. Legacy `QUEUE` and
+`HISTORICAL_QUEUE` settings cannot redirect submissions.
+
+Alternatively, export `DB_URL`, `GCPPROJECT`, `GCPREGION`,
+`ORCHESTRATOR_URL`, and `API_KEY` directly. `HISTORICAL_DB_URL` overrides the DB URL
+for a local proxy; `postgresql+asyncpg://` URLs are normalized for asyncpg.
+With `--local`, `--db-host` and `--db-port` override only the corresponding
+connection settings, preserving the selected URL's credentials, database name,
+and other query parameters. Pass these options before the selector or search
+options. They apply after `HISTORICAL_DB_URL` (when set), replacing matching
+`host`/`port` query parameters so a Cloud SQL socket cannot override the explicit
+TCP destination. Without these flags, existing socket and TCP connections keep
+their current behavior. These options are rejected without `--local`.
+Local previews need DB access unless using `--overwrite`. Queueing needs DB
+access for run tracking and Google application default credentials with permission
+to create tasks in the selected stage's queue.
+No queue-list permission or queue-name secret is needed. The local path uses no
+historical-run endpoint or Pulumi lookup once the stage's queue exists.
+
+Local discovery runs once. Each run submits batches of up to 100 tasks through
+Cloud Tasks' `tasks:batchCreate` API with up to **32 operations in flight**. Set
+`HISTORICAL_BATCH_WORKERS` to an integer from 1 to 32 to lower submission concurrency.
+The local CLI rechecks scene history before each batch by default, with up to four
+of those checks in flight. All batches share one `HISTORICAL_RUN` trigger.
+On a failed or partial batch, the runner stops launching more batches and lets
+in-flight operations finish reporting their outcomes. It does not retry submissions
+automatically. Tasks carry the trigger ID and a 30-minute execution deadline.
+`manual_trigger: true` gives
+source-association tasks run-specific names. Queue submission success does not
+mean inference has completed. Local stdout contains one final JSON object with
+run IDs and totals. Progress and batch confirmations go to stderr.
+
+Local enqueue records the run in the `historical_run` table: selection, dry-run
+setting, redacted command, Git revision, start and end times, confirmed task count,
+success, and error. The row is inserted before discovery, so a killed run keeps a
+`NULL` end time and a missing table stops submission. Failed submissions leave the
+task total unknown (`NULL`). List-only runs create no history row.
+
+HTTP submission and discovery share a 450-second budget from function entry.
+Local batches have separate 450-second queue-submission budgets, with no overall
+function deadline on local discovery. HTTP requests default to dry-run
+when omitted and record a cloud function log link. Local runs print
+progress locally and leave the trigger log link empty.
+
+`notebooks/TriggerOnDemand.ipynb` uses the same local runner. Choose one scene
+source: EODAG date/region search, an explicit list, or a CSV. EODAG applies catalog,
+H/M resolution, and ocean filters; lists and CSVs provide already selected IDs.
+Common options support an additional exclusion CSV and deduplication. CSV input/exclusion accepts
+`scene_id` or legacy `s1_scene_id`. Setup uses `STACK_SECRETS`, `GCP_PROJECT`, and
+`GCP_REGION`; rerun it after changing stacks. The orchestration cell checks the DB
+and passes the selected scenes to the same concurrent runner. Set `OVERWRITE = True`
+to skip the scene history lookup. `DRY_RUN` must be `True` or `False` (default:
+`True`). All batches share one trigger and confirmations are printed as they arrive.
+The ASA and imagery download utilities have their own execution paths.
+
+### Historical run diagnostics
+
+`scripts/historical_run_diagnostics.py` reports how a historical run is going. It
+only reads: the database session is opened read-only, and the GCP calls are lookups.
+
+```sh
+# Latest non-dry-run historical run on the test stack.
+python scripts/historical_run_diagnostics.py --stage test --env-file notebooks/.env
+
+# A specific run, saved as JSON, with the baseline taken from another database.
+python scripts/historical_run_diagnostics.py --stage test --historical-run-id 12 \
+  --baseline-db-url "$PROD_DB_URL" --json run12.json
+
+# Database sections only (no Google credentials needed).
+python scripts/historical_run_diagnostics.py --stage test --skip-gcp
+```
+
+The database URL comes from `--db-url`, then `STACK_SECRETS` (same stage keys as
+`historical_run.py`), then `HISTORICAL_DB_URL` or `DB_URL`. GCP lookups use Google
+application default credentials and `GCPPROJECT`/`GCPREGION` (defaults
+`cerulean-338116`/`europe-west1`). A run is selected by `--historical-run-id` or
+`--trigger-id` (both repeatable); with neither, the latest non-dry-run
+`historical_run` row is used. Queue lookups default to the selected stage's
+historical queue. Use `--queue orchestrator-backlog` to inspect a run submitted
+to the earlier shared queue.
+
+The report covers:
+
+1. **Run**: IDs, scene dates, scenes found by EODAG, tasks queued, the git hash the
+   run was submitted from, submission start.
+2. **Orchestrator**: scenes succeeded, failed, crashed, and in progress, counted per
+   scene because each retry adds an `orchestrator_run` row; queued scenes that never
+   reached the database (antimeridian, no ocean tiles, dry run); backlog queue depth;
+   earliest start and latest end time. Verdict `RUNNING`, `COMPLETE`, or `IDLE` when
+   the queue was not checked.
+3. **ASA**: queue depth, slicks reached and pending, source associations by type,
+   and slicks reached with no source. ASA records no run of its own, so a slick
+   counts as reached once its `geometric_slick_potential` is set or it has a source.
+   `STALLED` means the queue is empty while slicks are still pending.
+4. **Runtime**: submission start to the last slick, orchestrator end, or source
+   association; provisional until both verdicts are `COMPLETE`.
+5. **Benchmarks**: slicks per scene and sources per slick against live
+   (`SNS_TOPIC`) scenes from the past year (`--baseline-start`/`--baseline-end`),
+   flagged beyond `--tolerance-pct` (default 50). Baselines under 100 scenes are
+   shown but not graded.
+6. **Bottlenecks**: peak orchestrator, inference, and ASA instance counts against
+   their configured limits, peak database connections against `max_connections`,
+   and peak backlog depth, each with the time of the peak. Cloud Monitoring keeps
+   these metrics for about six weeks, so save `--json` output for the record.
+
+Queue depths can include other runs in the same stage. ASA tasks are narrowed to
+the run by the scene date in the task name when the queue holds 5,000 tasks or fewer.
+
 ## Adding a new Pulumi Stack
 Don't forget to edit the following places:
-- historical_run.py (add the stack name to stage options)
+- Historical-run discovers its URL from the selected stack’s `historical_run_url` output.
 - TODO add other places/steps
 - create a new git branch with the same name
 - copy changes in Git hash 7f1dcda and b55e6c7 (but use more modern yamls as base), commit and push
