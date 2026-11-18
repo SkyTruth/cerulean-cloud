@@ -305,9 +305,16 @@ nonempty `modes` list, such as `["EW", "IW", "SM"]`, for EODAG discovery.
 Discovery uses the bundled `geodes.yml`, compatible with the pinned EODAG version.
 Public metadata search requires no GEODES key and does not download imagery.
 Catalog URNs are mapped to Sentinel scene names before queueing.
-Discovery requests 80 scenes per page and retries failed catalog reads up to
-three attempts per page. If a page still fails or pagination repeats a page,
-discovery stops before any tasks are submitted; partial inventories are rejected.
+Discovery splits date-range searches into seven-day windows and starts up to **32
+GEODES requests at once** across windows and pages. The first page gives the total
+for its window. The runner requests 80 products per page and reuses each worker's
+HTTP connection. Set `GEODES_PAGE_WORKERS` to an integer from 1 to 32 to lower
+concurrency when needed.
+
+The runner retries transient errors up to three attempts per page. It validates
+page sizes, consistent totals, and unique catalog records within each window before
+submitting tasks. A record on a shared date boundary is counted once. A missing
+or repeated page stops submission.
 
 Every path deduplicates IDs. By default, historical runs exclude scenes with any
 `orchestrator_run.success IS TRUE` in the selected stack's database, including in

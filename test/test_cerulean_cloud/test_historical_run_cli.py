@@ -4,7 +4,6 @@ import json
 import os
 import subprocess
 import sys
-from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -15,6 +14,7 @@ from shapely.geometry import box, mapping
 from sqlalchemy.engine import make_url
 
 from scripts import historical_run as client
+from cerulean_cloud.cloud_function_historical_run import geodes_catalog
 from cerulean_cloud.cloud_function_historical_run import main as historical
 
 
@@ -33,28 +33,8 @@ def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
 ):
     processed, trigger, queue = local_execution
     processed.side_effect = [{"S1A_IW_GRDM_completed"}, set()]
-    dag = MagicMock()
-    dag._prepare_search.side_effect = lambda **criteria: {
-        **criteria,
-        "search_plugin": MagicMock(),
-    }
-    dag._do_search.return_value = (
-        [
-            SimpleNamespace(geometry=box(0, 0, 1, 1), properties={"id": scene})
-            for scene in (
-                "S1A_IW_GRDH_new",
-                "S1A_IW_GRDM_completed",
-                "S1A_S3_GRDF_full",
-            )
-        ],
-        None,
-    )
-    gateway = MagicMock(return_value=dag)
-    monkeypatch.setitem(
-        sys.modules,
-        "eodag",
-        SimpleNamespace(EODataAccessGateway=gateway, setup_logging=MagicMock()),
-    )
+    search = MagicMock(return_value=(3, ["S1A_IW_GRDH_new", "S1A_IW_GRDM_completed"]))
+    monkeypatch.setattr(geodes_catalog, "search_catalog", search)
     monkeypatch.setattr(historical, "load_ocean_poly", lambda: box(-5, -5, 5, 5))
     path = tmp_path / "region.geojson"
     path.write_text(
@@ -95,18 +75,15 @@ def test_local_eodag_discovery_filters_db_and_queues_selected_scenes(
     trigger.assert_not_awaited()  # Local batches reuse the history record's trigger.
     assert queue.call_args.args[1] == summary["trigger_id"]
     assert client.save_historical_run.await_count == 2
-    dag.set_preferred_provider.assert_called_once_with("geodes")
-    assert json.loads(dag._do_search.call_args.kwargs["polarizationMode"]) == [
-        "VV",
-        "VV VH",
-    ]
-    assert json.loads(dag._do_search.call_args.kwargs["sensorMode"]) == [
+    criteria = search.call_args.args[0]
+    assert json.loads(criteria["polarizationMode"]) == ["VV", "VV VH"]
+    assert json.loads(criteria["sensorMode"]) == [
         "EW",
         "IW",
         "SM",
     ]
     assert queue.call_args.kwargs["dry_run"] is True
-    assert ("geom" in dag._do_search.call_args.kwargs) is with_geometry
+    assert ("geom" in criteria) is with_geometry
     remote.assert_not_called()
 
 
@@ -829,6 +806,7 @@ def test_cloud_function_source_imports_from_deployment_root(tmp_path):
     with zipfile.ZipFile(archive) as bundle:
         bundle.extractall(source)
     assert (source / "geodes.yml").is_file()
+    assert (source / "geodes_catalog.py").is_file()
     assert (source / "queues.py").is_file()
     result = subprocess.run(
         [

@@ -12,7 +12,6 @@ from datetime import datetime, timedelta, timezone
 import asyncpg
 import geojson
 import google.auth
-import requests
 from flask import abort
 from google.auth.transport.requests import AuthorizedSession
 from shapely.geometry import MultiPolygon, shape
@@ -21,7 +20,6 @@ from shapely.geometry import MultiPolygon, shape
 CLOUD_TASKS_API = "https://cloudtasks.googleapis.com/v2"
 # Leave headroom before the deployed function's 500-second timeout.
 ENQUEUE_TIMEOUT_SECONDS = 450
-CATALOG_PAGE_SIZE = 80
 
 
 # Cloud Functions imports main.py at the root of the deployed source archive;
@@ -265,15 +263,13 @@ def handle_search(request_json, ocean_poly=None):
         scenes = [scene.strip() for scene in request_json["scene_ids"]]
         return len(scenes), list(dict.fromkeys(scenes))
     # Explicit IDs do not require the catalog dependencies.
-    from eodag import EODataAccessGateway, setup_logging
+    if __package__:
+        from .geodes_catalog import search_catalog
+    else:
+        from geodes_catalog import search_catalog
 
-    setup_logging(2)
     if ocean_poly is None:
         ocean_poly = load_ocean_poly()
-    dag = EODataAccessGateway(
-        user_conf_file_path=os.path.join(os.path.dirname(__file__), "geodes.yml")
-    )
-    dag.set_preferred_provider("geodes")
 
     default_search_criteria = {
         "productType": "S1_SAR_GRD",
@@ -292,67 +288,7 @@ def handle_search(request_json, ocean_poly=None):
             list(dict.fromkeys(request_json["modes"]))
         )
 
-    # Use the pinned iterator's page API: public search() also counts on every page.
-    search_kwargs = dag._prepare_search(**default_search_criteria)
-    search_plugin = search_kwargs.pop("search_plugin")
-    all_results = []
-    page = 1
-    previous_first_id = None
-    while True:
-        for attempt in range(3):
-            try:
-                search_plugin.clear()
-                page_results, _ = dag._do_search(
-                    search_plugin,
-                    **search_kwargs,
-                    page=page,
-                    items_per_page=CATALOG_PAGE_SIZE,
-                    count=False,
-                    raise_errors=True,
-                )
-                break
-            except (requests.RequestException, TypeError) as exc:
-                # EODAG 2.5 masks failed HTTP pages as a NoneType TypeError.
-                if isinstance(exc, TypeError) and "NoneType" not in str(exc):
-                    raise
-                if attempt == 2:
-                    raise RuntimeError(
-                        f"GEODES catalog page {page} failed after 3 attempts"
-                    ) from exc
-                delay = 2 ** (attempt + 1)
-                print(f"Retrying GEODES page {page} in {delay}s: {exc}")
-                time.sleep(delay)
-        print(f"Got a hand on {len(page_results)} products on page {page}")
-        if page_results:
-            first_id = page_results[0].properties["id"]
-            if page > 1 and first_id == previous_first_id:
-                raise RuntimeError(
-                    f"GEODES catalog page {page} repeated the previous page"
-                )
-            previous_first_id = first_id
-        all_results.extend(page_results)
-        if len(page_results) < CATALOG_PAGE_SIZE:
-            break
-        page += 1
-
-    search_results = all_results
-
-    print(f"Got a hand on {len(search_results)} products.")
-
-    len_total_scenes = len(search_results)
-
-    filtered_scenes = []
-    for result in search_results:
-        scene_id = result.properties["id"]
-        # Sentinel scene names encode the resolution class in the GRD field.
-        if scene_id.split("_")[2] not in ("GRDH", "GRDM"):
-            continue
-        print(f"Adding {result}...")
-        is_oceanic = result.geometry.intersects(ocean_poly)
-        if is_oceanic:
-            filtered_scenes.append(scene_id)
-
-    return len_total_scenes, filtered_scenes
+    return search_catalog(default_search_criteria, ocean_poly)
 
 
 def batch_create_tasks(session, parent, task_requests, *, deadline):

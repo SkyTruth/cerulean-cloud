@@ -3,7 +3,6 @@
 import base64
 import asyncio
 import json
-import sys
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -13,6 +12,7 @@ import requests
 from flask import Flask, request
 from shapely.geometry import box, mapping
 
+from cerulean_cloud.cloud_function_historical_run import geodes_catalog
 from cerulean_cloud.cloud_function_historical_run import main as historical
 
 
@@ -63,25 +63,12 @@ def task_payload(task):
 
 
 @pytest.mark.parametrize("modes", [None, ["IW"], ["EW", "IW", "SM", "IW"]])
-def test_eodag_uses_geodes_and_keeps_spatial_dates_modes_and_ocean_filter(
+def test_eodag_passes_spatial_dates_and_modes_to_geodes(
     monkeypatch,
     modes,
 ):
-    dag = MagicMock()
-    ocean_result = SimpleNamespace(
-        geometry=box(0, 0, 2, 2), properties={"id": "S1A_IW_GRDH_ocean"}
-    )
-    land_result = SimpleNamespace(
-        geometry=box(10, 10, 11, 11), properties={"id": "S1A_IW_GRDM_land"}
-    )
-    dag._prepare_search.side_effect = lambda **criteria: {
-        **criteria,
-        "search_plugin": MagicMock(),
-    }
-    dag._do_search.return_value = ([land_result, ocean_result], None)
-    gateway = MagicMock(return_value=dag)
-    eodag = SimpleNamespace(EODataAccessGateway=gateway, setup_logging=MagicMock())
-    monkeypatch.setitem(sys.modules, "eodag", eodag)
+    search = MagicMock(return_value=(2, ["S1A_IW_GRDH_ocean"]))
+    monkeypatch.setattr(geodes_catalog, "search_catalog", search)
     geometry = {
         "type": "FeatureCollection",
         "features": [
@@ -104,14 +91,11 @@ def test_eodag_uses_geodes_and_keeps_spatial_dates_modes_and_ocean_filter(
         2,
         ["S1A_IW_GRDH_ocean"],
     )
-    dag.set_preferred_provider.assert_called_once_with("geodes")
-    assert gateway.call_args.kwargs["user_conf_file_path"].endswith("geodes.yml")
-    criteria = dag._do_search.call_args.kwargs
+    criteria = search.call_args.args[0]
     assert criteria["start"] == request["start"]
     assert criteria["end"] == request["end"]
     assert criteria["productType"] == "S1_SAR_GRD"
     assert json.loads(criteria["polarizationMode"]) == ["VV", "VV VH"]
-    assert criteria["items_per_page"] == 80
     assert criteria["geom"].startswith("MULTIPOLYGON")
     if modes is None:
         assert "sensorMode" not in criteria

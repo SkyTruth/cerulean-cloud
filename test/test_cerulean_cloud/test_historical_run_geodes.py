@@ -1,6 +1,9 @@
 """Exercise the real pinned EODAG adapter with mocked GEODES HTTP responses."""
 
 import json as jsonlib
+from datetime import date, timedelta
+from threading import Barrier
+from unittest.mock import Mock
 
 import pytest
 import requests
@@ -24,24 +27,32 @@ def geodes(monkeypatch, tmp_path):
     calls = []
     pages = {}
 
-    def post(url, json, **kwargs):
+    def post(session, url, json, **kwargs):
         assert url == "https://geodes-portal.cnes.fr/api/stac/items"
         assert "auth" not in kwargs
         calls.append(jsonlib.loads(jsonlib.dumps(json)))
-        queued = pages[json["page"]]
+        start = json["query"]["start_datetime"]["gte"][:10]
+        key = (start, json["page"])
+        if key not in pages:
+            key = json["page"]
+        queued = pages[key]
         if isinstance(queued, list):
             status, data = queued.pop(0)
             if not queued:
-                del pages[json["page"]]
+                del pages[key]
         else:
-            status, data = pages.pop(json["page"])
+            status, data = pages.pop(key)
+        if callable(data):
+            data = data()
         response = requests.Response()
         response.status_code = status
+        if status == 429:
+            response.headers["Retry-After"] = "7"
         response.url = url
         response._content = jsonlib.dumps(data).encode()
         return response
 
-    monkeypatch.setattr(requests, "post", post)
+    monkeypatch.setattr(requests.Session, "post", post)
     return pages, calls
 
 
@@ -70,11 +81,11 @@ def feature(number, footprint=None, polarization="VV VH", resolution="H"):
     }
 
 
-def search(modes=None, with_geometry=True):
+def search(modes=None, with_geometry=True, end="2025-01-02"):
     payload = {
         "source": "eodag",
         "start": "2025-01-01T00:00:00Z",
-        "end": "2025-01-02",
+        "end": end,
         **({"modes": modes} if modes is not None else {}),
         "geometry": {
             "type": "FeatureCollection",
@@ -125,7 +136,10 @@ def test_geodes_pagination_filters_and_sentinel_id_mapping(geodes, modes, polari
         assert body["query"]["start_datetime"]["gte"].startswith("2025-01-01T00:00:00")
         assert body["query"]["start_datetime"]["lte"].startswith("2025-01-02T00:00:00")
         assert body["intersects"]["type"] == "MultiPolygon"
-        assert body["sortBy"] == [{"field": "start_datetime", "direction": "asc"}]
+        assert body["sortBy"] == [
+            {"field": "start_datetime", "direction": "asc"},
+            {"field": "identifier", "direction": "asc"},
+        ]
 
 
 def test_geodes_keeps_only_high_and_medium_resolution(geodes):
@@ -178,22 +192,24 @@ def test_geodes_failure_after_first_page_does_not_return_partial_results(
         {"features": [feature(i) for i in range(80)], "context": {"matched": 81}},
     )
     pages[2] = [(503, {"error": "unavailable"})] * 3
-    # EODAG 2.5 surfaces a failed HTTP page as a None-results TypeError.
-    # The batch must fail rather than accepting the already-read first page.
-    with pytest.raises(RuntimeError, match="page 2 failed after 3 attempts"):
+    with pytest.raises(RuntimeError, match="page 2 .* failed after 3 attempts"):
         search()
     assert [body["page"] for body in calls] == [1, 2, 2, 2]
 
 
-def test_geodes_transient_page_failure_retries_without_duplicates(geodes, monkeypatch):
+@pytest.mark.parametrize("status", [429, 503])
+def test_geodes_transient_page_failure_retries_without_duplicates(
+    geodes, monkeypatch, status
+):
     pages, calls = geodes
-    monkeypatch.setattr(historical.time, "sleep", lambda _: None)
+    sleep = Mock()
+    monkeypatch.setattr(historical.time, "sleep", sleep)
     pages[1] = (
         200,
         {"features": [feature(i) for i in range(80)], "context": {"matched": 81}},
     )
     pages[2] = [
-        (503, {"error": "unavailable"}),
+        (status, {"error": "unavailable"}),
         (200, {"features": [feature(80)], "context": {"matched": 81}}),
     ]
     total, selected = search(["IW"])
@@ -201,6 +217,8 @@ def test_geodes_transient_page_failure_retries_without_duplicates(geodes, monkey
     assert selected == [feature(i)["properties"]["identifier"] for i in range(81)]
     assert [body["page"] for body in calls] == [1, 2, 2]
     assert calls[1] == calls[2]
+    if status == 429:
+        sleep.assert_called_once_with(7)
 
 
 def test_geodes_repeated_page_is_an_error(geodes):
@@ -211,5 +229,93 @@ def test_geodes_repeated_page_is_an_error(geodes):
     }
     pages[1] = (200, full_page)
     pages[2] = (200, full_page)
-    with pytest.raises(RuntimeError, match="page 2 repeated the previous page"):
+    with pytest.raises(RuntimeError, match="page 2 repeated catalog record"):
+        search()
+
+
+def test_geodes_weekly_windows_deduplicate_boundary_records(geodes):
+    pages, calls = geodes
+    boundary = feature(1)
+    boundary["properties"]["start_datetime"] = "2025-01-08T00:00:00.000Z"
+    pages["2025-01-01", 1] = (
+        200,
+        {"features": [feature(0), boundary], "context": {"matched": 2}},
+    )
+    pages["2025-01-08", 1] = (
+        200,
+        {"features": [boundary, feature(2)], "context": {"matched": 2}},
+    )
+    total, selected = search(end="2025-01-10")
+    assert total == 3
+    assert selected == [feature(i)["properties"]["identifier"] for i in range(3)]
+    boundaries = sorted(call["query"]["start_datetime"].items() for call in calls)
+    assert {dict(pair)["gte"][:10] for pair in boundaries} == {
+        "2025-01-01",
+        "2025-01-08",
+    }
+    assert {dict(pair)["lte"][:10] for pair in boundaries} == {
+        "2025-01-08",
+        "2025-01-10",
+    }
+
+
+def test_geodes_starts_32_weekly_windows_concurrently(geodes, monkeypatch):
+    monkeypatch.delenv("GEODES_PAGE_WORKERS", raising=False)
+    pages, calls = geodes
+    barrier = Barrier(32, timeout=10)
+
+    def first_page():
+        barrier.wait()
+        return {"features": [], "context": {"matched": 0}}
+
+    empty = {"features": [], "context": {"matched": 0}}
+    year = date(2025, 1, 1)
+    for week in range(53):
+        start = year + timedelta(weeks=week)
+        pages[start.isoformat(), 1] = (200, first_page if week < 32 else empty)
+    assert search(end="2026-01-01") == (0, [])
+    assert not pages
+    assert len(calls) == 53
+
+
+def test_geodes_requests_pages_in_the_same_window_concurrently(geodes, monkeypatch):
+    monkeypatch.setenv("GEODES_PAGE_WORKERS", "2")
+    pages, calls = geodes
+    barrier = Barrier(2, timeout=5)
+
+    def later_page(start, end):
+        def response():
+            barrier.wait()
+            return {
+                "features": [feature(i) for i in range(start, end)],
+                "context": {"matched": 161},
+            }
+
+        return response
+
+    pages[1] = (
+        200,
+        {"features": [feature(i) for i in range(80)], "context": {"matched": 161}},
+    )
+    pages[2] = (200, later_page(80, 160))
+    pages[3] = (200, later_page(160, 161))
+    total, selected = search()
+    assert total == 161
+    assert selected == [feature(i)["properties"]["identifier"] for i in range(161)]
+    assert [body["page"] for body in calls[:1]] == [1]
+    assert {body["page"] for body in calls[1:]} == {2, 3}
+
+
+@pytest.mark.parametrize(
+    "matched,match",
+    [(81, "returned 0 of 1 expected records"), (82, "changed the match count")],
+)
+def test_geodes_rejects_incomplete_inventory(geodes, matched, match):
+    pages, _ = geodes
+    pages[1] = (
+        200,
+        {"features": [feature(i) for i in range(80)], "context": {"matched": 81}},
+    )
+    pages[2] = (200, {"features": [], "context": {"matched": matched}})
+    with pytest.raises(RuntimeError, match=match):
         search()
