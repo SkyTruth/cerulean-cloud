@@ -199,7 +199,7 @@ def test_notebook_configures_local_runner_for_selected_stack(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("dry_run,overwrite", [(False, True), (True, False)])
-async def test_notebook_batches_selected_scenes_through_local_historical_run(
+async def test_notebook_submits_all_scenes_to_the_parallel_runner(
     notebook_cells, notebook_target, dry_run, overwrite
 ):
     source = next(source for source in notebook_cells if source.startswith("DRY_RUN ="))
@@ -207,32 +207,31 @@ async def test_notebook_batches_selected_scenes_through_local_historical_run(
     source = source.replace("DRY_RUN = True", f"DRY_RUN = {dry_run!r}")
     source = source.replace("OVERWRITE = False", f"OVERWRITE = {overwrite!r}")
     scenes = [f"scene-{i}" for i in range(205)]
-    submission = AsyncMock(side_effect=[{"trigger_id": i} for i in range(3)])
+    submission = AsyncMock(return_value={"trigger_id": 1, "queued_count": 205})
     namespace = {**notebook_target, "scenes": scenes, "historical_run": submission}
     await eval(
         compile(source, "notebook", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT),
         namespace,
     )
-    payloads = [call.args[0] for call in submission.await_args_list]
-    assert [len(payload["scene_ids"]) for payload in payloads] == [100, 100, 5]
-    assert [scene for payload in payloads for scene in payload["scene_ids"]] == scenes
-    assert all(payload["manual_trigger"] is True for payload in payloads)
-    for payload in payloads:
-        assert payload["dry_run"] is dry_run
-        assert payload["overwrite"] is overwrite
-    assert namespace["batch_results"] == [{"trigger_id": i} for i in range(3)]
+    submission.assert_awaited_once_with(
+        {
+            "scene_ids": scenes,
+            "manual_trigger": True,
+            "dry_run": dry_run,
+            "overwrite": overwrite,
+        }
+    )
+    assert namespace["result"] == {"trigger_id": 1, "queued_count": 205}
     assert "QUEUE" not in notebook_target["os"].environ
 
 
 @pytest.mark.asyncio
-async def test_notebook_stops_on_submission_failure_and_retains_completed_results(
+async def test_notebook_propagates_submission_failure(
     notebook_cells,
     notebook_target,
 ):
     source = next(source for source in notebook_cells if source.startswith("DRY_RUN ="))
-    submission = AsyncMock(
-        side_effect=[{"trigger_id": 1}, RuntimeError("queue failed")]
-    )
+    submission = AsyncMock(side_effect=RuntimeError("queue failed"))
     namespace = {
         **notebook_target,
         "scenes": [f"scene-{i}" for i in range(205)],
@@ -243,8 +242,8 @@ async def test_notebook_stops_on_submission_failure_and_retains_completed_result
             compile(source, "notebook", "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT),
             namespace,
         )
-    assert submission.await_count == 2
-    assert namespace["batch_results"] == [{"trigger_id": 1}]
+    submission.assert_awaited_once()
+    assert "result" not in namespace
 
 
 @pytest.mark.asyncio

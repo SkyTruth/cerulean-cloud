@@ -112,6 +112,7 @@ def local_execution(monkeypatch, remote):
         "STACK_SECRETS",
         "HISTORICAL_DB_URL",
         "CERULEAN_API_KEY",
+        "HISTORICAL_BATCH_WORKERS",
         "HISTORICAL_RUN_STAGE",
     ):
         # Track variables that dotenv may create as well as existing values.
@@ -137,6 +138,9 @@ def local_execution(monkeypatch, remote):
     monkeypatch.setattr(historical, "get_processed_scene_ids", processed)
     monkeypatch.setattr(historical, "add_trigger_row", trigger)
     monkeypatch.setattr(historical, "handler_queue", queue)
+    monkeypatch.setattr(
+        historical, "cloud_tasks_session", MagicMock(side_effect=MagicMock)
+    )
 
     async def save(record):
         record.id, record.trigger = 123, 1
@@ -204,13 +208,15 @@ def test_local_csv_batches_and_rechecks_db_before_each_batch(
     assert summary["already_processed_scene_count"] == 2
     assert summary["filtered_scene_count"] == summary["queued_count"] == 204
     assert summary["dry_run"] is dry_run
-    assert [batch["trigger_id"] for batch in summary["batches"]] == [1, 1, 1]
+    assert "batches" not in summary
     record = client.save_historical_run.await_args.args[0]
     assert (record.dry_run, record.queued_task_count) == (dry_run, 204)
     assert (record.trigger_.scene_count, record.submission_success) == (207, True)
     assert summary["historical_run_id"] == 123
-    assert [len(call.args[0]) for call in queue.call_args_list] == [100, 99, 5]
-    assert [scene for call in queue.call_args_list for scene in call.args[0]] == [
+    calls = sorted(queue.call_args_list, key=lambda call: call.kwargs["batch_number"])
+    assert {call.args[1] for call in calls} == {summary["trigger_id"]}
+    assert [len(call.args[0]) for call in calls] == [100, 99, 5]
+    assert [scene for call in calls for scene in call.args[0]] == [
         scene for scene in scenes if scene != "scene-100"
     ]
     assert processed.await_count == 4
@@ -230,8 +236,9 @@ def test_local_csv_batches_and_rechecks_db_before_each_batch(
     ],
 )
 def test_local_submission_failure_stops_and_reports_confirmed_batches(
-    local_execution, completed, error
+    local_execution, monkeypatch, completed, error
 ):
+    monkeypatch.setenv("HISTORICAL_BATCH_WORKERS", "1")
     _, trigger, queue = local_execution
     queue.side_effect = [100] * completed + [error]
     args = ["--local", "scenes", "--dry-run"]
@@ -239,7 +246,8 @@ def test_local_submission_failure_stops_and_reports_confirmed_batches(
         args.extend(["--scene-id", f"scene-{i}"])
     result = CliRunner().invoke(client.cli, args)
     assert result.exit_code != 0
-    assert result.exception is error
+    assert isinstance(result.exception, type(error))
+    assert result.exception.args == error.args
     assert queue.call_count == completed + 1
     record = client.save_historical_run.await_args.args[0]
     assert record.queued_task_count is None
@@ -563,7 +571,7 @@ def test_local_all_scenes_completed_submits_no_batches(local_execution):
     summary = json.loads(result.stdout)
     assert summary["already_processed_scene_count"] == 1
     assert summary["queued_count"] == 0
-    assert summary["batches"] == []
+    assert "batches" not in summary
     trigger.assert_not_awaited()
     queue.assert_not_called()
 
@@ -589,7 +597,8 @@ def test_local_overwrite_skips_history_in_discovery_and_every_batch(
     summary = json.loads(result.stdout)
     assert summary["already_processed_scene_count"] == 0
     assert summary["queued_count"] == 101
-    assert [call.args[0] for call in queue.call_args_list] == [
+    calls = sorted(queue.call_args_list, key=lambda call: call.kwargs["batch_number"])
+    assert [call.args[0] for call in calls] == [
         scenes[:100],
         scenes[100:],
     ]

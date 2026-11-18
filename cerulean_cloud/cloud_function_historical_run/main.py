@@ -7,7 +7,9 @@ import os
 import time
 import urllib.parse as urlparse
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from functools import partial
 
 import asyncpg
 import geojson
@@ -20,6 +22,9 @@ from shapely.geometry import MultiPolygon, shape
 CLOUD_TASKS_API = "https://cloudtasks.googleapis.com/v2"
 # Leave headroom before the deployed function's 500-second timeout.
 ENQUEUE_TIMEOUT_SECONDS = 450
+BATCH_SIZE = 100
+MAX_BATCH_WORKERS = 32
+MAX_BATCH_HISTORY_CHECKS = 4
 
 
 # Cloud Functions imports main.py at the root of the deployed source archive;
@@ -98,6 +103,13 @@ async def get_processed_scene_ids(scene_ids):
         return {row["scene_id"] for row in rows}
     finally:
         await conn.close()
+
+
+async def exclude_processed_scenes(scene_ids, *, overwrite):
+    if overwrite:
+        return scene_ids, 0
+    processed = await get_processed_scene_ids(scene_ids)
+    return [scene for scene in scene_ids if scene not in processed], len(processed)
 
 
 def verify_api_key(request):
@@ -219,13 +231,9 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
     total_scenes, filtered_scenes = handle_search(request_json)
     # Submit each scene once, even when a catalog or supplied list repeats it.
     filtered_scenes = list(dict.fromkeys(filtered_scenes))
-    already_processed_scene_count = 0
-    if not request_json.get("overwrite", False):
-        processed_scene_ids = await get_processed_scene_ids(filtered_scenes)
-        filtered_scenes = [
-            scene for scene in filtered_scenes if scene not in processed_scene_ids
-        ]
-        already_processed_scene_count = len(processed_scene_ids)
+    filtered_scenes, already_processed_scene_count = await exclude_processed_scenes(
+        filtered_scenes, overwrite=request_json.get("overwrite", False)
+    )
     summary = {
         "scene_count": total_scenes,
         "filtered_scene_count": len(filtered_scenes),
@@ -241,7 +249,7 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
             total_scenes, len(filtered_scenes), logs_url=logs_url
         )
         trigger_id = row["id"]
-    queued_count = handler_queue(
+    batches = await enqueue_batches(
         filtered_scenes,
         trigger_id,
         queue_name=queue_name,
@@ -252,7 +260,7 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
     return {
         **summary,
         "trigger_id": trigger_id,
-        "queued_count": queued_count,
+        "queued_count": sum(batch["queued_count"] for batch in batches),
         "dry_run": dry_run,
     }
 
@@ -291,7 +299,7 @@ def handle_search(request_json, ocean_poly=None):
     return search_catalog(default_search_criteria, ocean_poly)
 
 
-def batch_create_tasks(session, parent, task_requests, *, deadline):
+def batch_create_tasks(session, parent, task_requests, *, deadline, batch_number):
     """Call Google's batchCreate REST API and wait for its operation to finish."""
     request_id = str(uuid.uuid4())
 
@@ -303,7 +311,10 @@ def batch_create_tasks(session, parent, task_requests, *, deadline):
             )
         return min(30, remaining)
 
-    print(f"Submitting {len(task_requests)} tasks (request_id={request_id})")
+    print(
+        f"Submitting batch {batch_number}: {len(task_requests)} tasks (request_id={request_id})",
+        flush=True,
+    )
     timeout = request_timeout()
     response = session.post(
         f"{CLOUD_TASKS_API}/{parent}/tasks:batchCreate",
@@ -313,7 +324,9 @@ def batch_create_tasks(session, parent, task_requests, *, deadline):
     )
     response.raise_for_status()
     operation = response.json()
-    print(f"Cloud Tasks batchCreate operation: {operation['name']}")
+    print(
+        f"Batch {batch_number} Cloud Tasks operation: {operation['name']}", flush=True
+    )
     while not operation.get("done", False):
         time.sleep(min(1, request_timeout()))
         timeout = request_timeout()
@@ -327,68 +340,161 @@ def batch_create_tasks(session, parent, task_requests, *, deadline):
     return operation
 
 
-def handler_queue(
-    filtered_scenes,
+def cloud_tasks_session():
+    credentials, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    return AuthorizedSession(credentials)
+
+
+async def enqueue_batches(
+    scene_ids,
     trigger_id,
     *,
     queue_name,
     dry_run=True,
     manual_trigger=False,
     deadline=None,
+    recheck_history=False,
 ):
-    """Submit up to 100 scenes per batch, stopping on any unconfirmed creation."""
-    if not filtered_scenes:
-        return 0
+    """Bound concurrent submits, drain started operations, and return results in input order."""
+    if not scene_ids:
+        return []
+    workers = int(os.getenv("HISTORICAL_BATCH_WORKERS", str(MAX_BATCH_WORKERS)))
+    if not 1 <= workers <= MAX_BATCH_WORKERS:
+        raise ValueError(
+            f"HISTORICAL_BATCH_WORKERS must be from 1 to {MAX_BATCH_WORKERS}"
+        )
+    starts = range(0, len(scene_ids), BATCH_SIZE)
+    workers = min(workers, len(starts))
+    jobs = iter(enumerate(starts, 1))
+    results = {}
+    stopping = False
+    first_error = None
+    history_slots = asyncio.Semaphore(MAX_BATCH_HISTORY_CHECKS)
+    loop = asyncio.get_running_loop()
+
+    def in_thread(function, *args, **kwargs):
+        return loop.run_in_executor(pool, partial(function, *args, **kwargs))
+
+    async def worker():
+        nonlocal stopping, first_error
+        session = None
+        try:
+            while not stopping:
+                job = next(jobs, None)
+                if job is None:
+                    return
+                number, start = job
+                scenes = scene_ids[start : start + BATCH_SIZE]
+                try:
+                    eligible, excluded = scenes, 0
+                    if recheck_history:
+                        async with history_slots:
+                            if stopping:
+                                return
+                            eligible, excluded = await exclude_processed_scenes(
+                                scenes, overwrite=False
+                            )
+                    if stopping:
+                        return
+                    queued = 0
+                    if eligible:
+                        if session is None:
+                            session = await in_thread(cloud_tasks_session)
+                        if stopping:
+                            return
+                        queued = await in_thread(
+                            handler_queue,
+                            eligible,
+                            trigger_id,
+                            session=session,
+                            queue_name=queue_name,
+                            batch_number=number,
+                            dry_run=dry_run,
+                            manual_trigger=manual_trigger,
+                            deadline=deadline,
+                        )
+                    result = {
+                        "scene_count": len(scenes),
+                        "filtered_scene_count": len(eligible),
+                        "already_processed_scene_count": excluded,
+                        "trigger_id": trigger_id,
+                        "queued_count": queued,
+                        "dry_run": dry_run,
+                    }
+                    results[number] = result
+                    print(f"Batch {number} confirmed: {json.dumps(result)}", flush=True)
+                except Exception as exc:
+                    stopping = True
+                    if first_error is None:
+                        first_error = exc
+                    print(f"Batch {number} failed ({type(exc).__name__})", flush=True)
+                    return
+        finally:
+            if session is not None:
+                session.close()
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        active = asyncio.gather(*(worker() for _ in range(workers)))
+        try:
+            await asyncio.shield(active)
+        except asyncio.CancelledError:
+            # A thread that started a submit may still be confirming its operation.
+            stopping = True
+            await active
+            raise
+    if first_error is not None:
+        raise first_error
+    return [results[number] for number in sorted(results)]
+
+
+def handler_queue(
+    filtered_scenes,
+    trigger_id,
+    *,
+    session,
+    queue_name,
+    batch_number,
+    dry_run=True,
+    manual_trigger=False,
+    deadline=None,
+):
+    """Submit one batch and verify that every requested task was created."""
     if deadline is None:
         deadline = time.monotonic() + ENQUEUE_TIMEOUT_SECONDS
     parent = (
         f"projects/{os.environ['GCPPROJECT']}/locations/{os.environ['GCPREGION']}"
         f"/queues/{queue_name}"
     )
-    credentials, _ = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    task_requests = []
+    for scene in filtered_scenes:
+        payload = {"scene_id": scene, "trigger": trigger_id, "dry_run": dry_run}
+        if manual_trigger:
+            payload["manual_trigger"] = True
+        task = {
+            "dispatchDeadline": "1800s",
+            "httpRequest": {
+                "httpMethod": "POST",
+                "url": os.environ["ORCHESTRATOR_URL"].rstrip("/") + "/orchestrate",
+                "headers": {
+                    "Content-type": "application/json",
+                    "Authorization": f"Bearer {os.environ['API_KEY']}",
+                },
+                # REST represents protobuf bytes as a base64 string.
+                "body": base64.b64encode(json.dumps(payload).encode()).decode(),
+            },
+        }
+        task_requests.append({"parent": parent, "task": task})
+    operation = batch_create_tasks(
+        session, parent, task_requests, deadline=deadline, batch_number=batch_number
     )
-    queued_count = 0
-    with AuthorizedSession(credentials) as session:
-        for start in range(0, len(filtered_scenes), 100):
-            task_requests = []
-            for scene in filtered_scenes[start : start + 100]:
-                payload = {"scene_id": scene, "trigger": trigger_id, "dry_run": dry_run}
-                if manual_trigger:
-                    payload["manual_trigger"] = True
-                task = {
-                    "dispatchDeadline": "1800s",
-                    "httpRequest": {
-                        "httpMethod": "POST",
-                        "url": os.environ["ORCHESTRATOR_URL"].rstrip("/")
-                        + "/orchestrate",
-                        "headers": {
-                            "Content-type": "application/json",
-                            "Authorization": f"Bearer {os.environ['API_KEY']}",
-                        },
-                        # REST represents protobuf bytes as a base64 string.
-                        "body": base64.b64encode(json.dumps(payload).encode()).decode(),
-                    },
-                }
-                task_requests.append({"parent": parent, "task": task})
-            operation = batch_create_tasks(
-                session, parent, task_requests, deadline=deadline
-            )
-            created = operation.get("response", {}).get("tasks", [])
-            queued_count += len(created)
-            failed_requests = operation.get("metadata", {}).get("failedRequests", {})
-            if (
-                "error" in operation
-                or failed_requests
-                or len(created) != len(task_requests)
-            ):
-                raise RuntimeError(
-                    f"Cloud Tasks batchCreate {operation['name']} incomplete: "
-                    f"{queued_count}/{len(filtered_scenes)} tasks confirmed; "
-                    f"batch_start={start}; error={operation.get('error')}; "
-                    f"failed_requests={failed_requests}"
-                )
-            print(
-                f"Created {len(created)} tasks; {queued_count} queued for trigger {trigger_id}"
-            )
-    return queued_count
+    created = operation.get("response", {}).get("tasks", [])
+    failed_requests = operation.get("metadata", {}).get("failedRequests", {})
+    if "error" in operation or failed_requests or len(created) != len(task_requests):
+        raise RuntimeError(
+            f"Cloud Tasks batchCreate batch {batch_number} ({operation['name']}) incomplete: "
+            f"{len(created)}/{len(task_requests)} tasks confirmed in this batch; "
+            f"error={operation.get('error')}; failed_requests={failed_requests}"
+        )
+    return len(created)

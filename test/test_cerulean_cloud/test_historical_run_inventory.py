@@ -5,6 +5,7 @@ import asyncio
 import json
 import uuid
 from types import SimpleNamespace
+from threading import Barrier, Event
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -105,6 +106,7 @@ def test_eodag_passes_spatial_dates_and_modes_to_geodes(
 
 @pytest.fixture
 def endpoint(monkeypatch):
+    monkeypatch.delenv("HISTORICAL_BATCH_WORKERS", raising=False)
     for key, value in {
         "API_KEY": "test-key",
         "GCPPROJECT": "project",
@@ -245,7 +247,13 @@ def test_queue_defaults_to_dry_run_even_when_legacy_setting_is_false(
 ):
     monkeypatch.setenv("IS_DRY_RUN", "false")
     assert (
-        historical.handler_queue(["scene"], 42, queue_name="orchestrator-backlog-test")
+        historical.handler_queue(
+            ["scene"],
+            42,
+            session=endpoint[2],
+            queue_name="orchestrator-backlog-test",
+            batch_number=1,
+        )
         == 1
     )
     assert task_payload(queued_requests(endpoint)[0]["task"])["dry_run"] is True
@@ -318,13 +326,19 @@ def test_submission_chunks_scenes_without_losing_or_repeating_them(
     assert response.status_code == 200
     assert response.json["queued_count"] == scene_count
     batches = [call.kwargs["json"] for call in endpoint[2].post.call_args_list]
+    batches.sort(
+        key=lambda batch: int(
+            task_payload(batch["requests"][0]["task"])["scene_id"].split("-")[1]
+        )
+    )
     assert [len(batch["requests"]) for batch in batches] == [
         min(100, scene_count - start) for start in range(0, scene_count, 100)
     ]
     assert len({batch["requestId"] for batch in batches}) == len(batches)
     assert [
         task_payload(request["task"])["scene_id"]
-        for request in queued_requests(endpoint)
+        for batch in batches
+        for request in batch["requests"]
     ] == scenes
     if not scenes:
         historical.google.auth.default.assert_not_called()
@@ -369,7 +383,10 @@ def test_unsuccessful_batch_is_not_reported_as_queued(endpoint, failure):
     endpoint[2].post.assert_called_once()
 
 
-def test_partial_batch_stops_later_batches_and_logs_confirmed_count(endpoint, caplog):
+def test_partial_batch_stops_later_batches_and_logs_confirmed_count(
+    endpoint, caplog, monkeypatch
+):
+    monkeypatch.setenv("HISTORICAL_BATCH_WORKERS", "1")
     session = endpoint[2]
     create_batch = session.post.side_effect
 
@@ -395,10 +412,92 @@ def test_partial_batch_stops_later_batches_and_logs_confirmed_count(endpoint, ca
     assert response.status_code == 500
     assert session.post.call_count == 2
     assert OPERATION_NAME in caplog.text
-    assert "199/201 tasks confirmed" in caplog.text
-    assert "batch_start=100" in caplog.text
+    assert "99/100 tasks confirmed in this batch" in caplog.text
+    assert "batch 2" in caplog.text
     assert "quota exhausted" in caplog.text
     assert "test-key" not in caplog.text
+
+
+def test_batchcreate_opens_32_operations_concurrently_and_reuses_workers(endpoint):
+    session = endpoint[2]
+    create_batch = session.post.side_effect
+    barrier = Barrier(32, timeout=10)
+
+    def start_operation(url, **kwargs):
+        requests = kwargs["json"]["requests"]
+        if len(requests) == 100:
+            barrier.wait()
+        return create_batch(url, **kwargs)
+
+    session.post.side_effect = start_operation
+    scenes = [f"scene-{i}" for i in range(3201)]
+    response = post(endpoint, {"scene_ids": scenes})
+    assert response.status_code == 200
+    assert response.json["queued_count"] == len(scenes)
+    assert session.post.call_count == 33
+    assert historical.AuthorizedSession.call_count == 32
+    assert sorted(
+        task_payload(request["task"])["scene_id"]
+        for request in queued_requests(endpoint)
+    ) == sorted(scenes)
+
+
+@pytest.mark.asyncio
+async def test_parallel_submission_limits_history_checks_to_four(endpoint):
+    active = peak = 0
+
+    async def processed(scenes):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0)
+        active -= 1
+        return set(scenes)
+
+    historical.get_processed_scene_ids.side_effect = processed
+    results = await historical.enqueue_batches(
+        [f"scene-{i}" for i in range(600)],
+        42,
+        queue_name="orchestrator-backlog-test",
+        recheck_history=True,
+    )
+    assert peak == 4
+    assert sum(batch["already_processed_scene_count"] for batch in results) == 600
+    historical.AuthorizedSession.assert_not_called()
+
+
+def test_parallel_batch_failure_drains_inflight_without_launching_more(
+    endpoint, monkeypatch, capsys
+):
+    monkeypatch.setenv("HISTORICAL_BATCH_WORKERS", "2")
+    session = endpoint[2]
+    create_batch = session.post.side_effect
+    started = Barrier(2, timeout=5)
+    failed = Event()
+
+    def log(message, **kwargs):
+        print(message, **kwargs)
+        if message.startswith("Batch 2 failed"):
+            failed.set()
+
+    def submit(url, **kwargs):
+        scene = task_payload(kwargs["json"]["requests"][0]["task"])["scene_id"]
+        assert scene in ("scene-0", "scene-100")
+        started.wait()
+        if scene == "scene-100":
+            return operation_response({}, status=503)
+        assert failed.wait(timeout=5)
+        return create_batch(url, **kwargs)
+
+    monkeypatch.setattr(historical, "print", log, raising=False)
+    session.post.side_effect = submit
+    response = post(endpoint, {"scene_ids": [f"scene-{i}" for i in range(301)]})
+    assert response.status_code == 500
+    assert session.post.call_count == 2
+    output = capsys.readouterr().out
+    assert "Batch 1 confirmed:" in output
+    assert "Batch 2 failed" in output
+    assert "Batch 3 confirmed:" not in output
 
 
 def test_operation_polling_http_failure_is_not_reported_as_success(

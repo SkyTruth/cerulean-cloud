@@ -215,6 +215,7 @@ async def save_historical_run(record):
 async def run_local(payload):
     """Discover once, then submit batches under one trigger and history row."""
     from cerulean_cloud.cloud_function_historical_run.main import (
+        enqueue_batches,
         run_historical,
         validate_request,
     )
@@ -240,21 +241,14 @@ async def run_local(payload):
             selection = await run_historical({**payload, "action": "list"})
             if "scene_ids" not in payload and payload.get("source", "eodag") == "eodag":
                 record.eodag_count = selection["scene_count"]
-            scenes = selection["scene_ids"]
-            for start in range(0, len(scenes), 100):
-                result = await run_historical(
-                    {
-                        "scene_ids": scenes[start : start + 100],
-                        "dry_run": payload["dry_run"],
-                        "manual_trigger": payload["manual_trigger"],
-                        "overwrite": payload.get("overwrite", False),
-                    },
-                    trigger_id=record.trigger,
-                )
-                batches.append(result)
-                click.echo(
-                    f"Batch {len(batches)} confirmed: {json.dumps(result)}", err=True
-                )
+            batches = await enqueue_batches(
+                selection["scene_ids"],
+                record.trigger,
+                queue_name=historical_queue_name(os.environ["HISTORICAL_RUN_STAGE"]),
+                dry_run=payload["dry_run"],
+                manual_trigger=payload["manual_trigger"],
+                recheck_history=not payload.get("overwrite", False),
+            )
         except BaseException as exc:
             record.submission_error = repr(exc)
             raise
@@ -288,7 +282,6 @@ async def run_local(payload):
         + sum(batch["already_processed_scene_count"] for batch in batches),
         "queued_count": sum(batch["queued_count"] for batch in batches),
         "dry_run": payload["dry_run"],
-        "batches": batches,
     }
 
 

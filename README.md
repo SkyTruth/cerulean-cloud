@@ -416,15 +416,18 @@ to create tasks in the selected stage's queue.
 No queue-list permission or queue-name secret is needed. The local path uses no
 historical-run endpoint or Pulumi lookup once the stage's queue exists.
 
-Local discovery runs once, followed by independent submissions of up to 100
-scenes. By default, the runner rechecks scene history before each batch. All
-batches share one `HISTORICAL_RUN` trigger and submit tasks through Cloud Tasks'
-`tasks:batchCreate` REST API. The runner waits for confirmation before moving on. Failed
-or partial submissions stop execution without automatic retries. Tasks carry the
-trigger ID and a 30-minute execution deadline. `manual_trigger: true` gives
+Local discovery runs once. Each run submits batches of up to 100 tasks through
+Cloud Tasks' `tasks:batchCreate` API with up to **32 operations in flight**. Set
+`HISTORICAL_BATCH_WORKERS` to an integer from 1 to 32 to lower submission concurrency.
+The local CLI rechecks scene history before each batch by default, with up to four
+of those checks in flight. All batches share one `HISTORICAL_RUN` trigger.
+On a failed or partial batch, the runner stops launching more batches and lets
+in-flight operations finish reporting their outcomes. It does not retry submissions
+automatically. Tasks carry the trigger ID and a 30-minute execution deadline.
+`manual_trigger: true` gives
 source-association tasks run-specific names. Queue submission success does not
-mean inference has completed. Local stdout is the final JSON summary; progress
-and confirmed batch results go to stderr.
+mean inference has completed. Local stdout contains one final JSON object with
+run IDs and totals. Progress and batch confirmations go to stderr.
 
 Local enqueue records the run in the `historical_run` table: selection, dry-run
 setting, redacted command, Git revision, start and end times, confirmed task count,
@@ -444,11 +447,10 @@ H/M resolution, and ocean filters; lists and CSVs provide already selected IDs.
 Common options support an additional exclusion CSV and deduplication. CSV input/exclusion accepts
 `scene_id` or legacy `s1_scene_id`. Setup uses `STACK_SECRETS`, `GCP_PROJECT`, and
 `GCP_REGION`; rerun it after changing stacks. The orchestration cell checks the DB
-and submits batches of 100 directly. Set `OVERWRITE = True` to skip the scene
-history lookup. `DRY_RUN` must be `True` or `False` (default:
-`True`). All batches share one trigger. Keep the notebook running until
-submission finishes; `batch_results` retains confirmed earlier results if a later
-batch fails. The ASA and imagery download utilities have their own execution paths.
+and passes the selected scenes to the same concurrent runner. Set `OVERWRITE = True`
+to skip the scene history lookup. `DRY_RUN` must be `True` or `False` (default:
+`True`). All batches share one trigger and confirmations are printed as they arrive.
+The ASA and imagery download utilities have their own execution paths.
 
 ### Historical run diagnostics
 
