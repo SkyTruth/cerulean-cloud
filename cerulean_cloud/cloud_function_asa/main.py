@@ -1,21 +1,226 @@
 """cloud function Automatic Source Association handler"""
 
 import asyncio
+import json
 import os
 import random
+from datetime import datetime, timedelta
+from itertools import groupby, islice
 
 import geopandas as gpd
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 from flask import abort
 from geometric_slick_potential import (
     predict_geometric_slick_potential,
 )
+from google.auth import compute_engine
+from google.cloud import bigquery, storage
+from google.oauth2.service_account import Credentials
+from queuer import add_to_asa_queue
 from shapely import wkb
+from sqlalchemy import or_, select, update
+from utils import constants as c
 from utils.analyzer import ASA_MAPPING
 
 import cerulean_cloud.database_schema as db
 from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.database_client import DatabaseClient, get_engine, update_object
+
+
+ASA_TIME_COLUMNS = {flag: f"asa_{flag.lower()}_time" for flag in ASA_MAPPING}
+
+BATCH_AIS_SQL = """
+WITH covered AS (
+    SELECT scene_id, start_time, end_time, ST_GEOGFROMTEXT(envelope) AS geometry
+    FROM UNNEST(@scenes)
+    WHERE DATE(end_time) <= (
+        SELECT MAX(date)
+        FROM `global-fishing-watch.pipe_ais_v5_published.segs_activity_daily`
+        WHERE date != '1979-01-01'
+    )
+), matches AS (
+    SELECT
+        scene.scene_id,
+        seg.ssvid,
+        seg.timestamp,
+        seg.lon,
+        seg.lat,
+        seg.course,
+        seg.speed_knots,
+        ves.ais_identity.shipname_mostcommon.value AS shipname,
+        ves.ais_identity.shiptype[SAFE_OFFSET(0)].value AS shiptype,
+        ves.best.best_flag AS flag,
+        ves.random_forest_info.best_vessel_class AS best_shiptype
+    FROM `global-fishing-watch.pipe_ais_v5_published.messages` AS seg
+    JOIN covered AS scene
+      ON seg.timestamp BETWEEN scene.start_time AND scene.end_time
+      AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), scene.geometry)
+    LEFT JOIN `global-fishing-watch.pipe_ais_identity_v5_partners_published.vi_ssvid` AS ves
+      ON seg.ssvid = ves.ssvid
+    WHERE seg.timestamp BETWEEN @first_timestamp AND @last_timestamp
+)
+SELECT scene.scene_id, matches.* EXCEPT (scene_id)
+FROM covered AS scene
+LEFT JOIN matches USING (scene_id)
+ORDER BY scene_id
+"""
+
+
+def published_through(now):
+    return now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=3)
+
+
+def pending_run_flags(run):
+    return [
+        flag
+        for flag, column in ASA_TIME_COLUMNS.items()
+        if getattr(run, column) is None
+    ]
+
+
+def completed_run_flags(run_flags, analyzer_cache):
+    return [
+        flag
+        for flag in run_flags
+        if getattr(analyzer_cache.get(flag), "data_is_available", None) is not False
+    ]
+
+
+async def handle_asa_batch():
+    if os.getenv("ASA_IS_DRY_RUN", "").lower() == "true":
+        return "Success!"
+
+    now = datetime.utcnow()
+    run = db.OrchestratorRun
+    scene = db.Sentinel1Grd
+    slick = db.Slick
+    query = (
+        select(scene, run)
+        .join(run, run.sentinel1_grd == scene.id)
+        .where(
+            scene.start_time >= now - timedelta(days=32),
+            scene.start_time <= published_through(now) - timedelta(hours=6),
+            or_(
+                *(
+                    getattr(run, column).is_(None)
+                    for column in ASA_TIME_COLUMNS.values()
+                )
+            ),
+            select(slick.id)
+            .where(
+                slick.orchestrator_run == run.id,
+                slick.active.is_(True),
+                slick.machine_confidence > 0,
+            )
+            .exists(),
+        )
+    )
+    candidates = {}
+    engine = get_engine(db_url=os.getenv("DB_URL"))
+    try:
+        async with DatabaseClient(engine) as db_client:
+            async with db_client.session.begin():
+                for s1_scene, candidate_run in await db_client.session.execute(query):
+                    _, flags = candidates.setdefault(
+                        s1_scene.scene_id, (s1_scene, set())
+                    )
+                    flags.update(pending_run_flags(candidate_run))
+    finally:
+        await engine.dispose()
+
+    vessel_analyzers = [
+        ASA_MAPPING["VESSEL"](s1_scene)
+        for s1_scene, flags in candidates.values()
+        if "VESSEL" in flags
+    ]
+    ais_uris = {}
+    if vessel_analyzers:
+        scenes = [
+            bigquery.StructQueryParameter(
+                None,
+                bigquery.ScalarQueryParameter(
+                    "scene_id", "STRING", analyzer.s1_scene.scene_id
+                ),
+                bigquery.ScalarQueryParameter(
+                    "start_time", "TIMESTAMP", analyzer.ais_start_time
+                ),
+                bigquery.ScalarQueryParameter(
+                    "end_time", "TIMESTAMP", analyzer.ais_end_time
+                ),
+                bigquery.ScalarQueryParameter(
+                    "envelope", "STRING", analyzer.ais_envelope.iloc[0].wkt
+                ),
+            )
+            for analyzer in vessel_analyzers
+        ]
+        client = bigquery.Client(
+            project=c.GFW_PROJECT_ID,
+            credentials=Credentials.from_service_account_info(
+                json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+            ),
+        )
+        rows = client.query(
+            BATCH_AIS_SQL,
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ArrayQueryParameter("scenes", "STRUCT", scenes),
+                    bigquery.ScalarQueryParameter(
+                        "first_timestamp",
+                        "TIMESTAMP",
+                        min(analyzer.ais_start_time for analyzer in vessel_analyzers),
+                    ),
+                    bigquery.ScalarQueryParameter(
+                        "last_timestamp",
+                        "TIMESTAMP",
+                        max(analyzer.ais_end_time for analyzer in vessel_analyzers),
+                    ),
+                ]
+            ),
+        ).result(page_size=10000)
+
+        storage_client = storage.Client(
+            project=os.environ["PROJECT_ID"], credentials=compute_engine.Credentials()
+        )
+        bucket = storage_client.bucket(os.environ["ASA_BUCKET"])
+        field_types = {
+            "STRING": pa.string(),
+            "INTEGER": pa.int64(),
+            "FLOAT": pa.float64(),
+            "TIMESTAMP": pa.timestamp("us", tz="UTC"),
+        }
+        schema = pa.schema(
+            [
+                (field.name, field_types[field.field_type])
+                for field in rows.schema
+                if field.name != "scene_id"
+            ]
+        )
+        for scene_id, scene_rows in groupby(rows, key=lambda row: row["scene_id"]):
+            blob = bucket.blob(f"ais/{now.date()}/{scene_id}.parquet")
+            # The ordered result permits one writer and one bounded row group at a time.
+            with blob.open(
+                "wb", chunk_size=8 * 1024 * 1024, ignore_flush=True
+            ) as destination:
+                with pq.ParquetWriter(destination, schema) as writer:
+                    while batch := list(islice(scene_rows, 10000)):
+                        records = [
+                            {name: row[name] for name in schema.names}
+                            for row in batch
+                            if row["timestamp"] is not None
+                        ]
+                        if records:
+                            writer.write_table(
+                                pa.Table.from_pylist(records, schema=schema)
+                            )
+            ais_uris[scene_id] = f"gs://{bucket.name}/{blob.name}"
+
+    for scene_id, (_, flags) in candidates.items():
+        ais_uri = ais_uris.get(scene_id)
+        if "VESSEL" not in flags or ais_uri is not None:
+            add_to_asa_queue(scene_id, run_flags=sorted(flags), ais_uri=ais_uri)
+    return "Success!"
 
 
 def verify_api_key(request):
@@ -81,6 +286,8 @@ async def handle_asa_request(request):
         str: A string "Success!" upon successful completion.
     """
     request_json = request.get_json()
+    if request_json.get("batch") is True:
+        return await handle_asa_batch()
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
         run_flags = request_json.get("run_flags")  # list of source_type short_names
@@ -165,7 +372,9 @@ async def handle_asa_request(request):
                     for analyzer_name in analyzer_names_to_run:
                         analyzer = analyzer_cache.get(analyzer_name)
                         if analyzer is None:
-                            analyzer = ASA_MAPPING[analyzer_name](s1_scene)
+                            analyzer = ASA_MAPPING[analyzer_name](
+                                s1_scene, ais_uri=request_json.get("ais_uri")
+                            )
                             analyzer_cache[analyzer_name] = analyzer
                         analyzers_to_run.append(analyzer)
 
@@ -180,6 +389,9 @@ async def handle_asa_request(request):
                         f"{len(fresh_ranked_sources)} sources found for Slick ID: {slick.id}, after running these analyzers:{[analyzer.short_name for analyzer in analyzers_to_run]}"
                     )
 
+                    analyzer_names_to_run = completed_run_flags(
+                        analyzer_names_to_run, analyzer_cache
+                    )
                     if analyzer_names_to_run:
                         async with db_client.session.begin():
                             await db_client.lock_slick(slick.id)
@@ -266,6 +478,23 @@ async def handle_asa_request(request):
                     else:
                         print(f"No analyzers to run or reranking for slick {slick.id}")
                     print(f"ASA complete for slick {slick.id}")
+                completed_at = datetime.utcnow()
+                completion_times = {
+                    ASA_TIME_COLUMNS[flag]: completed_at
+                    for flag in completed_run_flags(run_flags, analyzer_cache)
+                    if flag != "VESSEL" or request_json.get("ais_uri")
+                }
+                if completion_times:
+                    async with db_client.session.begin():
+                        await db_client.session.execute(
+                            update(db.OrchestratorRun)
+                            .where(
+                                db.OrchestratorRun.id.in_(
+                                    {slick.orchestrator_run for slick in slicks}
+                                )
+                            )
+                            .values(**completion_times)
+                        )
                 print(f"ASA completed for {len(slicks)} slicks in scene {scene_id}")
 
         # Dispose the engine after finishing all DB operations.

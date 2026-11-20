@@ -1,0 +1,64 @@
+import importlib
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
+
+from cerulean_cloud.cloud_function_asa import queuer
+
+
+@pytest.fixture
+def asa_main(monkeypatch):
+    # Cloud Functions loads entry-point modules from the service directory.
+    service_root = Path(queuer.__file__).parent
+    monkeypatch.syspath_prepend(str(service_root))
+    # These tests never decode the DARK analyzer's vector tiles.
+    if importlib.util.find_spec("mapbox_vector_tile") is None:
+        monkeypatch.setitem(sys.modules, "mapbox_vector_tile", Mock())
+    return importlib.import_module("cerulean_cloud.cloud_function_asa.main")
+
+
+def test_published_through(asa_main):
+    assert asa_main.published_through(datetime(2026, 1, 2, 1, 25)) == datetime(
+        2025, 12, 30
+    )
+
+
+def test_pending_run_flags(asa_main):
+    run = SimpleNamespace(
+        asa_vessel_time=None,
+        asa_infra_time=datetime(2026, 1, 2),
+        asa_dark_time=None,
+        asa_natural_time=datetime(2026, 1, 2),
+    )
+    assert asa_main.pending_run_flags(run) == ["VESSEL", "DARK"]
+
+
+def test_completed_run_flags(asa_main):
+    analyzers = {
+        "VESSEL": SimpleNamespace(data_is_available=False),
+        "INFRA": SimpleNamespace(),
+        "DARK": SimpleNamespace(data_is_available=True),
+    }
+    assert asa_main.completed_run_flags(
+        ["VESSEL", "INFRA", "DARK", "NATURAL"], analyzers
+    ) == ["INFRA", "DARK", "NATURAL"]
+
+
+@pytest.mark.parametrize("ais_uri", [None, "gs://asa/ais/2026-01-02/scene.parquet"])
+def test_queue_ais_uri(monkeypatch, ais_uri):
+    client = Mock()
+    monkeypatch.setattr(queuer.tasks_v2, "CloudTasksClient", Mock(return_value=client))
+    for name in ("PROJECT_ID", "GCPREGION", "ASA_QUEUE", "FUNCTION_URL"):
+        monkeypatch.setenv(name, name)
+    queuer.add_to_asa_queue("scene", run_flags=["VESSEL"], ais_uri=ais_uri)
+    request = client.create_task.call_args.kwargs["request"]
+    payload = json.loads(request["task"]["http_request"]["body"])
+    if ais_uri is None:
+        assert "ais_uri" not in payload
+    else:
+        assert payload["ais_uri"] == ais_uri

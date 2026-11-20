@@ -1,5 +1,6 @@
 """cloud function to find slick culprits"""
 
+import base64
 import os
 import time
 
@@ -9,8 +10,10 @@ import pulumi
 from pulumi_gcp import (
     cloudfunctionsv2,
     cloudrun,
+    cloudscheduler,
     cloudtasks,
     projects,
+    secretmanager,
     serviceaccount,
     storage,
 )
@@ -20,11 +23,20 @@ from vpc_connector import vpc_connector
 stack = pulumi.get_stack()
 project_id = pulumi.Config("gcp").require("project")
 region = pulumi.Config("gcp").require("region")
+timeout_seconds = 540
 
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
     construct_name("bucket-cf-asa"),
     location="EU",
+    lifecycle_rules=[
+        storage.BucketLifecycleRuleArgs(
+            action=storage.BucketLifecycleRuleActionArgs(type="Delete"),
+            condition=storage.BucketLifecycleRuleConditionArgs(
+                age=7, matches_prefixes=["ais/"]
+            ),
+        ),
+    ],
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
 
@@ -86,6 +98,7 @@ config_values = {
     "PROJECT_ID": project_id,
     "GCPREGION": region,
     "ASA_QUEUE": queue.name,
+    "ASA_BUCKET": bucket.name,
     "FUNCTION_URL": computed_function_url,
     "ASA_IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_asa"),
 }
@@ -121,6 +134,26 @@ cloud_function_service_account_iam = projects.IAMMember(
     role="projects/cerulean-338116/roles/cloudfunctionasarole",
     member=cloud_function_service_account.email.apply(
         lambda email: f"serviceAccount:{email}"
+    ),
+)
+
+asa_bucket_access = storage.BucketIAMMember(
+    construct_name("cf-asa-bucket-access"),
+    bucket=bucket.name,
+    role="roles/storage.objectUser",
+    member=pulumi.Output.concat(
+        "serviceAccount:", cloud_function_service_account.email
+    ),
+)
+
+asa_queue_access = cloudtasks.QueueIamMember(
+    construct_name("cf-asa-queue-access"),
+    project=project_id,
+    location=region,
+    name=queue.name,
+    role="roles/cloudtasks.enqueuer",
+    member=pulumi.Output.concat(
+        "serviceAccount:", cloud_function_service_account.email
     ),
 )
 
@@ -164,13 +197,17 @@ fxn = cloudfunctionsv2.Function(
     service_config={
         "environment_variables": config_values,
         "available_memory": "4096M",
-        "timeout_seconds": 540,
+        "timeout_seconds": timeout_seconds,
         "service_account_email": cloud_function_service_account.email,
         "secret_environment_variables": [gfw_credentials, infra_api_key, api_key],
         "vpc_connector": vpc_connector.id,
     },
     opts=pulumi.ResourceOptions(
-        depends_on=[cloud_function_service_account_iam],
+        depends_on=[
+            cloud_function_service_account_iam,
+            asa_bucket_access,
+            asa_queue_access,
+        ],
     ),
 )
 
@@ -190,4 +227,25 @@ cloud_run_invoker = cloudrun.IamMember(
     service=fxn.name,
     role="roles/run.invoker",
     member="allUsers",
+)
+
+scheduler_key = secretmanager.get_secret_version_output(
+    secret=api_key["secret"]
+).secret_data
+cloudscheduler.Job(
+    construct_name("cf-asa-scheduler"),
+    region=region,
+    schedule="0 1 * * *",
+    time_zone="Etc/UTC",
+    attempt_deadline=f"{timeout_seconds}s",
+    http_target=cloudscheduler.JobHttpTargetArgs(
+        http_method="POST",
+        uri=fxn.service_config.uri,
+        body=base64.b64encode(b'{"batch": true}').decode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": pulumi.Output.concat("Bearer ", scheduler_key),
+        },
+    ),
+    opts=pulumi.ResourceOptions(depends_on=[cloud_run_invoker]),
 )

@@ -47,6 +47,7 @@ def add_to_asa_queue(
     days_to_delay=0,
     task_suffix=None,
     jitter_seconds=0,
+    ais_uri=None,
 ):
     """
     Adds a new task to Google Cloud Tasks for Automatic Source Association.
@@ -86,6 +87,8 @@ def add_to_asa_queue(
     payload = {"scene_id": scene_id, "dry_run": dry_run}
     if run_flags:
         payload["run_flags"] = run_flags
+    if ais_uri is not None:
+        payload["ais_uri"] = ais_uri
 
     scheduled_for = _schedule_time(
         days_to_delay=days_to_delay, jitter_seconds=jitter_seconds
