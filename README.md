@@ -507,6 +507,55 @@ The report covers:
 Queue depths can include other runs in the same stage. ASA tasks are narrowed to
 the run by the scene date in the task name when the queue holds 5,000 tasks or fewer.
 
+## ASA batch runs
+
+INFRA source association runs right after inference. VESSEL and DARK run in a daily
+batch at 15:00 UTC, 3 h after Global Fishing Watch publishes AIS: a Cloud Scheduler
+job POSTs a JSON body to the ASA Cloud Function. Only that job's service account can
+start a batch, so one-off runs also go through the job.
+
+### What you send
+
+The daily job sends `{"batch": true}`. A one-off run reaching older scenes can set
+every option:
+
+```json
+{"batch": true, "lookback_days": 1500, "pivot": "2024-06-01", "retry_incomplete": true}
+```
+
+| Field | Meaning |
+|---|---|
+| `batch` | Required, `true`: a batch run, not a single scene. |
+| `lookback_days` | Whole days back from now to look for scenes. Default 32, the daily run. Above 32 makes a one-off run; only one-off runs take `pivot` and `retry_incomplete`. |
+| `pivot` | A UTC date, `"YYYY-MM-DD"`. The run lines up scenes oldest to newest, starts at that date's midnight, goes forward, then wraps around to the oldest. It must fall between the lookback start and the publication cutoff, about 3½ days before the run. Default: a random start. |
+| `retry_incomplete` | `true` also takes runs an earlier batch queued more than 1 h ago that are still incomplete. Default `false`: a one-off run skips anything a batch has queued before, so scenes that fail every time can't use up each run. |
+
+A bad value gets HTTP 400 naming the problem, for example
+`pivot must fall from <first date> to <last date>`.
+
+### Steps in the console
+
+1. Open Cloud Scheduler in project `cerulean-338116`, region `europe-west1`, and
+   click the job whose name starts with `cerulean-cloud-<stack>-cf-asa-scheduler`.
+2. Click **Edit**, replace the body with your JSON, and save.
+3. Click **Force run**.
+4. Click **Edit** again, set the body back to `{"batch": true}`, and save. A body
+   left edited turns every daily run into the same one-off run. CI's `pulumi up`,
+   which refreshes state, also restores it; a local `pulumi up` without
+   `--refresh` doesn't.
+
+### Working through a backlog
+
+Each run queues at most 1,000 orchestrator runs, and VESSEL work spanning at most
+30 AIS dates, about 2–3 days of captures. Force run the same body again with
+`retry_incomplete` off: runs already queued are skipped, so each repeat moves on to
+the next. Set `retry_incomplete` to `true` once at the end to retry what failed.
+
+The function logs `Created task ...` for each scene queued,
+`Scene <id>: ... failed` for a scene that failed in the batch, and
+`N scenes wait for GFW to publish their AIS` for scenes past GFW's published data.
+Each queued run gets `orchestrator_run.asa_batch_queued_at`.
+
 ## Adding a new Pulumi Stack
 Don't forget to edit the following places:
 - Historical-run discovers its URL from the selected stack’s `historical_run_url` output.
