@@ -36,7 +36,7 @@ def test_pending_run_flags(asa_main):
         asa_vessel_time=None,
         asa_infra_time=datetime(2026, 1, 2),
         asa_dark_time=None,
-        asa_natural_time=datetime(2026, 1, 2),
+        asa_natural_time=None,  # NATURAL is not tracked yet
     )
     assert asa_main.pending_run_flags(run) == ["VESSEL", "DARK"]
 

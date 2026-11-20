@@ -30,7 +30,10 @@ from cerulean_cloud.centerlines import calculate_centerlines
 from cerulean_cloud.database_client import DatabaseClient, get_engine, update_object
 
 
-ASA_TIME_COLUMNS = {flag: f"asa_{flag.lower()}_time" for flag in ASA_MAPPING}
+# NATURAL is a placeholder analyzer; track it here once it is implemented.
+ASA_TIME_COLUMNS = {
+    flag: f"asa_{flag.lower()}_time" for flag in ASA_MAPPING if flag != "NATURAL"
+}
 
 BATCH_AIS_SQL = """
 WITH covered AS (
@@ -488,7 +491,8 @@ async def handle_asa_request(request):
                 completion_times = {
                     ASA_TIME_COLUMNS[flag]: completed_at
                     for flag in completed_run_flags(run_flags, analyzer_cache)
-                    if flag != "VESSEL" or request_json.get("ais_uri")
+                    if flag in ASA_TIME_COLUMNS
+                    and (flag != "VESSEL" or request_json.get("ais_uri"))
                 }
                 if completion_times:
                     async with db_client.session.begin():
