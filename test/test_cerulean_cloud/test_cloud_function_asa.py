@@ -52,6 +52,47 @@ def test_completed_run_flags(asa_main):
     ) == ["INFRA", "DARK", "NATURAL"]
 
 
+def test_ais_time_filter_merges_overlaps_and_keeps_gaps(asa_main):
+    windows = [
+        (datetime(2025, 5, 1, 10), datetime(2025, 5, 2, 0)),
+        (datetime(2023, 5, 1, 0), datetime(2023, 5, 1, 14)),
+        (datetime(2025, 5, 1, 0), datetime(2025, 5, 1, 14)),
+    ]
+    sql, params = asa_main.ais_time_filter(windows)
+    assert sql == (
+        "(seg.timestamp BETWEEN @t0_start AND @t0_end"
+        " OR seg.timestamp BETWEEN @t1_start AND @t1_end)"
+    )
+    assert [(p.name, p.value) for p in params] == [
+        ("t0_start", datetime(2023, 5, 1, 0)),
+        ("t0_end", datetime(2023, 5, 1, 14)),
+        ("t1_start", datetime(2025, 5, 1, 0)),
+        ("t1_end", datetime(2025, 5, 2, 0)),
+    ]
+
+
+@pytest.mark.parametrize(
+    "claims, status",
+    [
+        (ValueError("bad token"), 401),
+        ({"email": "someone-else@example.com"}, 403),
+        ({"email": "scheduler@example.com"}, None),
+    ],
+)
+def test_verify_scheduler_token(asa_main, monkeypatch, claims, status):
+    monkeypatch.setenv("ASA_SCHEDULER_SA", "scheduler@example.com")
+    verify = Mock(side_effect=claims) if status == 401 else Mock(return_value=claims)
+    monkeypatch.setattr(asa_main.id_token, "verify_oauth2_token", verify)
+    request = SimpleNamespace(headers={"Authorization": "Bearer token"})
+    if status is None:
+        asa_main.verify_scheduler_token(request)
+    else:
+        with pytest.raises(Exception) as raised:
+            asa_main.verify_scheduler_token(request)
+        assert raised.value.code == status
+    assert verify.call_args.args[0] == "token"
+
+
 def test_write_ais_slices(asa_main):
     # Scene "b" spans two batches; scene "c" has only its coverage marker row.
     schema = pa.schema(

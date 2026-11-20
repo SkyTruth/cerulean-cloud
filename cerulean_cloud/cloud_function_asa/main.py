@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from itertools import groupby
 
 import geopandas as gpd
+import google.auth.transport.requests
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -18,10 +19,11 @@ from geometric_slick_potential import (
 )
 from google.auth import compute_engine
 from google.cloud import bigquery, bigquery_storage, storage
+from google.oauth2 import id_token
 from google.oauth2.service_account import Credentials
 from queuer import add_to_asa_queue
 from shapely import wkb
-from sqlalchemy import or_, select, update
+from sqlalchemy import and_, or_, select, update
 from utils import constants as c
 from utils.analyzer import ASA_MAPPING
 
@@ -34,6 +36,12 @@ from cerulean_cloud.database_client import DatabaseClient, get_engine, update_ob
 ASA_TIME_COLUMNS = {
     flag: f"asa_{flag.lower()}_time" for flag in ASA_MAPPING if flag != "NATURAL"
 }
+
+# A batch request may set lookback_days to reach older scenes. These caps bound one
+# run: scenes for the 540 s timeout, capture dates for the GFW partitions scanned.
+LIVE_LOOKBACK_DAYS = 32
+MAX_BATCH_SCENES = 1000
+MAX_BATCH_CAPTURE_DATES = 30
 
 BATCH_AIS_SQL = """
 WITH covered AS (
@@ -63,7 +71,7 @@ WITH covered AS (
       AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), scene.geometry)
     LEFT JOIN `global-fishing-watch.pipe_ais_identity_v5_partners_published.vi_ssvid` AS ves
       ON seg.ssvid = ves.ssvid
-    WHERE seg.timestamp BETWEEN @first_timestamp AND @last_timestamp
+    WHERE {time_filter}
 )
 SELECT scene.scene_id, matches.* EXCEPT (scene_id)
 FROM covered AS scene
@@ -90,6 +98,29 @@ def completed_run_flags(run_flags, analyzer_cache):
         for flag in run_flags
         if getattr(analyzer_cache.get(flag), "data_is_available", None) is not False
     ]
+
+
+def ais_time_filter(windows):
+    """OR one BETWEEN per stretch of overlapping (start, end) AIS windows.
+
+    GFW's messages table prunes partitions per range. A single range from the
+    oldest to the newest scene would scan every day in between.
+    """
+    ranges = []
+    for start, end in sorted(windows):
+        if ranges and start <= ranges[-1][1]:
+            ranges[-1][1] = max(ranges[-1][1], end)
+        else:
+            ranges.append([start, end])
+    sql = " OR ".join(
+        f"seg.timestamp BETWEEN @t{i}_start AND @t{i}_end" for i in range(len(ranges))
+    )
+    params = [
+        bigquery.ScalarQueryParameter(f"t{i}_{edge}", "TIMESTAMP", value)
+        for i, bounds in enumerate(ranges)
+        for edge, value in zip(("start", "end"), bounds)
+    ]
+    return f"({sql})", params
 
 
 def write_ais_slices(batches, bucket, prefix):
@@ -122,11 +153,12 @@ def write_ais_slices(batches, bucket, prefix):
         yield write(current, parts)
 
 
-async def handle_asa_batch():
+async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
     if os.getenv("ASA_IS_DRY_RUN", "").lower() == "true":
         return "Success!"
 
     now = datetime.utcnow()
+    live = now - timedelta(days=LIVE_LOOKBACK_DAYS)
     run = db.OrchestratorRun
     scene = db.Sentinel1Grd
     slick = db.Slick
@@ -134,13 +166,17 @@ async def handle_asa_batch():
         select(scene, run)
         .join(run, run.sentinel1_grd == scene.id)
         .where(
-            scene.start_time >= now - timedelta(days=32),
+            scene.start_time >= now - timedelta(days=lookback_days),
             scene.start_time <= published_through(now) - timedelta(hours=6),
             or_(
                 *(
                     getattr(run, column).is_(None)
-                    for column in ASA_TIME_COLUMNS.values()
-                )
+                    for flag, column in ASA_TIME_COLUMNS.items()
+                    if flag != "DARK"
+                ),
+                # Older scenes whose only gap is DARK are not re-selected; they get
+                # another DARK attempt whenever they are selected for another type.
+                and_(run.asa_dark_time.is_(None), scene.start_time >= live),
             ),
             select(slick.id)
             .where(
@@ -150,13 +186,19 @@ async def handle_asa_batch():
             )
             .exists(),
         )
+        .order_by(scene.start_time.desc())
+        .limit(MAX_BATCH_SCENES)
     )
     candidates = {}
+    capture_dates = set()
     engine = get_engine(db_url=os.getenv("DB_URL"))
     try:
         async with DatabaseClient(engine) as db_client:
             async with db_client.session.begin():
                 for s1_scene, candidate_run in await db_client.session.execute(query):
+                    capture_dates.add(s1_scene.start_time.date())
+                    if len(capture_dates) > MAX_BATCH_CAPTURE_DATES:
+                        break  # newest first, so every later row is older
                     _, flags = candidates.setdefault(
                         s1_scene.scene_id, (s1_scene, set())
                     )
@@ -196,22 +238,17 @@ async def handle_asa_batch():
         credentials = Credentials.from_service_account_info(
             json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
         )
+        time_filter, time_params = ais_time_filter(
+            (analyzer.ais_start_time, analyzer.ais_end_time)
+            for analyzer in vessel_analyzers
+        )
         client = bigquery.Client(project=c.GFW_PROJECT_ID, credentials=credentials)
         rows = client.query(
-            BATCH_AIS_SQL,
+            BATCH_AIS_SQL.format(time_filter=time_filter),
             job_config=bigquery.QueryJobConfig(
                 query_parameters=[
                     bigquery.ArrayQueryParameter("scenes", "STRUCT", scenes),
-                    bigquery.ScalarQueryParameter(
-                        "first_timestamp",
-                        "TIMESTAMP",
-                        min(analyzer.ais_start_time for analyzer in vessel_analyzers),
-                    ),
-                    bigquery.ScalarQueryParameter(
-                        "last_timestamp",
-                        "TIMESTAMP",
-                        max(analyzer.ais_end_time for analyzer in vessel_analyzers),
-                    ),
+                    *time_params,
                 ]
             ),
         ).result()
@@ -255,6 +292,21 @@ def verify_api_key(request):
         abort(401, description="Unauthorized: Invalid API key")
 
 
+def verify_scheduler_token(request):
+    """Accept a batch request only with the ASA Scheduler account's OIDC token."""
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+    try:
+        claims = id_token.verify_oauth2_token(
+            token,
+            google.auth.transport.requests.Request(),
+            audience=os.getenv("FUNCTION_URL"),
+        )
+    except ValueError:
+        abort(401, description="Unauthorized: batch runs need a Scheduler token")
+    if claims.get("email") != os.getenv("ASA_SCHEDULER_SA"):
+        abort(403, description="Forbidden: batch runs come from Cloud Scheduler")
+
+
 def main(request):
     """
     Entry point for handling HTTP requests.
@@ -272,7 +324,10 @@ def main(request):
         - It's important to set up a new event loop if the function is running
           in a context where the default event loop is not available (e.g., in some WSGI servers).
     """
-    verify_api_key(request)
+    if (request.get_json(silent=True) or {}).get("batch") is True:
+        verify_scheduler_token(request)
+    else:
+        verify_api_key(request)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
@@ -296,7 +351,9 @@ async def handle_asa_request(request):
     """
     request_json = request.get_json()
     if request_json.get("batch") is True:
-        return await handle_asa_batch()
+        return await handle_asa_batch(
+            int(request_json.get("lookback_days", LIVE_LOOKBACK_DAYS))
+        )
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
         run_flags = request_json.get("run_flags")  # list of source_type short_names

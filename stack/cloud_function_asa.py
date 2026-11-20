@@ -13,7 +13,6 @@ from pulumi_gcp import (
     cloudscheduler,
     cloudtasks,
     projects,
-    secretmanager,
     serviceaccount,
     storage,
 )
@@ -91,6 +90,15 @@ computed_function_url = pulumi.Output.concat(
     function_name,
 )
 
+# Batch runs start a GFW query, so the function accepts them only with this
+# account's OIDC token, which the Scheduler jobs below send. The API key used by
+# Cloud Tasks cannot start a batch.
+scheduler_service_account = serviceaccount.Account(
+    construct_name("cf-asa-scheduler-sa"),
+    account_id=f"{stack}-cf-asa-sched",
+    display_name="Cloud Scheduler identity for ASA batch runs",
+)
+
 config_values = {
     "DB_URL": database.sql_instance_url_with_ip_asyncpg,
     "GIT_HASH": git_sha,
@@ -100,6 +108,7 @@ config_values = {
     "ASA_QUEUE": queue.name,
     "ASA_BUCKET": bucket.name,
     "FUNCTION_URL": computed_function_url,
+    "ASA_SCHEDULER_SA": scheduler_service_account.email,
     "ASA_IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_asa"),
 }
 
@@ -214,23 +223,35 @@ cloud_run_invoker = cloudrun.IamMember(
     member="allUsers",
 )
 
-scheduler_key = secretmanager.get_secret_version_output(
-    secret=api_key["secret"]
-).secret_data
+batch_target = cloudscheduler.JobHttpTargetArgs(
+    http_method="POST",
+    uri=computed_function_url,
+    body=base64.b64encode(b'{"batch": true}').decode(),
+    headers={"Content-Type": "application/json"},
+    oidc_token=cloudscheduler.JobHttpTargetOidcTokenArgs(
+        service_account_email=scheduler_service_account.email,
+        audience=computed_function_url,
+    ),
+)
 cloudscheduler.Job(
     construct_name("cf-asa-scheduler"),
     region=region,
     schedule="0 1 * * *",
     time_zone="Etc/UTC",
     attempt_deadline=f"{timeout_seconds}s",
-    http_target=cloudscheduler.JobHttpTargetArgs(
-        http_method="POST",
-        uri=fxn.service_config.uri,
-        body=base64.b64encode(b'{"batch": true}').decode(),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": pulumi.Output.concat("Bearer ", scheduler_key),
-        },
-    ),
+    http_target=batch_target,
+    opts=pulumi.ResourceOptions(depends_on=[cloud_run_invoker]),
+)
+# One-off runs from the console: edit this job's body, e.g.
+# {"batch": true, "lookback_days": 1500}, then Force run. Its yearly schedule
+# exists only because a job needs one; `pulumi up` resets the body.
+cloudscheduler.Job(
+    construct_name("cf-asa-manual"),
+    description="One-off ASA batch: edit the body's lookback_days, then Force run",
+    region=region,
+    schedule="0 1 1 1 *",
+    time_zone="Etc/UTC",
+    attempt_deadline=f"{timeout_seconds}s",
+    http_target=batch_target,
     opts=pulumi.ResourceOptions(depends_on=[cloud_run_invoker]),
 )
