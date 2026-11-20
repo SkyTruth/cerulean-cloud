@@ -146,6 +146,16 @@ cloud_function_service_account_iam = projects.IAMMember(
     ),
 )
 
+# GFW's account (the `ais:credentials` key, shared by every stack) runs the batch's
+# AIS query in GFW's project but can't open BigQuery read sessions there, so it
+# opens them here to stream the result. Reads bill to this project.
+gfw_read_sessions = projects.IAMMember(
+    construct_name("cf-asa-gfw-read-sessions"),
+    project=project_id,
+    role="roles/bigquery.readSessionUser",
+    member="serviceAccount:skytruth-cerulean@world-fishing-827.iam.gserviceaccount.com",
+)
+
 asa_bucket_access = storage.BucketIAMMember(
     construct_name("cf-asa-bucket-access"),
     bucket=bucket.name,

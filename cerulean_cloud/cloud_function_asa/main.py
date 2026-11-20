@@ -268,7 +268,7 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
             for analyzer in vessel_analyzers
         )
         client = bigquery.Client(project=c.GFW_PROJECT_ID, credentials=credentials)
-        rows = client.query(
+        job = client.query(
             BATCH_AIS_SQL.format(time_filter=time_filter),
             job_config=bigquery.QueryJobConfig(
                 query_parameters=[
@@ -277,12 +277,20 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
                 ],
                 maximum_bytes_billed=MAX_BATCH_BYTES_BILLED,
             ),
-        ).result()
-        # Row-by-row REST download measured 6.7k rows/s against ~17.8M rows a day;
-        # the Storage Read API streams the ordered result as Arrow batches.
-        batches = rows.to_arrow_iterable(
-            bqstorage_client=bigquery_storage.BigQueryReadClient(
-                credentials=credentials
+        )
+        job.result()
+        # Row-by-row REST download measured 6.7k rows/s against ~17.8M rows a day,
+        # so the Storage Read API streams the result as Arrow batches. GFW's account
+        # can't open read sessions in GFW's project, so the session opens in ours;
+        # one stream keeps the ORDER BY.
+        batches = (
+            bigquery.Client(project=os.environ["PROJECT_ID"], credentials=credentials)
+            .list_rows(job.destination)
+            .to_arrow_iterable(
+                bqstorage_client=bigquery_storage.BigQueryReadClient(
+                    credentials=credentials
+                ),
+                max_stream_count=1,
             )
         )
         bucket = storage.Client(
