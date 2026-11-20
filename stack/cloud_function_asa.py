@@ -146,17 +146,6 @@ asa_bucket_access = storage.BucketIAMMember(
     ),
 )
 
-asa_queue_access = cloudtasks.QueueIamMember(
-    construct_name("cf-asa-queue-access"),
-    project=project_id,
-    location=region,
-    name=queue.name,
-    role="roles/cloudtasks.enqueuer",
-    member=pulumi.Output.concat(
-        "serviceAccount:", cloud_function_service_account.email
-    ),
-)
-
 # Define secret environment variables
 gfw_credentials = {
     "key": "GOOGLE_APPLICATION_CREDENTIALS",
@@ -203,11 +192,7 @@ fxn = cloudfunctionsv2.Function(
         "vpc_connector": vpc_connector.id,
     },
     opts=pulumi.ResourceOptions(
-        depends_on=[
-            cloud_function_service_account_iam,
-            asa_bucket_access,
-            asa_queue_access,
-        ],
+        depends_on=[cloud_function_service_account_iam, asa_bucket_access],
     ),
 )
 

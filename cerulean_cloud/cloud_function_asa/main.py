@@ -130,12 +130,16 @@ async def handle_asa_batch():
     finally:
         await engine.dispose()
 
+    # Queue each scene as soon as it is ready, so a timeout keeps earlier work.
+    for scene_id, (_, flags) in candidates.items():
+        if "VESSEL" not in flags:
+            add_to_asa_queue(scene_id, run_flags=sorted(flags))
+
     vessel_analyzers = [
         ASA_MAPPING["VESSEL"](s1_scene)
         for s1_scene, flags in candidates.values()
         if "VESSEL" in flags
     ]
-    ais_uris = {}
     if vessel_analyzers:
         scenes = [
             bigquery.StructQueryParameter(
@@ -214,12 +218,11 @@ async def handle_asa_batch():
                             writer.write_table(
                                 pa.Table.from_pylist(records, schema=schema)
                             )
-            ais_uris[scene_id] = f"gs://{bucket.name}/{blob.name}"
-
-    for scene_id, (_, flags) in candidates.items():
-        ais_uri = ais_uris.get(scene_id)
-        if "VESSEL" not in flags or ais_uri is not None:
-            add_to_asa_queue(scene_id, run_flags=sorted(flags), ais_uri=ais_uri)
+            add_to_asa_queue(
+                scene_id,
+                run_flags=sorted(candidates[scene_id][1]),
+                ais_uri=f"gs://{bucket.name}/{blob.name}",
+            )
     return "Success!"
 
 
