@@ -239,7 +239,7 @@ cloud_run_invoker = cloudrun.IamMember(
 cloudscheduler.Job(
     construct_name("cf-asa-scheduler"),
     region=region,
-    schedule="0 1 * * *",
+    schedule="0 15 * * *",  # 3 h after GFW's 12:00 UTC AIS release
     time_zone="Etc/UTC",
     attempt_deadline=f"{timeout_seconds}s",
     http_target=cloudscheduler.JobHttpTargetArgs(

@@ -83,8 +83,17 @@ ORDER BY scene_id
 """
 
 
+# GFW publishes AIS once a day at 12:00 UTC, through 23:59 UTC three days earlier.
+# The scheduler runs the batch 3 h later (stack/cloud_function_asa.py).
+GFW_RELEASE_HOUR = 12
+
+
 def published_through(now):
-    return now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=3)
+    """End of the newest AIS day GFW has published by `now` (naive UTC)."""
+    release_day = (now - timedelta(hours=GFW_RELEASE_HOUR)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return release_day - timedelta(days=2)
 
 
 def pending_run_flags(run):

@@ -26,10 +26,19 @@ def asa_main(monkeypatch):
     return importlib.import_module("cerulean_cloud.cloud_function_asa.main")
 
 
-def test_published_through(asa_main):
-    assert asa_main.published_through(datetime(2026, 1, 2, 1, 25)) == datetime(
-        2025, 12, 30
-    )
+@pytest.mark.parametrize(
+    "now, through",
+    [
+        # Before 12:00 UTC the newest release is yesterday's, through 29 Dec.
+        (datetime(2026, 1, 2, 1, 25), datetime(2025, 12, 30)),
+        (datetime(2026, 1, 2, 11, 59), datetime(2025, 12, 30)),
+        # From 12:00 UTC today's release adds 30 Dec.
+        (datetime(2026, 1, 2, 12, 0), datetime(2025, 12, 31)),
+        (datetime(2026, 1, 2, 15, 0), datetime(2025, 12, 31)),
+    ],
+)
+def test_published_through(asa_main, now, through):
+    assert asa_main.published_through(now) == through
 
 
 def test_pending_run_flags(asa_main):
