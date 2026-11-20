@@ -35,6 +35,7 @@ from shapely.geometry import shape
 
 from cerulean_cloud.auth import api_key_auth
 from cerulean_cloud.centerlines import calculate_centerlines
+from cerulean_cloud.cloud_function_asa.queuer import add_to_asa_queue
 from cerulean_cloud.cloud_run_orchestrator.clients import CloudRunInferenceClient
 from cerulean_cloud.cloud_run_orchestrator.schema import (
     OrchestratorInput,
@@ -660,6 +661,16 @@ async def _orchestrate(
                             cls_id=feat.get("properties").get("cls_id_override"),
                         )
                         logger.info("Added slick")
+
+                logger.info("Queueing up Automatic Source Association")
+                # VESSEL and DARK wait for GFW publication in the daily ASA batch.
+                add_to_asa_queue(
+                    sentinel1_grd.scene_id,
+                    run_flags=["INFRA", "NATURAL"],
+                    task_suffix=f"run-{orchestrator_run.id}"
+                    if payload.manual_trigger
+                    else None,
+                )
 
         except Exception as e:
             success = False
