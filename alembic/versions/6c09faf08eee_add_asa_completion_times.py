@@ -24,7 +24,7 @@ def upgrade():
             sa.Column(
                 column,
                 sa.DateTime(),
-                server_default=sa.text("now() AT TIME ZONE 'UTC'"),
+                server_default=sa.text("timezone('UTC', now())"),
             ),
         )
         op.alter_column("orchestrator_run", column, server_default=None)
