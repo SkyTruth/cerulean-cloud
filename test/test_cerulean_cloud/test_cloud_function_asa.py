@@ -1,11 +1,14 @@
 import importlib
+import io
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from cerulean_cloud.cloud_function_asa import queuer
@@ -47,6 +50,43 @@ def test_completed_run_flags(asa_main):
     assert asa_main.completed_run_flags(
         ["VESSEL", "INFRA", "DARK", "NATURAL"], analyzers
     ) == ["INFRA", "DARK", "NATURAL"]
+
+
+def test_write_ais_slices(asa_main):
+    # Scene "b" spans two batches; scene "c" has only its coverage marker row.
+    schema = pa.schema(
+        [
+            ("scene_id", pa.string()),
+            ("timestamp", pa.timestamp("us", tz="UTC")),
+            ("lon", pa.float64()),
+        ]
+    )
+    t = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    batches = [
+        pa.record_batch([["a", "a", "b"], [t, t, t], [1.0, 2.0, 3.0]], schema=schema),
+        pa.record_batch([["b", "c"], [t, None], [4.0, None]], schema=schema),
+    ]
+    uploads = {}
+
+    class Blob:
+        def __init__(self, name):
+            self.name = name
+
+        def upload_from_string(self, data):
+            uploads[self.name] = pq.read_table(io.BytesIO(data))
+
+    bucket = SimpleNamespace(name="bucket", blob=Blob)
+    written = list(asa_main.write_ais_slices(iter(batches), bucket, "ais/2026-01-02"))
+    assert written == [
+        (scene, f"gs://bucket/ais/2026-01-02/{scene}.parquet") for scene in "abc"
+    ]
+    tables = [uploads[f"ais/2026-01-02/{scene}.parquet"] for scene in "abc"]
+    assert [table["lon"].to_pylist() for table in tables] == [
+        [1.0, 2.0],
+        [3.0, 4.0],
+        [],
+    ]
+    assert all(table.column_names == ["timestamp", "lon"] for table in tables)
 
 
 @pytest.mark.parametrize("ais_uri", [None, "gs://asa/ais/2026-01-02/scene.parquet"])

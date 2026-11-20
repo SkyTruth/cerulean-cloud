@@ -5,18 +5,19 @@ import json
 import os
 import random
 from datetime import datetime, timedelta
-from itertools import groupby, islice
+from itertools import groupby
 
 import geopandas as gpd
 import pandas as pd
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from flask import abort
 from geometric_slick_potential import (
     predict_geometric_slick_potential,
 )
 from google.auth import compute_engine
-from google.cloud import bigquery, storage
+from google.cloud import bigquery, bigquery_storage, storage
 from google.oauth2.service_account import Credentials
 from queuer import add_to_asa_queue
 from shapely import wkb
@@ -86,6 +87,36 @@ def completed_run_flags(run_flags, analyzer_cache):
         for flag in run_flags
         if getattr(analyzer_cache.get(flag), "data_is_available", None) is not False
     ]
+
+
+def write_ais_slices(batches, bucket, prefix):
+    """Write one Parquet file per scene from Arrow batches ordered by scene_id.
+
+    Holds one scene's rows at a time and yields (scene_id, gs:// URI) after each upload.
+    """
+
+    def write(scene_id, parts):
+        table = pa.Table.from_batches(parts).drop_columns(["scene_id"])
+        table = table.filter(pc.is_valid(table["timestamp"]))  # drop coverage markers
+        sink = pa.BufferOutputStream()
+        pq.write_table(table, sink)
+        blob = bucket.blob(f"{prefix}/{scene_id}.parquet")
+        blob.upload_from_string(sink.getvalue().to_pybytes())
+        return scene_id, f"gs://{bucket.name}/{blob.name}"
+
+    current, parts = None, []
+    for batch in batches:
+        start = 0
+        for scene_id, run in groupby(batch.column("scene_id").to_pylist()):
+            length = sum(1 for _ in run)
+            if parts and scene_id != current:
+                yield write(current, parts)
+                parts = []
+            current = scene_id
+            parts.append(batch.slice(start, length))
+            start += length
+    if parts:
+        yield write(current, parts)
 
 
 async def handle_asa_batch():
@@ -159,12 +190,10 @@ async def handle_asa_batch():
             )
             for analyzer in vessel_analyzers
         ]
-        client = bigquery.Client(
-            project=c.GFW_PROJECT_ID,
-            credentials=Credentials.from_service_account_info(
-                json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
-            ),
+        credentials = Credentials.from_service_account_info(
+            json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
         )
+        client = bigquery.Client(project=c.GFW_PROJECT_ID, credentials=credentials)
         rows = client.query(
             BATCH_AIS_SQL,
             job_config=bigquery.QueryJobConfig(
@@ -182,46 +211,20 @@ async def handle_asa_batch():
                     ),
                 ]
             ),
-        ).result(page_size=10000)
-
-        storage_client = storage.Client(
+        ).result()
+        # Row-by-row REST download measured 6.7k rows/s against ~17.8M rows a day;
+        # the Storage Read API streams the ordered result as Arrow batches.
+        batches = rows.to_arrow_iterable(
+            bqstorage_client=bigquery_storage.BigQueryReadClient(
+                credentials=credentials
+            )
+        )
+        bucket = storage.Client(
             project=os.environ["PROJECT_ID"], credentials=compute_engine.Credentials()
-        )
-        bucket = storage_client.bucket(os.environ["ASA_BUCKET"])
-        field_types = {
-            "STRING": pa.string(),
-            "INTEGER": pa.int64(),
-            "FLOAT": pa.float64(),
-            "TIMESTAMP": pa.timestamp("us", tz="UTC"),
-        }
-        schema = pa.schema(
-            [
-                (field.name, field_types[field.field_type])
-                for field in rows.schema
-                if field.name != "scene_id"
-            ]
-        )
-        for scene_id, scene_rows in groupby(rows, key=lambda row: row["scene_id"]):
-            blob = bucket.blob(f"ais/{now.date()}/{scene_id}.parquet")
-            # The ordered result permits one writer and one bounded row group at a time.
-            with blob.open(
-                "wb", chunk_size=8 * 1024 * 1024, ignore_flush=True
-            ) as destination:
-                with pq.ParquetWriter(destination, schema) as writer:
-                    while batch := list(islice(scene_rows, 10000)):
-                        records = [
-                            {name: row[name] for name in schema.names}
-                            for row in batch
-                            if row["timestamp"] is not None
-                        ]
-                        if records:
-                            writer.write_table(
-                                pa.Table.from_pylist(records, schema=schema)
-                            )
+        ).bucket(os.environ["ASA_BUCKET"])
+        for scene_id, ais_uri in write_ais_slices(batches, bucket, f"ais/{now.date()}"):
             add_to_asa_queue(
-                scene_id,
-                run_flags=sorted(candidates[scene_id][1]),
-                ais_uri=f"gs://{bucket.name}/{blob.name}",
+                scene_id, run_flags=sorted(candidates[scene_id][1]), ais_uri=ais_uri
             )
     return "Success!"
 
