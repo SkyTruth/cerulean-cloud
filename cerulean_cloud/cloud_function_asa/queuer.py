@@ -2,6 +2,7 @@
 Code for handling queue requests for Automatic Source Association
 """
 
+import functools
 import hashlib
 import json
 import os
@@ -41,6 +42,13 @@ def _schedule_time(days_to_delay, jitter_seconds=0):
     return scheduled_for
 
 
+@functools.lru_cache(maxsize=1)
+def _tasks_client():
+    """One client per instance; the daily batch queues up to 1,000 tasks."""
+    # Use Compute Engine credentials (metadata server) to guarantee default ADC
+    return tasks_v2.CloudTasksClient(credentials=compute_engine.Credentials())
+
+
 def add_to_asa_queue(
     scene_id,
     run_flags=[],
@@ -64,9 +72,7 @@ def add_to_asa_queue(
         - The function uses Google Cloud Tasks API to schedule the Automatic Source Association.
         - Multiple retries are scheduled with different delays.
     """
-    # Create a client.
-    # Use Compute Engine credentials (metadata server) to guarantee default ADC
-    client = tasks_v2.CloudTasksClient(credentials=compute_engine.Credentials())
+    client = _tasks_client()
 
     project = os.getenv("PROJECT_ID")
     location = os.getenv("GCPREGION")

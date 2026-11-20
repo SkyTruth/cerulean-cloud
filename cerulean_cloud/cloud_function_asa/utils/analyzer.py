@@ -189,10 +189,9 @@ class AISAnalyzer(SourceAnalyzer):
             .astype("datetime64[s]")
         )
 
+        df["geometry"] = df.apply(lambda row: Point(row["lon"], row["lat"]), axis=1)
         self.ais_gdf = (
-            gpd.GeoDataFrame(
-                df, geometry=gpd.points_from_xy(df["lon"], df["lat"]), crs="4326"
-            )
+            gpd.GeoDataFrame(df, crs="4326")
             .sort_values(by=["ssvid", "timestamp"])
             .reset_index(drop=True)
         )
@@ -697,10 +696,10 @@ class AISAnalyzer(SourceAnalyzer):
         self.results = gpd.GeoDataFrame()
         self.filtered_ssvids = []
 
-        if self.data_is_available is False:
-            return pd.DataFrame()
-
         if self.ais_gdf is None:
+            if not self.data_is_available:
+                print("VESSEL skipped: no ais_uri from the daily batch")
+                return pd.DataFrame()
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
             return pd.DataFrame()
@@ -1472,7 +1471,7 @@ class DarkAnalyzer(PointAnalyzer):
             project_id=self.gfw_project_id,
             credentials=self.credentials,
         )
-        return df.iloc[0]["data_available"]
+        return bool(df.iloc[0]["data_available"])
 
 
 class NaturalAnalyzer(SourceAnalyzer):

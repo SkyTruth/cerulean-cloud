@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import random
+import time
 from datetime import datetime, timedelta
 from itertools import groupby
 
@@ -23,7 +24,7 @@ from google.oauth2 import id_token
 from google.oauth2.service_account import Credentials
 from queuer import add_to_asa_queue
 from shapely import wkb
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import or_, select, update
 from utils import constants as c
 from utils.analyzer import ASA_MAPPING
 
@@ -38,10 +39,12 @@ ASA_TIME_COLUMNS = {
 }
 
 # A batch request may set lookback_days to reach older scenes. These caps bound one
-# run: scenes for the 540 s timeout, capture dates for the GFW partitions scanned.
+# run: runs for the 540 s timeout, AIS dates for the GFW partitions scanned
+# (~10.7 GB per date plus ~28 GB per query), with a byte ceiling as a backstop.
 LIVE_LOOKBACK_DAYS = 32
-MAX_BATCH_SCENES = 1000
-MAX_BATCH_CAPTURE_DATES = 30
+MAX_BATCH_RUNS = 1000
+MAX_BATCH_AIS_DATES = 30
+MAX_BATCH_BYTES_BILLED = 10**12
 
 BATCH_AIS_SQL = """
 WITH covered AS (
@@ -158,7 +161,6 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
         return "Success!"
 
     now = datetime.utcnow()
-    live = now - timedelta(days=LIVE_LOOKBACK_DAYS)
     run = db.OrchestratorRun
     scene = db.Sentinel1Grd
     slick = db.Slick
@@ -167,16 +169,12 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
         .join(run, run.sentinel1_grd == scene.id)
         .where(
             scene.start_time >= now - timedelta(days=lookback_days),
-            scene.start_time <= published_through(now) - timedelta(hours=6),
+            scene.start_time < published_through(now) - timedelta(hours=c.HOURS_AFTER),
             or_(
                 *(
                     getattr(run, column).is_(None)
-                    for flag, column in ASA_TIME_COLUMNS.items()
-                    if flag != "DARK"
-                ),
-                # Older scenes whose only gap is DARK are not re-selected; they get
-                # another DARK attempt whenever they are selected for another type.
-                and_(run.asa_dark_time.is_(None), scene.start_time >= live),
+                    for column in ASA_TIME_COLUMNS.values()
+                )
             ),
             select(slick.id)
             .where(
@@ -186,19 +184,25 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
             )
             .exists(),
         )
-        .order_by(scene.start_time.desc())
-        .limit(MAX_BATCH_SCENES)
+        # VESSEL work first, so DARK-only retries can't take its slots; oldest first,
+        # so a backlog is cleared before it ages out of the window.
+        .order_by(run.asa_vessel_time.is_(None).desc(), scene.start_time)
+        .limit(MAX_BATCH_RUNS)
     )
     candidates = {}
-    capture_dates = set()
+    ais_dates = set()
     engine = get_engine(db_url=os.getenv("DB_URL"))
     try:
         async with DatabaseClient(engine) as db_client:
             async with db_client.session.begin():
                 for s1_scene, candidate_run in await db_client.session.execute(query):
-                    capture_dates.add(s1_scene.start_time.date())
-                    if len(capture_dates) > MAX_BATCH_CAPTURE_DATES:
-                        break  # newest first, so every later row is older
+                    scene_dates = {
+                        (s1_scene.start_time + timedelta(hours=hours)).date()
+                        for hours in (-c.HOURS_BEFORE, c.HOURS_AFTER)
+                    }
+                    if len(ais_dates | scene_dates) > MAX_BATCH_AIS_DATES:
+                        continue
+                    ais_dates |= scene_dates
                     _, flags = candidates.setdefault(
                         s1_scene.scene_id, (s1_scene, set())
                     )
@@ -249,7 +253,8 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
                 query_parameters=[
                     bigquery.ArrayQueryParameter("scenes", "STRUCT", scenes),
                     *time_params,
-                ]
+                ],
+                maximum_bytes_billed=MAX_BATCH_BYTES_BILLED,
             ),
         ).result()
         # Row-by-row REST download measured 6.7k rows/s against ~17.8M rows a day;
@@ -292,14 +297,32 @@ def verify_api_key(request):
         abort(401, description="Unauthorized: Invalid API key")
 
 
+_google_certs = {}
+
+
+def _cached_certs_request(url, method="GET", **kwargs):
+    """Fetch Google's ID-token certificates at most hourly per instance.
+
+    Rejected batch requests then cost no outbound call.
+    """
+    expires, response = _google_certs.get(url, (0, None))
+    if time.time() > expires:
+        response = google.auth.transport.requests.Request()(
+            url, method=method, **kwargs
+        )
+        if response.status == 200:
+            _google_certs[url] = (time.time() + 3600, response)
+    return response
+
+
 def verify_scheduler_token(request):
     """Accept a batch request only with the ASA Scheduler account's OIDC token."""
     token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+    if not token:
+        abort(401, description="Unauthorized: batch runs need a Scheduler token")
     try:
         claims = id_token.verify_oauth2_token(
-            token,
-            google.auth.transport.requests.Request(),
-            audience=os.getenv("FUNCTION_URL"),
+            token, _cached_certs_request, audience=os.getenv("FUNCTION_URL")
         )
     except ValueError:
         abort(401, description="Unauthorized: batch runs need a Scheduler token")

@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -52,6 +53,17 @@ def test_completed_run_flags(asa_main):
     ) == ["INFRA", "DARK", "NATURAL"]
 
 
+def test_dark_availability_is_a_python_bool(asa_main, monkeypatch):
+    # pandas hands back numpy.bool_, which `is False` checks would miss.
+    result = pd.DataFrame({"data_available": pd.Series([False], dtype="boolean")})
+    monkeypatch.setattr("pandas_gbq.read_gbq", lambda *args, **kwargs: result)
+    scene = SimpleNamespace(
+        scene_id="s", start_time=datetime(2026, 1, 1), end_time=datetime(2026, 1, 1)
+    )
+    analyzer = SimpleNamespace(s1_scene=scene, gfw_project_id="p", credentials=None)
+    assert asa_main.ASA_MAPPING["DARK"].check_data_availability(analyzer) is False
+
+
 def test_ais_time_filter_merges_overlaps_and_keeps_gaps(asa_main):
     windows = [
         (datetime(2025, 5, 1, 10), datetime(2025, 5, 2, 0)),
@@ -74,6 +86,7 @@ def test_ais_time_filter_merges_overlaps_and_keeps_gaps(asa_main):
 @pytest.mark.parametrize(
     "claims, status",
     [
+        (None, 401),
         (ValueError("bad token"), 401),
         ({"email": "someone-else@example.com"}, 403),
         ({"email": "scheduler@example.com"}, None),
@@ -81,16 +94,21 @@ def test_ais_time_filter_merges_overlaps_and_keeps_gaps(asa_main):
 )
 def test_verify_scheduler_token(asa_main, monkeypatch, claims, status):
     monkeypatch.setenv("ASA_SCHEDULER_SA", "scheduler@example.com")
-    verify = Mock(side_effect=claims) if status == 401 else Mock(return_value=claims)
+    if isinstance(claims, Exception):
+        verify = Mock(side_effect=claims)
+    else:
+        verify = Mock(return_value=claims)
     monkeypatch.setattr(asa_main.id_token, "verify_oauth2_token", verify)
-    request = SimpleNamespace(headers={"Authorization": "Bearer token"})
+    headers = {} if claims is None else {"Authorization": "Bearer token"}
+    request = SimpleNamespace(headers=headers)
     if status is None:
         asa_main.verify_scheduler_token(request)
     else:
         with pytest.raises(Exception) as raised:
             asa_main.verify_scheduler_token(request)
         assert raised.value.code == status
-    assert verify.call_args.args[0] == "token"
+    # A missing token is rejected without fetching Google's certificates.
+    assert verify.called == (claims is not None)
 
 
 def test_write_ais_slices(asa_main):
@@ -134,6 +152,7 @@ def test_write_ais_slices(asa_main):
 def test_queue_ais_uri(monkeypatch, ais_uri):
     client = Mock()
     monkeypatch.setattr(queuer.tasks_v2, "CloudTasksClient", Mock(return_value=client))
+    queuer._tasks_client.cache_clear()
     for name in ("PROJECT_ID", "GCPREGION", "ASA_QUEUE", "FUNCTION_URL"):
         monkeypatch.setenv(name, name)
     queuer.add_to_asa_queue("scene", run_flags=["VESSEL"], ais_uri=ais_uri)

@@ -91,7 +91,7 @@ computed_function_url = pulumi.Output.concat(
 )
 
 # Batch runs start a GFW query, so the function accepts them only with this
-# account's OIDC token, which the Scheduler jobs below send. The API key used by
+# account's OIDC token, which the Scheduler job below sends. The API key used by
 # Cloud Tasks cannot start a batch.
 scheduler_service_account = serviceaccount.Account(
     construct_name("cf-asa-scheduler-sa"),
@@ -223,35 +223,24 @@ cloud_run_invoker = cloudrun.IamMember(
     member="allUsers",
 )
 
-batch_target = cloudscheduler.JobHttpTargetArgs(
-    http_method="POST",
-    uri=computed_function_url,
-    body=base64.b64encode(b'{"batch": true}').decode(),
-    headers={"Content-Type": "application/json"},
-    oidc_token=cloudscheduler.JobHttpTargetOidcTokenArgs(
-        service_account_email=scheduler_service_account.email,
-        audience=computed_function_url,
-    ),
-)
+# One-off runs from the console: edit the body, e.g.
+# {"batch": true, "lookback_days": 1500}, Force run, then restore it.
+# `pulumi up` also restores it.
 cloudscheduler.Job(
     construct_name("cf-asa-scheduler"),
     region=region,
     schedule="0 1 * * *",
     time_zone="Etc/UTC",
     attempt_deadline=f"{timeout_seconds}s",
-    http_target=batch_target,
-    opts=pulumi.ResourceOptions(depends_on=[cloud_run_invoker]),
-)
-# One-off runs from the console: edit this job's body, e.g.
-# {"batch": true, "lookback_days": 1500}, then Force run. Its yearly schedule
-# exists only because a job needs one; `pulumi up` resets the body.
-cloudscheduler.Job(
-    construct_name("cf-asa-manual"),
-    description="One-off ASA batch: edit the body's lookback_days, then Force run",
-    region=region,
-    schedule="0 1 1 1 *",
-    time_zone="Etc/UTC",
-    attempt_deadline=f"{timeout_seconds}s",
-    http_target=batch_target,
+    http_target=cloudscheduler.JobHttpTargetArgs(
+        http_method="POST",
+        uri=computed_function_url,
+        body=base64.b64encode(b'{"batch": true}').decode(),
+        headers={"Content-Type": "application/json"},
+        oidc_token=cloudscheduler.JobHttpTargetOidcTokenArgs(
+            service_account_email=scheduler_service_account.email,
+            audience=computed_function_url,
+        ),
+    ),
     opts=pulumi.ResourceOptions(depends_on=[cloud_run_invoker]),
 )
