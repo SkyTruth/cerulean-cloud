@@ -74,6 +74,34 @@ def test_ais_slice_must_be_this_scenes(asa_main, monkeypatch, uri):
         asa_main.ASA_MAPPING["VESSEL"].retrieve_ais_data(analyzer)
 
 
+@pytest.mark.parametrize(
+    "token, body",
+    [
+        ("api-key", {"batch": True}),  # the API key can't start a batch
+        ("api-key", [1]),  # a body that isn't an object
+    ],
+)
+def test_main_rejects_mismatched_requests(asa_main, monkeypatch, token, body):
+    monkeypatch.setenv("API_KEY", "api-key")
+    request = SimpleNamespace(
+        headers={"Authorization": f"Bearer {token}"},
+        get_json=lambda silent=False: body,
+    )
+    with pytest.raises(Exception) as raised:
+        asa_main.main(request)
+    assert raised.value.code == 400
+
+
+def test_main_checks_the_scheduler_token_before_reading_the_body(asa_main, monkeypatch):
+    monkeypatch.setenv("API_KEY", "api-key")
+    get_json = Mock()
+    request = SimpleNamespace(headers={}, get_json=get_json)
+    with pytest.raises(Exception) as raised:
+        asa_main.main(request)
+    assert raised.value.code == 401
+    assert not get_json.called
+
+
 def test_ais_time_filter_merges_overlaps_and_keeps_gaps(asa_main):
     windows = [
         (datetime(2025, 5, 1, 10), datetime(2025, 5, 2, 0)),

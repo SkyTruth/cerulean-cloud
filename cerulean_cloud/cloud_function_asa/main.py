@@ -166,12 +166,21 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
     slick = db.Slick
     vessel_pending = run.asa_vessel_time.is_(None)
     start = now - timedelta(days=lookback_days)
-    # One-off runs begin at a random capture time and wrap around, so scenes that
-    # fail every time can't use up the caps on every run. Daily runs start at the
-    # window's start.
-    pivot = start
     if lookback_days > LIVE_LOOKBACK_DAYS:
-        pivot += (now - start) * random.random()
+        # One-off runs: all pending work in capture order from a random start,
+        # wrapping around, so scenes that fail every time can't use up the caps on
+        # every run.
+        pivot = start + (now - start) * random.random()
+        order = (scene.start_time < pivot, scene.start_time)
+    else:
+        # Daily runs: VESSEL work oldest first, so a backlog clears before it ages
+        # out; the rest at random, so retries that never succeed (e.g. scenes GFW
+        # SAR never covers) can't hold the same slots every day.
+        order = (
+            vessel_pending.desc(),
+            case((vessel_pending, scene.start_time)),
+            func.random(),
+        )
     query = (
         select(scene, run)
         .join(run, run.sentinel1_grd == scene.id)
@@ -192,15 +201,7 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
             )
             .exists(),
         )
-        # VESSEL work first and oldest first, so a backlog clears before it ages out.
-        # The rest come in random order, so retries that never succeed (e.g. scenes
-        # GFW SAR never covers) can't hold the same slots on every run.
-        .order_by(
-            vessel_pending.desc(),
-            scene.start_time < pivot,
-            case((vessel_pending, scene.start_time)),
-            func.random(),
-        )
+        .order_by(*order)
         .limit(MAX_BATCH_RUNS)
     )
     candidates = {}
@@ -371,10 +372,21 @@ def main(request):
         - It's important to set up a new event loop if the function is running
           in a context where the default event loop is not available (e.g., in some WSGI servers).
     """
-    if (request.get_json(silent=True) or {}).get("batch") is True:
+    # Authenticate from the header before reading the body. The API key admits
+    # scene requests; only the Scheduler's OIDC token admits a batch.
+    batch = request.headers.get("Authorization") != f"Bearer {os.getenv('API_KEY')}"
+    if batch:
         verify_scheduler_token(request)
     else:
         verify_api_key(request)
+    request_json = request.get_json(silent=True)
+    if (
+        not isinstance(request_json, dict)
+        or (request_json.get("batch") is True) != batch
+    ):
+        abort(
+            400, description="Batch runs need the Scheduler token, scenes the API key"
+        )
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
