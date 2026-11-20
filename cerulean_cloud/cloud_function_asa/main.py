@@ -5,7 +5,7 @@ import json
 import os
 import random
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from itertools import groupby
 
 import geopandas as gpd
@@ -18,6 +18,7 @@ from flask import abort
 from geometric_slick_potential import (
     predict_geometric_slick_potential,
 )
+from google.api_core.exceptions import GoogleAPIError, NotFound, PreconditionFailed
 from google.auth import compute_engine
 from google.cloud import bigquery, bigquery_storage, storage
 from google.oauth2 import id_token
@@ -261,7 +262,48 @@ def ais_time_filter(windows):
     return f"({sql})", params
 
 
-def write_ais_slices(batches, bucket, prefix):
+def cached_ais_slices(bucket, object_names):
+    """Find candidate scenes in the seven-day cache, including run-date paths."""
+    cached = {}
+    for blob in bucket.list_blobs(
+        prefix="ais/",
+        match_glob="ais/????-??-??/*.parquet",
+        fields="items(name,generation,timeCreated),nextPageToken",
+    ):
+        scene_id = blob.name.rsplit("/", 1)[1].removesuffix(".parquet")
+        if scene_id in object_names:
+            previous = cached.get(scene_id)
+            if previous is None or previous.name != object_names[scene_id]:
+                # GCS lists names in order; prefer the scene-date copy, then newest run date.
+                cached[scene_id] = blob
+
+    # Leave a full day for queued workers before the bucket's seven-day deletion.
+    fresh_since = datetime.now(timezone.utc) - timedelta(days=6)
+    uris = {}
+    for scene_id, blob in cached.items():
+        if blob.time_created <= fresh_since:
+            name = object_names[scene_id]
+            try:
+                # Renew the stored bytes in GCS without running the GFW query again.
+                blob = bucket.copy_blob(
+                    blob,
+                    bucket,
+                    name,
+                    if_source_generation_match=blob.generation,
+                    if_generation_match=blob.generation if blob.name == name else 0,
+                )
+            except (NotFound, PreconditionFailed):
+                # Expired after listing, or another batch refreshed it first.
+                blob = bucket.get_blob(name)
+                if blob is None:
+                    continue
+            if blob.time_created <= fresh_since:
+                raise GoogleAPIError(f"Could not refresh AIS slice {name}")
+        uris[scene_id] = f"gs://{bucket.name}/{blob.name}"
+    return uris
+
+
+def write_ais_slices(batches, bucket, object_names):
     """Write one Parquet file per scene from Arrow batches ordered by scene_id.
 
     Holds one scene's rows at a time and yields (scene_id, gs:// URI) after each
@@ -274,8 +316,13 @@ def write_ais_slices(batches, bucket, prefix):
             table = table.filter(pc.is_valid(table["timestamp"]))  # coverage markers
             sink = pa.BufferOutputStream()
             pq.write_table(table, sink)
-            blob = bucket.blob(f"{prefix}/{scene_id}.parquet")
-            blob.upload_from_string(sink.getvalue().to_pybytes())
+            blob = bucket.blob(object_names[scene_id])
+            try:
+                blob.upload_from_string(
+                    sink.getvalue().to_pybytes(), if_generation_match=0
+                )
+            except PreconditionFailed:
+                pass  # An overlapping batch already created this scene's file.
         except Exception as e:
             print(f"Scene {scene_id}: writing its AIS slice failed: {e!r}")
             return scene_id, None
@@ -309,7 +356,6 @@ async def handle_asa_batch(
             failed = await queue_batch(
                 db_client.session,
                 batch_query(now, lookback_days, pivot, retry_incomplete),
-                now,
             )
     finally:
         await engine.dispose()
@@ -320,28 +366,49 @@ async def handle_asa_batch(
     return "Success!"
 
 
-async def queue_batch(session, query, now):
+async def queue_batch(session, query):
     """Queue a task for each scene the query selects; return the scenes that failed.
 
     A scene that raises is logged and skipped, so it can't stop the others.
     """
+    async with session.begin():
+        rows = (await session.execute(query)).all()
+
+    object_names = {
+        scene.scene_id: f"ais/{scene.start_time.date()}/{scene.scene_id}.parquet"
+        for scene, run in rows
+        if run.asa_vessel_time is None
+    }
+    cached = {}
+    lookup_error = None
+    if object_names:
+        bucket = storage.Client(
+            project=os.environ["PROJECT_ID"], credentials=compute_engine.Credentials()
+        ).bucket(os.environ["ASA_BUCKET"])
+        try:
+            cached = cached_ais_slices(bucket, object_names)
+        except GoogleAPIError as e:
+            # Queue runs with no VESSEL work left without spending on a blind query.
+            lookup_error = e
+
     candidates = {}
     ais_dates = set()
-    async with session.begin():
-        for s1_scene, candidate_run in await session.execute(query):
-            if candidate_run.asa_vessel_time is None:
-                scene_dates = {
-                    (s1_scene.start_time + timedelta(hours=hours)).date()
-                    for hours in (-c.HOURS_BEFORE, c.HOURS_AFTER)
-                }
-                if len(ais_dates | scene_dates) > MAX_BATCH_AIS_DATES:
-                    continue
-                ais_dates |= scene_dates
-            _, flags, run_ids = candidates.setdefault(
-                s1_scene.scene_id, (s1_scene, set(), set())
-            )
-            flags.update(pending_run_flags(candidate_run))
-            run_ids.add(candidate_run.id)
+    for s1_scene, candidate_run in rows:
+        if candidate_run.asa_vessel_time is None and s1_scene.scene_id not in cached:
+            if lookup_error is not None:
+                continue
+            scene_dates = {
+                (s1_scene.start_time + timedelta(hours=hours)).date()
+                for hours in (-c.HOURS_BEFORE, c.HOURS_AFTER)
+            }
+            if len(ais_dates | scene_dates) > MAX_BATCH_AIS_DATES:
+                continue
+            ais_dates |= scene_dates
+        _, flags, run_ids = candidates.setdefault(
+            s1_scene.scene_id, (s1_scene, set(), set())
+        )
+        flags.update(pending_run_flags(candidate_run))
+        run_ids.add(candidate_run.id)
 
     failed = []
 
@@ -350,16 +417,15 @@ async def queue_batch(session, query, now):
         failed.append(scene_id)
 
     # Queue each scene as soon as it is ready, so a timeout keeps earlier work.
-    for scene_id, (_, flags, run_ids) in candidates.items():
-        if "VESSEL" not in flags:
+    searched, scenes, windows = [], [], []
+    for scene_id, (s1_scene, flags, run_ids) in candidates.items():
+        if "VESSEL" not in flags or scene_id in cached:
             try:
-                await queue_scene(session, scene_id, flags, run_ids)
+                await queue_scene(
+                    session, scene_id, flags, run_ids, ais_uri=cached.get(scene_id)
+                )
             except Exception as e:
                 skip(scene_id, "queueing", e)
-
-    searched, scenes, windows = [], [], []
-    for s1_scene, flags, _ in candidates.values():
-        if "VESSEL" not in flags:
             continue
         try:
             analyzer = ASA_MAPPING["VESSEL"](s1_scene)
@@ -382,6 +448,8 @@ async def queue_batch(session, query, now):
             )
         )
         windows.append((analyzer.ais_start_time, analyzer.ais_end_time))
+    if lookup_error is not None:
+        raise lookup_error
     if not scenes:
         return failed
 
@@ -415,11 +483,8 @@ async def queue_batch(session, query, now):
             max_stream_count=1,
         )
     )
-    bucket = storage.Client(
-        project=os.environ["PROJECT_ID"], credentials=compute_engine.Credentials()
-    ).bucket(os.environ["ASA_BUCKET"])
     sliced = set()
-    for scene_id, ais_uri in write_ais_slices(batches, bucket, f"ais/{now.date()}"):
+    for scene_id, ais_uri in write_ais_slices(batches, bucket, object_names):
         sliced.add(scene_id)
         if ais_uri is None:
             failed.append(scene_id)  # write_ais_slices logged why

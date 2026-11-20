@@ -7,7 +7,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pandas as pd
 import pyarrow as pa
@@ -184,15 +184,17 @@ def test_write_ais_slices(asa_main):
         def __init__(self, name):
             self.name = name
 
-        def upload_from_string(self, data):
+        def upload_from_string(self, data, *, if_generation_match):
+            assert if_generation_match == 0
             uploads[self.name] = pq.read_table(io.BytesIO(data))
 
     bucket = SimpleNamespace(name="bucket", blob=Blob)
-    written = list(asa_main.write_ais_slices(iter(batches), bucket, "ais/2026-01-02"))
-    assert written == [
-        (scene, f"gs://bucket/ais/2026-01-02/{scene}.parquet") for scene in "abc"
-    ]
-    tables = [uploads[f"ais/2026-01-02/{scene}.parquet"] for scene in "abc"]
+    names = {
+        scene: f"ais/2026-01-0{i}/{scene}.parquet" for i, scene in enumerate("abc", 1)
+    }
+    written = list(asa_main.write_ais_slices(iter(batches), bucket, names))
+    assert written == [(scene, f"gs://bucket/{names[scene]}") for scene in "abc"]
+    tables = [uploads[names[scene]] for scene in "abc"]
     assert [table["lon"].to_pylist() for table in tables] == [
         [1.0, 2.0],
         [3.0, 4.0],
@@ -258,16 +260,168 @@ def test_write_ais_slices_skips_a_failed_upload(asa_main):
         def __init__(self, name):
             self.name = name
 
-        def upload_from_string(self, data):
+        def upload_from_string(self, data, *, if_generation_match):
             if self.name.endswith("/b.parquet"):
                 raise OSError("upload failed")
+            if self.name.endswith("/c.parquet"):
+                raise asa_main.PreconditionFailed("another batch wrote this scene")
 
     bucket = SimpleNamespace(name="bucket", blob=Blob)
-    assert list(asa_main.write_ais_slices(iter(batches), bucket, "ais")) == [
+    names = {s: f"ais/{s}.parquet" for s in "abc"}
+    assert list(asa_main.write_ais_slices(iter(batches), bucket, names)) == [
         ("a", "gs://bucket/ais/a.parquet"),
         ("b", None),
         ("c", "gs://bucket/ais/c.parquet"),
     ]
+
+
+def test_cache_listing_failure_still_queues_dark_only_work(asa_main, monkeypatch):
+    scene = SimpleNamespace(scene_id="s", start_time=NOW)
+    vessel = SimpleNamespace(
+        id=1, asa_vessel_time=None, asa_infra_time=NOW, asa_dark_time=NOW
+    )
+    dark = SimpleNamespace(
+        id=2, asa_vessel_time=NOW, asa_infra_time=NOW, asa_dark_time=None
+    )
+    session = Mock()
+    session.begin = contextlib.nullcontext
+    session.execute = AsyncMock(
+        return_value=SimpleNamespace(all=lambda: [(scene, vessel), (scene, dark)])
+    )
+    storage = Mock()
+    storage.return_value.bucket.return_value.list_blobs.side_effect = (
+        asa_main.GoogleAPIError("list failed")
+    )
+    monkeypatch.setattr(asa_main.storage, "Client", storage)
+    monkeypatch.setenv("ASA_BUCKET", "bucket")
+    monkeypatch.setenv("PROJECT_ID", "test-project")
+    queue, bq = AsyncMock(), Mock()
+    monkeypatch.setattr(asa_main, "queue_scene", queue)
+    monkeypatch.setattr(asa_main.bigquery, "Client", bq)
+    with pytest.raises(asa_main.GoogleAPIError, match="list failed"):
+        asyncio.run(asa_main.queue_batch(session, Mock()))
+    queue.assert_awaited_once_with(session, "s", {"DARK"}, {2}, ais_uri=None)
+    bq.assert_not_called()
+
+
+@pytest.mark.parametrize("all_cached", [True, False])
+def test_queue_batch_reuses_parquets(asa_main, monkeypatch, all_cached):
+    # Both runs are eligible again. Scene a has only a legacy run-date slice.
+    a = SimpleNamespace(scene_id="a", start_time=datetime(2026, 10, 1, 12))
+    b = SimpleNamespace(scene_id="b", start_time=datetime(2026, 10, 9, 12))
+    rows = [
+        (
+            scene,
+            SimpleNamespace(
+                id=i, asa_vessel_time=None, asa_infra_time=NOW, asa_dark_time=NOW
+            ),
+        )
+        for i, scene in enumerate([a, b], 1)
+    ]
+    session = Mock()
+    session.begin = contextlib.nullcontext
+    session.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: rows))
+    queue = AsyncMock()
+    monkeypatch.setattr(asa_main, "queue_scene", queue)
+    bucket = Mock()
+    bucket.name = "test-bucket"
+    names = ["ais/2026-11-19/a.parquet", "ais/2026-11-20/a.parquet"]
+    if all_cached:
+        names += ["ais/2026-10-09/b.parquet", "ais/2026-11-20/b.parquet"]
+    bucket.list_blobs.return_value = [
+        SimpleNamespace(name=n, time_created=datetime.now(timezone.utc))
+        for n in sorted(names)
+    ]
+    monkeypatch.setattr(
+        asa_main.storage, "Client", Mock(return_value=Mock(bucket=lambda _: bucket))
+    )
+    monkeypatch.setenv("ASA_BUCKET", bucket.name)
+    monkeypatch.setenv("PROJECT_ID", "test-project")
+    monkeypatch.setattr(asa_main, "MAX_BATCH_AIS_DATES", 1)
+    bq = Mock()
+    monkeypatch.setattr(asa_main.bigquery, "Client", bq)
+    analyzer = Mock(
+        return_value=SimpleNamespace(
+            ais_envelope=pd.Series([SimpleNamespace(wkt="polygon")]),
+            ais_start_time=b.start_time - timedelta(hours=8),
+            ais_end_time=b.start_time + timedelta(hours=6),
+        )
+    )
+    monkeypatch.setitem(asa_main.ASA_MAPPING, "VESSEL", analyzer)
+    if not all_cached:
+        monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "{}")
+        monkeypatch.setattr(asa_main.Credentials, "from_service_account_info", Mock())
+        monkeypatch.setattr(asa_main.bigquery_storage, "BigQueryReadClient", Mock())
+        schema = pa.schema(
+            [("scene_id", pa.string()), ("timestamp", pa.timestamp("us"))]
+        )
+        bq.return_value.list_rows.return_value.to_arrow_iterable.return_value = [
+            pa.record_batch([["b"], [None]], schema=schema)
+        ]
+        bucket.blob.side_effect = lambda name: SimpleNamespace(
+            name=name, upload_from_string=Mock()
+        )
+
+    assert asyncio.run(asa_main.queue_batch(session, Mock())) == []
+    assert [(args[1], kwargs["ais_uri"]) for args, kwargs in queue.await_args_list] == [
+        ("a", "gs://test-bucket/ais/2026-11-20/a.parquet"),
+        ("b", "gs://test-bucket/ais/2026-10-09/b.parquet"),
+    ]
+    if all_cached:
+        bq.assert_not_called()
+        analyzer.assert_not_called()
+        bucket.blob.assert_not_called()
+    else:
+        analyzer.assert_called_once_with(b)
+        params = bq.return_value.query.call_args.kwargs["job_config"].query_parameters
+        assert [p.struct_values["scene_id"] for p in params[0].values] == ["b"]
+        capture = b.start_time.replace(tzinfo=timezone.utc)
+        assert [p.value for p in params[1:]] == [
+            capture - timedelta(hours=8),
+            capture + timedelta(hours=6),
+        ]
+        bucket.blob.assert_called_once_with("ais/2026-10-09/b.parquet")
+
+
+@pytest.mark.parametrize(
+    "source_day, outcome",
+    [
+        ("10-01", "copied"),
+        ("11-20", "copied"),
+        ("10-01", "concurrent"),
+        ("11-20", "expired"),
+    ],
+)
+def test_refresh_expiring_cached_slice(asa_main, source_day, outcome):
+    now = datetime.now(timezone.utc)
+    canonical = "ais/2026-10-01/s.parquet"
+    old = SimpleNamespace(
+        name=f"ais/2026-{source_day}/s.parquet",
+        time_created=now - timedelta(days=6, hours=12),
+        generation=123,
+    )
+    fresh = SimpleNamespace(name=canonical, time_created=now, generation=456)
+    bucket = Mock()
+    bucket.name = "bucket"
+    bucket.list_blobs.return_value = [old]
+    if outcome == "copied":
+        bucket.copy_blob.return_value = fresh
+    elif outcome == "concurrent":
+        bucket.copy_blob.side_effect = asa_main.PreconditionFailed("another writer")
+        bucket.get_blob.return_value = fresh
+    else:
+        bucket.copy_blob.side_effect = asa_main.NotFound("source expired")
+        bucket.get_blob.return_value = None
+
+    uris = asa_main.cached_ais_slices(bucket, {"s": canonical})
+    assert uris == ({} if outcome == "expired" else {"s": f"gs://bucket/{canonical}"})
+    bucket.copy_blob.assert_called_once_with(
+        old,
+        bucket,
+        canonical,
+        if_source_generation_match=123,
+        if_generation_match=123 if old.name == canonical else 0,
+    )
 
 
 @pytest.mark.parametrize(
