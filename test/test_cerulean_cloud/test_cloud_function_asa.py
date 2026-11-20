@@ -1,8 +1,10 @@
+import asyncio
+import contextlib
 import importlib
 import io
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -13,6 +15,10 @@ import pyarrow.parquet as pq
 import pytest
 
 from cerulean_cloud.cloud_function_asa import queuer
+
+PG_CTL = Path(__file__).resolve().parents[2] / ".conda" / "ceru-ci" / "bin" / "pg_ctl"
+# A batch at 15:00 UTC on 20 Nov 2026 takes captures before 17 Nov 18:00.
+NOW = datetime(2026, 11, 20, 15, 0)
 
 
 @pytest.fixture
@@ -209,3 +215,203 @@ def test_queue_ais_uri(monkeypatch, ais_uri):
         assert "ais_uri" not in payload
     else:
         assert payload["ais_uri"] == ais_uri
+
+
+def test_deduped_task_returns_none(monkeypatch):
+    client = Mock()
+    client.create_task.side_effect = queuer.AlreadyExists("exists")
+    monkeypatch.setattr(queuer.tasks_v2, "CloudTasksClient", Mock(return_value=client))
+    queuer._tasks_client.cache_clear()
+    for name in ("PROJECT_ID", "GCPREGION", "ASA_QUEUE", "FUNCTION_URL"):
+        monkeypatch.setenv(name, name)
+    assert queuer.add_to_asa_queue("scene", run_flags=["INFRA"]) is None
+
+
+@pytest.mark.parametrize("created", [True, False])
+def test_queue_scene_stamps_only_created_tasks(asa_main, monkeypatch, created):
+    class Session:
+        executed = []
+
+        @contextlib.asynccontextmanager
+        async def begin(self):
+            yield
+
+        async def execute(self, statement):
+            self.executed.append(statement)
+
+    session = Session()
+    queue = Mock(return_value=Mock() if created else None)
+    monkeypatch.setattr(asa_main, "add_to_asa_queue", queue)
+    asyncio.run(asa_main.queue_scene(session, "s", {"VESSEL"}, {7, 3}, "gs://a/s"))
+    assert queue.call_args.kwargs["task_suffix"] == [3, 7]
+    assert len(session.executed) == int(created)
+    if created:
+        assert "asa_batch_queued_at" in str(session.executed[0])
+
+
+def test_write_ais_slices_skips_a_failed_upload(asa_main):
+    schema = pa.schema([("scene_id", pa.string()), ("timestamp", pa.timestamp("us"))])
+    t = datetime(2026, 1, 1)
+    batches = [pa.record_batch([["a", "b", "c"], [t, t, t]], schema=schema)]
+
+    class Blob:
+        def __init__(self, name):
+            self.name = name
+
+        def upload_from_string(self, data):
+            if self.name.endswith("/b.parquet"):
+                raise OSError("upload failed")
+
+    bucket = SimpleNamespace(name="bucket", blob=Blob)
+    assert list(asa_main.write_ais_slices(iter(batches), bucket, "ais")) == [
+        ("a", "gs://bucket/ais/a.parquet"),
+        ("b", None),
+        ("c", "gs://bucket/ais/c.parquet"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "body, options",
+    [
+        ({}, (32, None, False)),
+        ({"lookback_days": 1500}, (1500, None, False)),
+        (
+            {"lookback_days": 1500, "pivot": "2024-06-01", "retry_incomplete": True},
+            (1500, datetime(2024, 6, 1), True),
+        ),
+        # The last day with captures before the cutoff.
+        (
+            {"lookback_days": 1500, "pivot": "2026-11-17"},
+            (1500, datetime(2026, 11, 17), False),
+        ),
+    ],
+)
+def test_batch_options(asa_main, body, options):
+    assert asa_main.batch_options(body, NOW) == options
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"lookback_days": "1500"},
+        {"lookback_days": 0},
+        {"lookback_days": True},
+        {"lookback_days": 1500, "retry_incomplete": "yes"},
+        {"pivot": "2024-06-01"},  # daily runs have no pivot
+        {"retry_incomplete": True},  # daily runs already retry
+        {"lookback_days": 1500, "pivot": "2026-11-18"},  # after the cutoff
+        {"lookback_days": 40, "pivot": "2024-06-01"},  # before the lookback
+        {"lookback_days": 1500, "pivot": "June 1"},
+        {"lookback_days": 1500, "pivot": 20240601},
+    ],
+)
+def test_batch_options_rejects(asa_main, body):
+    with pytest.raises(Exception) as raised:
+        asa_main.batch_options(body, NOW)
+    assert raised.value.code == 400
+
+
+@pytest.mark.skipif(
+    not PG_CTL.exists(), reason="canonical ceru-ci PostgreSQL pg_ctl is unavailable"
+)
+def test_batch_query(asa_main, postgresql):
+    import sqlalchemy as sa
+    from geoalchemy2.shape import from_shape
+    from shapely.geometry import MultiPolygon, box
+
+    import cerulean_cloud.database_schema as db
+
+    engine = sa.create_engine(
+        f"postgresql://{postgresql.info.user}:@"
+        f"{postgresql.info.host}:{postgresql.info.port}/{postgresql.info.dbname}"
+    )
+    done = datetime(2026, 11, 19)
+    # scene_id: (capture time, asa_vessel_time, asa_dark_time, queued at, active slick)
+    scenes = {
+        "never_queued": (datetime(2026, 11, 10), None, None, None, True),
+        "retry": (datetime(2026, 11, 1), None, None, NOW - timedelta(days=1), True),
+        "in_flight": (
+            datetime(2026, 11, 2),
+            None,
+            None,
+            NOW - timedelta(minutes=10),
+            True,
+        ),
+        "dark_only": (datetime(2026, 11, 5), done, None, None, True),
+        "complete": (datetime(2026, 11, 6), done, done, None, True),
+        "unpublished": (datetime(2026, 11, 18), None, None, None, True),
+        "no_slicks": (datetime(2026, 11, 7), None, None, None, False),
+        "archive": (datetime(2023, 3, 1), None, None, None, True),
+    }
+    square = box(0, 0, 1, 1)
+    with engine.begin() as conn:
+        conn.execute(sa.text("CREATE EXTENSION postgis"))
+        db.Base.metadata.create_all(conn)
+        # Skip the foreign keys to triggers, models and classes these rows don't need.
+        conn.execute(sa.text("SET LOCAL session_replication_role = replica"))
+        for i, (scene_id, (start, vessel, dark, queued, active)) in enumerate(
+            scenes.items(), 1
+        ):
+            conn.execute(
+                sa.insert(db.Sentinel1Grd).values(
+                    id=i,
+                    scene_id=scene_id,
+                    start_time=start,
+                    end_time=start + timedelta(seconds=25),
+                    url="",
+                    geometry=from_shape(square, srid=4326),
+                )
+            )
+            conn.execute(
+                sa.insert(db.OrchestratorRun).values(
+                    id=i,
+                    inference_start_time=start,
+                    inference_end_time=start,
+                    inference_run_logs="",
+                    geometry=from_shape(square, srid=4326),
+                    trigger=1,
+                    model=1,
+                    sentinel1_grd=i,
+                    asa_vessel_time=vessel,
+                    asa_infra_time=done,
+                    asa_dark_time=dark,
+                    asa_batch_queued_at=queued,
+                )
+            )
+            conn.execute(
+                sa.insert(db.Slick).values(
+                    id=i,
+                    slick_timestamp=start,
+                    geometry=from_shape(MultiPolygon([square]), srid=4326),
+                    active=active,
+                    orchestrator_run=i,
+                    inference_idx=1,
+                    cls=1,
+                    machine_confidence=0.9,
+                )
+            )
+
+    def selected(**options):
+        with sa.orm.Session(engine) as session:
+            query = asa_main.batch_query(NOW, **options)
+            return [scene.scene_id for scene, _ in session.execute(query)]
+
+    try:
+        # VESSEL first, never-queued before retries; a run queued 10 min ago waits.
+        assert selected(lookback_days=32) == ["never_queued", "retry", "dark_only"]
+        # One-off runs go on from the pivot and wrap around, skipping queued runs
+        # unless retry_incomplete is set.
+        pivot = datetime(2026, 11, 3)
+        assert selected(lookback_days=1500, pivot=pivot) == [
+            "dark_only",
+            "never_queued",
+            "archive",
+        ]
+        assert selected(lookback_days=1500, pivot=pivot, retry_incomplete=True) == [
+            "dark_only",
+            "never_queued",
+            "archive",
+            "retry",
+        ]
+    finally:
+        engine.dispose()

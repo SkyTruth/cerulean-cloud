@@ -5,7 +5,7 @@ import json
 import os
 import random
 import time
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from itertools import groupby
 
 import geopandas as gpd
@@ -45,10 +45,18 @@ LIVE_LOOKBACK_DAYS = 32
 MAX_BATCH_RUNS = 1000
 MAX_BATCH_AIS_DATES = 30
 MAX_BATCH_BYTES_BILLED = 10**12
+# A run queued less than this long ago may still have a task in Cloud Tasks
+# (3 attempts within 600 s, each up to 540 s), so no batch queues it again.
+REQUEUE_AFTER = timedelta(hours=1)
 
+# make_valid repairs a self-intersecting envelope instead of failing the query.
 BATCH_AIS_SQL = """
 WITH covered AS (
-    SELECT scene_id, start_time, end_time, ST_GEOGFROMTEXT(envelope) AS geometry
+    SELECT
+        scene_id,
+        start_time,
+        end_time,
+        ST_GEOGFROMTEXT(envelope, make_valid => TRUE) AS geometry
     FROM UNNEST(@scenes)
     WHERE DATE(end_time) <= (
         SELECT MAX(date)
@@ -96,6 +104,124 @@ def published_through(now):
     return release_day - timedelta(days=2)
 
 
+def batch_cutoff(now):
+    """Latest capture time whose whole AIS window GFW has published by `now`."""
+    return published_through(now) - timedelta(hours=c.HOURS_AFTER)
+
+
+def batch_options(request_json, now):
+    """Check a batch request's options; HTTP 400 on a bad one.
+
+    lookback_days: whole days back from `now`, LIVE_LOOKBACK_DAYS by default. More
+        makes a one-off run, which also takes:
+    pivot: a UTC date, "YYYY-MM-DD". The run takes scenes from its midnight onward
+        in capture order, then wraps around to the oldest. Random by default.
+    retry_incomplete: true also takes runs a batch queued more than REQUEUE_AFTER
+        ago that are still incomplete. One-off runs skip them by default.
+    """
+    lookback_days = request_json.get("lookback_days", LIVE_LOOKBACK_DAYS)
+    if type(lookback_days) is not int or lookback_days < 1:
+        abort(400, description="lookback_days must be a positive whole number")
+    pivot = request_json.get("pivot")
+    retry_incomplete = request_json.get("retry_incomplete", False)
+    if not isinstance(retry_incomplete, bool):
+        abort(400, description="retry_incomplete must be true or false")
+    if lookback_days <= LIVE_LOOKBACK_DAYS and (pivot is not None or retry_incomplete):
+        abort(
+            400,
+            description="pivot and retry_incomplete need lookback_days"
+            f" > {LIVE_LOOKBACK_DAYS}",
+        )
+    if pivot is not None:
+        try:
+            pivot = datetime.combine(date.fromisoformat(pivot), datetime.min.time())
+        except (TypeError, ValueError):
+            abort(400, description='pivot must be a UTC date, "YYYY-MM-DD"')
+        first = (now - timedelta(days=lookback_days)).date()
+        last = batch_cutoff(now).date()
+        if not first <= pivot.date() <= last:
+            abort(400, description=f"pivot must fall from {first} to {last}")
+    return lookback_days, pivot, retry_incomplete
+
+
+def batch_query(now, lookback_days, pivot=None, retry_incomplete=False):
+    """(scene, run) pairs with ASA work left, in the order a batch takes them."""
+    run = db.OrchestratorRun
+    scene = db.Sentinel1Grd
+    slick = db.Slick
+    vessel_pending = run.asa_vessel_time.is_(None)
+    queued = run.asa_batch_queued_at
+    start = now - timedelta(days=lookback_days)
+    cutoff = batch_cutoff(now)
+    queued_long_ago = or_(queued.is_(None), queued < now - REQUEUE_AFTER)
+    if lookback_days > LIVE_LOOKBACK_DAYS:
+        # One-off runs: work no batch has queued (with retry_incomplete, also work
+        # queued before and still incomplete), in capture order from the pivot,
+        # wrapping around, so scenes that fail every time can't use up the caps on
+        # every run.
+        if pivot is None:
+            pivot = start + (cutoff - start) * random.random()
+        order = (scene.start_time < pivot, scene.start_time, run.id)
+        not_in_flight = queued_long_ago if retry_incomplete else queued.is_(None)
+    else:
+        # Daily runs: VESSEL work first, runs never queued before retries, each
+        # oldest first, so a backlog clears before it ages out; the rest at random,
+        # so retries that never succeed (e.g. scenes GFW SAR never covers) can't
+        # hold the same slots every day.
+        order = (
+            vessel_pending.desc(),
+            case((vessel_pending, queued.is_not(None))),
+            case((vessel_pending, scene.start_time)),
+            func.random(),
+        )
+        not_in_flight = queued_long_ago
+    return (
+        select(scene, run)
+        .join(run, run.sentinel1_grd == scene.id)
+        .where(
+            scene.start_time >= start,
+            scene.start_time < cutoff,
+            not_in_flight,
+            or_(
+                *(
+                    getattr(run, column).is_(None)
+                    for column in ASA_TIME_COLUMNS.values()
+                )
+            ),
+            select(slick.id)
+            .where(
+                slick.orchestrator_run == run.id,
+                slick.active.is_(True),
+                slick.machine_confidence > 0,
+            )
+            .exists(),
+        )
+        .order_by(*order)
+        .limit(MAX_BATCH_RUNS)
+    )
+
+
+async def queue_scene(session, scene_id, flags, run_ids, ais_uri=None):
+    """Queue one scene's task, and stamp its runs only if a task was created.
+
+    Task names carry the run IDs, so a re-orchestrated run isn't deduped against an
+    earlier run's task from the same day.
+    """
+    task = add_to_asa_queue(
+        scene_id,
+        run_flags=sorted(flags),
+        ais_uri=ais_uri,
+        task_suffix=sorted(run_ids),
+    )
+    if task is not None:
+        async with session.begin():
+            await session.execute(
+                update(db.OrchestratorRun)
+                .where(db.OrchestratorRun.id.in_(run_ids))
+                .values(asa_batch_queued_at=datetime.utcnow())
+            )
+
+
 def pending_run_flags(run):
     return [
         flag
@@ -138,16 +264,21 @@ def ais_time_filter(windows):
 def write_ais_slices(batches, bucket, prefix):
     """Write one Parquet file per scene from Arrow batches ordered by scene_id.
 
-    Holds one scene's rows at a time and yields (scene_id, gs:// URI) after each upload.
+    Holds one scene's rows at a time and yields (scene_id, gs:// URI) after each
+    upload, or (scene_id, None) if that scene's file failed, so the rest go on.
     """
 
     def write(scene_id, parts):
-        table = pa.Table.from_batches(parts).drop_columns(["scene_id"])
-        table = table.filter(pc.is_valid(table["timestamp"]))  # drop coverage markers
-        sink = pa.BufferOutputStream()
-        pq.write_table(table, sink)
-        blob = bucket.blob(f"{prefix}/{scene_id}.parquet")
-        blob.upload_from_string(sink.getvalue().to_pybytes())
+        try:
+            table = pa.Table.from_batches(parts).drop_columns(["scene_id"])
+            table = table.filter(pc.is_valid(table["timestamp"]))  # coverage markers
+            sink = pa.BufferOutputStream()
+            pq.write_table(table, sink)
+            blob = bucket.blob(f"{prefix}/{scene_id}.parquet")
+            blob.upload_from_string(sink.getvalue().to_pybytes())
+        except Exception as e:
+            print(f"Scene {scene_id}: writing its AIS slice failed: {e!r}")
+            return scene_id, None
         return scene_id, f"gs://{bucket.name}/{blob.name}"
 
     current, parts = None, []
@@ -165,155 +296,145 @@ def write_ais_slices(batches, bucket, prefix):
         yield write(current, parts)
 
 
-async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
+async def handle_asa_batch(
+    lookback_days=LIVE_LOOKBACK_DAYS, pivot=None, retry_incomplete=False
+):
     if os.getenv("ASA_IS_DRY_RUN", "").lower() == "true":
         return "Success!"
 
     now = datetime.utcnow()
-    run = db.OrchestratorRun
-    scene = db.Sentinel1Grd
-    slick = db.Slick
-    vessel_pending = run.asa_vessel_time.is_(None)
-    start = now - timedelta(days=lookback_days)
-    if lookback_days > LIVE_LOOKBACK_DAYS:
-        # One-off runs: all pending work in capture order from a random start,
-        # wrapping around, so scenes that fail every time can't use up the caps on
-        # every run.
-        pivot = start + (now - start) * random.random()
-        order = (scene.start_time < pivot, scene.start_time)
-    else:
-        # Daily runs: VESSEL work oldest first, so a backlog clears before it ages
-        # out; the rest at random, so retries that never succeed (e.g. scenes GFW
-        # SAR never covers) can't hold the same slots every day.
-        order = (
-            vessel_pending.desc(),
-            case((vessel_pending, scene.start_time)),
-            func.random(),
-        )
-    query = (
-        select(scene, run)
-        .join(run, run.sentinel1_grd == scene.id)
-        .where(
-            scene.start_time >= start,
-            scene.start_time < published_through(now) - timedelta(hours=c.HOURS_AFTER),
-            or_(
-                *(
-                    getattr(run, column).is_(None)
-                    for column in ASA_TIME_COLUMNS.values()
-                )
-            ),
-            select(slick.id)
-            .where(
-                slick.orchestrator_run == run.id,
-                slick.active.is_(True),
-                slick.machine_confidence > 0,
-            )
-            .exists(),
-        )
-        .order_by(*order)
-        .limit(MAX_BATCH_RUNS)
-    )
-    candidates = {}
-    ais_dates = set()
     engine = get_engine(db_url=os.getenv("DB_URL"))
     try:
         async with DatabaseClient(engine) as db_client:
-            async with db_client.session.begin():
-                for s1_scene, candidate_run in await db_client.session.execute(query):
-                    if candidate_run.asa_vessel_time is None:
-                        scene_dates = {
-                            (s1_scene.start_time + timedelta(hours=hours)).date()
-                            for hours in (-c.HOURS_BEFORE, c.HOURS_AFTER)
-                        }
-                        if len(ais_dates | scene_dates) > MAX_BATCH_AIS_DATES:
-                            continue
-                        ais_dates |= scene_dates
-                    _, flags, run_ids = candidates.setdefault(
-                        s1_scene.scene_id, (s1_scene, set(), set())
-                    )
-                    flags.update(pending_run_flags(candidate_run))
-                    run_ids.add(candidate_run.id)
+            failed = await queue_batch(
+                db_client.session,
+                batch_query(now, lookback_days, pivot, retry_incomplete),
+                now,
+            )
     finally:
         await engine.dispose()
+    if failed:
+        # Every other scene is queued by now. The Scheduler job makes no retries,
+        # so this error only marks the run as failed.
+        raise RuntimeError(f"{len(failed)} scenes skipped after errors: {failed}")
+    return "Success!"
+
+
+async def queue_batch(session, query, now):
+    """Queue a task for each scene the query selects; return the scenes that failed.
+
+    A scene that raises is logged and skipped, so it can't stop the others.
+    """
+    candidates = {}
+    ais_dates = set()
+    async with session.begin():
+        for s1_scene, candidate_run in await session.execute(query):
+            if candidate_run.asa_vessel_time is None:
+                scene_dates = {
+                    (s1_scene.start_time + timedelta(hours=hours)).date()
+                    for hours in (-c.HOURS_BEFORE, c.HOURS_AFTER)
+                }
+                if len(ais_dates | scene_dates) > MAX_BATCH_AIS_DATES:
+                    continue
+                ais_dates |= scene_dates
+            _, flags, run_ids = candidates.setdefault(
+                s1_scene.scene_id, (s1_scene, set(), set())
+            )
+            flags.update(pending_run_flags(candidate_run))
+            run_ids.add(candidate_run.id)
+
+    failed = []
+
+    def skip(scene_id, step, error):
+        print(f"Scene {scene_id}: {step} failed, skipping it: {error!r}")
+        failed.append(scene_id)
 
     # Queue each scene as soon as it is ready, so a timeout keeps earlier work.
-    # Task names carry the run IDs, so a re-orchestrated run isn't deduped against
-    # an earlier run's task from the same day.
     for scene_id, (_, flags, run_ids) in candidates.items():
         if "VESSEL" not in flags:
-            add_to_asa_queue(
-                scene_id, run_flags=sorted(flags), task_suffix=sorted(run_ids)
-            )
+            try:
+                await queue_scene(session, scene_id, flags, run_ids)
+            except Exception as e:
+                skip(scene_id, "queueing", e)
 
-    vessel_analyzers = [
-        ASA_MAPPING["VESSEL"](s1_scene)
-        for s1_scene, flags, _ in candidates.values()
-        if "VESSEL" in flags
-    ]
-    if vessel_analyzers:
-        scenes = [
+    searched, scenes, windows = [], [], []
+    for s1_scene, flags, _ in candidates.values():
+        if "VESSEL" not in flags:
+            continue
+        try:
+            analyzer = ASA_MAPPING["VESSEL"](s1_scene)
+            envelope = analyzer.ais_envelope.iloc[0].wkt
+        except Exception as e:
+            skip(s1_scene.scene_id, "building its AIS search area", e)
+            continue
+        searched.append(s1_scene.scene_id)
+        scenes.append(
             bigquery.StructQueryParameter(
                 None,
-                bigquery.ScalarQueryParameter(
-                    "scene_id", "STRING", analyzer.s1_scene.scene_id
-                ),
+                bigquery.ScalarQueryParameter("scene_id", "STRING", s1_scene.scene_id),
                 bigquery.ScalarQueryParameter(
                     "start_time", "TIMESTAMP", analyzer.ais_start_time
                 ),
                 bigquery.ScalarQueryParameter(
                     "end_time", "TIMESTAMP", analyzer.ais_end_time
                 ),
-                bigquery.ScalarQueryParameter(
-                    "envelope", "STRING", analyzer.ais_envelope.iloc[0].wkt
-                ),
+                bigquery.ScalarQueryParameter("envelope", "STRING", envelope),
             )
-            for analyzer in vessel_analyzers
-        ]
-        credentials = Credentials.from_service_account_info(
-            json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
         )
-        time_filter, time_params = ais_time_filter(
-            (analyzer.ais_start_time, analyzer.ais_end_time)
-            for analyzer in vessel_analyzers
-        )
-        client = bigquery.Client(project=c.GFW_PROJECT_ID, credentials=credentials)
-        job = client.query(
-            BATCH_AIS_SQL.format(time_filter=time_filter),
-            job_config=bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ArrayQueryParameter("scenes", "STRUCT", scenes),
-                    *time_params,
-                ],
-                maximum_bytes_billed=MAX_BATCH_BYTES_BILLED,
+        windows.append((analyzer.ais_start_time, analyzer.ais_end_time))
+    if not scenes:
+        return failed
+
+    credentials = Credentials.from_service_account_info(
+        json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
+    )
+    time_filter, time_params = ais_time_filter(windows)
+    client = bigquery.Client(project=c.GFW_PROJECT_ID, credentials=credentials)
+    job = client.query(
+        BATCH_AIS_SQL.format(time_filter=time_filter),
+        job_config=bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ArrayQueryParameter("scenes", "STRUCT", scenes),
+                *time_params,
+            ],
+            maximum_bytes_billed=MAX_BATCH_BYTES_BILLED,
+        ),
+    )
+    job.result()
+    # Row-by-row REST download measured 6.7k rows/s against ~17.8M rows a day,
+    # so the Storage Read API streams the result as Arrow batches. GFW's account
+    # can't open read sessions in GFW's project, so the session opens in ours;
+    # one stream keeps the ORDER BY.
+    batches = (
+        bigquery.Client(project=os.environ["PROJECT_ID"], credentials=credentials)
+        .list_rows(job.destination)
+        .to_arrow_iterable(
+            bqstorage_client=bigquery_storage.BigQueryReadClient(
+                credentials=credentials
             ),
+            max_stream_count=1,
         )
-        job.result()
-        # Row-by-row REST download measured 6.7k rows/s against ~17.8M rows a day,
-        # so the Storage Read API streams the result as Arrow batches. GFW's account
-        # can't open read sessions in GFW's project, so the session opens in ours;
-        # one stream keeps the ORDER BY.
-        batches = (
-            bigquery.Client(project=os.environ["PROJECT_ID"], credentials=credentials)
-            .list_rows(job.destination)
-            .to_arrow_iterable(
-                bqstorage_client=bigquery_storage.BigQueryReadClient(
-                    credentials=credentials
-                ),
-                max_stream_count=1,
-            )
-        )
-        bucket = storage.Client(
-            project=os.environ["PROJECT_ID"], credentials=compute_engine.Credentials()
-        ).bucket(os.environ["ASA_BUCKET"])
-        for scene_id, ais_uri in write_ais_slices(batches, bucket, f"ais/{now.date()}"):
-            _, flags, run_ids = candidates[scene_id]
-            add_to_asa_queue(
-                scene_id,
-                run_flags=sorted(flags),
-                ais_uri=ais_uri,
-                task_suffix=sorted(run_ids),
-            )
-    return "Success!"
+    )
+    bucket = storage.Client(
+        project=os.environ["PROJECT_ID"], credentials=compute_engine.Credentials()
+    ).bucket(os.environ["ASA_BUCKET"])
+    sliced = set()
+    for scene_id, ais_uri in write_ais_slices(batches, bucket, f"ais/{now.date()}"):
+        sliced.add(scene_id)
+        if ais_uri is None:
+            failed.append(scene_id)  # write_ais_slices logged why
+            continue
+        _, flags, run_ids = candidates[scene_id]
+        try:
+            await queue_scene(session, scene_id, flags, run_ids, ais_uri=ais_uri)
+        except Exception as e:
+            skip(scene_id, "queueing", e)
+    withheld = [scene_id for scene_id in searched if scene_id not in sliced]
+    if withheld:
+        # The query's `covered` step drops scenes ending after GFW's newest
+        # published day. They stay unqueued, so a later batch takes them.
+        print(f"{len(withheld)} scenes wait for GFW to publish their AIS: {withheld}")
+    return failed
 
 
 def verify_api_key(request):
@@ -427,9 +548,7 @@ async def handle_asa_request(request):
     """
     request_json = request.get_json()
     if request_json.get("batch") is True:
-        return await handle_asa_batch(
-            int(request_json.get("lookback_days", LIVE_LOOKBACK_DAYS))
-        )
+        return await handle_asa_batch(*batch_options(request_json, datetime.utcnow()))
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
         run_flags = request_json.get("run_flags")  # list of source_type short_names

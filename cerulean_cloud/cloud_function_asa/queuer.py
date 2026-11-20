@@ -66,7 +66,8 @@ def add_to_asa_queue(
         days_to_delay (int): The number of days to delay the task.
         jitter_seconds (int): Max random jitter to add to the scheduled time.
     Returns:
-        google.cloud.tasks_v2.types.Task: The created Task object.
+        google.cloud.tasks_v2.types.Task: The created Task object, or None when a
+        task with this name already exists (deduped).
 
     Notes:
         - The function uses Google Cloud Tasks API to schedule the Automatic Source Association.
@@ -130,7 +131,7 @@ def add_to_asa_queue(
         response = client.create_task(request={"parent": parent, "task": task})
     except AlreadyExists:
         print(f"Task already exists (deduped): {task_name}")
-        return task_name
+        return None
 
     print(f"Created task {response.name}")
     return response

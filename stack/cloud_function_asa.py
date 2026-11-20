@@ -234,7 +234,10 @@ cloud_run_invoker = cloudrun.IamMember(
 )
 
 # One-off runs from the console: edit the body, e.g.
-# {"batch": true, "lookback_days": 1500}, Force run, then restore it.
+# {"batch": true, "lookback_days": 1500}, Force run, then restore it. A one-off
+# body may add "pivot": "2024-06-01" (a UTC date to start from; random by
+# default) and "retry_incomplete": true (also take runs an earlier batch queued
+# that are still incomplete). main.batch_options checks these.
 # CI's `pulumi up` (with refresh) also restores it.
 cloudscheduler.Job(
     construct_name("cf-asa-scheduler"),

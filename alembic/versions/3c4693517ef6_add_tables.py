@@ -115,6 +115,7 @@ def upgrade() -> None:
         sa.Column("asa_infra_time", sa.DateTime),
         sa.Column("asa_dark_time", sa.DateTime),
         sa.Column("asa_natural_time", sa.DateTime),
+        sa.Column("asa_batch_queued_at", sa.DateTime),
     )
 
     op.create_table(
