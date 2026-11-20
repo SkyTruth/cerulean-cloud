@@ -111,6 +111,10 @@ def upgrade() -> None:
         ),
         sa.Column("model", sa.Integer, sa.ForeignKey("model.id"), nullable=False),
         sa.Column("sentinel1_grd", sa.BigInteger, sa.ForeignKey("sentinel1_grd.id")),
+        sa.Column("asa_vessel_time", sa.DateTime),
+        sa.Column("asa_infra_time", sa.DateTime),
+        sa.Column("asa_dark_time", sa.DateTime),
+        sa.Column("asa_natural_time", sa.DateTime),
     )
 
     op.create_table(
