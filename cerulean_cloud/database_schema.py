@@ -842,6 +842,7 @@ class OrchestratorRun(Base):
     asa_infra_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     asa_dark_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     asa_natural_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    asa_batch_queued_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     sea_ice_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
 
     model_: Mapped["Model"] = relationship("Model", back_populates="orchestrator_run")
