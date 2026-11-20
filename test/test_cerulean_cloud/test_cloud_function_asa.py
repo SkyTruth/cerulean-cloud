@@ -64,6 +64,16 @@ def test_dark_availability_is_a_python_bool(asa_main, monkeypatch):
     assert asa_main.ASA_MAPPING["DARK"].check_data_availability(analyzer) is False
 
 
+@pytest.mark.parametrize(
+    "uri", ["gs://asa/ais/2026-01-02/other.parquet", "gs://elsewhere/ais/s.parquet"]
+)
+def test_ais_slice_must_be_this_scenes(asa_main, monkeypatch, uri):
+    monkeypatch.setenv("ASA_BUCKET", "asa")
+    analyzer = SimpleNamespace(ais_uri=uri, s1_scene=SimpleNamespace(scene_id="s"))
+    with pytest.raises(ValueError):
+        asa_main.ASA_MAPPING["VESSEL"].retrieve_ais_data(analyzer)
+
+
 def test_ais_time_filter_merges_overlaps_and_keeps_gaps(asa_main):
     windows = [
         (datetime(2025, 5, 1, 10), datetime(2025, 5, 2, 0)),

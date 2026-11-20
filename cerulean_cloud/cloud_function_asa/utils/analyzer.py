@@ -173,8 +173,9 @@ class AISAnalyzer(SourceAnalyzer):
     def retrieve_ais_data(self):
         """Read the scene slice from the ASA bucket."""
         prefix = f"gs://{os.environ['ASA_BUCKET']}/ais/"
-        if not self.ais_uri.startswith(prefix):
-            raise ValueError("AIS URI must point to the ASA bucket's ais/ prefix")
+        name = f"/{self.s1_scene.scene_id}.parquet"
+        if not (self.ais_uri.startswith(prefix) and self.ais_uri.endswith(name)):
+            raise ValueError(f"AIS URI must be this scene's slice: {prefix}...{name}")
         client = storage.Client(
             project=os.environ["PROJECT_ID"], credentials=compute_engine.Credentials()
         )

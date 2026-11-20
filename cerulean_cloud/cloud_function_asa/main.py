@@ -24,7 +24,7 @@ from google.oauth2 import id_token
 from google.oauth2.service_account import Credentials
 from queuer import add_to_asa_queue
 from shapely import wkb
-from sqlalchemy import or_, select, update
+from sqlalchemy import case, func, or_, select, update
 from utils import constants as c
 from utils.analyzer import ASA_MAPPING
 
@@ -164,6 +164,7 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
     run = db.OrchestratorRun
     scene = db.Sentinel1Grd
     slick = db.Slick
+    vessel_pending = run.asa_vessel_time.is_(None)
     query = (
         select(scene, run)
         .join(run, run.sentinel1_grd == scene.id)
@@ -184,9 +185,14 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
             )
             .exists(),
         )
-        # VESSEL work first, so DARK-only retries can't take its slots; oldest first,
-        # so a backlog is cleared before it ages out of the window.
-        .order_by(run.asa_vessel_time.is_(None).desc(), scene.start_time)
+        # VESSEL work first and oldest first, so a backlog clears before it ages out.
+        # The rest come in random order, so retries that never succeed (e.g. scenes
+        # GFW SAR never covers) can't hold the same slots on every run.
+        .order_by(
+            vessel_pending.desc(),
+            case((vessel_pending, scene.start_time)),
+            func.random(),
+        )
         .limit(MAX_BATCH_RUNS)
     )
     candidates = {}
@@ -196,28 +202,34 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
         async with DatabaseClient(engine) as db_client:
             async with db_client.session.begin():
                 for s1_scene, candidate_run in await db_client.session.execute(query):
-                    scene_dates = {
-                        (s1_scene.start_time + timedelta(hours=hours)).date()
-                        for hours in (-c.HOURS_BEFORE, c.HOURS_AFTER)
-                    }
-                    if len(ais_dates | scene_dates) > MAX_BATCH_AIS_DATES:
-                        continue
-                    ais_dates |= scene_dates
-                    _, flags = candidates.setdefault(
-                        s1_scene.scene_id, (s1_scene, set())
+                    if candidate_run.asa_vessel_time is None:
+                        scene_dates = {
+                            (s1_scene.start_time + timedelta(hours=hours)).date()
+                            for hours in (-c.HOURS_BEFORE, c.HOURS_AFTER)
+                        }
+                        if len(ais_dates | scene_dates) > MAX_BATCH_AIS_DATES:
+                            continue
+                        ais_dates |= scene_dates
+                    _, flags, run_ids = candidates.setdefault(
+                        s1_scene.scene_id, (s1_scene, set(), set())
                     )
                     flags.update(pending_run_flags(candidate_run))
+                    run_ids.add(candidate_run.id)
     finally:
         await engine.dispose()
 
     # Queue each scene as soon as it is ready, so a timeout keeps earlier work.
-    for scene_id, (_, flags) in candidates.items():
+    # Task names carry the run IDs, so a re-orchestrated run isn't deduped against
+    # an earlier run's task from the same day.
+    for scene_id, (_, flags, run_ids) in candidates.items():
         if "VESSEL" not in flags:
-            add_to_asa_queue(scene_id, run_flags=sorted(flags))
+            add_to_asa_queue(
+                scene_id, run_flags=sorted(flags), task_suffix=sorted(run_ids)
+            )
 
     vessel_analyzers = [
         ASA_MAPPING["VESSEL"](s1_scene)
-        for s1_scene, flags in candidates.values()
+        for s1_scene, flags, _ in candidates.values()
         if "VESSEL" in flags
     ]
     if vessel_analyzers:
@@ -268,8 +280,12 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
             project=os.environ["PROJECT_ID"], credentials=compute_engine.Credentials()
         ).bucket(os.environ["ASA_BUCKET"])
         for scene_id, ais_uri in write_ais_slices(batches, bucket, f"ais/{now.date()}"):
+            _, flags, run_ids = candidates[scene_id]
             add_to_asa_queue(
-                scene_id, run_flags=sorted(candidates[scene_id][1]), ais_uri=ais_uri
+                scene_id,
+                run_flags=sorted(flags),
+                ais_uri=ais_uri,
+                task_suffix=sorted(run_ids),
             )
     return "Success!"
 
@@ -394,6 +410,10 @@ async def handle_asa_request(request):
                 slicks = await db_client.get_slicks_from_scene_id(scene_id)
 
             await db_client.session.close()
+            if s1_scene.start_time + timedelta(
+                hours=c.HOURS_AFTER
+            ) >= published_through(datetime.utcnow()):
+                run_flags = [flag for flag in run_flags if flag != "DARK"]
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
             if len(slicks) > 0:
@@ -572,7 +592,6 @@ async def handle_asa_request(request):
                     ASA_TIME_COLUMNS[flag]: completed_at
                     for flag in completed_run_flags(run_flags, analyzer_cache)
                     if flag in ASA_TIME_COLUMNS
-                    and (flag != "VESSEL" or request_json.get("ais_uri"))
                 }
                 if completion_times:
                     async with db_client.session.begin():

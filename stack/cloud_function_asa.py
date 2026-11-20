@@ -225,7 +225,7 @@ cloud_run_invoker = cloudrun.IamMember(
 
 # One-off runs from the console: edit the body, e.g.
 # {"batch": true, "lookback_days": 1500}, Force run, then restore it.
-# `pulumi up` also restores it.
+# CI's `pulumi up` (with refresh) also restores it.
 cloudscheduler.Job(
     construct_name("cf-asa-scheduler"),
     region=region,
