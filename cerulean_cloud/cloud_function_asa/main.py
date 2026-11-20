@@ -165,11 +165,18 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
     scene = db.Sentinel1Grd
     slick = db.Slick
     vessel_pending = run.asa_vessel_time.is_(None)
+    start = now - timedelta(days=lookback_days)
+    # One-off runs begin at a random capture time and wrap around, so scenes that
+    # fail every time can't use up the caps on every run. Daily runs start at the
+    # window's start.
+    pivot = start
+    if lookback_days > LIVE_LOOKBACK_DAYS:
+        pivot += (now - start) * random.random()
     query = (
         select(scene, run)
         .join(run, run.sentinel1_grd == scene.id)
         .where(
-            scene.start_time >= now - timedelta(days=lookback_days),
+            scene.start_time >= start,
             scene.start_time < published_through(now) - timedelta(hours=c.HOURS_AFTER),
             or_(
                 *(
@@ -190,6 +197,7 @@ async def handle_asa_batch(lookback_days=LIVE_LOOKBACK_DAYS):
         # GFW SAR never covers) can't hold the same slots on every run.
         .order_by(
             vessel_pending.desc(),
+            scene.start_time < pivot,
             case((vessel_pending, scene.start_time)),
             func.random(),
         )
@@ -410,7 +418,7 @@ async def handle_asa_request(request):
                 slicks = await db_client.get_slicks_from_scene_id(scene_id)
 
             await db_client.session.close()
-            if s1_scene.start_time + timedelta(
+            if s1_scene and s1_scene.start_time + timedelta(
                 hours=c.HOURS_AFTER
             ) >= published_through(datetime.utcnow()):
                 run_flags = [flag for flag in run_flags if flag != "DARK"]
@@ -592,6 +600,7 @@ async def handle_asa_request(request):
                     ASA_TIME_COLUMNS[flag]: completed_at
                     for flag in completed_run_flags(run_flags, analyzer_cache)
                     if flag in ASA_TIME_COLUMNS
+                    and (flag != "VESSEL" or request_json.get("ais_uri"))
                 }
                 if completion_times:
                     async with db_client.session.begin():
