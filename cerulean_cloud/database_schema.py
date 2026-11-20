@@ -838,6 +838,10 @@ class OrchestratorRun(Base):
     scale: Mapped[Optional[int]] = mapped_column(Integer)
     success: Mapped[Optional[bool]] = mapped_column(Boolean)
     sentinel1_grd: Mapped[Optional[int]] = mapped_column(BigInteger)
+    asa_vessel_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    asa_infra_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    asa_dark_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+    asa_natural_time: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
     sea_ice_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
 
     model_: Mapped["Model"] = relationship("Model", back_populates="orchestrator_run")

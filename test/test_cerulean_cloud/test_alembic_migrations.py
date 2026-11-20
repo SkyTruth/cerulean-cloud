@@ -8,6 +8,7 @@ import sqlalchemy as sa
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MIGRATION_DIR = REPO_ROOT / "alembic" / "versions"
@@ -17,6 +18,17 @@ EEZ_REVISION = "5e03ce584f3c"
 
 def _migration_paths() -> list[Path]:
     return sorted(MIGRATION_DIR.glob("*.py"))
+
+
+def test_vocabulary_migration_loads_checked_in_translation_seed():
+    scripts = ScriptDirectory(str(MIGRATION_DIR.parent))
+    migration = scripts.get_revision("d6c7b48d9f11").module
+    locales, locale_rows, translations = migration._load_translation_csv()
+
+    assert {row["code"] for row in locale_rows} == {"en", *locales}
+    assert all(row["english_name"] != row["code"] for row in locale_rows)
+    assert translations
+    assert all(row["source_locale"] == "en" for row in translations)
 
 
 def test_alembic_versions_do_not_import_generated_database_schema():
