@@ -47,7 +47,7 @@ MAX_BATCH_RUNS = 1000
 MAX_BATCH_AIS_DATES = 30
 MAX_BATCH_BYTES_BILLED = 10**12
 # A run queued less than this long ago may still have a task in Cloud Tasks
-# (3 attempts within 600 s, each up to 540 s), so no batch queues it again.
+# (3 attempts within 600 s, each up to 540 s), so automatic retries wait.
 REQUEUE_AFTER = timedelta(hours=1)
 
 # make_valid repairs a self-intersecting envelope instead of failing the query.
@@ -114,11 +114,11 @@ def batch_options(request_json, now):
     """Check a batch request's options; HTTP 400 on a bad one.
 
     lookback_days: whole days back from `now`, LIVE_LOOKBACK_DAYS by default. More
-        makes a one-off run, which also takes:
+        makes a one-off run, which also takes a pivot.
     pivot: a UTC date, "YYYY-MM-DD". The run takes scenes from its midnight onward
         in capture order, then wraps around to the oldest. Random by default.
-    retry_incomplete: true also takes runs a batch queued more than REQUEUE_AFTER
-        ago that are still incomplete. One-off runs skip them by default.
+    retry_incomplete: true immediately requeues eligible unfinished work, even
+        if an earlier task is still queued or running.
     """
     lookback_days = request_json.get("lookback_days", LIVE_LOOKBACK_DAYS)
     if type(lookback_days) is not int or lookback_days < 1:
@@ -127,11 +127,10 @@ def batch_options(request_json, now):
     retry_incomplete = request_json.get("retry_incomplete", False)
     if not isinstance(retry_incomplete, bool):
         abort(400, description="retry_incomplete must be true or false")
-    if lookback_days <= LIVE_LOOKBACK_DAYS and (pivot is not None or retry_incomplete):
+    if lookback_days <= LIVE_LOOKBACK_DAYS and pivot is not None:
         abort(
             400,
-            description="pivot and retry_incomplete need lookback_days"
-            f" > {LIVE_LOOKBACK_DAYS}",
+            description=f"pivot needs lookback_days > {LIVE_LOOKBACK_DAYS}",
         )
     if pivot is not None:
         try:
@@ -154,7 +153,6 @@ def batch_query(now, lookback_days, pivot=None, retry_incomplete=False):
     queued = run.asa_batch_queued_at
     start = now - timedelta(days=lookback_days)
     cutoff = batch_cutoff(now)
-    queued_long_ago = or_(queued.is_(None), queued < now - REQUEUE_AFTER)
     if lookback_days > LIVE_LOOKBACK_DAYS:
         # One-off runs: work no batch has queued (with retry_incomplete, also work
         # queued before and still incomplete), in capture order from the pivot,
@@ -163,7 +161,7 @@ def batch_query(now, lookback_days, pivot=None, retry_incomplete=False):
         if pivot is None:
             pivot = start + (cutoff - start) * random.random()
         order = (scene.start_time < pivot, scene.start_time, run.id)
-        not_in_flight = queued_long_ago if retry_incomplete else queued.is_(None)
+        queue_filter = queued.is_(None)
     else:
         # Daily runs: VESSEL work first, runs never queued before retries, each
         # oldest first, so a backlog clears before it ages out; the rest at random,
@@ -175,14 +173,14 @@ def batch_query(now, lookback_days, pivot=None, retry_incomplete=False):
             case((vessel_pending, scene.start_time)),
             func.random(),
         )
-        not_in_flight = queued_long_ago
+        queue_filter = or_(queued.is_(None), queued < now - REQUEUE_AFTER)
     return (
         select(scene, run)
         .join(run, run.sentinel1_grd == scene.id)
         .where(
             scene.start_time >= start,
             scene.start_time < cutoff,
-            not_in_flight,
+            retry_incomplete or queue_filter,
             or_(
                 *(
                     getattr(run, column).is_(None)
@@ -202,7 +200,9 @@ def batch_query(now, lookback_days, pivot=None, retry_incomplete=False):
     )
 
 
-async def queue_scene(session, scene_id, flags, run_ids, ais_uri=None):
+async def queue_scene(
+    session, scene_id, flags, run_ids, ais_uri=None, *, retry_incomplete=False
+):
     """Queue one scene's task, and stamp its runs only if a task was created.
 
     Task names carry the run IDs, so a re-orchestrated run isn't deduped against an
@@ -213,6 +213,7 @@ async def queue_scene(session, scene_id, flags, run_ids, ais_uri=None):
         run_flags=sorted(flags),
         ais_uri=ais_uri,
         task_suffix=sorted(run_ids),
+        force_retry=retry_incomplete,
     )
     if task is not None:
         async with session.begin():
@@ -356,6 +357,7 @@ async def handle_asa_batch(
             failed = await queue_batch(
                 db_client.session,
                 batch_query(now, lookback_days, pivot, retry_incomplete),
+                retry_incomplete=retry_incomplete,
             )
     finally:
         await engine.dispose()
@@ -366,7 +368,7 @@ async def handle_asa_batch(
     return "Success!"
 
 
-async def queue_batch(session, query):
+async def queue_batch(session, query, *, retry_incomplete=False):
     """Queue a task for each scene the query selects; return the scenes that failed.
 
     A scene that raises is logged and skipped, so it can't stop the others.
@@ -422,7 +424,12 @@ async def queue_batch(session, query):
         if "VESSEL" not in flags or scene_id in cached:
             try:
                 await queue_scene(
-                    session, scene_id, flags, run_ids, ais_uri=cached.get(scene_id)
+                    session,
+                    scene_id,
+                    flags,
+                    run_ids,
+                    ais_uri=cached.get(scene_id),
+                    retry_incomplete=retry_incomplete,
                 )
             except Exception as e:
                 skip(scene_id, "queueing", e)
@@ -491,7 +498,14 @@ async def queue_batch(session, query):
             continue
         _, flags, run_ids = candidates[scene_id]
         try:
-            await queue_scene(session, scene_id, flags, run_ids, ais_uri=ais_uri)
+            await queue_scene(
+                session,
+                scene_id,
+                flags,
+                run_ids,
+                ais_uri=ais_uri,
+                retry_incomplete=retry_incomplete,
+            )
         except Exception as e:
             skip(scene_id, "queueing", e)
     withheld = [scene_id for scene_id in searched if scene_id not in sliced]

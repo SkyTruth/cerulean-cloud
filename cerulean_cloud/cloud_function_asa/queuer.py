@@ -8,6 +8,7 @@ import json
 import os
 import random
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from google.api_core.exceptions import AlreadyExists
 from google.auth import compute_engine
@@ -56,6 +57,7 @@ def add_to_asa_queue(
     task_suffix=None,
     jitter_seconds=0,
     ais_uri=None,
+    force_retry=False,
 ):
     """
     Adds a new task to Google Cloud Tasks for Automatic Source Association.
@@ -65,6 +67,7 @@ def add_to_asa_queue(
         run_flags (list): A list of flags to run the task with.
         days_to_delay (int): The number of days to delay the task.
         jitter_seconds (int): Max random jitter to add to the scheduled time.
+        force_retry (bool): Give an explicitly retried task a fresh name, even after a purge.
     Returns:
         google.cloud.tasks_v2.types.Task: The created Task object, or None when a
         task with this name already exists (deduped).
@@ -104,6 +107,8 @@ def add_to_asa_queue(
     if task_suffix:
         suffix_hash = hashlib.sha256(str(task_suffix).encode("utf-8")).hexdigest()[:8]
         task_id = f"{task_id}-{suffix_hash}"
+    if force_retry:
+        task_id = f"{task_id}-{uuid4().hex}"
     task_name = client.task_path(project, location, queue, task_id)
 
     task = {

@@ -229,6 +229,39 @@ def test_deduped_task_returns_none(monkeypatch):
     assert queuer.add_to_asa_queue("scene", run_flags=["INFRA"]) is None
 
 
+def test_force_retry_recreates_a_purged_task_on_the_same_day(monkeypatch):
+    # Cloud Tasks remembers a deleted name. Simulate the name reservation after purge.
+    reserved_names = set()
+
+    def create_task(request):
+        name = request["task"]["name"]
+        if name in reserved_names:
+            raise queuer.AlreadyExists("reserved task name")
+        reserved_names.add(name)
+        return SimpleNamespace(name=name)
+
+    client = Mock()
+    client.create_task.side_effect = create_task
+    client.task_path.side_effect = lambda project, location, queue, task_id: task_id
+    monkeypatch.setattr(queuer, "_tasks_client", lambda: client)
+    monkeypatch.setattr(
+        queuer, "_schedule_time", lambda **kwargs: NOW.replace(tzinfo=timezone.utc)
+    )
+    for name in ("PROJECT_ID", "GCPREGION", "ASA_QUEUE", "FUNCTION_URL"):
+        monkeypatch.setenv(name, name)
+
+    def enqueue(force_retry=False):
+        return queuer.add_to_asa_queue(
+            "scene", ["VESSEL"], task_suffix=[7], force_retry=force_retry
+        )
+
+    assert enqueue() is not None
+    assert enqueue() is None
+    assert enqueue(True) is not None
+    assert enqueue(True) is not None
+    assert len(reserved_names) == 3
+
+
 @pytest.mark.parametrize("created", [True, False])
 def test_queue_scene_stamps_only_created_tasks(asa_main, monkeypatch, created):
     class Session:
@@ -244,8 +277,13 @@ def test_queue_scene_stamps_only_created_tasks(asa_main, monkeypatch, created):
     session = Session()
     queue = Mock(return_value=Mock() if created else None)
     monkeypatch.setattr(asa_main, "add_to_asa_queue", queue)
-    asyncio.run(asa_main.queue_scene(session, "s", {"VESSEL"}, {7, 3}, "gs://a/s"))
+    asyncio.run(
+        asa_main.queue_scene(
+            session, "s", {"VESSEL"}, {7, 3}, "gs://a/s", retry_incomplete=True
+        )
+    )
     assert queue.call_args.kwargs["task_suffix"] == [3, 7]
+    assert queue.call_args.kwargs["force_retry"] is True
     assert len(session.executed) == int(created)
     if created:
         assert "asa_batch_queued_at" in str(session.executed[0])
@@ -300,7 +338,9 @@ def test_cache_listing_failure_still_queues_dark_only_work(asa_main, monkeypatch
     monkeypatch.setattr(asa_main.bigquery, "Client", bq)
     with pytest.raises(asa_main.GoogleAPIError, match="list failed"):
         asyncio.run(asa_main.queue_batch(session, Mock()))
-    queue.assert_awaited_once_with(session, "s", {"DARK"}, {2}, ais_uri=None)
+    queue.assert_awaited_once_with(
+        session, "s", {"DARK"}, {2}, ais_uri=None, retry_incomplete=False
+    )
     bq.assert_not_called()
 
 
@@ -362,7 +402,10 @@ def test_queue_batch_reuses_parquets(asa_main, monkeypatch, all_cached):
             name=name, upload_from_string=Mock()
         )
 
-    assert asyncio.run(asa_main.queue_batch(session, Mock())) == []
+    assert (
+        asyncio.run(asa_main.queue_batch(session, Mock(), retry_incomplete=True)) == []
+    )
+    assert all(call.kwargs["retry_incomplete"] for call in queue.await_args_list)
     assert [(args[1], kwargs["ais_uri"]) for args, kwargs in queue.await_args_list] == [
         ("a", "gs://test-bucket/ais/2026-11-20/a.parquet"),
         ("b", "gs://test-bucket/ais/2026-10-09/b.parquet"),
@@ -428,6 +471,7 @@ def test_refresh_expiring_cached_slice(asa_main, source_day, outcome):
     "body, options",
     [
         ({}, (32, None, False)),
+        ({"retry_incomplete": True}, (32, None, True)),
         ({"lookback_days": 1500}, (1500, None, False)),
         (
             {"lookback_days": 1500, "pivot": "2024-06-01", "retry_incomplete": True},
@@ -452,7 +496,6 @@ def test_batch_options(asa_main, body, options):
         {"lookback_days": True},
         {"lookback_days": 1500, "retry_incomplete": "yes"},
         {"pivot": "2024-06-01"},  # daily runs have no pivot
-        {"retry_incomplete": True},  # daily runs already retry
         {"lookback_days": 1500, "pivot": "2026-11-18"},  # after the cutoff
         {"lookback_days": 40, "pivot": "2024-06-01"},  # before the lookback
         {"lookback_days": 1500, "pivot": "June 1"},
@@ -553,6 +596,12 @@ def test_batch_query(asa_main, postgresql):
     try:
         # VESSEL first, never-queued before retries; a run queued 10 min ago waits.
         assert selected(lookback_days=32) == ["never_queued", "retry", "dark_only"]
+        assert selected(lookback_days=32, retry_incomplete=True) == [
+            "never_queued",
+            "retry",
+            "in_flight",
+            "dark_only",
+        ]
         # One-off runs go on from the pivot and wrap around, skipping queued runs
         # unless retry_incomplete is set.
         pivot = datetime(2026, 11, 3)
@@ -566,6 +615,7 @@ def test_batch_query(asa_main, postgresql):
             "never_queued",
             "archive",
             "retry",
+            "in_flight",
         ]
     finally:
         engine.dispose()

@@ -526,9 +526,9 @@ every option:
 | Field | Meaning |
 |---|---|
 | `batch` | Required, `true`: a batch run, not a single scene. |
-| `lookback_days` | Whole days back from now to look for scenes. Default 32, the daily run. Above 32 makes a one-off run; only one-off runs take `pivot` and `retry_incomplete`. |
+| `lookback_days` | Whole days back from now to look for scenes. Default 32, the daily run. Above 32 makes a one-off run and allows a `pivot`. |
 | `pivot` | A UTC date, `"YYYY-MM-DD"`. The run lines up scenes oldest to newest, starts at that date's midnight, goes forward, then wraps around to the oldest. It must fall between the lookback start and the publication cutoff, about 3½ days before the run. Default: a random start. |
-| `retry_incomplete` | `true` also takes runs an earlier batch queued more than 1 h ago that are still incomplete. Default `false`: a one-off run skips anything a batch has queued before, so scenes that fail every time can't use up each run. |
+| `retry_incomplete` | Set to `true` to requeue eligible unfinished work immediately, including after a purge. Each force run creates fresh task names, so it can duplicate work still queued or running. With the default `false`, the daily batch waits one hour before retrying and a one-off batch skips previously queued runs. |
 
 A bad value gets HTTP 400 naming the problem, for example
 `pivot must fall from <first date> to <last date>`.
