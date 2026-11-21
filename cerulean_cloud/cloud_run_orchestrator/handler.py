@@ -663,8 +663,10 @@ async def _orchestrate(
                         logger.info("Added slick")
 
                 logger.info("Queueing up Automatic Source Association")
+                # VESSEL and DARK wait for GFW publication in the daily ASA batch.
                 add_to_asa_queue(
                     sentinel1_grd.scene_id,
+                    run_flags=["INFRA"],
                     task_suffix=f"run-{orchestrator_run.id}"
                     if payload.manual_trigger
                     else None,

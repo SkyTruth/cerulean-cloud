@@ -70,15 +70,26 @@ def fetch_page(plugin, page, criteria, start, end):
                 count=False,
             )
         except requests.RequestException as exc:
-            status = exc.response.status_code if exc.response is not None else None
-            if status is not None and status != 429 and status < 500:
-                raise RuntimeError(f"{label} failed with HTTP {status}") from exc
+            response = exc.response
+            status = response.status_code if response is not None else None
+            reason = f"HTTP {status}" if status is not None else type(exc).__name__
+            # Page 1 accepted these filters and advertised each later page.
+            retryable = (
+                status is None
+                or status == 429
+                or status >= 500
+                or (status == 400 and page > 1)
+            )
+            if not retryable:
+                raise RuntimeError(f"{label} failed with {reason}") from None
             if attempt == 2:
-                raise RuntimeError(f"{label} failed after 3 attempts") from exc
+                raise RuntimeError(
+                    f"{label} failed after 3 attempts: {reason}"
+                ) from None
             delay = 2 ** (attempt + 1) + random.random()
-            if exc.response is not None:
-                delay = max(delay, Retry().get_retry_after(exc.response) or 0)
-            print(f"Retrying {label} in {delay:.1f}s: {exc}")
+            if response is not None:
+                delay = max(delay, Retry().get_retry_after(response) or 0)
+            print(f"Retrying {label} in {delay:.1f}s: {reason}", flush=True)
             time.sleep(delay)
         else:
             return features, plugin.matched

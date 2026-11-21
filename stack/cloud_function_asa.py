@@ -1,5 +1,6 @@
 """cloud function to find slick culprits"""
 
+import base64
 import os
 import time
 
@@ -9,6 +10,7 @@ import pulumi
 from pulumi_gcp import (
     cloudfunctionsv2,
     cloudrun,
+    cloudscheduler,
     cloudtasks,
     projects,
     serviceaccount,
@@ -20,11 +22,20 @@ from vpc_connector import vpc_connector
 stack = pulumi.get_stack()
 project_id = pulumi.Config("gcp").require("project")
 region = pulumi.Config("gcp").require("region")
+timeout_seconds = 540
 
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
     construct_name("bucket-cf-asa"),
     location="EU",
+    lifecycle_rules=[
+        storage.BucketLifecycleRuleArgs(
+            action=storage.BucketLifecycleRuleActionArgs(type="Delete"),
+            condition=storage.BucketLifecycleRuleConditionArgs(
+                age=7, matches_prefixes=["ais/"]
+            ),
+        ),
+    ],
     labels={"pulumi": "true", "environment": pulumi.get_stack()},
 )
 
@@ -79,6 +90,15 @@ computed_function_url = pulumi.Output.concat(
     function_name,
 )
 
+# Batch runs start a GFW query, so the function accepts them only with this
+# account's OIDC token, which the Scheduler job below sends. The API key used by
+# Cloud Tasks cannot start a batch.
+scheduler_service_account = serviceaccount.Account(
+    construct_name("cf-asa-scheduler-sa"),
+    account_id=f"{stack}-cf-asa-sched",
+    display_name="Cloud Scheduler identity for ASA batch runs",
+)
+
 config_values = {
     "DB_URL": database.sql_instance_url_with_ip_asyncpg,
     "GIT_HASH": git_sha,
@@ -86,7 +106,9 @@ config_values = {
     "PROJECT_ID": project_id,
     "GCPREGION": region,
     "ASA_QUEUE": queue.name,
+    "ASA_BUCKET": bucket.name,
     "FUNCTION_URL": computed_function_url,
+    "ASA_SCHEDULER_SA": scheduler_service_account.email,
     "ASA_IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_asa"),
 }
 
@@ -121,6 +143,25 @@ cloud_function_service_account_iam = projects.IAMMember(
     role="projects/cerulean-338116/roles/cloudfunctionasarole",
     member=cloud_function_service_account.email.apply(
         lambda email: f"serviceAccount:{email}"
+    ),
+)
+
+# GFW's account (the `ais:credentials` key, shared by every stack) runs the batch's
+# AIS query in GFW's project but can't open BigQuery read sessions there, so it
+# opens them here to stream the result. Reads bill to this project.
+gfw_read_sessions = projects.IAMMember(
+    construct_name("cf-asa-gfw-read-sessions"),
+    project=project_id,
+    role="roles/bigquery.readSessionUser",
+    member="serviceAccount:skytruth-cerulean@world-fishing-827.iam.gserviceaccount.com",
+)
+
+asa_bucket_access = storage.BucketIAMMember(
+    construct_name("cf-asa-bucket-access"),
+    bucket=bucket.name,
+    role="roles/storage.objectUser",
+    member=pulumi.Output.concat(
+        "serviceAccount:", cloud_function_service_account.email
     ),
 )
 
@@ -164,13 +205,13 @@ fxn = cloudfunctionsv2.Function(
     service_config={
         "environment_variables": config_values,
         "available_memory": "4096M",
-        "timeout_seconds": 540,
+        "timeout_seconds": timeout_seconds,
         "service_account_email": cloud_function_service_account.email,
         "secret_environment_variables": [gfw_credentials, infra_api_key, api_key],
         "vpc_connector": vpc_connector.id,
     },
     opts=pulumi.ResourceOptions(
-        depends_on=[cloud_function_service_account_iam],
+        depends_on=[cloud_function_service_account_iam, asa_bucket_access],
     ),
 )
 
@@ -190,4 +231,29 @@ cloud_run_invoker = cloudrun.IamMember(
     service=fxn.name,
     role="roles/run.invoker",
     member="allUsers",
+)
+
+# One-off runs from the console: edit the body, e.g.
+# {"batch": true, "lookback_days": 1500}, Force run, then restore it. A one-off
+# body may add "pivot": "2024-06-01" (a UTC date to start from; random by
+# default) and "retry_incomplete": true (also take runs an earlier batch queued
+# that are still incomplete). main.batch_options checks these.
+# CI's `pulumi up` (with refresh) also restores it.
+cloudscheduler.Job(
+    construct_name("cf-asa-scheduler"),
+    region=region,
+    schedule="0 15 * * *",  # 3 h after GFW's 12:00 UTC AIS release
+    time_zone="Etc/UTC",
+    attempt_deadline=f"{timeout_seconds}s",
+    http_target=cloudscheduler.JobHttpTargetArgs(
+        http_method="POST",
+        uri=computed_function_url,
+        body=base64.b64encode(b'{"batch": true}').decode(),
+        headers={"Content-Type": "application/json"},
+        oidc_token=cloudscheduler.JobHttpTargetOidcTokenArgs(
+            service_account_email=scheduler_service_account.email,
+            audience=computed_function_url,
+        ),
+    ),
+    opts=pulumi.ResourceOptions(depends_on=[cloud_run_invoker]),
 )
