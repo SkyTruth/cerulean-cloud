@@ -313,7 +313,9 @@ for its window. The runner requests 80 products per page and reuses each worker'
 HTTP connection. Set `GEODES_PAGE_WORKERS` to an integer from 1 to 32 to lower
 concurrency when needed.
 
-The runner retries transient errors up to three attempts per page. It validates
+The runner makes up to three attempts per page for transient errors. An HTTP 400
+on page 1 stops that search immediately. On a later page advertised by the catalog,
+the runner retries the same request with backoff. It validates
 page sizes, consistent totals, and unique catalog records within each window before
 submitting tasks. A record on a shared date boundary is counted once. A missing
 or repeated page stops submission.

@@ -253,7 +253,7 @@ def test_local_submission_failure_stops_and_reports_confirmed_batches(
     assert record.queued_task_count is None
     assert record.trigger_.filtered_scene_count is None
     assert record.submission_success is False
-    assert record.submission_error == repr(error)
+    assert record.submission_error == type(error).__name__
     assert ("Batch 1 confirmed:" in result.stderr) is bool(completed)
     assert "Batch 2 confirmed:" not in result.stderr
     assert not result.stdout
