@@ -1,6 +1,9 @@
 -- Backfill orchestrator_run.asa_{vessel,infra,dark}_time for runs the per-scene ASA flow
 -- handled, before the daily ASA batch deploys. asa_natural_time is not tracked and stays NULL.
--- Ran on prod (prod20240903) on 2026-11-20 and updated 322,194 runs.
+-- Ran on prod (prod20240903) on 2026-11-20: 322,194 runs matched; 309,510 got at least one
+-- stamp and 12,684 stayed all NULL. That run took published_through as
+-- date_trunc('day', now) - 3 days, one day earlier after 12:00 UTC than main.py's
+-- published_through(), which this script now uses.
 --
 -- Value per run and type:
 --   NULL                 still owed: a VESSEL/DARK/ALL/notebook task is queued, GFW has not
@@ -89,7 +92,9 @@ CREATE TEMP TABLE asa_backfill_ids (
 ) ON COMMIT PRESERVE ROWS;
 
 WITH const AS (
-    SELECT date_trunc('day', timezone('UTC', now())) - interval '3 days'  AS published_through,
+    -- published_through() in cerulean_cloud/cloud_function_asa/main.py
+    SELECT date_trunc('day', timezone('UTC', now()) - interval '12 hours') - interval '2 days'
+                                                                          AS published_through,
            timestamp '2026-03-17 19:49:08'                                AS gsp_release,  -- tag 1.2.18 prod deploy finished
            :'listed_at'::timestamp                                        AS listed_at,
            :'assume_done_since'::timestamp                                AS assume_done_since,

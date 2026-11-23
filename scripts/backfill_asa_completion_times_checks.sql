@@ -9,7 +9,9 @@ WITH stamped AS (
     SELECT split_part(name, '-', 2) AS scene_id, split_part(name, '-', 3) AS h FROM asa_pending_task
 ), cutoff AS (
     SELECT timezone('UTC', now()) AS now_utc,
-           date_trunc('day', timezone('UTC', now())) - interval '3 days' AS published_through
+           -- published_through() in cerulean_cloud/cloud_function_asa/main.py
+           date_trunc('day', timezone('UTC', now()) - interval '12 hours') - interval '2 days'
+               AS published_through
 )
 SELECT '1 rows updated' AS check_name, count(*)::text AS value FROM stamped
 UNION ALL
