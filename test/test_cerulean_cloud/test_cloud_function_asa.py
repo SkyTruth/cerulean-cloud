@@ -518,10 +518,45 @@ def test_batch_options_rejects(asa_main, body):
     assert raised.value.code == 400
 
 
+def test_overlapping_asa_batches(asa_main, postgresql, monkeypatch):
+    from sqlalchemy import select
+    from werkzeug.exceptions import ServiceUnavailable
+
+    info = postgresql.info
+    monkeypatch.setenv(
+        "DB_URL",
+        f"postgresql+asyncpg://{info.user}@{info.host}:{info.port}/{info.dbname}",
+    )
+    monkeypatch.delenv("ASA_IS_DRY_RUN", raising=False)
+    backfill_days = 2557
+
+    async def hold_batch(session, query, **kwargs):
+        # Finish a transaction as queue_batch does between selection and enqueues.
+        async with session.begin():
+            await session.execute(select(1))
+        # A second producer must exit before reaching queue_batch.
+        monkeypatch.setattr(asa_main, "queue_batch", AsyncMock(return_value=[]))
+        assert "Skipped" in await asa_main.handle_asa_batch(backfill_days)
+        with pytest.raises(ServiceUnavailable):
+            await asa_main.handle_asa_batch()
+        asa_main.queue_batch.assert_not_awaited()
+        raise RuntimeError("interrupted batch")
+
+    async def run():
+        monkeypatch.setattr(asa_main, "queue_batch", hold_batch)
+        with pytest.raises(RuntimeError, match="interrupted batch"):
+            await asa_main.handle_asa_batch(backfill_days)
+        # Disposing the failed invocation's connection releases the lock.
+        assert await asa_main.handle_asa_batch(backfill_days) == "Success!"
+        asa_main.queue_batch.assert_awaited_once()
+
+    asyncio.run(run())
+
+
 @pytest.mark.skipif(
     not PG_CTL.exists(), reason="canonical ceru-ci PostgreSQL pg_ctl is unavailable"
 )
-def test_batch_query(asa_main, postgresql):
+def test_batch_query(asa_main, postgresql, monkeypatch):
     import sqlalchemy as sa
     from geoalchemy2.shape import from_shape
     from shapely.geometry import MultiPolygon, box
@@ -627,5 +662,25 @@ def test_batch_query(asa_main, postgresql):
             "retry",
             "in_flight",
         ]
+
+        # Queue one run through the normal batch path. The next tick advances
+        # even though the worker has not written its completion timestamps yet.
+        monkeypatch.setattr(asa_main, "MAX_BATCH_RUNS", 1)
+        enqueue = Mock()
+        monkeypatch.setattr(asa_main, "add_to_asa_queue", enqueue)
+
+        async def queue_first():
+            url = engine.url.set(drivername="postgresql+asyncpg")
+            async_engine = asa_main.get_engine(url)
+            try:
+                async with asa_main.DatabaseClient(async_engine) as client:
+                    query = asa_main.batch_query(NOW, 1500, pivot)
+                    assert await asa_main.queue_batch(client.session, query) == []
+            finally:
+                await async_engine.dispose()
+
+        asyncio.run(queue_first())
+        assert enqueue.call_args.args == ("dark_only",)
+        assert selected(lookback_days=1500, pivot=pivot) == ["never_queued"]
     finally:
         engine.dispose()

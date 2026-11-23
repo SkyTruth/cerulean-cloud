@@ -236,19 +236,26 @@ cloud_run_invoker = cloudrun.IamMember(
     member="allUsers",
 )
 
-# The daily run, with every option main.batch_options reads at its default, so the
-# body in the console shows what can be set. lookback_days matches
-# main.LIVE_LOOKBACK_DAYS. One-off runs from the console: edit the body, e.g.
-# "lookback_days": 1500 (more than 32 days back), "pivot": "2024-06-01" (a UTC date
-# to start from; null is random) and "retry_incomplete": true (also take runs an
-# earlier batch queued that are still incomplete), Force run, then restore it.
-# CI's `pulumi up` (with refresh) also restores it.
-daily_batch_body = {
-    "batch": True,
-    "lookback_days": 32,
-    "pivot": None,
-    "retry_incomplete": False,
-}
+
+def batch_target(lookback_days):
+    body = {
+        "batch": True,
+        "lookback_days": lookback_days,
+        "pivot": None,
+        "retry_incomplete": False,
+    }
+    return cloudscheduler.JobHttpTargetArgs(
+        http_method="POST",
+        uri=computed_function_url,
+        body=base64.b64encode(json.dumps(body).encode()).decode(),
+        headers={"Content-Type": "application/json"},
+        oidc_token=cloudscheduler.JobHttpTargetOidcTokenArgs(
+            service_account_email=scheduler_service_account.email,
+            audience=computed_function_url,
+        ),
+    )
+
+
 cloudscheduler.Job(
     construct_name("cf-asa-scheduler"),
     region=region,
@@ -258,15 +265,25 @@ cloudscheduler.Job(
     # batches there.
     paused=stack == "staging",
     attempt_deadline=f"{timeout_seconds}s",
-    http_target=cloudscheduler.JobHttpTargetArgs(
-        http_method="POST",
-        uri=computed_function_url,
-        body=base64.b64encode(json.dumps(daily_batch_body).encode()).decode(),
-        headers={"Content-Type": "application/json"},
-        oidc_token=cloudscheduler.JobHttpTargetOidcTokenArgs(
-            service_account_email=scheduler_service_account.email,
-            audience=computed_function_url,
-        ),
+    http_target=batch_target(32),
+    # A busy batch returns 503. Space retries across the 30-minute timeout.
+    retry_config=cloudscheduler.JobRetryConfigArgs(
+        retry_count=4, min_backoff_duration="600s", max_backoff_duration="600s"
     ),
     opts=pulumi.ResourceOptions(depends_on=[cloud_run_invoker]),
+)
+
+cloudscheduler.Job(
+    construct_name("cf-asa-backfill-scheduler"),
+    region=region,
+    schedule="30 * * * *",
+    time_zone="Etc/UTC",
+    paused=True,
+    attempt_deadline=f"{timeout_seconds}s",
+    http_target=batch_target(2557),  # About seven years, including time to drain.
+    opts=pulumi.ResourceOptions(
+        depends_on=[cloud_run_invoker],
+        # Operators choose the campaign window and when to resume or pause it.
+        ignore_changes=["paused", "httpTarget.body"],
+    ),
 )
