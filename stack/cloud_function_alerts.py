@@ -1,5 +1,8 @@
+import base64
+import json
 import time
 
+import cloud_function_asa
 import cloud_run_tipg
 import pulumi
 import pulumi_gcp as gcp
@@ -72,6 +75,11 @@ fxn = gcp.cloudfunctionsv2.Function(
             "GCP_PROJECT": gcp.config.project,
             "TIPG_URL": cloud_run_tipg.default.statuses[0].url,
             "IS_DRY_RUN": pulumi.Config("cerulean-cloud").require("dryrun_alerts"),
+            "ASA_SCHEDULER_JOB": pulumi.Output.all(
+                cloud_function_asa.scheduler_job.project,
+                cloud_function_asa.scheduler_job.region,
+                cloud_function_asa.scheduler_job.name,
+            ).apply(lambda a: f"projects/{a[0]}/locations/{a[1]}/jobs/{a[2]}"),
         },
         secret_environment_variables=[slack_webhooks],
     ),
@@ -114,4 +122,30 @@ job = gcp.cloudscheduler.Job(
     time_zone="America/New_York",
     http_target=http_target,
     opts=pulumi.ResourceOptions(replace_on_changes=["schedule"]),
+)
+
+# Reads the ASA daily batch job's last attempt (check_asa_batch).
+scheduler_viewer = gcp.projects.IAMMember(
+    construct_name(f"{resource_name}-scheduler-viewer"),
+    project=pulumi.Config("gcp").require("project"),
+    role="roles/cloudscheduler.viewer",
+    member=pulumi.Output.concat("serviceAccount:", service_account.email),
+)
+
+# After the ASA daily batch at 15:00 UTC and its retries: five 30 min attempts
+# 30 min apart end by 19:30. Posts to the same Slack webhook as the slick check.
+asa_batch_check = gcp.cloudscheduler.Job(
+    construct_name(f"{resource_name}-asa-batch-scheduler"),
+    description="Alert in Slack when the ASA daily batch failed",
+    schedule="45 19 * * *",
+    time_zone="Etc/UTC",
+    http_target=gcp.cloudscheduler.JobHttpTargetArgs(
+        http_method="POST",
+        uri=fxn.service_config.uri,
+        body=base64.b64encode(json.dumps({"check": "asa_batch"}).encode()).decode(),
+        headers={"Content-Type": "application/json"},
+        oidc_token=gcp.cloudscheduler.JobHttpTargetOidcTokenArgs(
+            service_account_email=service_account.email,
+        ),
+    ),
 )

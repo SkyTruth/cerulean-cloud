@@ -1,6 +1,7 @@
 """cloud function to find slick culprits"""
 
 import base64
+import json
 import os
 import time
 
@@ -22,7 +23,9 @@ from vpc_connector import vpc_connector
 stack = pulumi.get_stack()
 project_id = pulumi.Config("gcp").require("project")
 region = pulumi.Config("gcp").require("region")
-timeout_seconds = 540
+# Function timeout and Scheduler attempt deadline. 1800 s is Scheduler's maximum
+# for HTTP targets. The daily batch ran 25 min on 2026-11-23 (1,000 runs).
+timeout_seconds = 1800
 
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
@@ -233,27 +236,56 @@ cloud_run_invoker = cloudrun.IamMember(
     member="allUsers",
 )
 
-# One-off runs from the console: edit the body, e.g.
-# {"batch": true, "lookback_days": 1500}, Force run, then restore it. A one-off
-# body may add "pivot": "2024-06-01" (a UTC date to start from; random by
-# default) and "retry_incomplete": true (also take runs an earlier batch queued
-# that are still incomplete). main.batch_options checks these.
-# CI's `pulumi up` (with refresh) also restores it.
-cloudscheduler.Job(
-    construct_name("cf-asa-scheduler"),
-    region=region,
-    schedule="0 15 * * *",  # 3 h after GFW's 12:00 UTC AIS release
-    time_zone="Etc/UTC",
-    attempt_deadline=f"{timeout_seconds}s",
-    http_target=cloudscheduler.JobHttpTargetArgs(
+
+def batch_target(lookback_days):
+    body = {
+        "batch": True,
+        "lookback_days": lookback_days,
+        "pivot": None,
+        "retry_incomplete": False,
+    }
+    return cloudscheduler.JobHttpTargetArgs(
         http_method="POST",
         uri=computed_function_url,
-        body=base64.b64encode(b'{"batch": true}').decode(),
+        body=base64.b64encode(json.dumps(body).encode()).decode(),
         headers={"Content-Type": "application/json"},
         oidc_token=cloudscheduler.JobHttpTargetOidcTokenArgs(
             service_account_email=scheduler_service_account.email,
             audience=computed_function_url,
         ),
+    )
+
+
+# cf-alerts reads this job's last attempt (stack/cloud_function_alerts.py).
+scheduler_job = cloudscheduler.Job(
+    construct_name("cf-asa-scheduler"),
+    region=region,
+    schedule="0 15 * * *",  # 3 h after GFW's 12:00 UTC AIS release
+    time_zone="Etc/UTC",
+    # Each deploy leaves staging's job paused. Resume it in the console to run
+    # batches there.
+    paused=stack == "staging",
+    attempt_deadline=f"{timeout_seconds}s",
+    http_target=batch_target(32),
+    # A busy batch returns 503, and a timed-out attempt can keep running and hold
+    # the lock. Retry 30 min after each failure, giving either time to finish.
+    retry_config=cloudscheduler.JobRetryConfigArgs(
+        retry_count=4, min_backoff_duration="1800s", max_backoff_duration="1800s"
     ),
     opts=pulumi.ResourceOptions(depends_on=[cloud_run_invoker]),
+)
+
+cloudscheduler.Job(
+    construct_name("cf-asa-backfill-scheduler"),
+    region=region,
+    schedule="30 * * * *",
+    time_zone="Etc/UTC",
+    paused=True,
+    attempt_deadline=f"{timeout_seconds}s",
+    http_target=batch_target(2557),  # About seven years, including time to drain.
+    opts=pulumi.ResourceOptions(
+        depends_on=[cloud_run_invoker],
+        # Operators choose the campaign window and when to resume or pause it.
+        ignore_changes=["paused", "httpTarget.body"],
+    ),
 )

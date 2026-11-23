@@ -40,14 +40,15 @@ ASA_TIME_COLUMNS = {
 }
 
 # A batch request may set lookback_days to reach older scenes. These caps bound one
-# run: runs for the 540 s timeout, AIS dates for the GFW partitions scanned
+# run: runs for the 1800 s timeout, AIS dates for the GFW partitions scanned
 # (~10.7 GB per date plus ~28 GB per query), with a byte ceiling as a backstop.
 LIVE_LOOKBACK_DAYS = 32
+ASA_BATCH_LOCK_KEY = 0x415341  # "ASA", shared by batch producers in this database
 MAX_BATCH_RUNS = 1000
 MAX_BATCH_AIS_DATES = 30
 MAX_BATCH_BYTES_BILLED = 10**12
 # A run queued less than this long ago may still have a task in Cloud Tasks
-# (3 attempts within 600 s, each up to 540 s), so automatic retries wait.
+# (3 attempts within 600 s, each up to 1800 s), so automatic retries wait.
 REQUEUE_AFTER = timedelta(hours=1)
 
 # make_valid repairs a self-intersecting envelope instead of failing the query.
@@ -354,7 +355,18 @@ async def handle_asa_batch(
     now = datetime.utcnow()
     engine = get_engine(db_url=os.getenv("DB_URL"))
     try:
-        async with DatabaseClient(engine) as db_client:
+        # Pin the session to one connection: the lock must survive queue_batch's
+        # per-scene commits. Disposing this invocation's engine releases it.
+        async with engine.connect() as conn, DatabaseClient(conn) as db_client:
+            async with db_client.session.begin():
+                acquired = await db_client.session.scalar(
+                    select(func.pg_try_advisory_lock(ASA_BATCH_LOCK_KEY))
+                )
+            if not acquired:
+                if lookback_days <= LIVE_LOOKBACK_DAYS:
+                    abort(503, description="Another ASA batch is running")
+                print("Skipping backfill tick: another ASA batch is running")
+                return "Skipped: another ASA batch is running"
             failed = await queue_batch(
                 db_client.session,
                 batch_query(now, lookback_days, pivot, retry_incomplete),
@@ -363,8 +375,6 @@ async def handle_asa_batch(
     finally:
         await engine.dispose()
     if failed:
-        # Every other scene is queued by now. The Scheduler job makes no retries,
-        # so this error only marks the run as failed.
         raise RuntimeError(f"{len(failed)} scenes skipped after errors: {failed}")
     return "Success!"
 
