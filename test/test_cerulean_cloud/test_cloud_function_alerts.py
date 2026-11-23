@@ -6,8 +6,8 @@ import pytest
 import requests
 
 JOB = "projects/p/locations/europe-west1/jobs/cerulean-cloud-prod-cf-asa-scheduler-1"
-# The check runs at 18:30 UTC, after the 15:00 batch and its retries.
-NOW = datetime.datetime(2026, 11, 24, 18, 30, tzinfo=datetime.timezone.utc)
+# The check runs at 19:45 UTC, after the 15:00 batch and its retries.
+NOW = datetime.datetime(2026, 11, 24, 19, 45, tzinfo=datetime.timezone.utc)
 NEXT_RUN = "2026-11-25T15:00:04.810843Z"
 
 
@@ -53,12 +53,12 @@ def job(last=None, code=None, state="ENABLED", updated="2026-11-20T09:00:00Z"):
         # Today's attempt, a few seconds before the scheduled 15:00:04, succeeded.
         (job("2026-11-24T15:00:00.849635Z"), None),
         # A retry succeeded after the first attempt failed.
-        (job("2026-11-24T15:40:05Z"), None),
+        (job("2026-11-24T16:00:05Z"), None),
         # The fourth retry, the last one, failed too.
-        (job("2026-11-24T17:40:05Z", code=4), "DEADLINE_EXCEEDED"),
-        (job("2026-11-24T17:40:05Z", code=99), "code 99"),
+        (job("2026-11-24T19:00:05Z", code=4), "DEADLINE_EXCEEDED"),
+        (job("2026-11-24T19:00:05Z", code=99), "code 99"),
         # Yesterday's last retry is the last attempt: today's run never happened.
-        (job("2026-11-23T17:40:05Z"), "hasn't run since 2026-11-23T17:40:05Z"),
+        (job("2026-11-23T19:00:05Z"), "hasn't run since 2026-11-23T19:00:05Z"),
         (job(), "hasn't run since it was created"),
         # Created after today's run time: its first run is tomorrow.
         (job(updated="2026-11-24T15:30:00Z"), None),

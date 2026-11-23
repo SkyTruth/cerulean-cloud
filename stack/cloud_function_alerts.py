@@ -133,11 +133,11 @@ scheduler_viewer = gcp.projects.IAMMember(
 )
 
 # After the ASA daily batch at 15:00 UTC and its retries: five 30 min attempts
-# 10 min apart end by 18:10. Posts to the same Slack webhook as the slick check.
+# 30 min apart end by 19:30. Posts to the same Slack webhook as the slick check.
 asa_batch_check = gcp.cloudscheduler.Job(
     construct_name(f"{resource_name}-asa-batch-scheduler"),
     description="Alert in Slack when the ASA daily batch failed",
-    schedule="30 18 * * *",
+    schedule="45 19 * * *",
     time_zone="Etc/UTC",
     http_target=gcp.cloudscheduler.JobHttpTargetArgs(
         http_method="POST",

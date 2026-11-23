@@ -267,9 +267,10 @@ scheduler_job = cloudscheduler.Job(
     paused=stack == "staging",
     attempt_deadline=f"{timeout_seconds}s",
     http_target=batch_target(32),
-    # A busy batch returns 503. Space retries across the 30-minute timeout.
+    # A busy batch returns 503, and a timed-out attempt can keep running and hold
+    # the lock. Retry 30 min after each failure, giving either time to finish.
     retry_config=cloudscheduler.JobRetryConfigArgs(
-        retry_count=4, min_backoff_duration="600s", max_backoff_duration="600s"
+        retry_count=4, min_backoff_duration="1800s", max_backoff_duration="1800s"
     ),
     opts=pulumi.ResourceOptions(depends_on=[cloud_run_invoker]),
 )

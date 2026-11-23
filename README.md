@@ -517,7 +517,7 @@ Scheduler job handles historical backfills at 30 minutes past each hour. Both
 jobs POST to the ASA Cloud Function using the same authorized service account.
 Each deploy pauses staging's daily job. The backfill job starts paused on every stack.
 
-At 18:30 UTC, after the daily job's last possible retry, the `cf-alerts` function
+At 19:45 UTC, after the daily job's last possible retry, the `cf-alerts` function
 reads that job's last attempt and posts to the pipeline alerts Slack channel if it
 failed or the day's run never started.
 
@@ -559,7 +559,7 @@ A bad value gets HTTP 400 naming the problem, for example
 
 Both jobs take the same database lock before selecting work. A busy hourly job
 skips that tick. The daily job returns HTTP 503 on contention, and Scheduler
-retries failed daily requests up to four times at ten-minute intervals. CI
+retries failed daily requests up to four times, 30 minutes after each failure. CI
 refreshes Pulumi state and preserves the backfill job's body and pause setting.
 
 The function logs `Created task ...` for each scene queued,
