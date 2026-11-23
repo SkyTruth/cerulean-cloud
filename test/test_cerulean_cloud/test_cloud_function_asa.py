@@ -471,6 +471,16 @@ def test_refresh_expiring_cached_slice(asa_main, source_day, outcome):
     "body, options",
     [
         ({}, (32, None, False)),
+        # The Scheduler job's daily body (stack/cloud_function_asa.py).
+        (
+            {
+                "batch": True,
+                "lookback_days": 32,
+                "pivot": None,
+                "retry_incomplete": False,
+            },
+            (32, None, False),
+        ),
         ({"retry_incomplete": True}, (32, None, True)),
         ({"lookback_days": 1500}, (1500, None, False)),
         (

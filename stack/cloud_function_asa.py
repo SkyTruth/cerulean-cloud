@@ -1,6 +1,7 @@
 """cloud function to find slick culprits"""
 
 import base64
+import json
 import os
 import time
 
@@ -235,22 +236,32 @@ cloud_run_invoker = cloudrun.IamMember(
     member="allUsers",
 )
 
-# One-off runs from the console: edit the body, e.g.
-# {"batch": true, "lookback_days": 1500}, Force run, then restore it. A one-off
-# body may add "pivot": "2024-06-01" (a UTC date to start from; random by
-# default) and "retry_incomplete": true (also take runs an earlier batch queued
-# that are still incomplete). main.batch_options checks these.
+# The daily run, with every option main.batch_options reads at its default, so the
+# body in the console shows what can be set. lookback_days matches
+# main.LIVE_LOOKBACK_DAYS. One-off runs from the console: edit the body, e.g.
+# "lookback_days": 1500 (more than 32 days back), "pivot": "2024-06-01" (a UTC date
+# to start from; null is random) and "retry_incomplete": true (also take runs an
+# earlier batch queued that are still incomplete), Force run, then restore it.
 # CI's `pulumi up` (with refresh) also restores it.
+daily_batch_body = {
+    "batch": True,
+    "lookback_days": 32,
+    "pivot": None,
+    "retry_incomplete": False,
+}
 cloudscheduler.Job(
     construct_name("cf-asa-scheduler"),
     region=region,
     schedule="0 15 * * *",  # 3 h after GFW's 12:00 UTC AIS release
     time_zone="Etc/UTC",
+    # Each deploy leaves staging's job paused. Resume it in the console to run
+    # batches there.
+    paused=stack == "staging",
     attempt_deadline=f"{timeout_seconds}s",
     http_target=cloudscheduler.JobHttpTargetArgs(
         http_method="POST",
         uri=computed_function_url,
-        body=base64.b64encode(b'{"batch": true}').decode(),
+        body=base64.b64encode(json.dumps(daily_batch_body).encode()).decode(),
         headers={"Content-Type": "application/json"},
         oidc_token=cloudscheduler.JobHttpTargetOidcTokenArgs(
             service_account_email=scheduler_service_account.email,

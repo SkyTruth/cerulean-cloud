@@ -514,12 +514,18 @@ the run by the scene date in the task name when the queue holds 5,000 tasks or f
 INFRA source association runs right after inference. VESSEL and DARK run in a daily
 batch at 15:00 UTC, 3 h after Global Fishing Watch publishes AIS: a Cloud Scheduler
 job POSTs a JSON body to the ASA Cloud Function. Only that job's service account can
-start a batch, so one-off runs also go through the job.
+start a batch, so one-off runs also go through the job. Each deploy leaves staging's
+job paused; resume it in the console to run batches there.
 
 ### What you send
 
-The daily job sends `{"batch": true}`. A one-off run reaching older scenes can set
-every option:
+The daily job sends every option at its default:
+
+```json
+{"batch": true, "lookback_days": 32, "pivot": null, "retry_incomplete": false}
+```
+
+A one-off run reaching older scenes changes some of them, for example:
 
 ```json
 {"batch": true, "lookback_days": 1500, "pivot": "2024-06-01", "retry_incomplete": true}
@@ -541,7 +547,7 @@ A bad value gets HTTP 400 naming the problem, for example
    click the job whose name starts with `cerulean-cloud-<stack>-cf-asa-scheduler`.
 2. Click **Edit**, replace the body with your JSON, and save.
 3. Click **Force run**.
-4. Click **Edit** again, set the body back to `{"batch": true}`, and save. A body
+4. Click **Edit** again, set the body back to the daily default above, and save. A body
    left edited turns every daily run into the same one-off run. CI's `pulumi up`,
    which refreshes state, also restores it; a local `pulumi up` without
    `--refresh` doesn't.
