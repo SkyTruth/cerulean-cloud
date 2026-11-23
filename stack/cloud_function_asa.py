@@ -256,7 +256,8 @@ def batch_target(lookback_days):
     )
 
 
-cloudscheduler.Job(
+# cf-alerts reads this job's last attempt (stack/cloud_function_alerts.py).
+scheduler_job = cloudscheduler.Job(
     construct_name("cf-asa-scheduler"),
     region=region,
     schedule="0 15 * * *",  # 3 h after GFW's 12:00 UTC AIS release

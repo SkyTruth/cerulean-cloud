@@ -517,6 +517,10 @@ Scheduler job handles historical backfills at 30 minutes past each hour. Both
 jobs POST to the ASA Cloud Function using the same authorized service account.
 Each deploy pauses staging's daily job. The backfill job starts paused on every stack.
 
+At 18:30 UTC, after the daily job's last possible retry, the `cf-alerts` function
+reads that job's last attempt and posts to the pipeline alerts Slack channel if it
+failed or the day's run never started.
+
 ### What you send
 
 The daily job sends every option at its default:

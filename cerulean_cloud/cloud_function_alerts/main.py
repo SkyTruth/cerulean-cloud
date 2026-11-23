@@ -4,6 +4,9 @@ import os
 import requests
 import time
 
+import google.auth
+from google.auth.transport.requests import AuthorizedSession
+
 WEBHOOK_URL = os.environ["SLACK_ALERTS_WEBHOOK"]
 TIPG_URL = os.environ["TIPG_URL"]
 DRY_RUN = os.getenv("IS_DRY_RUN", "").lower() == "true"
@@ -13,6 +16,22 @@ MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 10
 MINIMUM_RESULT_COUNT = 1
 SLICK_TYPES = ["VESSEL", "INFRA"]  # , "DARK", "NATURAL"]
+
+# projects/<project>/locations/<region>/jobs/<name> of the ASA daily batch's job
+ASA_SCHEDULER_JOB = os.getenv("ASA_SCHEDULER_JOB", "")
+# The batch job runs once a day. Its last attempt may start a few seconds before
+# the scheduled time, so a missed run is one with no attempt within this of it.
+ASA_BATCH_PERIOD = datetime.timedelta(days=1)
+ASA_BATCH_TOLERANCE = datetime.timedelta(hours=1)
+# google.rpc.Code names for the codes a Scheduler HTTP attempt usually ends with
+STATUS_NAMES = {
+    2: "UNKNOWN",
+    4: "DEADLINE_EXCEEDED",
+    7: "PERMISSION_DENIED",
+    13: "INTERNAL",
+    14: "UNAVAILABLE",
+    16: "UNAUTHENTICATED",
+}
 
 
 def send_slack_alert(webhook_url, message, dry_run=DRY_RUN):
@@ -107,8 +126,87 @@ def check_recent_slicks(dry_run=DRY_RUN, webhook_url=WEBHOOK_URL):
         )
 
 
+def parse_time(value):
+    """UTC datetime from an RFC 3339 timestamp such as 2026-11-23T15:00:00.849635Z."""
+    if not value:
+        return None
+    return datetime.datetime.strptime(value[:19], "%Y-%m-%dT%H:%M:%S").replace(
+        tzinfo=datetime.timezone.utc
+    )
+
+
+def check_asa_batch(dry_run=DRY_RUN, webhook_url=WEBHOOK_URL, session=None, now=None):
+    """
+    Alerts when the ASA daily batch's last Scheduler attempt failed (after its
+    retries), or when its most recent scheduled run made no attempt. A paused job
+    isn't checked.
+    """
+    if not ASA_SCHEDULER_JOB:
+        print("ASA_SCHEDULER_JOB is unset; skipping the ASA batch check")
+        return
+    name = ASA_SCHEDULER_JOB.rsplit("/", 1)[-1]
+    if session is None:
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        session = AuthorizedSession(credentials)
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+
+    try:
+        response = session.get(
+            f"https://cloudscheduler.googleapis.com/v1/{ASA_SCHEDULER_JOB}", timeout=60
+        )
+        response.raise_for_status()
+        job = response.json()
+    except requests.exceptions.RequestException as e:
+        send_slack_alert(
+            webhook_url,
+            f"Couldn't read the ASA daily batch job {name}: {e}",
+            dry_run=dry_run,
+        )
+        return
+
+    if job.get("state") == "PAUSED":
+        print(f"ASA daily batch job {name} is paused; not checked")
+        return
+    last = job.get("lastAttemptTime")
+    last_time = parse_time(last)
+    # scheduleTime is the next run, so the most recent one was a period earlier.
+    next_run = parse_time(job.get("scheduleTime")) or now
+    expected = next_run - ASA_BATCH_PERIOD - ASA_BATCH_TOLERANCE
+    code = (job.get("status") or {}).get("code", 0)
+    # A job created or edited since then may not have had its run yet.
+    changed = parse_time(job.get("userUpdateTime"))
+    missed = (last_time is None or last_time < expected) and not (
+        changed and changed > expected
+    )
+    if missed:
+        send_slack_alert(
+            webhook_url,
+            f"ASA daily batch ({name}) hasn't run since {last or 'it was created'}",
+            dry_run=dry_run,
+        )
+    elif code:
+        message = (job.get("status") or {}).get("message") or STATUS_NAMES.get(
+            code, f"code {code}"
+        )
+        send_slack_alert(
+            webhook_url,
+            f"ASA daily batch ({name}) failed, including its retries. Last attempt "
+            f"{last}: {message}. The ASA function's logs list any scenes it "
+            "skipped ('scenes skipped after errors').",
+            dry_run=dry_run,
+        )
+    else:
+        print(f"ASA daily batch ({name}) last attempt {last} succeeded")
+
+
 def main(request: Request):
     print(f"Base URL: {BASE_URL}; dry run: {DRY_RUN}")
-    check_recent_slicks(dry_run=DRY_RUN, webhook_url=WEBHOOK_URL)
+    body = request.get_json(silent=True) or {}
+    if body.get("check") == "asa_batch":
+        check_asa_batch(dry_run=DRY_RUN, webhook_url=WEBHOOK_URL)
+    else:
+        check_recent_slicks(dry_run=DRY_RUN, webhook_url=WEBHOOK_URL)
     print("Check complete!")
     return make_response("Function executed", 200)
