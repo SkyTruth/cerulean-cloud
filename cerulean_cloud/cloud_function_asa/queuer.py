@@ -2,11 +2,13 @@
 Code for handling queue requests for Automatic Source Association
 """
 
+import functools
 import hashlib
 import json
 import os
 import random
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 from google.api_core.exceptions import AlreadyExists
 from google.auth import compute_engine
@@ -41,12 +43,21 @@ def _schedule_time(days_to_delay, jitter_seconds=0):
     return scheduled_for
 
 
+@functools.lru_cache(maxsize=1)
+def _tasks_client():
+    """One client per instance; the daily batch queues up to 1,000 tasks."""
+    # Use Compute Engine credentials (metadata server) to guarantee default ADC
+    return tasks_v2.CloudTasksClient(credentials=compute_engine.Credentials())
+
+
 def add_to_asa_queue(
     scene_id,
     run_flags=[],
     days_to_delay=0,
     task_suffix=None,
     jitter_seconds=0,
+    ais_uri=None,
+    force_retry=False,
 ):
     """
     Adds a new task to Google Cloud Tasks for Automatic Source Association.
@@ -56,16 +67,16 @@ def add_to_asa_queue(
         run_flags (list): A list of flags to run the task with.
         days_to_delay (int): The number of days to delay the task.
         jitter_seconds (int): Max random jitter to add to the scheduled time.
+        force_retry (bool): Give an explicitly retried task a fresh name, even after a purge.
     Returns:
-        google.cloud.tasks_v2.types.Task: The created Task object.
+        google.cloud.tasks_v2.types.Task: The created Task object, or None when a
+        task with this name already exists (deduped).
 
     Notes:
         - The function uses Google Cloud Tasks API to schedule the Automatic Source Association.
         - Multiple retries are scheduled with different delays.
     """
-    # Create a client.
-    # Use Compute Engine credentials (metadata server) to guarantee default ADC
-    client = tasks_v2.CloudTasksClient(credentials=compute_engine.Credentials())
+    client = _tasks_client()
 
     project = os.getenv("PROJECT_ID")
     location = os.getenv("GCPREGION")
@@ -86,6 +97,8 @@ def add_to_asa_queue(
     payload = {"scene_id": scene_id, "dry_run": dry_run}
     if run_flags:
         payload["run_flags"] = run_flags
+    if ais_uri is not None:
+        payload["ais_uri"] = ais_uri
 
     scheduled_for = _schedule_time(
         days_to_delay=days_to_delay, jitter_seconds=jitter_seconds
@@ -94,6 +107,8 @@ def add_to_asa_queue(
     if task_suffix:
         suffix_hash = hashlib.sha256(str(task_suffix).encode("utf-8")).hexdigest()[:8]
         task_id = f"{task_id}-{suffix_hash}"
+    if force_retry:
+        task_id = f"{task_id}-{uuid4().hex}"
     task_name = client.task_path(project, location, queue, task_id)
 
     task = {
@@ -121,7 +136,7 @@ def add_to_asa_queue(
         response = client.create_task(request={"parent": parent, "task": task})
     except AlreadyExists:
         print(f"Task already exists (deduped): {task_name}")
-        return task_name
+        return None
 
     print(f"Created task {response.name}")
     return response

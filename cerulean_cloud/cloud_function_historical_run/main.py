@@ -16,6 +16,7 @@ import geojson
 import google.auth
 from flask import abort
 from google.auth.transport.requests import AuthorizedSession
+from google.oauth2 import service_account
 from shapely.geometry import MultiPolygon, shape
 
 
@@ -341,9 +342,17 @@ def batch_create_tasks(session, parent, task_requests, *, deadline, batch_number
 
 
 def cloud_tasks_session():
-    credentials, _ = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+    value = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "").lstrip()
+    if value.startswith("{"):
+        info = json.loads(value)
+        if info.get("token_uri") != "https://oauth2.googleapis.com/token":
+            raise ValueError("Invalid Google service-account token URI")
+        credentials = service_account.Credentials.from_service_account_info(
+            info, scopes=scopes
+        )
+    else:
+        credentials, _ = google.auth.default(scopes=scopes)
     return AuthorizedSession(credentials)
 
 

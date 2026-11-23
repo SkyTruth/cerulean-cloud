@@ -250,7 +250,7 @@ async def run_local(payload):
                 recheck_history=not payload.get("overwrite", False),
             )
         except BaseException as exc:
-            record.submission_error = repr(exc)
+            record.submission_error = type(exc).__name__
             raise
         finally:
             # A failed batch may have accepted tasks, so its total is unknown.

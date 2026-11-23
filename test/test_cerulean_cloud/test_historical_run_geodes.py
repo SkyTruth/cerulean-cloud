@@ -198,8 +198,9 @@ def test_geodes_global_search_omits_spatial_filter_on_every_page(geodes):
     assert all(body["query"]["sar:instrument_mode"] == {"in": ["IW"]} for body in calls)
 
 
+@pytest.mark.parametrize("status", [400, 503])
 def test_geodes_failure_after_first_page_does_not_return_partial_results(
-    geodes, monkeypatch
+    geodes, monkeypatch, status
 ):
     pages, calls = geodes
     monkeypatch.setattr(historical.time, "sleep", lambda _: None)
@@ -207,13 +208,23 @@ def test_geodes_failure_after_first_page_does_not_return_partial_results(
         200,
         {"features": [feature(i) for i in range(80)], "context": {"matched": 81}},
     )
-    pages[2] = [(503, {"error": "unavailable"})] * 3
-    with pytest.raises(RuntimeError, match="page 2 .* failed after 3 attempts"):
+    pages[2] = [(status, {"error": "unavailable"})] * 3
+    with pytest.raises(
+        RuntimeError, match=rf"page 2 .* failed after 3 attempts: HTTP {status}$"
+    ):
         search()
     assert [body["page"] for body in calls] == [1, 2, 2, 2]
 
 
-@pytest.mark.parametrize("status", [429, 503])
+def test_geodes_first_page_bad_request_fails_immediately(geodes):
+    pages, calls = geodes
+    pages[1] = (400, {"error": "invalid filter"})
+    with pytest.raises(RuntimeError, match="page 1 .* failed with HTTP 400$"):
+        search()
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("status", [400, 429, 503])
 def test_geodes_transient_page_failure_retries_without_duplicates(
     geodes, monkeypatch, status
 ):

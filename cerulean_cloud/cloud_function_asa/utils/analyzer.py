@@ -16,9 +16,10 @@ import pandas as pd
 import pandas_gbq
 import requests
 from geoalchemy2.shape import to_shape
+from google.auth import compute_engine
+from google.cloud import storage
 from google.oauth2.service_account import Credentials
 from pyproj import CRS
-from queuer import add_to_asa_queue
 from scipy.spatial import cKDTree
 from shapely.geometry import (
     GeometryCollection,
@@ -96,30 +97,6 @@ class SourceAnalyzer:
             self.slick_gdf["centerlines"].iloc[0]["features"], crs="EPSG:4326"
         )
 
-    def reschedule_for_later(self, run_flags):
-        """
-        Backoff schedule (by scene age, in days since capture):
-          - Re-attempt daily until day 7.
-          - Then re-attempt every 7 days up to a month after capture.
-        """
-        days_since = (datetime.utcnow() - self.s1_scene.start_time).days
-        if days_since < 7:
-            days_to_delay = 1
-        elif days_since < 32:
-            days_to_delay = 7
-        else:
-            print(
-                f"Skipping reschedule for {self.s1_scene.scene_id}: captured {days_since} days ago"
-            )
-            return
-
-        add_to_asa_queue(
-            self.s1_scene.scene_id,
-            run_flags=run_flags,
-            days_to_delay=days_to_delay,
-            jitter_seconds=60 * 60,
-        )
-
 
 class AISAnalyzer(SourceAnalyzer):
     """
@@ -182,79 +159,30 @@ class AISAnalyzer(SourceAnalyzer):
             .buffer(self.ais_scene_buffer)
             .to_crs("4326")
         )
-        self.credentials = Credentials.from_service_account_info(
-            json.loads(os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"))
-        )
+        self.ais_uri = kwargs.get("ais_uri")
 
         # Initialize other attributes
         self.sql = None
         self.slick_centerlines = None
-        self.data_is_available = None
+        self.data_is_available = bool(self.ais_uri)
         self.ais_gdf = None
         self.ais_filtered = None
         self.ais_trajectories = {}
         self.results = gpd.GeoDataFrame()
 
-    def check_data_availability(self):
-        """
-        Checks if segs_activity_daily has data for the target day
-        (image_timestamp + hours_after). Day granularity is intentional:
-        same-day availability is sufficient.
-        """
-        sql = """
-            SELECT MAX(date) as latest_date
-            FROM `global-fishing-watch.pipe_ais_v5_published.segs_activity_daily`
-            WHERE date != '1979-01-01'
-        """
-        df = pandas_gbq.read_gbq(
-            sql,
-            project_id=self.gfw_project_id,
-            credentials=self.credentials,
-        )
-        # if Null, then GFW database is more than 1 month out of date!!! Major issue... return False
-        if df["latest_date"].iloc[0] is None:
-            return False
-        latest_data_day = pd.to_datetime(df["latest_date"].iloc[0]).date()
-        target_data_day = self.ais_end_time.date()
-
-        return latest_data_day >= target_data_day
-
     def retrieve_ais_data(self):
-        """
-        Retrieves AIS data from BigQuery.
-        """
-        start_time = datetime.strftime(self.ais_start_time, c.T_FORMAT)
-        end_time = datetime.strftime(self.ais_end_time, c.T_FORMAT)
-        ais_envelope = self.ais_envelope[0]
-
-        # print("Retrieving AIS data")
-        sql = f"""
-            SELECT
-                seg.ssvid as ssvid,
-                seg.timestamp as timestamp,
-                seg.lon as lon,
-                seg.lat as lat,
-                seg.course as course,
-                seg.speed_knots as speed_knots,
-                ves.ais_identity.shipname_mostcommon.value as shipname,
-                ves.ais_identity.shiptype[SAFE_OFFSET(0)].value as shiptype,
-                ves.best.best_flag as flag,
-                ves.random_forest_info.best_vessel_class as best_shiptype
-            FROM
-                `global-fishing-watch.pipe_ais_v5_published.messages` as seg
-            LEFT JOIN
-                `global-fishing-watch.pipe_ais_identity_v5_partners_published.vi_ssvid` as ves
-                ON seg.ssvid = ves.ssvid
-            WHERE TRUE
-                -- AND clean_segs IS TRUE
-                AND seg.timestamp between '{start_time}' AND '{end_time}'
-                AND ST_COVEREDBY(ST_GEOGPOINT(seg.lon, seg.lat), ST_GeogFromText('{ais_envelope}'))
-            """
-        df = pandas_gbq.read_gbq(
-            sql,
-            project_id=self.gfw_project_id,
-            credentials=self.credentials,
+        """Read the scene slice from the ASA bucket."""
+        prefix = f"gs://{os.environ['ASA_BUCKET']}/ais/"
+        name = f"/{self.s1_scene.scene_id}.parquet"
+        if not (self.ais_uri.startswith(prefix) and self.ais_uri.endswith(name)):
+            raise ValueError(f"AIS URI must be this scene's slice: {prefix}...{name}")
+        client = storage.Client(
+            project=os.environ["PROJECT_ID"], credentials=compute_engine.Credentials()
         )
+        blob = storage.Blob.from_string(self.ais_uri, client=client)
+        blob.reload()  # Pin the generation for Parquet range reads.
+        with blob.open("rb") as ais_file:
+            df = pd.read_parquet(ais_file)
         df["timestamp"] = (
             df["timestamp"]
             .dt.tz_convert("UTC")
@@ -769,15 +697,10 @@ class AISAnalyzer(SourceAnalyzer):
         self.results = gpd.GeoDataFrame()
         self.filtered_ssvids = []
 
-        if self.data_is_available is None:
-            self.data_is_available = self.check_data_availability()
-            if not self.data_is_available:
-                self.reschedule_for_later(run_flags=[AISAnalyzer.short_name])
-        if self.data_is_available is False:
-            # Catches both False cases for persistent analyzer and newly calculated availability
-            return pd.DataFrame()
-
         if self.ais_gdf is None:
+            if not self.data_is_available:
+                print("VESSEL skipped: no ais_uri from the daily batch")
+                return pd.DataFrame()
             self.retrieve_ais_data()
         if self.ais_gdf.empty:
             return pd.DataFrame()
@@ -1485,8 +1408,6 @@ class DarkAnalyzer(PointAnalyzer):
 
         if self.data_is_available is None:
             self.data_is_available = self.check_data_availability()
-            if not self.data_is_available:
-                self.reschedule_for_later(run_flags=[DarkAnalyzer.short_name])
         if self.data_is_available is False:
             # Catches both False cases for persistent analyzer and newly calculated availability
             return pd.DataFrame()
@@ -1551,7 +1472,7 @@ class DarkAnalyzer(PointAnalyzer):
             project_id=self.gfw_project_id,
             credentials=self.credentials,
         )
-        return df.iloc[0]["data_available"]
+        return bool(df.iloc[0]["data_available"])
 
 
 class NaturalAnalyzer(SourceAnalyzer):
