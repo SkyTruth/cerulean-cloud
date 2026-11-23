@@ -40,14 +40,14 @@ ASA_TIME_COLUMNS = {
 }
 
 # A batch request may set lookback_days to reach older scenes. These caps bound one
-# run: runs for the 540 s timeout, AIS dates for the GFW partitions scanned
+# run: runs for the 1800 s timeout, AIS dates for the GFW partitions scanned
 # (~10.7 GB per date plus ~28 GB per query), with a byte ceiling as a backstop.
 LIVE_LOOKBACK_DAYS = 32
 MAX_BATCH_RUNS = 1000
 MAX_BATCH_AIS_DATES = 30
 MAX_BATCH_BYTES_BILLED = 10**12
 # A run queued less than this long ago may still have a task in Cloud Tasks
-# (3 attempts within 600 s, each up to 540 s), so automatic retries wait.
+# (3 attempts within 600 s, each up to 1800 s), so automatic retries wait.
 REQUEUE_AFTER = timedelta(hours=1)
 
 # make_valid repairs a self-intersecting envelope instead of failing the query.

@@ -22,7 +22,9 @@ from vpc_connector import vpc_connector
 stack = pulumi.get_stack()
 project_id = pulumi.Config("gcp").require("project")
 region = pulumi.Config("gcp").require("region")
-timeout_seconds = 540
+# Function timeout and Scheduler attempt deadline. 1800 s is Scheduler's maximum
+# for HTTP targets. The daily batch ran 25 min on 2026-11-23 (1,000 runs).
+timeout_seconds = 1800
 
 # We will store the source code to the Cloud Function in a Google Cloud Storage bucket.
 bucket = storage.Bucket(
