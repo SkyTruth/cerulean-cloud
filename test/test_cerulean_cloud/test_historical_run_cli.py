@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -224,6 +225,99 @@ def test_local_csv_batches_and_rechecks_db_before_each_batch(
     assert all(call.kwargs["dry_run"] is dry_run for call in queue.call_args_list)
     assert all(call.kwargs["manual_trigger"] is True for call in queue.call_args_list)
     assert "Batch 3 confirmed:" in result.stderr
+    remote.assert_not_called()
+
+
+def test_local_throughput_spaces_batches_and_reports_window(local_execution, tmp_path):
+    queue = local_execution[2]
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=2)
+    path = tmp_path / "scenes.csv"
+    path.write_text("scene_id\n" + "\n".join(f"scene-{i}" for i in range(205)) + "\n")
+    result = CliRunner().invoke(
+        client.cli,
+        [
+            "--local",
+            "scenes",
+            "--csv",
+            str(path),
+            "--throughput",
+            "4000",
+            "--release-start",
+            start.isoformat(),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    summary = json.loads(result.stdout)
+    assert summary["release_rate"] == 3600
+    assert summary["release_start"] == start.isoformat()
+    assert summary["release_end"] == (start + timedelta(seconds=205)).isoformat()
+    calls = sorted(queue.call_args_list, key=lambda call: call.kwargs["batch_number"])
+    assert [call.kwargs["schedule_time"] for call in calls] == [
+        start + timedelta(seconds=seconds) for seconds in (0, 100, 200)
+    ]
+
+
+def test_local_release_defaults_to_submission_time(local_execution):
+    before = datetime.now(timezone.utc)
+    result = CliRunner().invoke(
+        client.cli,
+        ["--local", "scenes", "--scene-id", "scene", "--throughput", "3000"],
+    )
+    assert result.exit_code == 0, result.output
+    released = local_execution[2].call_args.kwargs["schedule_time"]
+    assert before.replace(microsecond=0) <= released <= datetime.now(timezone.utc)
+    assert json.loads(result.stdout)["release_start"] == released.isoformat(
+        timespec="seconds"
+    )
+
+
+def test_local_release_past_cloud_tasks_limit_queues_nothing(local_execution):
+    result = CliRunner().invoke(
+        client.cli,
+        [
+            "--local",
+            "scenes",
+            "--scene-id",
+            "a",
+            "--scene-id",
+            "b",
+            "--throughput",
+            "0.001",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "30-day scheduling limit" in result.output
+    local_execution[2].assert_not_called()
+    record = client.save_historical_run.await_args.args[0]
+    assert record.submission_error == "ReleaseScheduleError"
+
+
+def test_remote_release_options_are_sent(remote):
+    result = invoke(
+        "scenes",
+        "--scene-id",
+        "scene",
+        "--throughput",
+        "3200",
+        "--release-start",
+        "2026-11-25T06:00:00Z",
+    )
+    assert result.exit_code == 0, result.output
+    payload = remote.call_args.kwargs["json"]
+    assert payload["throughput"] == 3200
+    assert payload["release_start"] == "2026-11-25T06:00:00Z"
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--release-start", "2026-11-25T06:00:00Z"],
+        ["--throughput", "0"],
+        ["--throughput", "fast"],
+    ],
+)
+def test_invalid_release_options_do_not_submit(remote, flags):
+    assert invoke("scenes", "--scene-id", "scene", *flags).exit_code != 0
     remote.assert_not_called()
 
 

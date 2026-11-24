@@ -4,6 +4,7 @@ import base64
 import asyncio
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from threading import Barrier, Event
 from unittest.mock import AsyncMock, MagicMock
@@ -502,6 +503,92 @@ async def test_batches_finish_oldest_week_before_starting_next(endpoint, monkeyp
     assert historical.AuthorizedSession.call_count == 2
 
 
+def schedule_times(endpoint):
+    return {
+        task_payload(request["task"])["scene_id"]: request["task"].get("scheduleTime")
+        for request in queued_requests(endpoint)
+    }
+
+
+def cloud_time(moment):
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+@pytest.mark.asyncio
+async def test_release_rate_spaces_batches_by_the_scenes_ahead_of_them(
+    endpoint, monkeypatch
+):
+    monkeypatch.setattr(historical, "BATCH_SIZE", 2)
+
+    def scene(day):
+        return f"S1A_IW_GRDH_1SDV_{day}T120000_{day}T120025_012345_012345_ABCD"
+
+    # Week one holds three scenes (two batches); week two holds one.
+    monday, tuesday, sunday = scene("20220103"), scene("20220104"), scene("20220109")
+    next_week = scene("20220110")
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=1)
+    batches = await historical.enqueue_batches(
+        ["undated", next_week, sunday, tuesday, monday],
+        42,
+        queue_name="orchestrator-backlog-test",
+        release_rate=3600,  # one scene per second
+        release_start=start,
+    )
+    assert [batch["queued_count"] for batch in batches] == [2, 1, 1, 1]
+    assert schedule_times(endpoint) == {
+        monday: cloud_time(start),
+        tuesday: cloud_time(start),
+        sunday: cloud_time(start + timedelta(seconds=2)),
+        next_week: cloud_time(start + timedelta(seconds=3)),
+        "undated": cloud_time(start + timedelta(seconds=4)),
+    }
+
+
+def test_throughput_over_http_releases_at_90_percent_and_reports_window(endpoint):
+    start = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=1)
+    scenes = [f"scene-{index}" for index in range(250)]
+    response = post(
+        endpoint,
+        {"scene_ids": scenes, "throughput": 8000, "release_start": start.isoformat()},
+    )
+    assert response.status_code == 200
+    assert response.json["release_rate"] == 7200
+    assert response.json["release_start"] == start.isoformat()
+    assert response.json["release_end"] == (start + timedelta(seconds=125)).isoformat()
+    times = schedule_times(endpoint)
+    assert [times[f"scene-{index}"] for index in (0, 99, 100, 199, 200, 249)] == [
+        cloud_time(start + timedelta(seconds=seconds))
+        for seconds in (0, 0, 50, 50, 100, 100)
+    ]
+
+
+def test_release_without_rate_leaves_tasks_ready_at_once(endpoint):
+    response = post(endpoint, {"scene_ids": ["first", "second"]})
+    assert response.status_code == 200
+    assert "release_start" not in response.json
+    assert schedule_times(endpoint) == {"first": None, "second": None}
+
+
+@pytest.mark.parametrize(
+    "release",
+    [
+        {"throughput": 0.001},
+        {
+            "throughput": 4000,
+            "release_start": (
+                datetime.now(timezone.utc) + timedelta(days=31)
+            ).isoformat(),
+        },
+    ],
+)
+def test_release_past_cloud_tasks_limit_is_rejected_before_any_task(endpoint, release):
+    response = post(endpoint, {"scene_ids": ["first", "second"], **release})
+    assert response.status_code == 400
+    assert "30-day" in response.get_data(as_text=True)
+    endpoint[1].assert_not_called()
+    endpoint[2].post.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_parallel_submission_limits_history_checks_to_four(endpoint):
     active = peak = 0
@@ -624,6 +711,14 @@ def test_discovery_time_counts_toward_enqueue_deadline(endpoint, monkeypatch):
         {"source": "s3", "start": "2025-01-01", "end": "2025-01-02", "geometry": {}},
         {"source": "s3", "start": "2025-01-01", "end": "2025-01-02", "modes": "IW"},
         {"start": "2025-01-01", "end": "2025-01-02", "geometry": []},
+        {"scene_ids": ["scene"], "throughput": 0},
+        {"scene_ids": ["scene"], "throughput": -1},
+        {"scene_ids": ["scene"], "throughput": True},
+        {"scene_ids": ["scene"], "throughput": "3000"},
+        {"scene_ids": ["scene"], "throughput": None},
+        {"scene_ids": ["scene"], "release_start": "2026-11-25T00:00:00"},
+        {"scene_ids": ["scene"], "throughput": 1, "release_start": "tomorrow"},
+        {"scene_ids": ["scene"], "throughput": 1, "release_start": 5},
     ],
 )
 def test_invalid_requests_fail_before_discovery_or_side_effects(

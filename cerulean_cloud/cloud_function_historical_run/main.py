@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import math
 import os
 import time
 import urllib.parse as urlparse
@@ -29,6 +30,15 @@ ENQUEUE_TIMEOUT_SECONDS = 450
 BATCH_SIZE = 100
 MAX_BATCH_WORKERS = 32
 MAX_BATCH_HISTORY_CHECKS = 4
+# Cloud Tasks rejects a scheduleTime more than 30 days ahead.
+MAX_SCHEDULE_DELAY = timedelta(days=30)
+# Release tasks at 90% of the stated throughput so each slot drains before the
+# next opens: idle minutes cost less than old scenes running after newer ones.
+RELEASE_HEADROOM = 0.9
+
+
+class ReleaseScheduleError(ValueError):
+    """A requested release schedule cannot be submitted to Cloud Tasks."""
 
 
 # Cloud Functions imports main.py at the root of the deployed source archive;
@@ -151,6 +161,18 @@ def validate_request(request_json):
     for key in ("polarizations", "apply_relevancy"):
         if key in request_json:
             raise ValueError(f"{key} is not supported")
+    if "throughput" in request_json:
+        rate = request_json["throughput"]
+        if (
+            isinstance(rate, bool)
+            or not isinstance(rate, (int, float))
+            or not (math.isfinite(rate) and rate > 0)
+        ):
+            raise ValueError("throughput must be a positive number of scenes per hour")
+    if "release_start" in request_json:
+        if "throughput" not in request_json:
+            raise ValueError("release_start requires throughput")
+        parse_release_start(request_json["release_start"])
     if "modes" in request_json:
         modes = request_json["modes"]
         if (
@@ -201,6 +223,32 @@ def validate_request(request_json):
         raise ValueError("geometry must be a GeoJSON FeatureCollection when provided")
 
 
+def parse_release_start(value):
+    """Read an ISO 8601 release start; a time without an offset is UTC."""
+    try:
+        start = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        raise ValueError("release_start must be an ISO 8601 timestamp") from None
+    return start if start.tzinfo else start.replace(tzinfo=timezone.utc)
+
+
+def release_window(scene_count, rate, start=None):
+    """Return when the first scene becomes ready and when the last one's slot ends."""
+    now = datetime.now(timezone.utc)
+    # Whole seconds keep the reported start identical to the scheduled one.
+    start = (now if start is None else start.astimezone(timezone.utc)).replace(
+        microsecond=0
+    )
+    end = start + timedelta(hours=scene_count / rate)
+    if end - now > MAX_SCHEDULE_DELAY:
+        raise ReleaseScheduleError(
+            f"Releasing {scene_count} scenes at {rate:g} per hour would run until "
+            f"{end:%Y-%m-%d %H:%M} UTC, past Cloud Tasks' 30-day scheduling limit. "
+            "Split the date range."
+        )
+    return start, end
+
+
 def main(request):
     """List scenes or queue a tracked batch, defaulting to dry-run processing."""
     start_time = datetime.now()
@@ -215,9 +263,12 @@ def main(request):
     logs_url = make_cloud_function_logs_url(
         os.getenv("FUNCTIONNAME"), start_time, os.getenv("GCPPROJECT")
     )
-    return asyncio.run(
-        run_historical(request_json, logs_url=logs_url, deadline=enqueue_deadline)
-    )
+    try:
+        return asyncio.run(
+            run_historical(request_json, logs_url=logs_url, deadline=enqueue_deadline)
+        )
+    except ReleaseScheduleError as exc:
+        abort(400, description=str(exc))
 
 
 async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id=None):
@@ -243,6 +294,18 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
         "filtered_scene_count": len(filtered_scenes),
         "already_processed_scene_count": already_processed_scene_count,
     }
+    release_rate = release_start = None
+    if "throughput" in request_json:
+        release_rate = request_json["throughput"] * RELEASE_HEADROOM
+        start = request_json.get("release_start")
+        release_start, release_end = release_window(
+            len(filtered_scenes),
+            release_rate,
+            None if start is None else parse_release_start(start),
+        )
+        summary["release_rate"] = release_rate
+        summary["release_start"] = release_start.isoformat(timespec="seconds")
+        summary["release_end"] = release_end.isoformat(timespec="seconds")
     print(f"Historical scene selection: {summary}")
     if list_only:
         return {**summary, "scene_ids": filtered_scenes}
@@ -260,6 +323,8 @@ async def run_historical(request_json, *, logs_url="", deadline=None, trigger_id
         dry_run=dry_run,
         manual_trigger=request_json.get("manual_trigger", False),
         deadline=deadline,
+        release_rate=release_rate,
+        release_start=release_start,
     )
     return {
         **summary,
@@ -384,10 +449,18 @@ async def enqueue_batches(
     manual_trigger=False,
     deadline=None,
     recheck_history=False,
+    release_rate=None,
+    release_start=None,
 ):
-    """Submit concurrent batches within each week and return results in batch order."""
+    """Submit concurrent batches within each week and return results in batch order.
+
+    With release_rate (scenes per hour), each batch's tasks become ready at
+    release_start (default: now) plus the scenes ahead of it divided by the rate.
+    """
     if not scene_ids:
         return []
+    if release_rate is not None:
+        release_start, _ = release_window(len(scene_ids), release_rate, release_start)
     workers = int(os.getenv("HISTORICAL_BATCH_WORKERS", str(MAX_BATCH_WORKERS)))
     if not 1 <= workers <= MAX_BATCH_WORKERS:
         raise ValueError(
@@ -403,12 +476,17 @@ async def enqueue_batches(
     def in_thread(function, *args, **kwargs):
         return loop.run_in_executor(pool, partial(function, *args, **kwargs))
 
-    async def worker(slot, week, jobs):
+    async def worker(slot, week, offset, jobs):
         nonlocal stopping, first_error
         for number, start in jobs:
             if stopping:
                 return
             scenes = week[start : start + BATCH_SIZE]
+            schedule_time = None
+            if release_rate is not None:
+                schedule_time = release_start + timedelta(
+                    hours=(offset + start) / release_rate
+                )
             try:
                 eligible, excluded = scenes, 0
                 if recheck_history:
@@ -437,6 +515,7 @@ async def enqueue_batches(
                         dry_run=dry_run,
                         manual_trigger=manual_trigger,
                         deadline=deadline,
+                        schedule_time=schedule_time,
                     )
                 result = {
                     "scene_count": len(scenes),
@@ -456,12 +535,17 @@ async def enqueue_batches(
                 return
 
     with ExitStack() as resources, ThreadPoolExecutor(max_workers=workers) as pool:
+        offset = 0
         for week in scene_weeks(scene_ids):
             starts = range(0, len(week), BATCH_SIZE)
             jobs = enumerate(starts, len(results) + 1)
             active = asyncio.gather(
-                *(worker(slot, week, jobs) for slot in range(min(workers, len(starts))))
+                *(
+                    worker(slot, week, offset, jobs)
+                    for slot in range(min(workers, len(starts)))
+                )
             )
+            offset += len(week)
             try:
                 await asyncio.shield(active)
             except asyncio.CancelledError:
@@ -484,6 +568,7 @@ def handler_queue(
     dry_run=True,
     manual_trigger=False,
     deadline=None,
+    schedule_time=None,
 ):
     """Submit one batch and verify that every requested task was created."""
     if deadline is None:
@@ -510,6 +595,10 @@ def handler_queue(
                 "body": base64.b64encode(json.dumps(payload).encode()).decode(),
             },
         }
+        if schedule_time is not None:
+            task["scheduleTime"] = schedule_time.astimezone(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S.%fZ"
+            )
         task_requests.append({"parent": parent, "task": task})
     operation = batch_create_tasks(
         session, parent, task_requests, deadline=deadline, batch_number=batch_number

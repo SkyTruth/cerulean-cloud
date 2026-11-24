@@ -216,6 +216,7 @@ async def run_local(payload):
     """Discover once, then submit batches under one trigger and history row."""
     from cerulean_cloud.cloud_function_historical_run.main import (
         enqueue_batches,
+        parse_release_start,
         run_historical,
         validate_request,
     )
@@ -248,6 +249,12 @@ async def run_local(payload):
                 dry_run=payload["dry_run"],
                 manual_trigger=payload["manual_trigger"],
                 recheck_history=not payload.get("overwrite", False),
+                release_rate=selection.get("release_rate"),
+                release_start=(
+                    parse_release_start(selection["release_start"])
+                    if "release_start" in selection
+                    else None
+                ),
             )
         except BaseException as exc:
             record.submission_error = type(exc).__name__
@@ -282,11 +289,30 @@ async def run_local(payload):
         + sum(batch["already_processed_scene_count"] for batch in batches),
         "queued_count": sum(batch["queued_count"] for batch in batches),
         "dry_run": payload["dry_run"],
+        **{
+            key: selection[key]
+            for key in ("release_rate", "release_start", "release_end")
+            if key in selection
+        },
     }
 
 
 def execution_options(command):
     """Options shared by every selector; processing is dry-run by default."""
+    command = click.option(
+        "--release-start",
+        help="With --throughput: ISO 8601 time (UTC unless it has an offset) when "
+        "the oldest batch becomes ready. Defaults to now. Pass an earlier run's "
+        "release_end to start releasing when that run's schedule ends.",
+    )(command)
+    command = click.option(
+        "--throughput",
+        type=click.FloatRange(min=0, min_open=True),
+        help="Scenes per hour the orchestrator processes. Tasks become ready oldest "
+        "first at 90% of this rate: each batch's Cloud Tasks scheduleTime is the "
+        "release start plus the scenes ahead of it divided by the release rate. "
+        "Omit to make every task ready at once.",
+    )(command)
     command = click.option(
         "--list-only",
         is_flag=True,
@@ -317,18 +343,32 @@ def execution_options(command):
 
 
 def submit(
-    ctx, payload, dry_run, manual_trigger, list_only, overwrite, no_dry_run=False
+    ctx,
+    payload,
+    dry_run,
+    manual_trigger,
+    list_only,
+    overwrite,
+    no_dry_run=False,
+    throughput=None,
+    release_start=None,
 ):
     dry_run = dry_run == "true"
     if no_dry_run:
         if ctx.get_parameter_source("dry_run") == ParameterSource.COMMANDLINE:
             raise click.UsageError("Use either --dry-run or --no-dry-run, not both")
         dry_run = False
+    if release_start is not None and throughput is None:
+        raise click.UsageError("--release-start requires --throughput")
     payload["action"] = "list" if list_only else "enqueue"
     payload["manual_trigger"] = manual_trigger
     payload["dry_run"] = dry_run
     if overwrite:
         payload["overwrite"] = True
+    if throughput is not None:
+        payload["throughput"] = throughput
+    if release_start is not None:
+        payload["release_start"] = release_start
     if ctx.obj["local"]:
         if not (list_only and overwrite):
             configure_local(
@@ -338,7 +378,14 @@ def submit(
                 db_host=ctx.obj["db_host"],
                 db_port=ctx.obj["db_port"],
             )
-        result = asyncio.run(run_local(payload))
+        from cerulean_cloud.cloud_function_historical_run.main import (
+            ReleaseScheduleError,
+        )
+
+        try:
+            result = asyncio.run(run_local(payload))
+        except ReleaseScheduleError as exc:
+            raise click.ClickException(str(exc)) from None
         click.echo(json.dumps(result, indent=2))
         return
     if not ctx.obj["api_key"]:
