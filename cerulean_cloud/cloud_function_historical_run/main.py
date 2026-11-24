@@ -7,9 +7,12 @@ import os
 import time
 import urllib.parse as urlparse
 import uuid
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from contextlib import ExitStack
+from datetime import date, datetime, timedelta, timezone
 from functools import partial
+from itertools import groupby
 
 import asyncpg
 import geojson
@@ -356,6 +359,22 @@ def cloud_tasks_session():
     return AuthorizedSession(credentials)
 
 
+def scene_weeks(scene_ids):
+    """Yield Monday–Sunday acquisition weeks, with the oldest days first."""
+    by_day = defaultdict(list)
+    for scene in scene_ids:
+        try:
+            # Sentinel-1 GRD identifiers embed the UTC sensing start at offset 17.
+            day = datetime.strptime(scene[17:25], "%Y%m%d").date()
+        except ValueError:
+            # Explicit IDs without a recognizable date remain eligible, in input order.
+            day = date.max
+        by_day[day].append(scene)
+
+    for _, days in groupby(sorted(by_day), key=lambda day: day.isocalendar()[:2]):
+        yield [scene for day in days for scene in by_day[day]]
+
+
 async def enqueue_batches(
     scene_ids,
     trigger_id,
@@ -366,7 +385,7 @@ async def enqueue_batches(
     deadline=None,
     recheck_history=False,
 ):
-    """Bound concurrent submits, drain started operations, and return results in input order."""
+    """Submit concurrent batches within each week and return results in batch order."""
     if not scene_ids:
         return []
     workers = int(os.getenv("HISTORICAL_BATCH_WORKERS", str(MAX_BATCH_WORKERS)))
@@ -374,9 +393,7 @@ async def enqueue_batches(
         raise ValueError(
             f"HISTORICAL_BATCH_WORKERS must be from 1 to {MAX_BATCH_WORKERS}"
         )
-    starts = range(0, len(scene_ids), BATCH_SIZE)
-    workers = min(workers, len(starts))
-    jobs = iter(enumerate(starts, 1))
+    sessions = [None] * workers
     results = {}
     stopping = False
     first_error = None
@@ -386,75 +403,74 @@ async def enqueue_batches(
     def in_thread(function, *args, **kwargs):
         return loop.run_in_executor(pool, partial(function, *args, **kwargs))
 
-    async def worker():
+    async def worker(slot, week, jobs):
         nonlocal stopping, first_error
-        session = None
-        try:
-            while not stopping:
-                job = next(jobs, None)
-                if job is None:
-                    return
-                number, start = job
-                scenes = scene_ids[start : start + BATCH_SIZE]
-                try:
-                    eligible, excluded = scenes, 0
-                    if recheck_history:
-                        async with history_slots:
-                            if stopping:
-                                return
-                            eligible, excluded = await exclude_processed_scenes(
-                                scenes, overwrite=False
-                            )
-                    if stopping:
-                        return
-                    queued = 0
-                    if eligible:
-                        if session is None:
-                            session = await in_thread(cloud_tasks_session)
+        for number, start in jobs:
+            if stopping:
+                return
+            scenes = week[start : start + BATCH_SIZE]
+            try:
+                eligible, excluded = scenes, 0
+                if recheck_history:
+                    async with history_slots:
                         if stopping:
                             return
-                        queued = await in_thread(
-                            handler_queue,
-                            eligible,
-                            trigger_id,
-                            session=session,
-                            queue_name=queue_name,
-                            batch_number=number,
-                            dry_run=dry_run,
-                            manual_trigger=manual_trigger,
-                            deadline=deadline,
+                        eligible, excluded = await exclude_processed_scenes(
+                            scenes, overwrite=False
                         )
-                    result = {
-                        "scene_count": len(scenes),
-                        "filtered_scene_count": len(eligible),
-                        "already_processed_scene_count": excluded,
-                        "trigger_id": trigger_id,
-                        "queued_count": queued,
-                        "dry_run": dry_run,
-                    }
-                    results[number] = result
-                    print(f"Batch {number} confirmed: {json.dumps(result)}", flush=True)
-                except Exception as exc:
-                    stopping = True
-                    if first_error is None:
-                        first_error = exc
-                    print(f"Batch {number} failed ({type(exc).__name__})", flush=True)
+                if stopping:
                     return
-        finally:
-            if session is not None:
-                session.close()
+                queued = 0
+                if eligible:
+                    if sessions[slot] is None:
+                        sessions[slot] = await in_thread(cloud_tasks_session)
+                        resources.callback(sessions[slot].close)
+                    if stopping:
+                        return
+                    queued = await in_thread(
+                        handler_queue,
+                        eligible,
+                        trigger_id,
+                        session=sessions[slot],
+                        queue_name=queue_name,
+                        batch_number=number,
+                        dry_run=dry_run,
+                        manual_trigger=manual_trigger,
+                        deadline=deadline,
+                    )
+                result = {
+                    "scene_count": len(scenes),
+                    "filtered_scene_count": len(eligible),
+                    "already_processed_scene_count": excluded,
+                    "trigger_id": trigger_id,
+                    "queued_count": queued,
+                    "dry_run": dry_run,
+                }
+                results[number] = result
+                print(f"Batch {number} confirmed: {json.dumps(result)}", flush=True)
+            except Exception as exc:
+                stopping = True
+                if first_error is None:
+                    first_error = exc
+                print(f"Batch {number} failed ({type(exc).__name__})", flush=True)
+                return
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        active = asyncio.gather(*(worker() for _ in range(workers)))
-        try:
-            await asyncio.shield(active)
-        except asyncio.CancelledError:
-            # A thread that started a submit may still be confirming its operation.
-            stopping = True
-            await active
-            raise
-    if first_error is not None:
-        raise first_error
+    with ExitStack() as resources, ThreadPoolExecutor(max_workers=workers) as pool:
+        for week in scene_weeks(scene_ids):
+            starts = range(0, len(week), BATCH_SIZE)
+            jobs = enumerate(starts, len(results) + 1)
+            active = asyncio.gather(
+                *(worker(slot, week, jobs) for slot in range(min(workers, len(starts))))
+            )
+            try:
+                await asyncio.shield(active)
+            except asyncio.CancelledError:
+                # A thread that started a submit may still be confirming its operation.
+                stopping = True
+                await active
+                raise
+            if first_error is not None:
+                raise first_error
     return [results[number] for number in sorted(results)]
 
 

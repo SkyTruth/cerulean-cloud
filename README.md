@@ -423,6 +423,10 @@ historical-run endpoint or Pulumi lookup once the stage's queue exists.
 Local discovery runs once. Each run submits batches of up to 100 tasks through
 Cloud Tasks' `tasks:batchCreate` API with up to **32 operations in flight**. Set
 `HISTORICAL_BATCH_WORKERS` to an integer from 1 to 32 to lower submission concurrency.
+Workers take the oldest acquisition days first within each Monday–Sunday UTC week.
+Once Cloud Tasks confirms every batch for that week, workers move to the next week.
+Batches within a week can finish in any order, and sparse weeks use fewer workers.
+Cloud Tasks controls subsequent dispatch order.
 The local CLI rechecks scene history before each batch by default, with up to four
 of those checks in flight. All batches share one `HISTORICAL_RUN` trigger.
 On a failed or partial batch, the runner stops launching more batches and lets
