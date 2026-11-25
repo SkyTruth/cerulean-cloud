@@ -374,6 +374,15 @@ python -m scripts.historical_run --local --stage test --env-file notebooks/.env 
 # Enable inference explicitly for a CSV with a scene_id column.
 python -m scripts.historical_run --local --stage test --env-file notebooks/.env scenes \
   --csv notebooks/scene_ids.csv --dry-run=false --manual-trigger
+
+# Process 2022 oldest first; tasks become ready at 90% of 3,200 scenes per hour.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
+  --date-start 2022-01-01 --date-end 2023-01-01 --dry-run=false --throughput 3200
+
+# Queue 2021 to start releasing when the 2022 run's schedule ends.
+python -m scripts.historical_run --local --stage test --env-file notebooks/.env \
+  --date-start 2021-01-01 --date-end 2022-01-01 --dry-run=false --throughput 3200 \
+  --release-start <release_end from the 2022 run>
 ```
 
 `python scripts/historical_run.py` supports the same options. EODAG uses time
@@ -423,6 +432,31 @@ historical-run endpoint or Pulumi lookup once the stage's queue exists.
 Local discovery runs once. Each run submits batches of up to 100 tasks through
 Cloud Tasks' `tasks:batchCreate` API with up to **32 operations in flight**. Set
 `HISTORICAL_BATCH_WORKERS` to an integer from 1 to 32 to lower submission concurrency.
+Workers take the oldest acquisition days first within each Monday–Sunday UTC week.
+Once Cloud Tasks confirms every batch for that week, workers move to the next week.
+Batches within a week can finish in any order, and sparse weeks use fewer workers.
+
+Cloud Tasks dispatches ready tasks in no guaranteed order, so a run whose tasks
+are all ready at once can process later weeks before earlier ones.
+`--throughput SCENES_PER_HOUR` (HTTP: `throughput`) staggers when tasks become
+ready. Prod processed about 3,200 scenes per hour in November 2026. Tasks are
+released at 90% of the stated throughput: each batch's `scheduleTime` is the
+release start plus the scenes ahead of it divided by that release rate, so a week
+with twice the scenes gets twice the time. The 10% margin lets each slot drain
+before the next opens and lets the queue catch up after a slowdown, at the cost of
+about 10% more wall-clock time. If real throughput stays below the release rate,
+ready tasks accumulate and the order loosens; to correct the estimate, purge the
+queue and rerun with a new one, since the history check skips completed scenes.
+
+The release starts when submission starts, unless `--release-start` (HTTP:
+`release_start`, ISO 8601, UTC when it has no offset) sets another time. The output
+reports `release_rate`, `release_start`, and `release_end`; passing one run's
+`release_end` as the next run's `--release-start` releases the second run after the
+first. The schedule follows the clock even while the queue is paused. Cloud Tasks
+accepts a `scheduleTime` at most 30 days ahead, so a schedule ending later is
+rejected before any task is created: split the date range. `--list-only` with
+`--throughput` previews the release window.
+
 The local CLI rechecks scene history before each batch by default, with up to four
 of those checks in flight. All batches share one `HISTORICAL_RUN` trigger.
 On a failed or partial batch, the runner stops launching more batches and lets
