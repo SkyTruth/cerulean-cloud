@@ -132,12 +132,11 @@ scheduler_viewer = gcp.projects.IAMMember(
     member=pulumi.Output.concat("serviceAccount:", service_account.email),
 )
 
-# After the ASA daily batch at 15:00 UTC and its retries: five 30 min attempts
-# 30 min apart end by 19:30. Posts to the same Slack webhook as the slick check.
+# Allow five 30 min attempts with 30 min between them, plus a 15 min buffer.
 asa_batch_check = gcp.cloudscheduler.Job(
     construct_name(f"{resource_name}-asa-batch-scheduler"),
     description="Alert in Slack when the ASA daily batch failed",
-    schedule="45 19 * * *",
+    schedule="45 9 * * *",
     time_zone="Etc/UTC",
     http_target=gcp.cloudscheduler.JobHttpTargetArgs(
         http_method="POST",

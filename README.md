@@ -546,12 +546,14 @@ the run by the scene date in the task name when the queue holds 5,000 tasks or f
 ## ASA batch runs
 
 INFRA source association runs right after inference. VESSEL and DARK run in a daily
-batch at 15:00 UTC, 3 h after Global Fishing Watch publishes AIS. A second Cloud
-Scheduler job handles historical backfills at 30 minutes past each hour. Both
-jobs POST to the ASA Cloud Function using the same authorized service account.
-Each deploy pauses staging's daily job. The backfill job starts paused on every stack.
+batch at 05:00 UTC. A scene is eligible when its AIS window (through six hours
+after capture) ends on or before the latest date in Global Fishing Watch's
+`segs_activity_daily` table. A second Cloud Scheduler job handles the backlog
+at 30 minutes past each hour. Both jobs POST to the ASA Cloud Function using
+the same authorized service account.
+Each deploy pauses staging's daily job. The backlog job starts paused on every stack.
 
-At 19:45 UTC, after the daily job's last possible retry, the `cf-alerts` function
+At 09:45 UTC, after the daily job's last possible retry, the `cf-alerts` function
 reads that job's last attempt and posts to the pipeline alerts Slack channel if it
 failed or the day's run never started.
 
@@ -573,7 +575,7 @@ A one-off run reaching older scenes changes some of them, for example:
 |---|---|
 | `batch` | Required, `true`: a batch run, not a single scene. |
 | `lookback_days` | Whole days back from now to look for scenes. Default 32, the daily run. Above 32 makes a one-off run and allows a `pivot`. |
-| `pivot` | A UTC date, `"YYYY-MM-DD"`. The run lines up scenes oldest to newest, starts at that date's midnight, goes forward, then wraps around to the oldest. It must fall between the lookback start and the publication cutoff, about 3½ days before the run. Default: a random start. |
+| `pivot` | A UTC date, `"YYYY-MM-DD"`. The run lines up scenes oldest to newest, starts at that date's midnight, goes forward, then wraps around to the oldest. It must fall between the lookback start and the latest eligible capture date. Default: a random start. |
 | `retry_incomplete` | Set to `true` to requeue eligible unfinished work immediately, including after a purge. Each force run creates fresh task names, so it can duplicate work still queued or running. With the default `false`, the daily batch waits one hour before retrying and a one-off batch skips previously queued runs. |
 
 A bad value gets HTTP 400 naming the problem, for example
@@ -582,7 +584,7 @@ A bad value gets HTTP 400 naming the problem, for example
 ### Working through a backlog
 
 1. Open Cloud Scheduler in project `cerulean-338116`, region `europe-west1`, and
-   select the job whose name starts with `cerulean-cloud-<stack>-cf-asa-backfill-scheduler`.
+   select the job whose name starts with `cerulean-cloud-<stack>-cf-asa-backlog-scheduler`.
 2. Check the request body. The default lookback is 2,557 days (about seven years).
    Choose a lookback longer than 32 days that still covers the oldest intended
    capture at the expected finish date. Keep `retry_incomplete` false.
@@ -594,7 +596,7 @@ A bad value gets HTTP 400 naming the problem, for example
 Both jobs take the same database lock before selecting work. A busy hourly job
 skips that tick. The daily job returns HTTP 503 on contention, and Scheduler
 retries failed daily requests up to four times, 30 minutes after each failure. CI
-refreshes Pulumi state and preserves the backfill job's body and pause setting.
+refreshes Pulumi state and preserves the backlog job's body and pause setting.
 
 The function logs `Created task ...` for each scene queued,
 `Scene <id>: ... failed` for a scene that failed in the batch, and

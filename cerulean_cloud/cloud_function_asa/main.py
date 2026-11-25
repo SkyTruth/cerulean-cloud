@@ -51,6 +51,12 @@ MAX_BATCH_BYTES_BILLED = 10**12
 # (3 attempts within 600 s, each up to 1800 s), so automatic retries wait.
 REQUEUE_AFTER = timedelta(hours=1)
 
+LATEST_AIS_DATE_SQL = """
+SELECT MAX(date) AS latest_date
+FROM `global-fishing-watch.pipe_ais_v5_published.segs_activity_daily`
+WHERE date != '1979-01-01'
+"""
+
 # make_valid repairs a self-intersecting envelope instead of failing the query.
 BATCH_AIS_SQL = """
 WITH covered AS (
@@ -60,11 +66,7 @@ WITH covered AS (
         end_time,
         ST_GEOGFROMTEXT(envelope, make_valid => TRUE) AS geometry
     FROM UNNEST(@scenes)
-    WHERE DATE(end_time) <= (
-        SELECT MAX(date)
-        FROM `global-fishing-watch.pipe_ais_v5_published.segs_activity_daily`
-        WHERE date != '1979-01-01'
-    )
+    WHERE DATE(end_time) <= ({latest_ais_date_sql})
 ), matches AS (
     SELECT
         scene.scene_id,
@@ -93,26 +95,26 @@ ORDER BY scene_id
 """
 
 
-# GFW publishes AIS once a day at 12:00 UTC, through 23:59 UTC three days earlier.
-# The scheduler runs the batch 3 h later (stack/cloud_function_asa.py).
-# scripts/backfill_asa_completion_times*.sql repeat published_through() in SQL.
-GFW_RELEASE_HOUR = 12
-
-
-def published_through(now):
-    """End of the newest AIS day GFW has published by `now` (naive UTC)."""
-    release_day = (now - timedelta(hours=GFW_RELEASE_HOUR)).replace(
-        hour=0, minute=0, second=0, microsecond=0
+def gfw_credentials():
+    return Credentials.from_service_account_info(
+        json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
     )
-    return release_day - timedelta(days=2)
 
 
-def batch_cutoff(now):
-    """Latest capture time whose whole AIS window GFW has published by `now`."""
-    return published_through(now) - timedelta(hours=c.HOURS_AFTER)
+def ais_capture_cutoff():
+    """Exclusive scene start cutoff from GFW's latest published AIS day (UTC)."""
+    with bigquery.Client(
+        project=c.GFW_PROJECT_ID, credentials=gfw_credentials()
+    ) as client:
+        rows = client.query(LATEST_AIS_DATE_SQL).result()
+        latest_date = next(iter(rows)).latest_date
+    if latest_date is None:
+        raise RuntimeError("GFW segs_activity_daily has no published AIS date")
+    next_day = datetime.combine(latest_date + timedelta(days=1), datetime.min.time())
+    return next_day - timedelta(hours=c.HOURS_AFTER)
 
 
-def batch_options(request_json, now):
+def batch_options(request_json):
     """Check a batch request's options; HTTP 400 on a bad one.
 
     lookback_days: whole days back from `now`, LIVE_LOOKBACK_DAYS by default. More
@@ -139,14 +141,10 @@ def batch_options(request_json, now):
             pivot = datetime.combine(date.fromisoformat(pivot), datetime.min.time())
         except (TypeError, ValueError):
             abort(400, description='pivot must be a UTC date, "YYYY-MM-DD"')
-        first = (now - timedelta(days=lookback_days)).date()
-        last = batch_cutoff(now).date()
-        if not first <= pivot.date() <= last:
-            abort(400, description=f"pivot must fall from {first} to {last}")
     return lookback_days, pivot, retry_incomplete
 
 
-def batch_query(now, lookback_days, pivot=None, retry_incomplete=False):
+def batch_query(now, cutoff, lookback_days, pivot=None, retry_incomplete=False):
     """(scene, run) pairs with ASA work left, in the order a batch takes them."""
     run = db.OrchestratorRun
     scene = db.Sentinel1Grd
@@ -154,7 +152,6 @@ def batch_query(now, lookback_days, pivot=None, retry_incomplete=False):
     vessel_pending = run.asa_vessel_time.is_(None)
     queued = run.asa_batch_queued_at
     start = now - timedelta(days=lookback_days)
-    cutoff = batch_cutoff(now)
     if lookback_days > LIVE_LOOKBACK_DAYS:
         # One-off runs: work no batch has queued (with retry_incomplete, also work
         # queued before and still incomplete), in capture order from the pivot,
@@ -349,10 +346,16 @@ def write_ais_slices(batches, bucket, object_names):
 async def handle_asa_batch(
     lookback_days=LIVE_LOOKBACK_DAYS, pivot=None, retry_incomplete=False
 ):
+    now = datetime.utcnow()
+    cutoff = None
+    if pivot is not None:
+        cutoff = ais_capture_cutoff()
+        first = (now - timedelta(days=lookback_days)).date()
+        if not first <= pivot.date() <= cutoff.date():
+            abort(400, description=f"pivot must fall from {first} to {cutoff.date()}")
     if os.getenv("ASA_IS_DRY_RUN", "").lower() == "true":
         return "Success!"
 
-    now = datetime.utcnow()
     engine = get_engine(db_url=os.getenv("DB_URL"))
     try:
         # Pin the session to one connection: the lock must survive queue_batch's
@@ -369,7 +372,13 @@ async def handle_asa_batch(
                 return "Skipped: another ASA batch is running"
             failed = await queue_batch(
                 db_client.session,
-                batch_query(now, lookback_days, pivot, retry_incomplete),
+                batch_query(
+                    now,
+                    cutoff or ais_capture_cutoff(),
+                    lookback_days,
+                    pivot,
+                    retry_incomplete,
+                ),
                 retry_incomplete=retry_incomplete,
             )
     finally:
@@ -471,13 +480,13 @@ async def queue_batch(session, query, *, retry_incomplete=False):
     if not scenes:
         return failed
 
-    credentials = Credentials.from_service_account_info(
-        json.loads(os.environ["GOOGLE_APPLICATION_CREDENTIALS"])
-    )
+    credentials = gfw_credentials()
     time_filter, time_params = ais_time_filter(windows)
     client = bigquery.Client(project=c.GFW_PROJECT_ID, credentials=credentials)
     job = client.query(
-        BATCH_AIS_SQL.format(time_filter=time_filter),
+        BATCH_AIS_SQL.format(
+            time_filter=time_filter, latest_ais_date_sql=LATEST_AIS_DATE_SQL
+        ),
         job_config=bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ArrayQueryParameter("scenes", "STRUCT", scenes),
@@ -638,7 +647,7 @@ async def handle_asa_request(request):
     """
     request_json = request.get_json()
     if request_json.get("batch") is True:
-        return await handle_asa_batch(*batch_options(request_json, datetime.utcnow()))
+        return await handle_asa_batch(*batch_options(request_json))
     if not request_json.get("dry_run"):
         scene_id = request_json.get("scene_id")
         run_flags = request_json.get("run_flags")  # list of source_type short_names
@@ -656,9 +665,12 @@ async def handle_asa_request(request):
                 slicks = await db_client.get_slicks_from_scene_id(scene_id)
 
             await db_client.session.close()
-            if s1_scene and s1_scene.start_time + timedelta(
-                hours=c.HOURS_AFTER
-            ) >= published_through(datetime.utcnow()):
+            if (
+                slicks
+                and s1_scene
+                and "DARK" in run_flags
+                and s1_scene.start_time >= ais_capture_cutoff()
+            ):
                 run_flags = [flag for flag in run_flags if flag != "DARK"]
             print(f"Running ASA ({run_flags}) on scene_id: {scene_id}")
             print(f"{len(slicks)} slicks in scene {scene_id}: {[s.id for s in slicks]}")
