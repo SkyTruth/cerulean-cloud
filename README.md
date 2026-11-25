@@ -546,9 +546,11 @@ the run by the scene date in the task name when the queue holds 5,000 tasks or f
 ## ASA batch runs
 
 INFRA source association runs right after inference. VESSEL and DARK run in a daily
-batch at 05:00 UTC, after Global Fishing Watch's 03:30 UTC AIS release. A second
-Cloud Scheduler job handles the backlog at 30 minutes past each hour. Both
-jobs POST to the ASA Cloud Function using the same authorized service account.
+batch at 05:00 UTC. A scene is eligible when its AIS window (through six hours
+after capture) ends on or before the latest date in Global Fishing Watch's
+`segs_activity_daily` table. A second Cloud Scheduler job handles the backlog
+at 30 minutes past each hour. Both jobs POST to the ASA Cloud Function using
+the same authorized service account.
 Each deploy pauses staging's daily job. The backlog job starts paused on every stack.
 
 At 09:45 UTC, after the daily job's last possible retry, the `cf-alerts` function
@@ -573,7 +575,7 @@ A one-off run reaching older scenes changes some of them, for example:
 |---|---|
 | `batch` | Required, `true`: a batch run, not a single scene. |
 | `lookback_days` | Whole days back from now to look for scenes. Default 32, the daily run. Above 32 makes a one-off run and allows a `pivot`. |
-| `pivot` | A UTC date, `"YYYY-MM-DD"`. The run lines up scenes oldest to newest, starts at that date's midnight, goes forward, then wraps around to the oldest. It must fall between the lookback start and the publication cutoff, about 3½ days before the run. Default: a random start. |
+| `pivot` | A UTC date, `"YYYY-MM-DD"`. The run lines up scenes oldest to newest, starts at that date's midnight, goes forward, then wraps around to the oldest. It must fall between the lookback start and the latest eligible capture date. Default: a random start. |
 | `retry_incomplete` | Set to `true` to requeue eligible unfinished work immediately, including after a purge. Each force run creates fresh task names, so it can duplicate work still queued or running. With the default `false`, the daily batch waits one hour before retrying and a one-off batch skips previously queued runs. |
 
 A bad value gets HTTP 400 naming the problem, for example

@@ -2,7 +2,8 @@ import asyncio
 import importlib
 import io
 import sys
-from datetime import datetime, timedelta, timezone
+from contextlib import nullcontext
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, Mock
@@ -15,8 +16,9 @@ from werkzeug.exceptions import Forbidden
 from cerulean_cloud.cloud_function_asa import queuer
 
 PG_CTL = Path(__file__).resolve().parents[2] / ".conda" / "ceru-ci" / "bin" / "pg_ctl"
-# The 05:00 UTC batch on 20 Nov 2026 takes captures before 17 Nov 18:00.
+# A published AIS date of 17 Nov covers captures before 17 Nov 18:00.
 NOW = datetime(2026, 11, 20, 5, 0)
+CUTOFF = datetime(2026, 11, 17, 18)
 
 
 @pytest.fixture
@@ -30,11 +32,22 @@ def asa_main(monkeypatch):
     return importlib.import_module("cerulean_cloud.cloud_function_asa.main")
 
 
-def test_ais_eligibility_advances_at_release(asa_main):
-    release = datetime(2026, 1, 2, 3, 30)
-    before = release - timedelta(seconds=1)
-    assert asa_main.published_through(before) == datetime(2025, 12, 30)
-    assert asa_main.published_through(release) == datetime(2025, 12, 31)
+def test_ais_cutoff_uses_the_latest_published_day(asa_main, monkeypatch):
+    monkeypatch.setattr(asa_main, "gfw_credentials", Mock())
+    client = Mock()
+    monkeypatch.setattr(
+        asa_main.bigquery, "Client", Mock(return_value=nullcontext(client))
+    )
+    client.query.return_value.result.side_effect = [
+        [SimpleNamespace(latest_date=date(2026, 11, 15))],
+        [SimpleNamespace(latest_date=date(2026, 11, 17))],
+        [SimpleNamespace(latest_date=None)],
+    ]
+
+    assert asa_main.ais_capture_cutoff() == datetime(2026, 11, 15, 18)
+    assert asa_main.ais_capture_cutoff() == CUTOFF
+    with pytest.raises(RuntimeError, match="no published AIS date"):
+        asa_main.ais_capture_cutoff()
 
 
 @pytest.mark.parametrize(
@@ -145,6 +158,8 @@ def test_overlapping_asa_batches(asa_main, postgresql, monkeypatch):
         f"postgresql+asyncpg://{info.user}@{info.host}:{info.port}/{info.dbname}",
     )
     monkeypatch.delenv("ASA_IS_DRY_RUN", raising=False)
+    cutoff_lookup = Mock(return_value=CUTOFF)
+    monkeypatch.setattr(asa_main, "ais_capture_cutoff", cutoff_lookup)
     backfill_days = 2557
 
     async def hold_batch(session, query, **kwargs):
@@ -156,6 +171,7 @@ def test_overlapping_asa_batches(asa_main, postgresql, monkeypatch):
         assert "Skipped" in await asa_main.handle_asa_batch(backfill_days)
         with pytest.raises(ServiceUnavailable):
             await asa_main.handle_asa_batch()
+        cutoff_lookup.assert_called_once()
         asa_main.queue_batch.assert_not_awaited()
         raise RuntimeError("interrupted batch")
 
@@ -252,7 +268,7 @@ def test_batch_query(asa_main, postgresql, monkeypatch):
 
     def selected(**options):
         with sa.orm.Session(engine) as session:
-            query = asa_main.batch_query(NOW, **options)
+            query = asa_main.batch_query(NOW, CUTOFF, **options)
             return [scene.scene_id for scene, _ in session.execute(query)]
 
     try:
@@ -291,7 +307,7 @@ def test_batch_query(asa_main, postgresql, monkeypatch):
             async_engine = asa_main.get_engine(url)
             try:
                 async with asa_main.DatabaseClient(async_engine) as client:
-                    query = asa_main.batch_query(NOW, 1500, pivot)
+                    query = asa_main.batch_query(NOW, CUTOFF, 1500, pivot)
                     assert await asa_main.queue_batch(client.session, query) == []
             finally:
                 await async_engine.dispose()
