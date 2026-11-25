@@ -93,14 +93,13 @@ ORDER BY scene_id
 """
 
 
-# ASA advances its AIS eligibility cutoff at 12:00 UTC, through the day three days earlier.
-# scripts/backfill_asa_completion_times*.sql repeat published_through() in SQL.
-GFW_RELEASE_HOUR = 12
+# GFW's daily AIS release covers the full UTC day three days earlier.
+GFW_RELEASE_OFFSET = timedelta(hours=3, minutes=30)
 
 
 def published_through(now):
     """End of the newest AIS day GFW has published by `now` (naive UTC)."""
-    release_day = (now - timedelta(hours=GFW_RELEASE_HOUR)).replace(
+    release_day = (now - GFW_RELEASE_OFFSET).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
     return release_day - timedelta(days=2)

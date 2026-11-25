@@ -17,8 +17,8 @@ import pytest
 from cerulean_cloud.cloud_function_asa import queuer
 
 PG_CTL = Path(__file__).resolve().parents[2] / ".conda" / "ceru-ci" / "bin" / "pg_ctl"
-# A batch at 15:00 UTC on 20 Nov 2026 takes captures before 17 Nov 18:00.
-NOW = datetime(2026, 11, 20, 15, 0)
+# The 05:00 UTC batch on 20 Nov 2026 takes captures before 17 Nov 18:00.
+NOW = datetime(2026, 11, 20, 5, 0)
 
 
 @pytest.fixture
@@ -35,12 +35,8 @@ def asa_main(monkeypatch):
 @pytest.mark.parametrize(
     "now, through",
     [
-        # Before 12:00 UTC the newest release is yesterday's, through 29 Dec.
-        (datetime(2026, 1, 2, 1, 25), datetime(2025, 12, 30)),
-        (datetime(2026, 1, 2, 11, 59), datetime(2025, 12, 30)),
-        # From 12:00 UTC today's release adds 30 Dec.
-        (datetime(2026, 1, 2, 12, 0), datetime(2025, 12, 31)),
-        (datetime(2026, 1, 2, 15, 0), datetime(2025, 12, 31)),
+        (datetime(2026, 1, 2, 3, 29, 59), datetime(2025, 12, 30)),
+        (datetime(2026, 1, 2, 3, 30), datetime(2025, 12, 31)),
     ],
 )
 def test_published_through(asa_main, now, through):
