@@ -546,12 +546,12 @@ the run by the scene date in the task name when the queue holds 5,000 tasks or f
 ## ASA batch runs
 
 INFRA source association runs right after inference. VESSEL and DARK run in a daily
-batch at 15:00 UTC, 3 h after Global Fishing Watch publishes AIS. A second Cloud
-Scheduler job handles historical backfills at 30 minutes past each hour. Both
+batch at 05:00 UTC, after Global Fishing Watch's 03:30 UTC AIS release. A second
+Cloud Scheduler job handles the backlog at 30 minutes past each hour. Both
 jobs POST to the ASA Cloud Function using the same authorized service account.
-Each deploy pauses staging's daily job. The backfill job starts paused on every stack.
+Each deploy pauses staging's daily job. The backlog job starts paused on every stack.
 
-At 19:45 UTC, after the daily job's last possible retry, the `cf-alerts` function
+At 09:45 UTC, after the daily job's last possible retry, the `cf-alerts` function
 reads that job's last attempt and posts to the pipeline alerts Slack channel if it
 failed or the day's run never started.
 
@@ -582,7 +582,7 @@ A bad value gets HTTP 400 naming the problem, for example
 ### Working through a backlog
 
 1. Open Cloud Scheduler in project `cerulean-338116`, region `europe-west1`, and
-   select the job whose name starts with `cerulean-cloud-<stack>-cf-asa-backfill-scheduler`.
+   select the job whose name starts with `cerulean-cloud-<stack>-cf-asa-backlog-scheduler`.
 2. Check the request body. The default lookback is 2,557 days (about seven years).
    Choose a lookback longer than 32 days that still covers the oldest intended
    capture at the expected finish date. Keep `retry_incomplete` false.
@@ -594,7 +594,7 @@ A bad value gets HTTP 400 naming the problem, for example
 Both jobs take the same database lock before selecting work. A busy hourly job
 skips that tick. The daily job returns HTTP 503 on contention, and Scheduler
 retries failed daily requests up to four times, 30 minutes after each failure. CI
-refreshes Pulumi state and preserves the backfill job's body and pause setting.
+refreshes Pulumi state and preserves the backlog job's body and pause setting.
 
 The function logs `Created task ...` for each scene queued,
 `Scene <id>: ... failed` for a scene that failed in the batch, and

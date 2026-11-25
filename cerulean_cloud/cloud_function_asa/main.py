@@ -93,8 +93,7 @@ ORDER BY scene_id
 """
 
 
-# GFW publishes AIS once a day at 12:00 UTC, through 23:59 UTC three days earlier.
-# The scheduler runs the batch 3 h later (stack/cloud_function_asa.py).
+# ASA advances its AIS eligibility cutoff at 12:00 UTC, through the day three days earlier.
 # scripts/backfill_asa_completion_times*.sql repeat published_through() in SQL.
 GFW_RELEASE_HOUR = 12
 

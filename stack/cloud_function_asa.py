@@ -260,7 +260,7 @@ def batch_target(lookback_days):
 scheduler_job = cloudscheduler.Job(
     construct_name("cf-asa-scheduler"),
     region=region,
-    schedule="0 15 * * *",  # 3 h after GFW's 12:00 UTC AIS release
+    schedule="0 5 * * *",
     time_zone="Etc/UTC",
     # Each deploy leaves staging's job paused. Resume it in the console to run
     # batches there.
@@ -276,7 +276,7 @@ scheduler_job = cloudscheduler.Job(
 )
 
 cloudscheduler.Job(
-    construct_name("cf-asa-backfill-scheduler"),
+    construct_name("cf-asa-backlog-scheduler"),
     region=region,
     schedule="30 * * * *",
     time_zone="Etc/UTC",
